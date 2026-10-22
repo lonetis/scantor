@@ -20,6 +20,20 @@ const staticSecurityHeaders = {
     'camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)',
 }
 
+// `nuxt dev` only (docker-compose.dev.yml): Vite answers 403 to every request whose Host it does not know, its guard
+// against DNS rebinding. localhost, *.localhost and IP addresses always pass; the dev stack also reaches the server
+// by the host of SCANTOR_INTERNAL_URL (the built-in node dials http://orchestrator:3000) and of SCANTOR_PUBLIC_URL
+// (a dev stack behind Traefik). The orchestrator's config loader validates both URLs and aborts the boot on a bad
+// value, so an unparsable one is left out here instead of failing the dev server before that message is logged.
+function devServerAllowedHosts(urls: Array<string | undefined>): string[] {
+  const hosts = new Set<string>()
+  for (const url of urls) {
+    if (!url || !URL.canParse(url)) continue
+    hosts.add(new URL(url).hostname)
+  }
+  return [...hosts]
+}
+
 export default defineNuxtConfig({
   modules: ['@nuxt/ui', '@nuxt/eslint'],
 
@@ -39,6 +53,12 @@ export default defineNuxtConfig({
   },
 
   experimental: { emitRouteChunkError: 'automatic-immediate' },
+
+  vite: {
+    server: {
+      allowedHosts: devServerAllowedHosts([process.env.SCANTOR_INTERNAL_URL, process.env.SCANTOR_PUBLIC_URL]),
+    },
+  },
 
   routeRules: {
     '/**': { headers: staticSecurityHeaders },

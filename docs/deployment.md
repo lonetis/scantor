@@ -816,6 +816,9 @@ What hot reload covers:
   Node 26 with the `scantor` binary built in a Go stage. The Nuxt source is mounted at `/app` for hot
   reload; its dependencies are installed into the named `node_modules` volume at container start, so
   Linux/musl modules never touch the host.
+- Vite answers 403 to a `Host` it does not know (its DNS-rebinding guard). `nuxt.config.ts` allows the hosts
+  of `SCANTOR_INTERNAL_URL` (the built-in node dials `http://orchestrator:3000`) and `SCANTOR_PUBLIC_URL`;
+  `localhost`, `*.localhost` and IP addresses always pass.
 - `SCANTOR_PUBLIC_URL` stays a localhost URL. The browser, the host Docker daemon (registry
   realm) and the CLI on the host all reach it there.
 - Traefik also works locally: `COMPOSE_PROFILES=traefik`, `SCANTOR_DOMAIN=scantor.localhost` (browsers
