@@ -218,7 +218,7 @@ function outcome(analysis: TestRunAnalysis): string {
             <UInputNumber v-model="maxAttempts" :min="1" :max="5" class="w-24" />
           </UFormField>
           <UFormField label="Timeout (s)" name="timeout" :hint="manifestTimeoutMs ? `default ${Math.round(manifestTimeoutMs / 1000)}` : 'manifest default'">
-            <UInputNumber v-model="timeoutSeconds" :min="1" :max="86400" class="w-28" placeholder="default" />
+            <UInputNumber v-model="timeoutSeconds" :min="1" :max="86400" class="w-32" placeholder="default" />
           </UFormField>
         </div>
         <UAlert v-if="startError" color="error" variant="subtle" icon="i-lucide-circle-alert" title="The test run could not start" :description="startError" />
@@ -234,7 +234,7 @@ function outcome(analysis: TestRunAnalysis): string {
             <UBadge v-if="run.draftImage?.cached" label="draft image cached" color="neutral" variant="soft" size="xs" />
             <DurationText :ms="durationMs" />
             <span class="text-xs text-muted tabular-nums">
-              {{ summary.analyses }} analyses · {{ summary.succeeded }} succeeded · {{ summary.failed }} failed
+              {{ plural(summary.analyses, 'analysis', 'analyses') }} · {{ summary.succeeded }} succeeded · {{ summary.failed }} failed
             </span>
             <UButton
               v-if="active"
