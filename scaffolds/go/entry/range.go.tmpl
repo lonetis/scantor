@@ -1,0 +1,25 @@
+// Package main is the scantor task [[.Name]]: one analysis per integer of the scan's range (template
+// range, used unwrapped). Guide: docs/guide/authoring-go.md.
+package main
+
+import (
+	scantor "github.com/lonetis/scantor/connectors/go"
+	ranges "github.com/lonetis/scantor/connectors/go/templates/range"
+)
+
+// TaskConfig holds the task's behaviour parameters. Give every field a default so {} is valid.
+type TaskConfig struct {
+	Factor int64 `json:"factor" jsonschema:"default=2,minimum=1,maximum=1000,description=Multiplier"`
+}
+
+// Result is the typed output of one analysis.
+type Result struct {
+	Value   int64 `json:"value"`
+	Product int64 `json:"product"`
+}
+
+func run(ctx scantor.Context, ac ranges.AnalysisConfig, tc TaskConfig) (Result, error) {
+	return Result{Value: ac.Value, Product: ac.Value * tc.Factor}, nil
+}
+
+func main() { scantor.Serve(ranges.Schedule, run) }

@@ -1,0 +1,33 @@
+// Package main is the scantor task [[.Name]]: one analysis per origin of a Chrome UX Report top list
+// (template crux, used unwrapped). Guide: docs/guide/authoring-go.md.
+package main
+
+import (
+	"net/url"
+
+	scantor "github.com/lonetis/scantor/connectors/go"
+	"github.com/lonetis/scantor/connectors/go/templates/crux"
+)
+
+// TaskConfig holds the task's behaviour parameters. Give every field a default so {} is valid.
+type TaskConfig struct {
+	Path string `json:"path" jsonschema:"default=/,pattern=^/,description=Path to append to the origin"`
+}
+
+// Result is the typed output of one analysis.
+type Result struct {
+	URL   string `json:"url"`
+	Host  string `json:"host"`
+	HTTPS bool   `json:"https"`
+	Rank  int    `json:"rank"`
+}
+
+func run(ctx scantor.Context, ac crux.AnalysisConfig, tc TaskConfig) (Result, error) {
+	u, err := url.Parse(ac.Origin + tc.Path)
+	if err != nil {
+		return Result{}, scantor.Fatalf("invalid origin %q: %w", ac.Origin, err)
+	}
+	return Result{URL: u.String(), Host: u.Hostname(), HTTPS: u.Scheme == "https", Rank: ac.Rank}, nil
+}
+
+func main() { scantor.Serve(crux.Schedule, run) }

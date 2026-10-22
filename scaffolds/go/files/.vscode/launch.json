@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "scantor: attach to dev debug",
+      "type": "go",
+      "request": "attach",
+      "mode": "remote",
+      "host": "localhost",
+      "port": 2345,
+      "substitutePath": [{ "from": "${workspaceFolder}", "to": "/task" }]
+    }
+  ]
+}

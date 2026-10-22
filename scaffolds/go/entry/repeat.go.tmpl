@@ -1,0 +1,32 @@
+// Package main is the scantor task [[.Name]]: the same analysis repeated (template repeat, used
+// unwrapped). Guide: docs/guide/authoring-go.md.
+package main
+
+import (
+	"time"
+
+	scantor "github.com/lonetis/scantor/connectors/go"
+	"github.com/lonetis/scantor/connectors/go/templates/repeat"
+)
+
+// TaskConfig holds the task's behaviour parameters. Give every field a default so {} is valid.
+type TaskConfig struct {
+	SleepMs int `json:"sleepMs" jsonschema:"default=100,minimum=0,maximum=60000,description=Time to wait per analysis"`
+}
+
+// Result is the typed output of one analysis.
+type Result struct {
+	Iteration int64 `json:"iteration"`
+	SleptMs   int   `json:"sleptMs"`
+}
+
+func run(ctx scantor.Context, ac repeat.AnalysisConfig, tc TaskConfig) (Result, error) {
+	select {
+	case <-time.After(time.Duration(tc.SleepMs) * time.Millisecond):
+	case <-ctx.Done():
+		return Result{}, ctx.Err()
+	}
+	return Result{Iteration: ac.Iteration, SleptMs: tc.SleepMs}, nil
+}
+
+func main() { scantor.Serve(repeat.Schedule, run) }

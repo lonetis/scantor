@@ -1,0 +1,30 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "scantor: validate",
+      "type": "shell",
+      "command": "scantor validate .",
+      "problemMatcher": []
+    },
+    {
+      "label": "scantor: dev run",
+      "type": "shell",
+      "command": "scantor dev run . --limit 5",
+      "problemMatcher": []
+    },
+    {
+      "label": "scantor: dev debug",
+      "type": "shell",
+      "command": "scantor dev debug .",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "scantor: push",
+      "type": "shell",
+      "command": "scantor push .",
+      "problemMatcher": []
+    }
+  ]
+}

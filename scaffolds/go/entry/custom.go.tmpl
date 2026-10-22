@@ -1,0 +1,46 @@
+// Package main is the scantor task [[.Name]] with a custom schedule. Guide: docs/guide/authoring-go.md.
+package main
+
+import (
+	"iter"
+
+	scantor "github.com/lonetis/scantor/connectors/go"
+)
+
+// TaskConfig holds the task's behaviour parameters. Give every field a default so {} is valid.
+type TaskConfig struct {
+	Factor int `json:"factor" jsonschema:"default=10,description=Multiplier applied in run"`
+}
+
+// ScanConfig parametrises schedule.
+type ScanConfig struct {
+	Count int `json:"count" jsonschema:"default=3,minimum=0,maximum=1000000,description=Number of analyses"`
+}
+
+// AnalysisConfig is the input of one analysis.
+type AnalysisConfig struct {
+	N int `json:"n" jsonschema:"required,minimum=0"`
+}
+
+// Result is the typed output of one analysis.
+type Result struct {
+	N     int `json:"n"`
+	Value int `json:"value"`
+}
+
+// schedule must be deterministic: the same configs always yield the same analyses in the same order.
+func schedule(ctx scantor.Context, sc ScanConfig, tc TaskConfig) iter.Seq2[AnalysisConfig, error] {
+	return func(yield func(AnalysisConfig, error) bool) {
+		for n := range sc.Count {
+			if !yield(AnalysisConfig{N: n}, nil) {
+				return
+			}
+		}
+	}
+}
+
+func run(ctx scantor.Context, ac AnalysisConfig, tc TaskConfig) (Result, error) {
+	return Result{N: ac.N, Value: ac.N * tc.Factor}, nil
+}
+
+func main() { scantor.Serve(schedule, run) }

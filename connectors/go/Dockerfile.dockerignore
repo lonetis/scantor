@@ -1,0 +1,7 @@
+# Build context of connectors/go/Dockerfile (the repository root): only what the image needs.
+*
+!connectors/go/
+!scaffolds/go/files/go.mod.tmpl
+!scaffolds/go/files/go.sum.tmpl
+!schemas/protocol/
+!schemas/templates/

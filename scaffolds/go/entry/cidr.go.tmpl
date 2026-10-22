@@ -1,0 +1,32 @@
+// Package main is the scantor task [[.Name]]: one analysis per IP address of CIDR ranges (template
+// cidr, used unwrapped). Guide: docs/guide/authoring-go.md.
+package main
+
+import (
+	"net/netip"
+
+	scantor "github.com/lonetis/scantor/connectors/go"
+	"github.com/lonetis/scantor/connectors/go/templates/cidr"
+)
+
+// TaskConfig holds the task's behaviour parameters. Give every field a default so {} is valid.
+type TaskConfig struct {
+	Label string `json:"label" jsonschema:"default=scan,description=Label copied into every result"`
+}
+
+// Result is the typed output of one analysis.
+type Result struct {
+	Address string `json:"address"`
+	Private bool   `json:"private"`
+	Label   string `json:"label"`
+}
+
+func run(ctx scantor.Context, ac cidr.AnalysisConfig, tc TaskConfig) (Result, error) {
+	addr, err := netip.ParseAddr(ac.IP)
+	if err != nil {
+		return Result{}, scantor.Fatalf("invalid address %q: %w", ac.IP, err)
+	}
+	return Result{Address: addr.String(), Private: addr.IsPrivate(), Label: tc.Label}, nil
+}
+
+func main() { scantor.Serve(cidr.Schedule, run) }

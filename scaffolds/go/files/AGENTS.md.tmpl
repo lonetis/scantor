@@ -1,0 +1,19 @@
+# [[.Name]] — a scantor task ([[.Language]])
+
+This folder is a scantor task. The definition lives in `main.go`; `scantor.yaml` is the manifest.
+
+Commands:
+- `scantor validate .` — static checks, image build, describe and type check (as on publish)
+- `scantor dev run . --limit 5` — build and run locally (add `--remote` to run on the platform)
+- `scantor dev debug .` — run one analysis and wait for a debugger
+- `scantor push .` — upload and publish a revision
+- `scantor scans start [[.Name]]@latest` — start a scan of the latest revision
+
+Rules: keep `name` in scantor.yaml unchanged; `schedule` must be deterministic; put large outputs in
+`ctx.Files()`; return `scantor.Fatal` for permanent and `scantor.Retry` for transient failures.
+
+Go: config structs give every field a default with a `jsonschema:"default=…"` tag (configs reject
+unknown keys); pointer fields are nullable; keep the `replace` directive of the connector in `go.mod`;
+`go vet ./...` must pass, because `scantor validate` and publishing run it.
+
+Guide: https://github.com/lonetis/scantor/blob/v[[.Version]]/docs/guide/authoring-[[.Language]].md

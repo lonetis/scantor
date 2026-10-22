@@ -1,0 +1,17 @@
+#!/bin/sh
+# SCANTOR_CHECK_CMD of scantor-base-go: type-checks the task in /task with `go vet ./...` and prints
+# each finding as "<file>:<line>[:<column>]: <message>" with the file relative to /task, the format
+# that `scantor runtime check` turns into build errors (docs/tasks.md §4.2). Other output stays as log
+# lines; the exit code is go vet's.
+set -u
+cd /task || exit 1
+if [ ! -f go.mod ] || [ -z "$(find . -name '*.go' -type f -print -quit)" ]; then
+	echo "warning: /task has no Go module sources (for example after a multi-stage build); go vet skipped"
+	exit 0
+fi
+output=$(go vet ./... 2>&1)
+status=$?
+if [ -n "$output" ]; then
+	printf '%s\n' "$output" | sed -e 's#^vet: ##' -e 's#^\./##' -e 's#^/task/##'
+fi
+exit "$status"

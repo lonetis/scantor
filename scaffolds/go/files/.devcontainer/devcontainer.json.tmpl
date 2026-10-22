@@ -1,0 +1,18 @@
+{
+  "name": "[[.Name]]",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "args": { "SCANTOR_BASE": "[[.BaseImage]]" }
+  },
+  "workspaceFolder": "/task",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/task,type=bind",
+  "customizations": {
+    "vscode": {
+      "extensions": ["golang.go", "redhat.vscode-yaml"],
+      "settings": {
+        "yaml.schemas": { "[[.ManifestSchemaURL]]": "scantor.yaml" }
+      }
+    }
+  }
+}

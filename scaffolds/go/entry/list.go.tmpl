@@ -1,0 +1,32 @@
+// Package main is the scantor task [[.Name]]: one analysis per item of the scan's list (template
+// list, used unwrapped). Guide: docs/guide/authoring-go.md.
+package main
+
+import (
+	"strings"
+
+	scantor "github.com/lonetis/scantor/connectors/go"
+	"github.com/lonetis/scantor/connectors/go/templates/list"
+)
+
+// TaskConfig holds the task's behaviour parameters. Give every field a default so {} is valid.
+type TaskConfig struct {
+	Uppercase bool `json:"uppercase" jsonschema:"default=false,description=Return the item in upper case"`
+}
+
+// Result is the typed output of one analysis.
+type Result struct {
+	Item   string `json:"item"`
+	Length int    `json:"length"`
+}
+
+func run(ctx scantor.Context, ac list.AnalysisConfig, tc TaskConfig) (Result, error) {
+	item := ac.Item
+	if tc.Uppercase {
+		item = strings.ToUpper(item)
+	}
+	ctx.Log(scantor.LevelInfo, "item", "index", ac.Index)
+	return Result{Item: item, Length: len(ac.Item)}, nil
+}
+
+func main() { scantor.Serve(list.Schedule, run) }

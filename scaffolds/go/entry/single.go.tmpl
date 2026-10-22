@@ -1,0 +1,22 @@
+// Package main is the scantor task [[.Name]]. Without a schedule a scan runs exactly one analysis
+// (template single). Guide: docs/guide/authoring-go.md.
+package main
+
+import scantor "github.com/lonetis/scantor/connectors/go"
+
+// TaskConfig holds the task's behaviour parameters. Give every field a default so {} is valid.
+type TaskConfig struct {
+	Greeting string `json:"greeting" jsonschema:"default=Hello,minLength=1,description=Greeting to send"`
+}
+
+// Result is the typed output of one analysis.
+type Result struct {
+	Text string `json:"text"`
+}
+
+func run(ctx scantor.Context, _ scantor.Empty, tc TaskConfig) (Result, error) {
+	ctx.Log(scantor.LevelInfo, "greeting", "greeting", tc.Greeting)
+	return Result{Text: tc.Greeting + ", world!"}, nil
+}
+
+func main() { scantor.ServeRun(run) }

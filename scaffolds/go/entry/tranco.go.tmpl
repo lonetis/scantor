@@ -1,0 +1,30 @@
+// Package main is the scantor task [[.Name]]: one analysis per domain of a Tranco top list (template
+// tranco, used unwrapped). Guide: docs/guide/authoring-go.md.
+package main
+
+import (
+	"strings"
+
+	scantor "github.com/lonetis/scantor/connectors/go"
+	"github.com/lonetis/scantor/connectors/go/templates/tranco"
+)
+
+// TaskConfig holds the task's behaviour parameters. Give every field a default so {} is valid.
+type TaskConfig struct {
+	Scheme string `json:"scheme" jsonschema:"enum=https,enum=http,default=https,description=Scheme of the URL to build"`
+}
+
+// Result is the typed output of one analysis.
+type Result struct {
+	Domain string `json:"domain"`
+	Rank   int    `json:"rank"`
+	URL    string `json:"url"`
+	TLD    string `json:"tld"`
+}
+
+func run(ctx scantor.Context, ac tranco.AnalysisConfig, tc TaskConfig) (Result, error) {
+	tld := ac.Domain[strings.LastIndex(ac.Domain, ".")+1:]
+	return Result{Domain: ac.Domain, Rank: ac.Rank, URL: tc.Scheme + "://" + ac.Domain + "/", TLD: tld}, nil
+}
+
+func main() { scantor.Serve(tranco.Schedule, run) }
