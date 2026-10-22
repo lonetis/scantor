@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 
 	"github.com/spf13/cobra"
 
@@ -34,13 +35,23 @@ func newValidateCommand(app *App) *cobra.Command {
 			"scantor-dev/<name>:<hash> and never pushed. Privileged tasks are accepted locally; publishing " +
 			"checks the permission on the server.\n\n" +
 			"The pipeline events are printed as they happen; with -o json one JSON object per line. Exit codes: " +
-			"0 valid, 2 invalid task content, 3 platform failure (for example Docker unreachable).",
+			"0 valid, 2 invalid task content, 3 platform failure (for example Docker unreachable).\n\n" +
+			"Validating needs local Docker, so it is not available with SCANTOR_DEV_MODE=remote (the editor, " +
+			"exit 3): there 'scantor dev run' builds and tests the task on the platform, and 'scantor push' " +
+			"publishes it with every check.",
 		Example: "  scantor validate\n  scantor validate ./echo -o json",
 		Args:    cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			dir := "."
 			if len(args) == 1 {
 				dir = args[0]
+			}
+			cfg, err := app.Config()
+			if err != nil {
+				return err
+			}
+			if cfg.DevMode == DevModeRemote {
+				return PlatformError(errors.New("validate needs local Docker; with SCANTOR_DEV_MODE=remote run 'scantor dev run' to build and test the task on the platform, or 'scantor push' to publish it with every check"))
 			}
 			ctx, stop := InterruptContext(cmd.Context())
 			defer stop()

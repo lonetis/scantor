@@ -271,7 +271,7 @@ the TypeScript `managedLabels()`), not by a node daemon.
 |---|---|---|
 | `SCANTOR_URL` | the value of `SCANTOR_INTERNAL_URL` (the in-network orchestrator URL) | the CLI talks to the dashboard listener over `scantor-sandbox` |
 | `SCANTOR_TOKEN` | the user's current `editor` API key (§7) | the CLI's credential |
-| `SCANTOR_DEV_MODE` | `remote` | `scantor dev run` runs a platform **test run** (`POST /api/tasks/{task}/test-runs`, streamed over SSE) instead of building locally, because there is no Docker in the editor. `scantor dev debug` exits 3 ("debugging needs local Docker"). |
+| `SCANTOR_DEV_MODE` | `remote` | `scantor dev run` runs a platform **test run** (`POST /api/tasks/{task}/test-runs`, streamed over SSE) instead of building locally, because there is no Docker in the editor. `scantor dev debug` exits 3 ("debugging needs local Docker"), and so does `scantor validate` ("validate needs local Docker"; the scaffold's "scantor: validate" task therefore only works outside the editor). |
 | `SCANTOR_WORKSPACE` | `/home/coder/workspace` | Inside this tree, the CLI derives the task from the first path segment below it. `scantor push` then **only publishes** (`publishRevision`) instead of uploading, because the workspace already is the source of truth. |
 
 CLI behaviour is specified with the task pipeline in [tasks](tasks.md). The CLI takes credentials only

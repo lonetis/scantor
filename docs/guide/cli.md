@@ -3042,6 +3042,8 @@ Run the checks a publish runs, on the local Docker daemon: pack, static checks (
 
 The pipeline events are printed as they happen; with -o json one JSON object per line. Exit codes: 0 valid, 2 invalid task content, 3 platform failure (for example Docker unreachable).
 
+Validating needs local Docker, so it is not available with SCANTOR_DEV_MODE=remote (the editor, exit 3): there 'scantor dev run' builds and tests the task on the platform, and 'scantor push' publishes it with every check.
+
 ```
 scantor validate [dir] [flags]
 ```

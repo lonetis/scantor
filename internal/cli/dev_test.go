@@ -180,6 +180,10 @@ func TestDevRunUsage(t *testing.T) {
 	if code != 3 || !strings.Contains(errOut, "debugging needs local Docker") {
 		t.Fatalf("dev debug in remote mode: exit %d %s", code, errOut)
 	}
+	code, _, errOut = f.execEnv(map[string]string{"SCANTOR_DEV_MODE": "remote"}, "validate")
+	if code != 3 || !strings.Contains(errOut, "validate needs local Docker") {
+		t.Fatalf("validate in remote mode: exit %d %s", code, errOut)
+	}
 	if f.count() != 0 {
 		t.Fatal("usage errors make no requests")
 	}
