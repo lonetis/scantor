@@ -249,6 +249,10 @@ Additional base image environment (not part of the contract, documented for auth
 | js | none beyond the contract (Node 26 strips TypeScript types natively) |
 | go | `GOTOOLCHAIN=local`, `GOFLAGS=-modcacherw`, `GOMODCACHE=/go/pkg/mod` (pre-seeded) |
 
+Every base image ships the system CA bundle (`/etc/ssl/certs/ca-certificates.crt`): the injected runtime
+verifies TLS for S3, AMQPS and the template data sources against the system roots (plus `SCANTOR_CA_CERT`,
+[nodes](nodes.md) §11), so a base on a slim image that lacks it installs `ca-certificates`.
+
 Base images run as root by default; a task may switch with `USER` (privileged tasks must keep root, §8.3).
 The injected runtime binary is world-executable and `/tmp` is world-writable, so any user works. Worker
 containers have no tmpfs at `/tmp`: the runtime's work root `/tmp/scantor` lives on the container's

@@ -33,6 +33,12 @@ COPY connectors/js/check-tools/package.json connectors/js/check-tools/package-lo
 RUN npm ci --no-audit --no-fund
 
 FROM ${NODE_IMAGE} AS base
+# The slim Node image has no system CA bundle (Node bundles its own roots), but the injected Go runtime
+# verifies TLS against the system roots: S3 transfers, AMQPS and the Tranco/CrUX data sources.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && test -s /etc/ssl/certs/ca-certificates.crt
 COPY --from=check-tools /opt/scantor/check-tools/node_modules /node_modules
 # zod stays nested in the connector's own node_modules; tasks import the re-exported z.
 COPY --from=build /src/connectors/js/package.json /src/connectors/js/serve.js /src/connectors/js/check.js /node_modules/@scantor/connector/
