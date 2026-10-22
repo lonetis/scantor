@@ -1,0 +1,365 @@
+{
+  "description": "Query injection corpus (docs/security.md Q-1, Q-2, Q-3, Q-8). Each case is a request body of queryAnalyses, aggregateAnalyses or exportScan on the caller's own scan. Rejected cases must answer 400 queryRejected with details.path equal to expect.path. Accepted cases must succeed; cases with expect.scoped only ever return analyses of the addressed scan and its owner. Read by orchestrator/test/services/query/validator.test.ts and tests/security/query-injection.spec.ts.",
+  "version": 1,
+  "cases": [
+    {
+      "id": "facet-lookup",
+      "description": "$lookup inside a $facet sub-pipeline reads another collection",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$facet": { "leak": [{ "$lookup": { "from": "user", "pipeline": [], "as": "users" } }] } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$facet.leak.0.$lookup" }
+    },
+    {
+      "id": "lookup-stage",
+      "description": "$lookup as a top-level stage",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$lookup": { "from": "scans", "localField": "scanId", "foreignField": "_id", "as": "scan" } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$lookup" }
+    },
+    {
+      "id": "union-with",
+      "description": "$unionWith appends documents of another collection",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$match": { "status": "failed" } }, { "$unionWith": { "coll": "analyses" } }] },
+      "expect": { "rejected": true, "path": "pipeline.1.$unionWith" }
+    },
+    {
+      "id": "union-with-in-facet",
+      "description": "$unionWith hidden in a $facet",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$facet": { "a": [{ "$count": "n" }], "b": [{ "$unionWith": "apikey" }] } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$facet.b.0.$unionWith" }
+    },
+    {
+      "id": "graph-lookup",
+      "description": "$graphLookup walks another collection",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$graphLookup": { "from": "scans", "startWith": "$scanId", "connectFromField": "_id", "connectToField": "_id", "as": "g" } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$graphLookup" }
+    },
+    {
+      "id": "function-in-project",
+      "description": "$function (server-side JavaScript) in $project",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$project": { "x": { "$function": { "body": "function() { return 1 }", "args": [], "lang": "js" } } } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$project.x.$function" }
+    },
+    {
+      "id": "function-in-add-fields",
+      "description": "$function nested in $cond inside $addFields",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$addFields": { "y": { "$cond": [true, { "$function": { "body": "function() { return 1 }", "args": [], "lang": "js" } }, 0] } } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$addFields.y.$cond.1.$function" }
+    },
+    {
+      "id": "function-in-set",
+      "description": "$function in $set",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$set": { "z": { "$function": { "body": "function() { return 1 }", "args": [], "lang": "js" } } } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$set.z.$function" }
+    },
+    {
+      "id": "function-in-expr-filter",
+      "description": "$function inside $expr of a query filter",
+      "operation": "queryAnalyses",
+      "body": { "filter": { "$expr": { "$function": { "body": "function() { return true }", "args": [], "lang": "js" } } } },
+      "expect": { "rejected": true, "path": "filter.$expr.$function" }
+    },
+    {
+      "id": "function-in-projection",
+      "description": "$function inside a find projection expression",
+      "operation": "queryAnalyses",
+      "body": { "filter": {}, "projection": { "seq": 1, "x": { "$function": { "body": "function() { return 1 }", "args": [], "lang": "js" } } } },
+      "expect": { "rejected": true, "path": "projection.x.$function" }
+    },
+    {
+      "id": "where-filter",
+      "description": "$where at the top of a query filter",
+      "operation": "queryAnalyses",
+      "body": { "filter": { "$where": "this.userId != null" } },
+      "expect": { "rejected": true, "path": "filter.$where" }
+    },
+    {
+      "id": "where-nested-in-or",
+      "description": "$where nested in $or/$and arrays",
+      "operation": "queryAnalyses",
+      "body": { "filter": { "$or": [{ "status": "failed" }, { "$and": [{ "seq": { "$gte": 0 } }, { "$where": "sleep(1000) || true" }] }] } },
+      "expect": { "rejected": true, "path": "filter.$or.1.$and.1.$where" }
+    },
+    {
+      "id": "where-in-match",
+      "description": "$where inside a $match stage",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$match": { "$where": "true" } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$match.$where" }
+    },
+    {
+      "id": "where-in-export-filter",
+      "description": "Export filters use the same allowlist (Q-8)",
+      "operation": "exportScan",
+      "body": { "format": "jsonl", "filter": { "status": "failed", "$where": "true" } },
+      "expect": { "rejected": true, "path": "filter.$where" }
+    },
+    {
+      "id": "lookup-in-export-filter-expr",
+      "description": "An export filter cannot smuggle operators through $expr",
+      "operation": "exportScan",
+      "body": { "format": "csv", "filter": { "$expr": { "$eq": [{ "$function": { "body": "function() { return 1 }", "args": [], "lang": "js" } }, 1] } } },
+      "expect": { "rejected": true, "path": "filter.$expr.$eq.0.$function" }
+    },
+    {
+      "id": "accumulator-in-group",
+      "description": "$accumulator (server-side JavaScript) in $group",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$group": { "_id": null, "acc": { "$accumulator": { "init": "function() { return 0 }", "accumulate": "function(s) { return s }", "accumulateArgs": [], "merge": "function(a) { return a }", "lang": "js" } } } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$group.acc.$accumulator" }
+    },
+    {
+      "id": "out-stage",
+      "description": "$out writes a collection",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$match": {} }, { "$out": "stolen" }] },
+      "expect": { "rejected": true, "path": "pipeline.1.$out" }
+    },
+    {
+      "id": "merge-stage",
+      "description": "$merge writes into another collection",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$merge": { "into": "scans" } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$merge" }
+    },
+    {
+      "id": "out-nested-in-facet",
+      "description": "$out nested in a $facet sub-pipeline",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$facet": { "a": [{ "$match": {} }, { "$out": "stolen" }] } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$facet.a.1.$out" }
+    },
+    {
+      "id": "merge-as-nested-key",
+      "description": "$merge as a key deep inside an allowed stage",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$project": { "a": { "b": { "$merge": { "into": "x" } } } } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$project.a.b.$merge" }
+    },
+    {
+      "id": "documents-stage",
+      "description": "$documents injects arbitrary documents",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$documents": [{ "scanId": "x" }] }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$documents" }
+    },
+    {
+      "id": "coll-stats",
+      "description": "$collStats reveals collection statistics",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$collStats": { "count": {} } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$collStats" }
+    },
+    {
+      "id": "index-stats",
+      "description": "$indexStats",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$indexStats": {} }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$indexStats" }
+    },
+    {
+      "id": "current-op",
+      "description": "$currentOp reveals other users' operations",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$currentOp": { "allUsers": true } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$currentOp" }
+    },
+    {
+      "id": "list-sessions",
+      "description": "$listSessions",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$listSessions": { "allUsers": true } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$listSessions" }
+    },
+    {
+      "id": "plan-cache-stats",
+      "description": "$planCacheStats",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$planCacheStats": {} }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$planCacheStats" }
+    },
+    {
+      "id": "change-stream",
+      "description": "$changeStream",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$changeStream": {} }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$changeStream" }
+    },
+    {
+      "id": "search",
+      "description": "$search",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$search": { "text": { "query": "x", "path": "result" } } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$search" }
+    },
+    {
+      "id": "vector-search",
+      "description": "$vectorSearch",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$vectorSearch": { "index": "x", "path": "v", "queryVector": [1], "limit": 1 } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$vectorSearch" }
+    },
+    {
+      "id": "unknown-stage",
+      "description": "A stage outside the allowlist ($geoNear)",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$geoNear": { "near": [0, 0], "distanceField": "d" } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$geoNear" }
+    },
+    {
+      "id": "set-window-fields",
+      "description": "$setWindowFields is not on the allowlist",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$setWindowFields": { "output": {} } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$setWindowFields" }
+    },
+    {
+      "id": "stage-with-two-keys",
+      "description": "A stage object with two operators",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$match": {}, "$lookup": { "from": "user", "as": "u" } }] },
+      "expect": { "rejected": true, "path": "pipeline.0" }
+    },
+    {
+      "id": "sample-too-large",
+      "description": "$sample above 10 000 documents",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$sample": { "size": 10001 } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$sample.size" }
+    },
+    {
+      "id": "sample-in-facet-too-large",
+      "description": "$sample above the cap inside a $facet",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$facet": { "s": [{ "$sample": { "size": 1000000 } }] } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$facet.s.0.$sample.size" }
+    },
+    {
+      "id": "nested-facet",
+      "description": "Deeply nested $facet stages (MongoDB forbids $facet inside $facet)",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$facet": { "a": [{ "$facet": { "b": [{ "$facet": { "c": [{ "$lookup": { "from": "user", "as": "u" } }] } }] } }] } }] },
+      "expect": { "rejected": true, "path": "pipeline.0.$facet.a.0.$facet" }
+    },
+    {
+      "id": "too-deep",
+      "description": "Nesting deeper than the validator allows",
+      "operation": "queryAnalyses",
+      "body": {"filter": {"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"$and": [{"seq": 1}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}]}},
+      "expect": { "rejected": true, "pathPrefix": "filter.$and.0.$and.0" }
+    },
+    {
+      "id": "proto-key",
+      "description": "A __proto__ key smuggling $where",
+      "operation": "queryAnalyses",
+      "bodyJson": "{\"filter\": {\"__proto__\": {\"$where\": \"true\"}}}",
+      "expect": { "rejected": true, "path": "filter.__proto__.$where" }
+    },
+    {
+      "id": "scope-override-scanid-ne",
+      "description": "A filter on scanId only narrows: the scope is $and-combined, never spread",
+      "operation": "queryAnalyses",
+      "body": { "filter": { "scanId": { "$ne": null } } },
+      "expect": { "rejected": false, "scoped": true }
+    },
+    {
+      "id": "scope-override-or",
+      "description": "An $or over scanId and userId cannot widen the scope",
+      "operation": "queryAnalyses",
+      "body": { "filter": { "$or": [{ "scanId": { "$exists": true } }, { "userId": { "$ne": "" } }] } },
+      "expect": { "rejected": false, "scoped": true }
+    },
+    {
+      "id": "scope-override-userid",
+      "description": "A userId condition cannot select other users' analyses",
+      "operation": "queryAnalyses",
+      "body": { "filter": { "userId": { "$exists": true } }, "limit": 1000 },
+      "expect": { "rejected": false, "scoped": true }
+    },
+    {
+      "id": "scope-override-match",
+      "description": "A $match on scanId in a pipeline runs after the scope $match",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$match": { "scanId": { "$ne": null } } }, { "$group": { "_id": "$scanId", "n": { "$sum": 1 } } }] },
+      "expect": { "rejected": false, "scoped": true }
+    },
+    {
+      "id": "scope-override-facet-match",
+      "description": "Sub-pipelines of $facet only see the scoped documents",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$facet": { "all": [{ "$match": { "scanId": { "$exists": true } } }, { "$group": { "_id": "$scanId", "n": { "$sum": 1 } } }] } }] },
+      "expect": { "rejected": false, "scoped": true }
+    },
+    {
+      "id": "scope-override-export",
+      "description": "An export filter on scanId only narrows",
+      "operation": "exportScan",
+      "body": { "format": "jsonl", "filter": { "scanId": { "$ne": null } } },
+      "expect": { "rejected": false, "scoped": true }
+    },
+    {
+      "id": "allowed-failure-breakdown",
+      "description": "The UI's default aggregation",
+      "operation": "aggregateAnalyses",
+      "body": { "pipeline": [{ "$group": { "_id": "$error.type", "n": { "$sum": 1 } } }] },
+      "expect": { "rejected": false }
+    },
+    {
+      "id": "allowed-every-stage",
+      "description": "Every allowlisted stage in one pipeline",
+      "operation": "aggregateAnalyses",
+      "body": {
+        "pipeline": [
+          { "$match": { "status": { "$in": ["succeeded", "failed"] } } },
+          { "$addFields": { "d": "$timings.durationMs" } },
+          { "$set": { "e": { "$ifNull": ["$error.type", "none"] } } },
+          { "$unset": "logTail" },
+          { "$project": { "seq": 1, "status": 1, "d": 1, "e": 1, "files": 1 } },
+          { "$unwind": { "path": "$files", "preserveNullAndEmptyArrays": true } },
+          { "$sort": { "seq": 1 } },
+          { "$skip": 0 },
+          { "$limit": 1000 },
+          { "$sample": { "size": 10000 } },
+          {
+            "$facet": {
+              "byStatus": [{ "$sortByCount": "$status" }],
+              "durations": [{ "$bucketAuto": { "groupBy": "$d", "buckets": 4 } }],
+              "errors": [{ "$bucket": { "groupBy": "$seq", "boundaries": [0, 10, 100], "default": "other" } }],
+              "count": [{ "$count": "n" }],
+              "statuses": [{ "$group": { "_id": "$status", "n": { "$sum": 1 } } }, { "$replaceRoot": { "newRoot": { "status": "$_id", "n": "$n" } } }],
+              "seqs": [{ "$replaceWith": { "seq": "$seq" } }]
+            }
+          }
+        ]
+      },
+      "expect": { "rejected": false }
+    },
+    {
+      "id": "allowed-query",
+      "description": "A filter with projection and sort",
+      "operation": "queryAnalyses",
+      "body": { "filter": { "status": "failed", "error.type": { "$in": ["timeout", "taskError"] }, "$expr": { "$gt": ["$attempt", 1] } }, "projection": { "seq": 1, "error.message": 1 }, "sort": { "seq": -1 }, "limit": 20 },
+      "expect": { "rejected": false }
+    },
+    {
+      "id": "allowed-export",
+      "description": "A CSV export with a status filter and fields",
+      "operation": "exportScan",
+      "body": { "format": "csv", "filter": { "status": "succeeded" }, "fields": ["seq", "status", "result"] },
+      "expect": { "rejected": false }
+    },
+    {
+      "id": "allowed-dollar-string-values",
+      "description": "Strings that look like forbidden operators are data, not keys",
+      "operation": "queryAnalyses",
+      "body": { "filter": { "result.title": "$where", "config.mode": { "$in": ["$lookup", "$function"] } } },
+      "expect": { "rejected": false }
+    }
+  ]
+}

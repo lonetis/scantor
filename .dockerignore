@@ -1,0 +1,36 @@
+# Build context of every image is the repository root (docker-bake.hcl). Keep secrets, VCS data,
+# dependency trees and local outputs out of it; component Dockerfiles copy only what they need.
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Version control and editor state
+.git
+.gitignore
+.idea
+.vscode
+**/.DS_Store
+
+# Dependency trees (installed inside the images)
+**/node_modules
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+
+# Build and test outputs
+bin
+dist
+.test-images
+coverage.out
+**/*.test
+**/.scantor
+orchestrator/.nuxt
+orchestrator/.output
+orchestrator/.data
+tests/playwright-report
+tests/test-results
+tests/.auth

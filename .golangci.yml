@@ -1,0 +1,50 @@
+# golangci-lint v2 configuration of the root Go module (docs/development.md §6). `just lint` runs
+# `golangci-lint run`, `just fmt` runs `golangci-lint fmt`.
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - gosec
+    - depguard
+    - misspell
+  settings:
+    depguard:
+      rules:
+        main:
+          deny:
+            - pkg: github.com/docker/docker
+              desc: frozen; use github.com/moby/moby/client and github.com/moby/moby/api through internal/container
+            - pkg: gopkg.in/yaml.v3
+              desc: unmaintained; use go.yaml.in/yaml/v3
+    gosec:
+      excludes:
+        # G204: subprocesses are started from validated command templates by design (runtime, pipeline).
+        - G204
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      # Tests use fixed file modes, temp paths and HTTP servers freely.
+      - path: _test\.go
+        linters:
+          - gosec
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/lonetis/scantor

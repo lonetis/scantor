@@ -1,0 +1,446 @@
+{
+  "$comment": "Shared key-derivation test vectors (docs/architecture.md §9, docs/auth.md §3). key(label) = HKDF-SHA256(ikm = UTF-8(secret), salt = UTF-8(salt), info = UTF-8(label), L = 32). Read by internal/keys (Go) and orchestrator/server/utils/keys.ts (vitest). Base64url values are unpadded. registrySigningKey: d = (int(key('registry-signing')) mod (n-1)) + 1 on P-256, d/x/y as JWK base64url, kid = 'scantor-' + hex(sha256(0x04||X||Y))[:16]. encryption: enc:v1:<base64url(iv)>:<base64url(ciphertext||tag)>, AES-256-GCM with key(label) and AAD. Regenerate with: go test ./internal/keys -run TestVectors -update",
+  "version": 1,
+  "salt": "scantor-v1",
+  "hkdf": [
+    {
+      "secret": "correct horse battery staple",
+      "label": "better-auth",
+      "hex": "6b9ceba966ca53594d96198a9016b0db27310bac099b89aa99b5ab2609461b4c"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "registry-signing",
+      "hex": "b5b5e2a1a0d0a0cd218675838d7fc4bc4d00eec2aa7f81c681b8d4e0022a2a33"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "registry-push",
+      "hex": "45a2ec1289a44cd486ad4087bcfcd3ae53310bb604af448d63b78546aa560fbb"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "registry-http",
+      "hex": "718b53d96b51296b97c2aab19dc0625e713b5f4b98c0d14db714da6d8352f8e6"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "worker-token",
+      "hex": "bc9a42a9452ef788a8a3852fd849d0e3e28aeed7000082f82aaa8646e492c3b2"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "amqp",
+      "hex": "3ae975364fde95e01f1deb703ad343f8c830c3065e20f01284fc342025e324c8"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "credentials",
+      "hex": "e710644d858d3c44c7b545f6b75aebbbfa68acfefe8e1321c050d297aee89ca3"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "config-secrets",
+      "hex": "0b73df964ede01723c6a92383b48cfed2d7d72f95e6464f27c5be5f8a84fc343"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "tools-cookie",
+      "hex": "4692f5be2de8e6ac7bd71754b946179207aa4db547295528eacc21a9bcaa3c90"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "editor-cookie",
+      "hex": "13670917f08336519b18fc27f33e15c3e5d6b1a833bd538319e4d470f2c7faab"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "builtin-node",
+      "hex": "6980a03325646c05d737bd45cf782d23027b891159a724aef9029abb38bcc6c0"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "mongo-query",
+      "hex": "6b173a9a4ba4214f198a02b4d03119b7ce988c7e049f2ecb487e349b5ba2e8c1"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "better-auth",
+      "hex": "3085ee07fbaf9f627f1e8826d8b6ca9c032520a22c6fd27ab4cf6e686c2776bf"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "registry-signing",
+      "hex": "f11a24411252909118340bba48b60cec08f18b770686aebc087f92430e39392c"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "registry-push",
+      "hex": "9158ac1a9dc15178bada4bf9cf34b61d6e7b2e8f43f1eef9ffca42e0bddce6ab"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "registry-http",
+      "hex": "8a29302ea7fc699492b5fcf4f62c15d7e3ffd606e681dd93be1a5d84f0f1f476"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "worker-token",
+      "hex": "091c77cb62b8276297ae7e0776cd6c36c46da3c33d9a464fa1e233b824895b5e"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "amqp",
+      "hex": "3e6749b6bb39d917df6c60af7dfd0ce9c62d5b22ddb95b79e80bf3eb5b8285f9"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "credentials",
+      "hex": "9817dfaf92f4abae3fe613270785b569579529f9b0c5943db8ed4d5381912da4"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "config-secrets",
+      "hex": "5c17e391027a7b1a6522c8ea5b58088fad45929325aeb95834dc7f5ae3ca68c3"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "tools-cookie",
+      "hex": "ab2037ea7413fd3e974aaf9cc3d98270bcf851d9d958c9c86a2fb8dfb09eb128"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "editor-cookie",
+      "hex": "b97473472bd41702ecebf9b24a20842ec803dfdb8680463fdc2b3495bb9c5bd5"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "builtin-node",
+      "hex": "a8a5a4c0badd7a01adeadf78a528ec7f07e0df8e33a290cd38b74614cc534cfd"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "mongo-query",
+      "hex": "274f87b961bf141986feb5a858bc3b57763756124fbd7fa42eb1ab56e56ef5b9"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "better-auth",
+      "hex": "66933684ee26b4676150cba218377986313e6a3d4bbb24ecef6010fdea7630d4"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "registry-signing",
+      "hex": "58868c0b130ca49a404103720496448d638267205d70be59816cdd9d577a644b"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "registry-push",
+      "hex": "b776b606b0afda16dd09ce3d16aa681e2fcf002bf700bb3f1aba41df25fa58f2"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "registry-http",
+      "hex": "ea772458430b6892b83dc10ca72df09d6853f2cd0abcb182f61beadf07c0227c"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "worker-token",
+      "hex": "3f67ba06eaadf77ac40bce3d5dd9c10038268c8c09e9998f7396e06f0a3290ab"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "amqp",
+      "hex": "21f07ebfa2e0b435bbe37e9ba6e3ab254019e909603b853a28046be9be4b042a"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "credentials",
+      "hex": "70b18af88787cfde06151b1a290bf014f712f6b8795ba2c87d087dfe2612bb66"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "config-secrets",
+      "hex": "33c24121c395b4d670c7f1f47ea228c37bca4e6b95a31efadd7020c97568c338"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "tools-cookie",
+      "hex": "024ce4104acae4831e9170f22efbeef03dfcc1736d07f458ba2ee142d8231c9c"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "editor-cookie",
+      "hex": "e392155f5244bbf8d74df669cf0b695360d8dc521d94f2f381834a965a87d233"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "builtin-node",
+      "hex": "ea5a860b77a37439ef4d2e48c46bcb5a500a4595608fc6ef7df1cabbf8b9682f"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "mongo-query",
+      "hex": "af45e692fba9d57e88cc66eb7df306db5e79c077412bfb5b1054d64dc409618e"
+    }
+  ],
+  "betterAuthSecret": [
+    {
+      "secret": "correct horse battery staple",
+      "value": "6b9ceba966ca53594d96198a9016b0db27310bac099b89aa99b5ab2609461b4c"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "value": "3085ee07fbaf9f627f1e8826d8b6ca9c032520a22c6fd27ab4cf6e686c2776bf"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "value": "66933684ee26b4676150cba218377986313e6a3d4bbb24ecef6010fdea7630d4"
+    }
+  ],
+  "registryPushPassword": [
+    {
+      "secret": "correct horse battery staple",
+      "value": "RaLsEomkTNSGrUCHvPzTrlMxC7YEr0SNY7eFRqpWD7s"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "value": "kVisGp3BUXi62kv5zzS2HW57Lo9D8e75_8pC4L3c5qs"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "value": "t3a2BrCv2hbdCc49FqpoHi_PACv3ALs_GrpB3yX6WPI"
+    }
+  ],
+  "registryHttpSecret": [
+    {
+      "secret": "correct horse battery staple",
+      "value": "718b53d96b51296b97c2aab19dc0625e713b5f4b98c0d14db714da6d8352f8e6"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "value": "8a29302ea7fc699492b5fcf4f62c15d7e3ffd606e681dd93be1a5d84f0f1f476"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "value": "ea772458430b6892b83dc10ca72df09d6853f2cd0abcb182f61beadf07c0227c"
+    }
+  ],
+  "mongoQueryPassword": [
+    {
+      "secret": "correct horse battery staple",
+      "value": "axc6mkukIU8ZigK00DEZt86YjH4Eny7LSH40m1ui6ME"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "value": "J0-HuWG_FBmG_rWoWLw7V3Y3VhJPvX-kLrGrVuVu9bk"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "value": "r0Xmkvup1X6IzGbrffMG2155wHdBK_tbEFTWTcQJYY4"
+    }
+  ],
+  "builtinNodeToken": [
+    {
+      "secret": "correct horse battery staple",
+      "value": "snt_aYCgMyVkbAXXN71Fz3gtIwJ7iRFZpySu-QKauzi8xsA",
+      "tokenHash": "344964b9b88851d587fdfc99ea23fa7fb6b612d5f5a8f0977a4e262abeb92252"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "value": "snt_qKWkwLrdegGt6t94pSjsfwfg344zopDNOLdGFMxTTP0",
+      "tokenHash": "f4048d29b506acea2b1be54d8f3b6e3ca1da8f35583716b2ce1d39b5b15f8877"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "value": "snt_6lqGC3ejdDnvTS5IxGvLWlAKRZVgj8bvffHKu_i5aC8",
+      "tokenHash": "d524d48b78a6beba079d31f92519b0e436ae2a2fe9fad50d778d6ba1fc6b45c6"
+    }
+  ],
+  "nodeTokenHash": [
+    {
+      "token": "snt_3q8ZkP2mW9xV7bN1cR4tY6uA0sD5fG8hJ2kL4zX7cV9",
+      "hash": "2ff61ce774fb1aa436ba2eb13b1ec9c8c510472be6a1973e631bb36b955bfff8"
+    }
+  ],
+  "workerToken": [
+    {
+      "secret": "correct horse battery staple",
+      "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "role": "scheduler",
+      "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+      "value": "swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d.ACEmTne4QDhTRflNR1PMDQLcKmqT5ax1LLY_r3I136M"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "role": "runner",
+      "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+      "value": "swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d.BEzbvxzMyCihp5I_RVSc62xiWlxBcCLhkvg5gcNmcmQ"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "role": "scheduler",
+      "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+      "value": "swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d._ArSMOc84GAnC32nUMtBHoBsvCXMqGe3fUO2YokLKNQ"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "role": "runner",
+      "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+      "value": "swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d.-AGjYsLn1Yy2rdcf1P-ec0yO3UjpW54tOyriGbYUz_s"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "role": "scheduler",
+      "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+      "value": "swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d.0MxZqUxZC0pTGpBlu38D2s487g4yj_IAUT5Oi8sM8i8"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "role": "runner",
+      "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+      "value": "swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d.6MXsZ9l0ET9eIJQCYI-jnvlTiFdlQYQQhCxvv81cIjM"
+    }
+  ],
+  "amqpPassword": [
+    {
+      "secret": "correct horse battery staple",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "value": "RvhzbDapRhLOz6ulKZgredVsM2Z_WgzI7Hitmven-Nk"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "value": "6AWTHklWKqN-lIts9qEiLRkM-a-fJfEXqPJrgGwVRGw"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "value": "SNrIJMh6fGH3Ctpvx6WMHsQ1SBZYLWkbeZoLeVQnZyU"
+    }
+  ],
+  "editorCookie": [
+    {
+      "secret": "correct horse battery staple",
+      "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+      "editorStartedAtMs": 1761037200000,
+      "expiresAtMs": 1761080400000,
+      "value": "v1.0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11.1761037200000.1761080400000.7HneYY5plzFfo1cJz7knMfLJo1skV9nMGJqiwABDAuc"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+      "editorStartedAtMs": 1761037200000,
+      "expiresAtMs": 1761080400000,
+      "value": "v1.0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11.1761037200000.1761080400000.xAwvziLOfirkxCdrmYAZCKajFtOz5PdRcm2FoSttkVM"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+      "editorStartedAtMs": 1761037200000,
+      "expiresAtMs": 1761080400000,
+      "value": "v1.0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11.1761037200000.1761080400000.OIL7iIutNK43v3ZZVfosybRE5kyG7tnupGtQgCMcnag"
+    }
+  ],
+  "toolsCookieSignature": [
+    {
+      "secret": "correct horse battery staple",
+      "signingInput": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzY2FudG9yIiwiYXVkIjoidG9vbHMiLCJzdWIiOiIwYjZmNmYwZS0zYzBlLTRhNmUtOWYwZS01ZDFmOGIwYTdjMTEiLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3NjEwNDA4MDAsImV4cCI6MTc2MTA2OTYwMCwianRpIjoiOGMxZjZkMGUtMmEzYi00YzVkLThlOWYtMGExYjJjM2Q0ZTVmIn0",
+      "signature": "lXBIgAvxSv9tb-wlNQP_AXsgi_4q6ar6zWRz0zF19mw"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "signingInput": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzY2FudG9yIiwiYXVkIjoidG9vbHMiLCJzdWIiOiIwYjZmNmYwZS0zYzBlLTRhNmUtOWYwZS01ZDFmOGIwYTdjMTEiLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3NjEwNDA4MDAsImV4cCI6MTc2MTA2OTYwMCwianRpIjoiOGMxZjZkMGUtMmEzYi00YzVkLThlOWYtMGExYjJjM2Q0ZTVmIn0",
+      "signature": "u2gXJUolEEgt_dhhw7rx23itsoxGJD2KLAXgLdWZMIQ"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "signingInput": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzY2FudG9yIiwiYXVkIjoidG9vbHMiLCJzdWIiOiIwYjZmNmYwZS0zYzBlLTRhNmUtOWYwZS01ZDFmOGIwYTdjMTEiLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3NjEwNDA4MDAsImV4cCI6MTc2MTA2OTYwMCwianRpIjoiOGMxZjZkMGUtMmEzYi00YzVkLThlOWYtMGExYjJjM2Q0ZTVmIn0",
+      "signature": "xpvpyV8AN0XxUn6OSe9oI3icR-ntKfCnthG747ja00M"
+    }
+  ],
+  "registrySigningKey": [
+    {
+      "secret": "correct horse battery staple",
+      "d": "tbXioaDQoM0hhnWDjX_EvE0A7sKqf4HGgbjU4AIqKjQ",
+      "x": "_8TGD2iICAKymOlT1UPlb0Wrro8P76AOiH36chFghI4",
+      "y": "2JSE6B2lsiDThHLOCuI0uGag2Cqi82rYQDB3VqN3XlY",
+      "kid": "scantor-98d2ea68d3a33049"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "d": "8RokQRJSkJEYNAu6SLYM7Ajxi3cGhq68CH-SQw45OS0",
+      "x": "gdNG4GIksO5BA74fWU_f9RRzea6zgEL6VeGFoB55Xc0",
+      "y": "H94bCN7obiiI7r5YtsSFf8wwX0mRZCXQtczdPOeqmUM",
+      "kid": "scantor-959378e2e55af0bc"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "d": "WIaMCxMMpJpAQQNyBJZEjWOCZyBdcL5ZgWzdnVd6ZEw",
+      "x": "gLYG8KM8yUbT6p507kt5NvivK-_n3LrlK7Myrqh1KJA",
+      "y": "MZYelLNGBZfmjtkWF5GZ2hh3uFhXwAuapYSAoDYSvsk",
+      "kid": "scantor-7efdfcf1fe0b5f29"
+    }
+  ],
+  "encryption": [
+    {
+      "secret": "correct horse battery staple",
+      "label": "credentials",
+      "aad": "credentials:6f5e4d3c-2b1a-4f0e-9d8c-7b6a5f4e3d2c:secretEnc",
+      "iv": "AAECAwQFBgcICQoL",
+      "plaintext": "real-secret-value ✓",
+      "value": "enc:v1:AAECAwQFBgcICQoL:i4UiT6GvhGacRuQpw3yQSaNp2Xxq2VcGmfSu5lJcoQdHsCA2Gw"
+    },
+    {
+      "secret": "correct horse battery staple",
+      "label": "config-secrets",
+      "aad": "scans:5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f:/apiKey",
+      "iv": "AAECAwQFBgcICQoL",
+      "plaintext": "real-secret-value ✓",
+      "value": "enc:v1:AAECAwQFBgcICQoL:qZBBtH15aNWtnGonngnA0NIycuv4nA8MbVTuRvEYkQTOfIywRw"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "credentials",
+      "aad": "credentials:6f5e4d3c-2b1a-4f0e-9d8c-7b6a5f4e3d2c:secretEnc",
+      "iv": "AAECAwQFBgcICQoL",
+      "plaintext": "real-secret-value ✓",
+      "value": "enc:v1:AAECAwQFBgcICQoL:FtEhKj2k7yvrsoTWXG_nyp6gSOGJXvSaUVfUhdCSGubJtrY8RQ"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "config-secrets",
+      "aad": "scans:5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f:/apiKey",
+      "iv": "AAECAwQFBgcICQoL",
+      "plaintext": "real-secret-value ✓",
+      "value": "enc:v1:AAECAwQFBgcICQoL:KmCQbJoltHkszRj6bwUPZw2sL1A3MQqa5aqw4KTv7LxoF-cncw"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "credentials",
+      "aad": "credentials:6f5e4d3c-2b1a-4f0e-9d8c-7b6a5f4e3d2c:secretEnc",
+      "iv": "AAECAwQFBgcICQoL",
+      "plaintext": "real-secret-value ✓",
+      "value": "enc:v1:AAECAwQFBgcICQoL:nibcys-DVrl7nvF1pk01Wu1nS2DiTfe9M5xA75m0Y2GJF1Hodg"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "config-secrets",
+      "aad": "scans:5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f:/apiKey",
+      "iv": "AAECAwQFBgcICQoL",
+      "plaintext": "real-secret-value ✓",
+      "value": "enc:v1:AAECAwQFBgcICQoL:ppwbBwNCrQCOYh2m0_ej7jGxR1M3cx07va-rqqGkrcH8Jg6Quw"
+    }
+  ]
+}

@@ -1,0 +1,829 @@
+{
+  "$comment": "JSON examples copied from docs/api.md (normative for field names); the api tests decode and re-encode each one.",
+  "Task": {
+    "id": "7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c",
+    "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+    "name": "echo",
+    "language": "python",
+    "description": "Echo a greeting",
+    "source": {
+      "kind": "scaffold",
+      "template": "single"
+    },
+    "workspace": {
+      "packSha256": "a3f1…9c",
+      "fileCount": 9,
+      "bytes": 14336,
+      "dirty": false,
+      "lastSyncSha256": null,
+      "checkedAt": "2026-10-21T09:00:00.000Z"
+    },
+    "revisionCount": 3,
+    "latestRevision": {
+      "id": "c1d2e3f4-…",
+      "number": 3,
+      "state": "ready",
+      "packSha256": "a3f1…9c",
+      "createdAt": "2026-10-21T09:01:00.000Z"
+    },
+    "latestReadyRevision": {
+      "id": "c1d2e3f4-…",
+      "number": 3,
+      "state": "ready",
+      "packSha256": "a3f1…9c",
+      "createdAt": "2026-10-21T09:01:00.000Z"
+    },
+    "privileged": false,
+    "createdAt": "2026-10-21T08:30:00.000Z",
+    "updatedAt": "2026-10-21T09:02:10.000Z"
+  },
+  "Revision": {
+    "id": "c1d2e3f4-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+    "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+    "taskId": "7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c",
+    "taskName": "echo",
+    "number": 3,
+    "ref": "echo@3",
+    "state": "ready",
+    "message": "add greeting option",
+    "source": {
+      "kind": "workspace",
+      "packSha256": "a3f1…9c",
+      "packBytes": 4211,
+      "fileCount": 9
+    },
+    "manifest": {
+      "scantor": 1,
+      "name": "echo",
+      "language": "python",
+      "entry": "main.py",
+      "defaults": {
+        "processes": 2
+      }
+    },
+    "language": "python",
+    "baseImage": {
+      "ref": "ghcr.io/lonetis/scantor-base-python:1.4.0",
+      "digest": "sha256:0d1e…"
+    },
+    "image": {
+      "repository": "tasks/7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c",
+      "tag": "c1d2e3f4-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+      "digest": "sha256:4e5f…",
+      "bytes": 187654321,
+      "platform": {
+        "os": "linux",
+        "arch": "amd64"
+      }
+    },
+    "description": {
+      "protocolVersion": 1,
+      "connector": {
+        "language": "python",
+        "version": "1.4.0"
+      },
+      "schemas": {
+        "taskConfig": {
+          "type": "object",
+          "properties": {
+            "greeting": {
+              "type": "string",
+              "default": "Hello"
+            }
+          },
+          "additionalProperties": false
+        },
+        "scanConfig": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "analysisConfig": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "schedule": {
+        "kind": "template",
+        "template": "single"
+      },
+      "secretPaths": {
+        "taskConfig": [],
+        "scanConfig": [],
+        "analysisConfig": [],
+        "result": []
+      },
+      "uploadPaths": {
+        "taskConfig": [],
+        "scanConfig": []
+      },
+      "fileRefPaths": [],
+      "warnings": []
+    },
+    "settingsDefaults": {
+      "workers": 1,
+      "processes": 2,
+      "timeoutMs": 300000,
+      "maxAttempts": 3,
+      "backoff": {
+        "initialMs": 5000,
+        "factor": 2,
+        "maxMs": 600000,
+        "jitter": true
+      },
+      "resources": {
+        "cpus": 1,
+        "memoryMiB": 512
+      },
+      "maxAnalysesPerProcess": 1000,
+      "privileged": false
+    },
+    "privileged": false,
+    "errors": [],
+    "createdAt": "2026-10-21T09:01:00.000Z",
+    "startedAt": "2026-10-21T09:01:01.000Z",
+    "finishedAt": "2026-10-21T09:01:48.000Z",
+    "updatedAt": "2026-10-21T09:01:48.000Z"
+  },
+  "TestRun": {
+    "id": "3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d",
+    "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+    "taskId": "7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c",
+    "taskName": "echo",
+    "state": "completed",
+    "input": {
+      "taskConfig": {
+        "greeting": "Hi"
+      },
+      "limit": 5,
+      "maxAttempts": 1,
+      "timeoutMs": 300000
+    },
+    "packSha256": "b7c2…01",
+    "draftImage": {
+      "ref": "tasks/7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c:draft-b7c2…01",
+      "digest": "sha256:aa01…",
+      "cached": true
+    },
+    "errors": [],
+    "summary": {
+      "analyses": 1,
+      "succeeded": 1,
+      "failed": 0
+    },
+    "analyses": [
+      {
+        "id": "3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d-0",
+        "seq": 0,
+        "status": "succeeded",
+        "attempt": 1,
+        "config": {},
+        "result": {
+          "text": "Hi"
+        },
+        "error": null,
+        "attempts": [],
+        "files": [],
+        "logTail": "",
+        "timings": {
+          "scheduledAt": "2026-10-21T09:10:02.000Z",
+          "startedAt": "2026-10-21T09:10:02.000Z",
+          "finishedAt": "2026-10-21T09:10:02.040Z",
+          "durationMs": 40
+        }
+      }
+    ],
+    "createdAt": "2026-10-21T09:10:00.000Z",
+    "startedAt": "2026-10-21T09:10:00.500Z",
+    "finishedAt": "2026-10-21T09:10:02.100Z",
+    "expiresAt": "2026-10-28T09:10:00.000Z"
+  },
+  "Scan": {
+    "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+    "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+    "name": "tranco top 100k",
+    "task": {
+      "id": "7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c",
+      "name": "origins"
+    },
+    "revision": {
+      "id": "c1d2e3f4-…",
+      "number": 3,
+      "ref": "origins@3",
+      "language": "typescript",
+      "repository": "tasks/7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c",
+      "digest": "sha256:4e5f…",
+      "platform": {
+        "os": "linux",
+        "arch": "amd64"
+      },
+      "privileged": false,
+      "schedule": {
+        "kind": "template",
+        "template": "tranco"
+      }
+    },
+    "state": "running",
+    "stateReason": null,
+    "taskConfig": {
+      "expectedStatus": 200,
+      "apiKey": "***"
+    },
+    "scanConfig": {
+      "list": "latest",
+      "subdomains": false,
+      "offset": 0,
+      "limit": 100000
+    },
+    "secretPaths": {
+      "taskConfig": [
+        "/apiKey"
+      ],
+      "scanConfig": [],
+      "analysisConfig": [],
+      "result": []
+    },
+    "uploadIds": [],
+    "settings": {
+      "workers": 4,
+      "processes": 2,
+      "timeoutMs": 300000,
+      "maxAttempts": 3,
+      "backoff": {
+        "initialMs": 5000,
+        "factor": 2,
+        "maxMs": 600000,
+        "jitter": true
+      },
+      "resources": {
+        "cpus": 1,
+        "memoryMiB": 512
+      },
+      "maxAnalysesPerProcess": 1000,
+      "nodeSelector": {
+        "pool": "shared",
+        "labels": {}
+      },
+      "privileged": false
+    },
+    "round": 1,
+    "scheduling": {
+      "state": "running",
+      "confirmed": 42000,
+      "tailHash": "sha256:9b1c…",
+      "epoch": 1,
+      "restarts": 0,
+      "resolved": {
+        "schedule": {
+          "template": "tranco",
+          "scanConfig": {
+            "list": "262W9",
+            "subdomains": false,
+            "offset": 0,
+            "limit": 100000
+          },
+          "provenance": {
+            "listId": "262W9",
+            "date": "2026-10-20",
+            "sourceUrl": "https://tranco-list.eu/download/262W9/100000",
+            "sha256": "77aa…",
+            "fetchedAt": "2026-10-21T10:00:03.120Z"
+          },
+          "expectedTotal": 100000,
+          "at": "2026-10-21T10:00:03.500Z"
+        }
+      },
+      "error": null,
+      "startedAt": "2026-10-21T10:00:02.000Z",
+      "checkpointAt": "2026-10-21T10:05:00.000Z",
+      "doneAt": null
+    },
+    "stats": {
+      "pending": 0,
+      "retrying": 17,
+      "succeeded": 39811,
+      "failed": 102,
+      "lost": 0,
+      "cancelled": 0,
+      "expectedTotal": 100000,
+      "ratePerMin": 8100,
+      "recountedAt": "2026-10-21T10:05:00.000Z"
+    },
+    "progress": {
+      "scheduled": 42000,
+      "terminal": 39913,
+      "total": 100000,
+      "percent": 39.9,
+      "etaSeconds": 444
+    },
+    "workers": {
+      "desired": 5,
+      "active": 5,
+      "pending": 0,
+      "byState": {
+        "running": 5
+      }
+    },
+    "conditions": [],
+    "breaker": null,
+    "clonedFrom": null,
+    "createdAt": "2026-10-21T10:00:00.000Z",
+    "updatedAt": "2026-10-21T10:05:00.000Z",
+    "startedAt": "2026-10-21T10:00:01.000Z",
+    "pausedAt": null,
+    "completedAt": null,
+    "deletedAt": null
+  },
+  "RegistryTokenClaims": {
+    "iss": "scantor",
+    "sub": "node:2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+    "aud": "scantor-registry",
+    "iat": 1761040800,
+    "nbf": 1761040790,
+    "exp": 1761041100,
+    "jti": "8c1f6d0e-2a3b-4c5d-8e9f-0a1b2c3d4e5f",
+    "access": [
+      {
+        "type": "repository",
+        "name": "tasks/7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c",
+        "actions": [
+          "pull"
+        ]
+      }
+    ]
+  },
+  "NodeHelloRequest": {
+    "instanceId": "4c6f2b1e-9a8d-4e7f-b6c5-3d2e1f0a9b8c:7d1e",
+    "version": "1.4.0",
+    "info": {
+      "hostname": "scan-eu-1",
+      "os": "linux",
+      "arch": "amd64",
+      "kernel": "6.8.0-48-generic",
+      "dockerVersion": "29.9.2",
+      "cpus": 16,
+      "memoryBytes": 68719476736,
+      "diskFreeBytes": 412316860416,
+      "dindMode": "disabled",
+      "maxWorkers": 8,
+      "egressDenyApplied": true
+    },
+    "containers": [
+      {
+        "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "containerId": "f1e2d3c4b5a6",
+        "state": "running",
+        "specHash": "sha256:5d41…"
+      }
+    ]
+  },
+  "NodeHelloResponse": {
+    "serverTime": 1761040800123,
+    "node": {
+      "id": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+      "name": "scan-eu-1",
+      "builtIn": false,
+      "endpointProfile": "public",
+      "pool": "shared",
+      "labels": {
+        "region": "eu"
+      }
+    },
+    "config": {
+      "statusIntervalMs": 10000,
+      "assignmentsWaitSeconds": 25,
+      "offlineAfterMs": 60000,
+      "drainGraceMs": 30000,
+      "registry": {
+        "host": "registry.example.com",
+        "username": "node"
+      },
+      "minFreeDiskBytes": 10737418240
+    }
+  },
+  "NodeAssignments": {
+    "serverTime": 1761040812456,
+    "rev": 42,
+    "workers": [
+      {
+        "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+        "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+        "role": "runner",
+        "specHash": "sha256:5d41402abc4b2a76b9719d911017c592",
+        "image": "registry.example.com/tasks/7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c@sha256:4e5f6a7b…",
+        "baseImage": "ghcr.io/lonetis/scantor-base-js@sha256:0d1e2f3a…",
+        "processes": 2,
+        "resources": {
+          "nanoCpus": 2000000000,
+          "memoryBytes": 1342177280
+        },
+        "privileged": false,
+        "dindMode": null,
+        "capAdd": [
+          "NET_BIND_SERVICE",
+          "NET_RAW"
+        ],
+        "env": {
+          "SCANTOR_URL": "https://scantor.example.com",
+          "SCANTOR_WORKER_TOKEN": "swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d.yJk2Xh0n4mQ8sV1bR7cT3wZ5aP9dL6fG2hK8jN0uE4o"
+        }
+      }
+    ],
+    "logRequests": [
+      {
+        "requestId": "61c0e9a2-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+        "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "tailBytes": 65536
+      }
+    ]
+  },
+  "NodeStatusRequest": {
+    "instanceId": "4c6f2b1e-9a8d-4e7f-b6c5-3d2e1f0a9b8c:7d1e",
+    "appliedRev": 42,
+    "clockOffsetMs": -8,
+    "info": {
+      "version": "1.4.0",
+      "cpus": 16,
+      "memoryBytes": 68719476736,
+      "diskFreeBytes": 409600000000,
+      "dindMode": "disabled",
+      "maxWorkers": 8,
+      "egressDenyApplied": true
+    },
+    "workers": [
+      {
+        "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+        "state": "running",
+        "containerId": "f1e2d3c4b5a6",
+        "startedAt": "2026-10-21T10:00:20.000Z",
+        "restarts": 0,
+        "applied": {
+          "processes": 2,
+          "nanoCpus": 2000000000,
+          "memoryBytes": 1342177280
+        }
+      },
+      {
+        "workerId": "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
+        "state": "backoff",
+        "containerId": "a9b8c7d6e5f4",
+        "restarts": 3,
+        "lastExit": {
+          "exitCode": 137,
+          "oomKilled": true,
+          "at": "2026-10-21T10:04:58.000Z",
+          "logTail": "…last 4 KiB of container output…"
+        },
+        "nextRestartAt": "2026-10-21T10:05:38.000Z"
+      },
+      {
+        "workerId": "1c2d3e4f-5a6b-4c7d-9e8f-0a1b2c3d4e5f",
+        "state": "pulling",
+        "pull": {
+          "image": "registry.example.com/tasks/7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c@sha256:4e5f6a7b…",
+          "startedAt": "2026-10-21T10:05:01.000Z"
+        }
+      },
+      {
+        "workerId": "2d3e4f5a-6b7c-4d8e-8f9a-0b1c2d3e4f5a",
+        "state": "error",
+        "error": {
+          "code": "imagePullFailed",
+          "message": "manifest unknown"
+        }
+      },
+      {
+        "workerId": "3e4f5a6b-7c8d-4e9f-9a0b-1c2d3e4f5a6b",
+        "state": "removed"
+      }
+    ]
+  },
+  "NodeStatusResponse": {
+    "serverTime": 1761040815002,
+    "rev": 43,
+    "nextStatusMs": 10000
+  },
+  "WorkerLogsUpload": {
+    "requestId": "61c0e9a2-3b4d-4e5f-8a6b-7c8d9e0f1a2b",
+    "text": "{\"level\":\"info\",\"msg\":\"consuming\",\"scanId\":\"5e1f…\"}\n…",
+    "bytes": 65536,
+    "truncated": true,
+    "collectedAt": "2026-10-21T10:06:00.000Z"
+  },
+  "Bootstrap": {
+    "serverTime": 1761040805123,
+    "action": "run",
+    "worker": {
+      "id": "7c6d5e4f-3a2b-4c1d-9e0f-8a7b6c5d4e3f",
+      "role": "scheduler",
+      "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "nodeId": "8e7f6a5b-4c3d-4b2a-9f1e-0d9c8b7a6f5e",
+      "epoch": 1
+    },
+    "scan": {
+      "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "state": "running",
+      "round": 1,
+      "taskConfig": {
+        "expectedStatus": 200,
+        "apiKey": "real-secret-value"
+      },
+      "scanConfig": {
+        "list": "latest",
+        "subdomains": false,
+        "offset": 0,
+        "limit": 100000
+      },
+      "settings": {
+        "processes": 1,
+        "timeoutMs": 300000,
+        "maxAttempts": 3,
+        "backoff": {
+          "initialMs": 5000,
+          "factor": 2,
+          "maxMs": 600000,
+          "jitter": true
+        },
+        "resources": {
+          "cpus": 1,
+          "memoryMiB": 512
+        },
+        "maxAnalysesPerProcess": 1000
+      }
+    },
+    "revision": {
+      "id": "c1d2e3f4-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+      "number": 3,
+      "entry": "main.ts",
+      "protocolVersion": 1,
+      "schedule": {
+        "kind": "template",
+        "template": "tranco"
+      }
+    },
+    "amqp": {
+      "url": "amqp://rabbitmq:5672",
+      "vhost": "scantor",
+      "username": "scan-5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "password": "pW3n9Xq0vK2mB7cR5tY8uZ1aS4dF6gH",
+      "queue": "scantor.scan.5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "analysesExchange": "scantor.analyses",
+      "resultsExchange": "scantor.results",
+      "routingKey": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+      "heartbeatSeconds": 30,
+      "consumerTimeoutMs": 1500000
+    },
+    "uploads": {
+      "mode": "presigned",
+      "maxFileBytes": 1073741824,
+      "maxFilesPerAnalysis": 100,
+      "timeoutMs": 900000
+    },
+    "limits": {
+      "maxAnalysisConfigBytes": 65536,
+      "maxResultBytes": 1048576,
+      "maxResultMessageBytes": 2097152,
+      "logTailBytes": 32768,
+      "logTailEarlierBytes": 4096,
+      "stackBytes": 16384,
+      "maxAnalysesPerScan": 20000000,
+      "maxProcessesPerWorker": 64,
+      "minFreeTmpBytes": 1073741824
+    },
+    "intervals": {
+      "statePollMs": 5000,
+      "statePollJitter": 0.2,
+      "checkpointMs": 5000,
+      "checkpointItems": 1000,
+      "drainGraceMs": 30000,
+      "backpressureWaitMs": 2000
+    },
+    "scheduler": {
+      "restarts": 0,
+      "checkpoint": {
+        "confirmed": 0,
+        "tailHash": null
+      },
+      "resolved": {},
+      "uploads": {},
+      "dataSources": {
+        "tranco": "https://tranco-list.eu",
+        "crux": "https://raw.githubusercontent.com/zakird/crux-top-lists/main"
+      }
+    }
+  },
+  "RuntimeStateRequest": {
+    "processes": {
+      "running": 2,
+      "busy": 1
+    },
+    "busy": [
+      {
+        "seq": 1234,
+        "round": 1,
+        "attempt": 2,
+        "executionId": "b2f1c0d9-8e7a-4b6c-9d5e-4f3a2b1c0d9e",
+        "startedAt": "2026-10-21T10:01:36.000Z",
+        "progress": null
+      }
+    ],
+    "consuming": true,
+    "clockOffsetMs": -12,
+    "tmpFreeBytes": 9663676416,
+    "counters": {
+      "succeeded": 512,
+      "failed": 3,
+      "retried": 7,
+      "redeliveredSkipped": 1
+    },
+    "scheduler": null
+  },
+  "RuntimeStateResponse": {
+    "serverTime": 1761041100123,
+    "action": "run",
+    "processes": 2,
+    "scanState": "running",
+    "nextPollMs": 5000
+  },
+  "PresignRequest": {
+    "seq": 1234,
+    "round": 1,
+    "attempt": 2,
+    "executionId": "b2f1c0d9-8e7a-4b6c-9d5e-4f3a2b1c0d9e",
+    "files": [
+      {
+        "fileId": "e0c4b2a1-9f8e-4d7c-8b6a-5f4e3d2c1b0a",
+        "name": "screenshot.png",
+        "size": 48213,
+        "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "contentType": "image/png"
+      }
+    ]
+  },
+  "PresignResponse": {
+    "files": [
+      {
+        "fileId": "e0c4b2a1-9f8e-4d7c-8b6a-5f4e3d2c1b0a",
+        "name": "screenshot.png",
+        "url": "http://rustfs:9000/scantor/files/5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f/1234/b2f1c0d9-8e7a-4b6c-9d5e-4f3a2b1c0d9e/e0c4b2a1-9f8e-4d7c-8b6a-5f4e3d2c1b0a/screenshot.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=…&X-Amz-Date=20261021T100137Z&X-Amz-Expires=900&X-Amz-SignedHeaders=content-length%3Bcontent-type%3Bhost&X-Amz-Signature=…",
+        "method": "PUT",
+        "headers": {
+          "Content-Type": "image/png",
+          "Content-Length": "48213"
+        },
+        "expiresAt": "2026-10-21T10:16:37.000Z"
+      }
+    ]
+  },
+  "AnalysesStatusRequest": {
+    "seqs": [
+      1234,
+      1235,
+      1240
+    ]
+  },
+  "AnalysesStatusResponse": {
+    "items": [
+      {
+        "seq": 1234,
+        "status": "succeeded",
+        "round": 1,
+        "attempt": 2
+      },
+      {
+        "seq": 1235,
+        "status": "retrying",
+        "round": 1,
+        "attempt": 1
+      },
+      {
+        "seq": 1240,
+        "status": null,
+        "round": null,
+        "attempt": null
+      }
+    ]
+  },
+  "SchedulerResolvedRequest": {
+    "epoch": 1,
+    "key": "schedule",
+    "template": "tranco",
+    "scanConfig": {
+      "list": "262W9",
+      "subdomains": false,
+      "offset": 0,
+      "limit": 100000
+    },
+    "provenance": {
+      "listId": "262W9",
+      "date": "2026-10-20",
+      "sourceUrl": "https://tranco-list.eu/download/262W9/100000",
+      "sha256": "77aa31c4…",
+      "fetchedAt": "2026-10-21T10:00:03.120Z"
+    },
+    "expectedTotal": 100000
+  },
+  "SchedulerResolvedResponse": {
+    "stored": true,
+    "resolution": {
+      "template": "tranco",
+      "scanConfig": {
+        "list": "262W9",
+        "subdomains": false,
+        "offset": 0,
+        "limit": 100000
+      },
+      "provenance": {
+        "listId": "262W9",
+        "date": "2026-10-20",
+        "sourceUrl": "https://tranco-list.eu/download/262W9/100000",
+        "sha256": "77aa31c4…",
+        "fetchedAt": "2026-10-21T10:00:03.120Z"
+      },
+      "expectedTotal": 100000,
+      "at": "2026-10-21T10:00:03.500Z"
+    }
+  },
+  "SchedulerCheckpointRequest": {
+    "epoch": 1,
+    "confirmed": 42000,
+    "tailHash": "sha256:9b1c7e2f…"
+  },
+  "SchedulerCheckpointResponse": {
+    "confirmed": 42000,
+    "tailHash": "sha256:9b1c7e2f…",
+    "serverTime": 1761041000456
+  },
+  "SchedulerDoneRequest": {
+    "epoch": 1,
+    "outcome": "done",
+    "confirmed": 100000,
+    "tailHash": "sha256:41e0aa5c…"
+  },
+  "SchedulerDoneRequestFailed": {
+    "epoch": 1,
+    "outcome": "failed",
+    "confirmed": 5000,
+    "tailHash": "sha256:0c7d…",
+    "error": {
+      "type": "validation",
+      "phase": "schedule",
+      "message": "schedule() is not deterministic: item 4999 hash mismatch on resume",
+      "retryable": false,
+      "attempt": 1,
+      "at": "2026-10-21T10:20:00.000Z"
+    }
+  },
+  "SchedulerDoneResponse": {
+    "serverTime": 1761041200456,
+    "scheduling": {
+      "state": "done",
+      "confirmed": 100000
+    }
+  },
+  "RuntimeErrorReport": {
+    "fatal": false,
+    "error": {
+      "type": "platform",
+      "phase": "bootstrap",
+      "message": "connector did not send hello within 30s",
+      "retryable": true,
+      "attempt": 0,
+      "at": "2026-10-21T10:00:21.000Z",
+      "details": {
+        "connectorExitCode": 1
+      }
+    },
+    "context": {
+      "stderrTail": "ModuleNotFoundError: No module named 'requests'\n"
+    }
+  },
+  "RuntimeErrorResponse": {
+    "recorded": true
+  },
+  "RegistryTokenResponseGET": {
+    "token": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InNjYW50b3ItOWYxYzJlNGE3YjNkNWU2ZiJ9.eyJ…",
+    "access_token": "eyJhbGciOiJFUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InNjYW50b3ItOWYxYzJlNGE3YjNkNWU2ZiJ9.eyJ…",
+    "expires_in": 300,
+    "issued_at": "2026-10-21T10:00:00Z"
+  },
+  "RegistryTokenResponsePOST": {
+    "access_token": "eyJhbGciOiJFUzI1NiIs…",
+    "expires_in": 300,
+    "issued_at": "2026-10-21T10:00:00Z"
+  }
+}
