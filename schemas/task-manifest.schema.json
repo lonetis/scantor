@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/task-manifest.schema.json",
+  "title": "scantor task manifest (scantor.yaml)",
+  "description": "The manifest at the root of every task folder. Strict: unknown keys are rejected. Bind it in editors with the modeline `# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/v<version>/schemas/task-manifest.schema.json`. Semantic rules that JSON Schema cannot express (duration and size bounds, entry path rules, instance limits, privileged permission) are enforced by `scantor task check-static`; see docs/tasks.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scantor",
+    "name",
+    "language"
+  ],
+  "properties": {
+    "scantor": {
+      "description": "Manifest format version. Always 1 for this schema.",
+      "const": 1
+    },
+    "name": {
+      "description": "Task name: a slug unique per owner, equal to the workspace folder name and immutable once the task exists. Not a uuid and not a reserved word.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$",
+      "not": {
+        "anyOf": [
+          {
+            "enum": [
+              "upload",
+              "import-git",
+              "new",
+              "latest"
+            ]
+          },
+          {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        ]
+      },
+      "examples": [
+        "echo",
+        "origins-http"
+      ]
+    },
+    "language": {
+      "description": "Task language: a key of schemas/languages.json. It selects the base image (SCANTOR_BASE) and the default entry.",
+      "enum": [
+        "python",
+        "typescript",
+        "javascript",
+        "go"
+      ]
+    },
+    "description": {
+      "description": "One-paragraph human description shown in the UI, CLI and MCP.",
+      "type": "string",
+      "maxLength": 500
+    },
+    "entry": {
+      "description": "Entry point. python/typescript/javascript: the source file that defines the task, relative to the image working directory (/task) and present in the task folder. go: the path of the binary the Dockerfile builds. Defaults to languages.json `entry` (main.py, main.ts, main.js, /task/task).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[^\\\\\\x00]+$",
+      "examples": [
+        "main.py",
+        "src/main.ts",
+        "/task/task"
+      ]
+    },
+    "defaults": {
+      "$ref": "#/$defs/defaults"
+    }
+  },
+  "$defs": {
+    "duration": {
+      "description": "Duration as integer amounts with units ms, s, m, h (Go duration syntax without fractions), for example `30s`, `5m`, `1h30m`.",
+      "type": "string",
+      "pattern": "^([0-9]+(ms|s|m|h))+$",
+      "examples": [
+        "5s",
+        "5m",
+        "1h30m"
+      ]
+    },
+    "byteSize": {
+      "description": "Byte size: a non-negative integer with an optional binary suffix KiB, MiB, GiB or TiB, for example `512MiB`.",
+      "type": "string",
+      "pattern": "^[0-9]+(KiB|MiB|GiB|TiB)?$",
+      "examples": [
+        "512MiB",
+        "2GiB"
+      ]
+    },
+    "defaults": {
+      "description": "Default scan settings. Every value can be overridden per scan (settings of POST /api/scans) except `privileged`. Omitted values fall back to the platform fallbacks listed in docs/data-model.md §4.5.1.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workers": {
+          "description": "Runner workers (containers) per scan. Fallback 1. Upper bound: SCANTOR_MAX_WORKERS_PER_SCAN of the instance.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "processes": {
+          "description": "Connector processes per worker. Fallback 1. Upper bound: SCANTOR_MAX_PROCESSES_PER_WORKER of the instance.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "timeout": {
+          "description": "Per-analysis timeout (1s … 24h). Fallback 5m. Fixed for the lifetime of a scan.",
+          "$ref": "#/$defs/duration"
+        },
+        "maxAttempts": {
+          "description": "Attempts per analysis per round, including the first. Fallback 3.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "backoff": {
+          "description": "Delay before attempt n+1: min(max, initial × factor^(n−1)); with jitter a uniform value in [delay/2, delay].",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "initial": {
+              "description": "First delay (≥ 1s). Fallback 5s.",
+              "$ref": "#/$defs/duration"
+            },
+            "factor": {
+              "description": "Growth factor (1 … 10). Fallback 2.",
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "max": {
+              "description": "Upper bound of a delay (≥ initial, ≤ 24h). Fallback 10m.",
+              "$ref": "#/$defs/duration"
+            },
+            "jitter": {
+              "description": "Randomise each delay in [delay/2, delay]. Fallback true.",
+              "type": "boolean"
+            }
+          }
+        },
+        "resources": {
+          "description": "Resources PER PROCESS. A worker container gets processes × cpus CPUs and processes × memory + 256 MiB memory.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpus": {
+              "description": "CPUs per process (0.1 … 64). Fallback 1.",
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 64
+            },
+            "memory": {
+              "description": "Memory per process (64MiB … 64GiB, whole MiB). Fallback 512MiB.",
+              "$ref": "#/$defs/byteSize"
+            }
+          }
+        },
+        "maxAnalysesPerProcess": {
+          "description": "Recycle a connector process after this many analyses. Fallback 1000.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        },
+        "privileged": {
+          "description": "Run workers with Docker-in-Docker (sysbox or privileged nodes only). Requires the owner's canRunPrivileged permission at publish and scan start. Fallback false. Not overridable per scan.",
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "scantor": 1,
+      "name": "echo",
+      "language": "python"
+    },
+    {
+      "scantor": 1,
+      "name": "origins-http",
+      "language": "typescript",
+      "description": "Fetch the landing page of every origin of a CrUX top list.",
+      "entry": "main.ts",
+      "defaults": {
+        "workers": 4,
+        "processes": 8,
+        "timeout": "2m",
+        "maxAttempts": 3,
+        "backoff": {
+          "initial": "10s",
+          "factor": 2,
+          "max": "10m",
+          "jitter": true
+        },
+        "resources": {
+          "cpus": 0.5,
+          "memory": "768MiB"
+        },
+        "maxAnalysesPerProcess": 500,
+        "privileged": false
+      }
+    }
+  ]
+}

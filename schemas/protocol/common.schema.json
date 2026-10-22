@@ -1,0 +1,210 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/common.schema.json",
+  "title": "Connector protocol: shared definitions",
+  "description": "Shared definitions of the connector protocol (docs/protocol.md). Every message is one JSON object on one line (NDJSON) with a `type`; requests and their replies are correlated by `id`.",
+  "$defs": {
+    "id": {
+      "description": "Request id chosen by the side that initiates the request. Runtime-initiated and connector-initiated ids are separate namespaces. The handshake uses the fixed id \"hello\".",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[A-Za-z0-9._:-]+$"
+    },
+    "parent": {
+      "description": "Id of the runtime request (`schedule`, `run`, `describe`) in whose context a connector-initiated message was produced; null outside any request (for example at import time).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/id"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "jsonObject": {
+      "description": "Any JSON object.",
+      "type": "object"
+    },
+    "ctx": {
+      "description": "Per-call context. analysisId, seq, round, executionId and filesDir are null for schedule; deadlineMs is null when there is no deadline.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scanId",
+        "analysisId",
+        "seq",
+        "round",
+        "attempt",
+        "executionId",
+        "deadlineMs",
+        "tmpDir",
+        "filesDir"
+      ],
+      "properties": {
+        "scanId": {
+          "description": "Scan id; in local mode the spec's runId (the test-run id, or \"local\" for `scantor dev run`).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "analysisId": {
+          "description": "`<scanId>-<seq>`",
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 128
+        },
+        "seq": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "round": {
+          "description": "Retry-failed round of the analysis (1 in local mode).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "attempt": {
+          "description": "1-based attempt of this run (schedule: scheduler start count).",
+          "type": "integer",
+          "minimum": 1
+        },
+        "executionId": {
+          "description": "uuid of this delivery/execution.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 64
+        },
+        "deadlineMs": {
+          "description": "Epoch milliseconds (container clock) at which the runtime ends the call.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tmpDir": {
+          "description": "Absolute path of an empty, writable directory private to this call; deleted by the runtime afterwards.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "filesDir": {
+          "description": "Absolute path of the directory where the connector places file contents before registering them with `file`.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 1024
+        }
+      }
+    },
+    "error": {
+      "description": "Error object exchanged on the protocol. The runtime turns connector errors into the full ScantorError (adding phase, attempt, at, and the retryable classification).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "description": "connector → runtime: taskError, fatal, retry, validation, or cancelled (only after `cancel` or the deadline); the runtime treats any other type as taskError. runtime → connector: validation or platform.",
+          "enum": [
+            "taskError",
+            "fatal",
+            "retry",
+            "timeout",
+            "crash",
+            "validation",
+            "platform",
+            "cancelled"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "retryable": {
+          "description": "Set by the runtime on runtime → connector errors (informational for user code); ignored on connector → runtime errors, whose retryability the runtime derives from the type.",
+          "type": "boolean"
+        },
+        "delayMs": {
+          "description": "Only for `retry`: requested delay before the next attempt.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "stack": {
+          "type": "string",
+          "maxLength": 16384
+        },
+        "details": {
+          "description": "≤ 4 KiB JSON object, e.g. {issues: [{path, message}]} for validation.",
+          "type": "object"
+        }
+      }
+    },
+    "fileRef": {
+      "description": "Reference to an uploaded file; appears in results at fileRefPaths.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "size",
+        "sha256",
+        "contentType"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "contentType": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        }
+      },
+      "x-scantor": "file"
+    },
+    "logLevel": {
+      "enum": [
+        "debug",
+        "info",
+        "warning",
+        "error"
+      ]
+    },
+    "credit": {
+      "description": "Number of additional template items the connector can accept.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65536
+    }
+  }
+}

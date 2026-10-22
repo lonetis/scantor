@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/describe.schema.json",
+  "title": "describe (runtime → connector)",
+  "description": "Request the task description (describe and local modes; never sent in worker mode).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id"
+  ],
+  "properties": {
+    "type": {
+      "const": "describe"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    }
+  },
+  "examples": [
+    {
+      "type": "describe",
+      "id": "d1"
+    }
+  ]
+}

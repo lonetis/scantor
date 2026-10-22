@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/run.schema.json",
+  "title": "run (runtime → connector)",
+  "description": "Run one analysis. The connector replies with exactly one `result` or `error`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "ctx",
+    "analysisConfig",
+    "taskConfig"
+  ],
+  "properties": {
+    "type": {
+      "const": "run"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "ctx": {
+      "$ref": "common.schema.json#/$defs/ctx"
+    },
+    "analysisConfig": {
+      "$ref": "common.schema.json#/$defs/jsonObject"
+    },
+    "taskConfig": {
+      "$ref": "common.schema.json#/$defs/jsonObject"
+    }
+  },
+  "examples": [
+    {
+      "type": "run",
+      "id": "r7",
+      "ctx": {
+        "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+        "analysisId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f-1234",
+        "seq": 1234,
+        "round": 1,
+        "attempt": 2,
+        "executionId": "b2f1c0d9-8e7a-4b6c-9d5e-4f3a2b1c0d9e",
+        "deadlineMs": 1761041136000,
+        "tmpDir": "/tmp/scantor/x-b2f1c0d9-8e7a-4b6c-9d5e-4f3a2b1c0d9e/tmp",
+        "filesDir": "/tmp/scantor/x-b2f1c0d9-8e7a-4b6c-9d5e-4f3a2b1c0d9e/files"
+      },
+      "analysisConfig": {
+        "domain": "example.org",
+        "rank": 1234
+      },
+      "taskConfig": {
+        "greeting": "Hello"
+      }
+    }
+  ]
+}

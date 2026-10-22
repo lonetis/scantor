@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/templateItem.schema.json",
+  "title": "templateItem (runtime → connector)",
+  "description": "One analysis config produced by the template stream `id`. Never more items in flight than the credit granted so far.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "config"
+  ],
+  "properties": {
+    "type": {
+      "const": "templateItem"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "config": {
+      "$ref": "common.schema.json#/$defs/jsonObject"
+    }
+  },
+  "examples": [
+    {
+      "type": "templateItem",
+      "id": "c1",
+      "config": {
+        "domain": "google.com",
+        "rank": 1
+      }
+    }
+  ]
+}

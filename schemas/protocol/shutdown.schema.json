@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/shutdown.schema.json",
+  "title": "shutdown (runtime → connector)",
+  "description": "The process is idle and must exit with code 0 within graceMs (recycling, drain, scale-in, end of local mode). No reply; the runtime then closes fd 3 and kills the process group when the grace expires. EOF on fd 3 has the same meaning.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "graceMs"
+  ],
+  "properties": {
+    "type": {
+      "const": "shutdown"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "graceMs": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "examples": [
+    {
+      "type": "shutdown",
+      "id": "x1",
+      "graceMs": 5000
+    }
+  ]
+}

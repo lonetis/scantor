@@ -1,0 +1,435 @@
+{
+  "template": "cidr",
+  "scanConfig": {
+    "valid": [
+      {
+        "name": "defaults",
+        "input": {},
+        "effective": {
+          "cidrs": [
+            "192.0.2.0/29"
+          ],
+          "exclude": [],
+          "prefix": null,
+          "maxAnalyses": 65536
+        }
+      },
+      {
+        "name": "ipv6 subnets",
+        "input": {
+          "cidrs": [
+            "2001:db8::/48"
+          ],
+          "prefix": 64
+        },
+        "effective": {
+          "cidrs": [
+            "2001:db8::/48"
+          ],
+          "prefix": 64,
+          "exclude": [],
+          "maxAnalyses": 65536
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "no cidrs",
+        "input": {
+          "cidrs": []
+        },
+        "kind": "schema",
+        "path": "/cidrs"
+      },
+      {
+        "name": "zero cap",
+        "input": {
+          "maxAnalyses": 0
+        },
+        "kind": "schema",
+        "path": "/maxAnalyses"
+      },
+      {
+        "name": "prefix 129",
+        "input": {
+          "prefix": 129
+        },
+        "kind": "schema",
+        "path": "/prefix"
+      },
+      {
+        "name": "unknown key",
+        "input": {
+          "shuffle": true
+        },
+        "kind": "schema",
+        "path": ""
+      },
+      {
+        "name": "not a cidr",
+        "input": {
+          "cidrs": [
+            "10.0.0.0/33"
+          ]
+        },
+        "kind": "semantic",
+        "path": "/cidrs/0"
+      },
+      {
+        "name": "above default cap",
+        "input": {
+          "cidrs": [
+            "10.0.0.0/8"
+          ]
+        },
+        "kind": "semantic",
+        "path": "/maxAnalyses"
+      },
+      {
+        "name": "ipv6 /64 per address",
+        "input": {
+          "cidrs": [
+            "2001:db8::/64"
+          ]
+        },
+        "kind": "semantic",
+        "path": "/maxAnalyses"
+      },
+      {
+        "name": "prefix longer than range",
+        "input": {
+          "cidrs": [
+            "10.0.0.0/28"
+          ],
+          "prefix": 24
+        },
+        "kind": "semantic",
+        "path": "/prefix"
+      },
+      {
+        "name": "prefix too long for IPv4",
+        "input": {
+          "cidrs": [
+            "10.0.0.0/24"
+          ],
+          "prefix": 64
+        },
+        "kind": "semantic",
+        "path": "/prefix"
+      }
+    ]
+  },
+  "analysisConfig": {
+    "valid": [
+      {
+        "name": "address",
+        "input": {
+          "ip": "192.0.2.1",
+          "prefix": 32,
+          "version": 4
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "version 5",
+        "input": {
+          "ip": "192.0.2.1",
+          "prefix": 32,
+          "version": 5
+        },
+        "path": "/version"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "defaults",
+      "scanConfig": {},
+      "estimate": {
+        "expectedTotal": 8,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "cidrs": [
+            "192.0.2.0/29"
+          ],
+          "exclude": [],
+          "prefix": null,
+          "maxAnalyses": 65536
+        },
+        "provenance": {},
+        "expectedTotal": 8
+      },
+      "analyses": [
+        {
+          "ip": "192.0.2.0",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.1",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.2",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.3",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.4",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.5",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.6",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.7",
+          "prefix": 32,
+          "version": 4
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "merge overlaps and exclude",
+      "scanConfig": {
+        "cidrs": [
+          "10.0.0.4/30",
+          "10.0.0.0/30",
+          "10.0.0.6"
+        ],
+        "exclude": [
+          "10.0.0.5"
+        ]
+      },
+      "estimate": {
+        "expectedTotal": 7,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "cidrs": [
+            "10.0.0.4/30",
+            "10.0.0.0/30",
+            "10.0.0.6"
+          ],
+          "exclude": [
+            "10.0.0.5"
+          ],
+          "prefix": null,
+          "maxAnalyses": 65536
+        },
+        "provenance": {},
+        "expectedTotal": 7
+      },
+      "analyses": [
+        {
+          "ip": "10.0.0.0",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "10.0.0.1",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "10.0.0.2",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "10.0.0.3",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "10.0.0.4",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "10.0.0.6",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "10.0.0.7",
+          "prefix": 32,
+          "version": 4
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "IPv4 before IPv6",
+      "scanConfig": {
+        "cidrs": [
+          "2001:db8::/126",
+          "192.0.2.0/31"
+        ]
+      },
+      "estimate": {
+        "expectedTotal": 6,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "cidrs": [
+            "2001:db8::/126",
+            "192.0.2.0/31"
+          ],
+          "exclude": [],
+          "prefix": null,
+          "maxAnalyses": 65536
+        },
+        "provenance": {},
+        "expectedTotal": 6
+      },
+      "analyses": [
+        {
+          "ip": "192.0.2.0",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.1",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "2001:db8::",
+          "prefix": 128,
+          "version": 6
+        },
+        {
+          "ip": "2001:db8::1",
+          "prefix": 128,
+          "version": 6
+        },
+        {
+          "ip": "2001:db8::2",
+          "prefix": 128,
+          "version": 6
+        },
+        {
+          "ip": "2001:db8::3",
+          "prefix": 128,
+          "version": 6
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "subnet mode",
+      "scanConfig": {
+        "cidrs": [
+          "10.1.0.0/22"
+        ],
+        "prefix": 24,
+        "exclude": [
+          "10.1.2.128/25"
+        ]
+      },
+      "estimate": {
+        "expectedTotal": 3,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "cidrs": [
+            "10.1.0.0/22"
+          ],
+          "prefix": 24,
+          "exclude": [
+            "10.1.2.128/25"
+          ],
+          "maxAnalyses": 65536
+        },
+        "provenance": {},
+        "expectedTotal": 3
+      },
+      "analyses": [
+        {
+          "ip": "10.1.0.0",
+          "prefix": 24,
+          "version": 4
+        },
+        {
+          "ip": "10.1.1.0",
+          "prefix": 24,
+          "version": 4
+        },
+        {
+          "ip": "10.1.3.0",
+          "prefix": 24,
+          "version": 4
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "host bits cleared",
+      "scanConfig": {
+        "cidrs": [
+          "192.0.2.5/30"
+        ]
+      },
+      "estimate": {
+        "expectedTotal": 4,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "cidrs": [
+            "192.0.2.5/30"
+          ],
+          "exclude": [],
+          "prefix": null,
+          "maxAnalyses": 65536
+        },
+        "provenance": {},
+        "expectedTotal": 4
+      },
+      "analyses": [
+        {
+          "ip": "192.0.2.4",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.5",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.6",
+          "prefix": 32,
+          "version": 4
+        },
+        {
+          "ip": "192.0.2.7",
+          "prefix": 32,
+          "version": 4
+        }
+      ],
+      "complete": true
+    }
+  ]
+}

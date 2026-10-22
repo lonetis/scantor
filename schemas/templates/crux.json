@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/templates/crux.json",
+  "title": "CrUX top list",
+  "description": "Origins of a Chrome UX Report top list (zakird/crux-top-lists) up to a rank bucket, globally or for one country. `latest` is resolved to a concrete month before the first analysis is published.",
+  "x-scantor-template": {
+    "name": "crux",
+    "version": 1,
+    "resolves": true,
+    "estimate": "upperBound",
+    "dataSources": [
+      "crux"
+    ],
+    "uploads": false,
+    "example": {
+      "scanConfig": {
+        "country": "global",
+        "month": "latest",
+        "bucket": 1000
+      },
+      "analysisConfig": {
+        "origin": "https://www.google.com",
+        "rank": 1000
+      }
+    }
+  },
+  "$defs": {
+    "scanConfig": {
+      "type": "object",
+      "title": "ScanConfig",
+      "properties": {
+        "country": {
+          "description": "`global` or a lowercase ISO 3166-1 alpha-2 country code (country lists exist from 202501).",
+          "type": "string",
+          "pattern": "^(global|[a-z]{2})$",
+          "default": "global"
+        },
+        "month": {
+          "description": "`latest` or a month YYYYMM.",
+          "type": "string",
+          "pattern": "^(latest|[0-9]{4}(0[1-9]|1[0-2]))$",
+          "default": "latest"
+        },
+        "bucket": {
+          "description": "Include origins with rank bucket ≤ this value (the cap of the scan).",
+          "type": "integer",
+          "enum": [
+            1000,
+            5000,
+            10000,
+            50000,
+            100000,
+            500000,
+            1000000
+          ],
+          "default": 1000
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysisConfig": {
+      "type": "object",
+      "title": "AnalysisConfig",
+      "properties": {
+        "origin": {
+          "description": "Origin as listed (scheme + host, no trailing slash; http and https occur).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "rank": {
+          "description": "CrUX rank bucket of the origin.",
+          "type": "integer",
+          "enum": [
+            1000,
+            5000,
+            10000,
+            50000,
+            100000,
+            500000,
+            1000000
+          ]
+        }
+      },
+      "required": [
+        "origin",
+        "rank"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

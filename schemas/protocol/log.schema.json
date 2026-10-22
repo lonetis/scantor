@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/log.schema.json",
+  "title": "log (connector → runtime)",
+  "description": "Structured log line from ctx.log (or from the connector itself). Fire-and-forget; no id.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "parent",
+    "level",
+    "message"
+  ],
+  "properties": {
+    "type": {
+      "const": "log"
+    },
+    "parent": {
+      "$ref": "common.schema.json#/$defs/parent"
+    },
+    "level": {
+      "$ref": "common.schema.json#/$defs/logLevel"
+    },
+    "message": {
+      "type": "string",
+      "maxLength": 16384
+    },
+    "fields": {
+      "type": "object"
+    }
+  },
+  "examples": [
+    {
+      "type": "log",
+      "parent": "r7",
+      "level": "info",
+      "message": "fetching",
+      "fields": {
+        "url": "https://example.org"
+      }
+    }
+  ]
+}

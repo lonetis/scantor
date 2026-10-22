@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/done.schema.json",
+  "title": "done (connector → runtime)",
+  "description": "Schedule finished normally. `count` is the number of analysis messages sent for this request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "count"
+  ],
+  "properties": {
+    "type": {
+      "const": "done"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "examples": [
+    {
+      "type": "done",
+      "id": "s1",
+      "count": 3
+    }
+  ]
+}

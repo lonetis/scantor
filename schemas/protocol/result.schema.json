@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/result.schema.json",
+  "title": "result (connector → runtime)",
+  "description": "Successful run: the result serialized in JSON (output) mode, already validated by the connector's native model.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "result"
+  ],
+  "properties": {
+    "type": {
+      "const": "result"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "result": {
+      "$ref": "common.schema.json#/$defs/jsonObject"
+    }
+  },
+  "examples": [
+    {
+      "type": "result",
+      "id": "r7",
+      "result": {
+        "text": "Hello, example.org",
+        "screenshot": {
+          "id": "e0c4b2a1-9f8e-4d7c-8b6a-5f4e3d2c1b0a",
+          "name": "shot.png",
+          "size": 48213,
+          "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+          "contentType": "image/png"
+        }
+      }
+    }
+  ]
+}

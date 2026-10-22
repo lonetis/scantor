@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/welcome.schema.json",
+  "title": "welcome (runtime → connector)",
+  "description": "Reply to hello: the chosen protocol version and the limits the connector must respect. If no common version exists the runtime sends `error` with id \"hello\" instead and terminates the process.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "protocolVersion",
+    "mode",
+    "runtime",
+    "limits",
+    "cancelGraceMs"
+  ],
+  "properties": {
+    "type": {
+      "const": "welcome"
+    },
+    "id": {
+      "const": "hello"
+    },
+    "protocolVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "mode": {
+      "description": "Runtime mode the process serves.",
+      "enum": [
+        "worker",
+        "local",
+        "describe"
+      ]
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxLineBytes",
+        "maxResultBytes",
+        "maxAnalysisConfigBytes",
+        "maxFileBytes",
+        "maxFilesPerAnalysis"
+      ],
+      "properties": {
+        "maxLineBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxResultBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxAnalysisConfigBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxFileBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxFilesPerAnalysis": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "cancelGraceMs": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "examples": [
+    {
+      "type": "welcome",
+      "id": "hello",
+      "protocolVersion": 1,
+      "mode": "worker",
+      "runtime": {
+        "version": "1.4.0"
+      },
+      "limits": {
+        "maxLineBytes": 8388608,
+        "maxResultBytes": 1048576,
+        "maxAnalysisConfigBytes": 65536,
+        "maxFileBytes": 1073741824,
+        "maxFilesPerAnalysis": 100
+      },
+      "cancelGraceMs": 5000
+    }
+  ]
+}

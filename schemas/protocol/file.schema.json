@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/file.schema.json",
+  "title": "file (connector → runtime)",
+  "description": "Register a file (ctx.files.put). The connector has written or copied the content to `path` inside the execution's ctx.filesDir; the runtime checks and hashes it and replies at once with `fileRef` (or `error`). The upload happens only after the run succeeded.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "parent",
+    "name",
+    "path",
+    "contentType"
+  ],
+  "properties": {
+    "type": {
+      "const": "file"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "parent": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[^/\\\\\\x00]+$"
+    },
+    "path": {
+      "description": "Absolute path inside ctx.filesDir.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^/"
+    },
+    "contentType": {
+      "description": "MIME type; null = application/octet-stream.",
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 255
+    }
+  },
+  "examples": [
+    {
+      "type": "file",
+      "id": "c3",
+      "parent": "r7",
+      "name": "shot.png",
+      "path": "/tmp/scantor/x-b2f1c0d9-8e7a-4b6c-9d5e-4f3a2b1c0d9e/files/0-shot.png",
+      "contentType": "image/png"
+    }
+  ]
+}

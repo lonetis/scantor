@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/progress.schema.json",
+  "title": "progress (connector → runtime)",
+  "description": "Progress of the request `parent` from ctx.progress; shown in the in-flight list. Fire-and-forget.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "parent",
+    "fraction",
+    "message"
+  ],
+  "properties": {
+    "type": {
+      "const": "progress"
+    },
+    "parent": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "fraction": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "message": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "maxLength": 256
+    }
+  },
+  "examples": [
+    {
+      "type": "progress",
+      "parent": "r7",
+      "fraction": 0.5,
+      "message": "page loaded"
+    }
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/error.schema.json",
+  "title": "error (both directions)",
+  "description": "Terminates the request identified by `id` with an error. connector → runtime: ends a describe, schedule or run request, or the handshake (id \"hello\"). runtime → connector: ends a connector `file` or `template` request, or rejects the handshake (id \"hello\").",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "error"
+  ],
+  "properties": {
+    "type": {
+      "const": "error"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "error": {
+      "$ref": "common.schema.json#/$defs/error"
+    }
+  },
+  "examples": [
+    {
+      "type": "error",
+      "id": "r7",
+      "error": {
+        "type": "retry",
+        "message": "rate limited by target",
+        "delayMs": 30000
+      }
+    }
+  ]
+}

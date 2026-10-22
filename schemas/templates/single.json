@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/templates/single.json",
+  "title": "Single",
+  "description": "Exactly one analysis with an empty analysis config. The default when a task defines no schedule.",
+  "x-scantor-template": {
+    "name": "single",
+    "version": 1,
+    "resolves": false,
+    "estimate": "exact",
+    "dataSources": [],
+    "uploads": false,
+    "example": {
+      "scanConfig": {},
+      "analysisConfig": {}
+    }
+  },
+  "$defs": {
+    "scanConfig": {
+      "type": "object",
+      "title": "ScanConfig",
+      "description": "No parameters.",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "analysisConfig": {
+      "type": "object",
+      "title": "AnalysisConfig",
+      "description": "No parameters.",
+      "properties": {},
+      "additionalProperties": false
+    }
+  }
+}

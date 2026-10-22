@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/templateDone.schema.json",
+  "title": "templateDone (runtime → connector)",
+  "description": "End of the template stream `id`; `count` items were sent in total.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "count"
+  ],
+  "properties": {
+    "type": {
+      "const": "templateDone"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "examples": [
+    {
+      "type": "templateDone",
+      "id": "c1",
+      "count": 1000
+    }
+  ]
+}

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/hello.schema.json",
+  "title": "hello (connector → runtime)",
+  "description": "First message of every connector process, written right after start and before the entry is imported. Announces the protocol versions the connector speaks.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "protocol",
+    "connector",
+    "pid"
+  ],
+  "properties": {
+    "type": {
+      "const": "hello"
+    },
+    "id": {
+      "const": "hello"
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "max"
+      ],
+      "properties": {
+        "min": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "connector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "version"
+      ],
+      "properties": {
+        "language": {
+          "enum": [
+            "python",
+            "typescript",
+            "javascript",
+            "go"
+          ]
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "runtime": {
+          "description": "Language runtime, e.g. \"cpython 3.14.0\", \"node 26.12.1\", \"go1.27.3\".",
+          "type": "string",
+          "maxLength": 64
+        }
+      }
+    },
+    "pid": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "examples": [
+    {
+      "type": "hello",
+      "id": "hello",
+      "protocol": {
+        "min": 1,
+        "max": 1
+      },
+      "connector": {
+        "language": "python",
+        "version": "1.4.0",
+        "runtime": "cpython 3.14.0"
+      },
+      "pid": 17
+    }
+  ]
+}

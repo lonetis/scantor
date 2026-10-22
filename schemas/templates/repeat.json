@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/templates/repeat.json",
+  "title": "Repeat",
+  "description": "`times` analyses whose config is only the 0-based iteration number.",
+  "x-scantor-template": {
+    "name": "repeat",
+    "version": 1,
+    "resolves": false,
+    "estimate": "exact",
+    "dataSources": [],
+    "uploads": false,
+    "example": {
+      "scanConfig": {
+        "times": 3
+      },
+      "analysisConfig": {
+        "iteration": 0
+      }
+    }
+  },
+  "$defs": {
+    "scanConfig": {
+      "type": "object",
+      "title": "ScanConfig",
+      "properties": {
+        "times": {
+          "description": "Number of analyses.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "default": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysisConfig": {
+      "type": "object",
+      "title": "AnalysisConfig",
+      "properties": {
+        "iteration": {
+          "description": "0-based iteration.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "iteration"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

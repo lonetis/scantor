@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/describe.schema.json",
+  "title": "Task description (describe output)",
+  "description": "Output of `scantor runtime describe`, stored as `revisions.description` and `testRuns.description`. Produced by the runtime from the connector's `description` message: the runtime normalises the schemas, substitutes the canonical template schemas for unwrapped templates, and derives the path lists. See docs/tasks.md §7.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocolVersion",
+    "connector",
+    "schemas",
+    "schedule",
+    "secretPaths",
+    "uploadPaths",
+    "fileRefPaths",
+    "warnings"
+  ],
+  "properties": {
+    "protocolVersion": {
+      "description": "Connector protocol version negotiated in hello/welcome.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "connector": {
+      "description": "Connector identity from the hello message.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "language",
+        "version"
+      ],
+      "properties": {
+        "language": {
+          "description": "Language the connector loaded the entry as; must equal the manifest language.",
+          "enum": [
+            "python",
+            "typescript",
+            "javascript",
+            "go"
+          ]
+        },
+        "version": {
+          "description": "Connector (and base image) version, semver.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "schemas": {
+      "description": "JSON Schemas (draft 2020-12) of the four task types. Config types are exported in input (validation) mode, the result in output (serialization) mode. Each is an object schema of at most 256 KiB.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskConfig",
+        "scanConfig",
+        "analysisConfig",
+        "result"
+      ],
+      "properties": {
+        "taskConfig": {
+          "$ref": "#/$defs/objectSchema"
+        },
+        "scanConfig": {
+          "$ref": "#/$defs/objectSchema"
+        },
+        "analysisConfig": {
+          "$ref": "#/$defs/objectSchema"
+        },
+        "result": {
+          "$ref": "#/$defs/objectSchema"
+        }
+      }
+    },
+    "schedule": {
+      "description": "How scheduling runs: natively in the runtime for an unwrapped template, otherwise through the connector.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "custom"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "template"
+          ],
+          "properties": {
+            "kind": {
+              "const": "template"
+            },
+            "template": {
+              "description": "Template name (schemas/templates/<name>.json).",
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]{0,31}$"
+            }
+          }
+        }
+      ]
+    },
+    "secretPaths": {
+      "description": "Instance paths of `writeOnly: true` values per type; masked as \"***\" in every API, export and MCP response.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskConfig",
+        "scanConfig",
+        "analysisConfig",
+        "result"
+      ],
+      "properties": {
+        "taskConfig": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/pointer"
+          }
+        },
+        "scanConfig": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/pointer"
+          }
+        },
+        "analysisConfig": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/pointer"
+          }
+        },
+        "result": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/pointer"
+          }
+        }
+      }
+    },
+    "uploadPaths": {
+      "description": "Instance paths of string fields annotated `\"x-scantor\": \"upload\"` (upload ids).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskConfig",
+        "scanConfig"
+      ],
+      "properties": {
+        "taskConfig": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/pointer"
+          }
+        },
+        "scanConfig": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/pointer"
+          }
+        }
+      }
+    },
+    "fileRefPaths": {
+      "description": "Instance paths of FileRef objects (`\"x-scantor\": \"file\"`) in the result.",
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/pointer"
+      }
+    },
+    "warnings": {
+      "description": "Non-fatal findings (schema constructs outside the supported subset, open nested objects, …).",
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    }
+  },
+  "$defs": {
+    "pointer": {
+      "description": "Instance JSON pointer (RFC 6901, `~0`/`~1` escaping). The segment `*` matches any array index or any property name of a map-like object. The empty string is the root.",
+      "type": "string",
+      "maxLength": 1024,
+      "pattern": "^(/([^/~]|~[01])*)*$"
+    },
+    "objectSchema": {
+      "description": "A JSON Schema whose root describes a JSON object. Config roots additionally have `additionalProperties: false`.",
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "$schema": {
+          "const": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "type": {
+          "const": "object"
+        }
+      }
+    }
+  }
+}

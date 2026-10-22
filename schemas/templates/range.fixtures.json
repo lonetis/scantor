@@ -1,0 +1,230 @@
+{
+  "template": "range",
+  "scanConfig": {
+    "valid": [
+      {
+        "name": "defaults",
+        "input": {},
+        "effective": {
+          "start": 0,
+          "end": 10,
+          "step": 1
+        }
+      },
+      {
+        "name": "count down",
+        "input": {
+          "start": 5,
+          "end": 0,
+          "step": -2
+        },
+        "effective": {
+          "start": 5,
+          "end": 0,
+          "step": -2
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "fractional start",
+        "input": {
+          "start": 1.5
+        },
+        "kind": "schema",
+        "path": "/start"
+      },
+      {
+        "name": "string end",
+        "input": {
+          "end": "10"
+        },
+        "kind": "schema",
+        "path": "/end"
+      },
+      {
+        "name": "unknown key",
+        "input": {
+          "stop": 5
+        },
+        "kind": "schema",
+        "path": ""
+      },
+      {
+        "name": "zero step",
+        "input": {
+          "step": 0
+        },
+        "kind": "semantic",
+        "path": "/step"
+      }
+    ]
+  },
+  "analysisConfig": {
+    "valid": [
+      {
+        "name": "value",
+        "input": {
+          "value": -3
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "missing value",
+        "input": {},
+        "path": ""
+      },
+      {
+        "name": "fractional",
+        "input": {
+          "value": 0.5
+        },
+        "path": "/value"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "defaults",
+      "scanConfig": {},
+      "estimate": {
+        "expectedTotal": 10,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "start": 0,
+          "end": 10,
+          "step": 1
+        },
+        "provenance": {},
+        "expectedTotal": 10
+      },
+      "analyses": [
+        {
+          "value": 0
+        },
+        {
+          "value": 1
+        },
+        {
+          "value": 2
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 5
+        },
+        {
+          "value": 6
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 8
+        },
+        {
+          "value": 9
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "count down",
+      "scanConfig": {
+        "start": 5,
+        "end": 0,
+        "step": -2
+      },
+      "estimate": {
+        "expectedTotal": 3,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "start": 5,
+          "end": 0,
+          "step": -2
+        },
+        "provenance": {},
+        "expectedTotal": 3
+      },
+      "analyses": [
+        {
+          "value": 5
+        },
+        {
+          "value": 3
+        },
+        {
+          "value": 1
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "empty",
+      "scanConfig": {
+        "start": 3,
+        "end": 3
+      },
+      "estimate": {
+        "expectedTotal": 0,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "start": 3,
+          "end": 3,
+          "step": 1
+        },
+        "provenance": {},
+        "expectedTotal": 0
+      },
+      "analyses": [],
+      "complete": true
+    },
+    {
+      "name": "step 3",
+      "scanConfig": {
+        "start": 1,
+        "end": 11,
+        "step": 3
+      },
+      "estimate": {
+        "expectedTotal": 4,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "start": 1,
+          "end": 11,
+          "step": 3
+        },
+        "provenance": {},
+        "expectedTotal": 4
+      },
+      "analyses": [
+        {
+          "value": 1
+        },
+        {
+          "value": 4
+        },
+        {
+          "value": 7
+        },
+        {
+          "value": 10
+        }
+      ],
+      "complete": true
+    }
+  ]
+}

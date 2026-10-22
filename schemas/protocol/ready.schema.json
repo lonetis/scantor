@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/ready.schema.json",
+  "title": "ready (connector → runtime)",
+  "description": "The entry was imported and the task definition is valid; the process accepts requests. On failure the connector sends `error` with id \"hello\" and exits 1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id"
+  ],
+  "properties": {
+    "type": {
+      "const": "ready"
+    },
+    "id": {
+      "const": "hello"
+    }
+  },
+  "examples": [
+    {
+      "type": "ready",
+      "id": "hello"
+    }
+  ]
+}

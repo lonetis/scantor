@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/templateCancel.schema.json",
+  "title": "templateCancel (connector → runtime)",
+  "description": "User code stopped iterating the template stream `id` early. The runtime stops producing and answers with templateDone.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id"
+  ],
+  "properties": {
+    "type": {
+      "const": "templateCancel"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    }
+  },
+  "examples": [
+    {
+      "type": "templateCancel",
+      "id": "c1"
+    }
+  ]
+}

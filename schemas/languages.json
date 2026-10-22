@@ -1,0 +1,72 @@
+{
+  "$comment": "The single language table of scantor (data, not a JSON Schema). Read by the scantor binary (task pipeline, scaffolds, CLI) and the orchestrator (GET /api/languages, base image refs). Base image ref = <prefix><image>:<tag>: the compiled-in internal/version pair (ImagePrefix, Version), replaced by SCANTOR_IMAGE_PREFIX/SCANTOR_IMAGE_TAG whenever SCANTOR_IMAGE_TAG is non-empty (docs/architecture.md §4.2). Language-specific commands live in the base image ENV contract (SCANTOR_CONNECTOR_CMD, SCANTOR_CHECK_CMD, SCANTOR_DEBUG_CMD, SCANTOR_DEBUG_PORT), never in code. See docs/tasks.md §4.",
+  "version": 1,
+  "commonEditorExtensions": [
+    "redhat.vscode-yaml"
+  ],
+  "languages": {
+    "python": {
+      "title": "Python",
+      "base": "python",
+      "image": "scantor-base-python",
+      "entry": "main.py",
+      "entryKind": "source",
+      "extensions": [
+        ".py"
+      ],
+      "scaffold": "scaffolds/python",
+      "guide": "docs/guide/authoring-python.md",
+      "editorExtensions": [
+        "ms-python.python",
+        "detachhead.basedpyright"
+      ]
+    },
+    "typescript": {
+      "title": "TypeScript",
+      "base": "js",
+      "image": "scantor-base-js",
+      "entry": "main.ts",
+      "entryKind": "source",
+      "extensions": [
+        ".ts",
+        ".mts"
+      ],
+      "scaffold": "scaffolds/typescript",
+      "guide": "docs/guide/authoring-typescript.md",
+      "editorExtensions": [
+        "dbaeumer.vscode-eslint"
+      ]
+    },
+    "javascript": {
+      "title": "JavaScript",
+      "base": "js",
+      "image": "scantor-base-js",
+      "entry": "main.js",
+      "entryKind": "source",
+      "extensions": [
+        ".js",
+        ".mjs"
+      ],
+      "scaffold": "scaffolds/javascript",
+      "guide": "docs/guide/authoring-javascript.md",
+      "editorExtensions": [
+        "dbaeumer.vscode-eslint"
+      ]
+    },
+    "go": {
+      "title": "Go",
+      "base": "go",
+      "image": "scantor-base-go",
+      "entry": "/task/task",
+      "entryKind": "binary",
+      "extensions": [
+        ".go"
+      ],
+      "scaffold": "scaffolds/go",
+      "guide": "docs/guide/authoring-go.md",
+      "editorExtensions": [
+        "golang.go"
+      ]
+    }
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "template": "single",
+  "scanConfig": {
+    "valid": [
+      {
+        "name": "empty",
+        "input": {},
+        "effective": {}
+      }
+    ],
+    "invalid": [
+      {
+        "name": "unknown key",
+        "input": {
+          "limit": 1
+        },
+        "kind": "schema",
+        "path": ""
+      }
+    ]
+  },
+  "analysisConfig": {
+    "valid": [
+      {
+        "name": "empty",
+        "input": {}
+      }
+    ],
+    "invalid": [
+      {
+        "name": "unknown key",
+        "input": {
+          "x": 1
+        },
+        "path": ""
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "one analysis",
+      "scanConfig": {},
+      "estimate": {
+        "expectedTotal": 1,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {},
+        "provenance": {},
+        "expectedTotal": 1
+      },
+      "analyses": [
+        {}
+      ],
+      "complete": true
+    }
+  ]
+}

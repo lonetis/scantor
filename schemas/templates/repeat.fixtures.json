@@ -1,0 +1,120 @@
+{
+  "template": "repeat",
+  "scanConfig": {
+    "valid": [
+      {
+        "name": "defaults",
+        "input": {},
+        "effective": {
+          "times": 1
+        }
+      },
+      {
+        "name": "three",
+        "input": {
+          "times": 3
+        },
+        "effective": {
+          "times": 3
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "zero",
+        "input": {
+          "times": 0
+        },
+        "kind": "schema",
+        "path": "/times"
+      },
+      {
+        "name": "fractional",
+        "input": {
+          "times": 2.5
+        },
+        "kind": "schema",
+        "path": "/times"
+      },
+      {
+        "name": "unknown key",
+        "input": {
+          "count": 2
+        },
+        "kind": "schema",
+        "path": ""
+      }
+    ]
+  },
+  "analysisConfig": {
+    "valid": [
+      {
+        "name": "iteration",
+        "input": {
+          "iteration": 2
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "negative",
+        "input": {
+          "iteration": -1
+        },
+        "path": "/iteration"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "defaults",
+      "scanConfig": {},
+      "estimate": {
+        "expectedTotal": 1,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "times": 1
+        },
+        "provenance": {},
+        "expectedTotal": 1
+      },
+      "analyses": [
+        {
+          "iteration": 0
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "three",
+      "scanConfig": {
+        "times": 3
+      },
+      "estimate": {
+        "expectedTotal": 3,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "times": 3
+        },
+        "provenance": {},
+        "expectedTotal": 3
+      },
+      "analyses": [
+        {
+          "iteration": 0
+        },
+        {
+          "iteration": 1
+        },
+        {
+          "iteration": 2
+        }
+      ],
+      "complete": true
+    }
+  ]
+}

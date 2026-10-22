@@ -1,0 +1,243 @@
+{
+  "template": "list",
+  "scanConfig": {
+    "valid": [
+      {
+        "name": "empty (zero analyses)",
+        "input": {},
+        "effective": {
+          "items": [],
+          "upload": null,
+          "offset": 0,
+          "limit": null
+        }
+      },
+      {
+        "name": "inline",
+        "input": {
+          "items": [
+            "a",
+            "b"
+          ]
+        },
+        "effective": {
+          "items": [
+            "a",
+            "b"
+          ],
+          "upload": null,
+          "offset": 0,
+          "limit": null
+        }
+      },
+      {
+        "name": "upload with limit",
+        "input": {
+          "upload": "7b0c6e2a-1f3d-4c5e-9a8b-0d1e2f3a4b5c",
+          "limit": 2
+        },
+        "effective": {
+          "upload": "7b0c6e2a-1f3d-4c5e-9a8b-0d1e2f3a4b5c",
+          "limit": 2,
+          "items": [],
+          "offset": 0
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "items not an array",
+        "input": {
+          "items": "a"
+        },
+        "kind": "schema",
+        "path": "/items"
+      },
+      {
+        "name": "empty string item",
+        "input": {
+          "items": [
+            ""
+          ]
+        },
+        "kind": "schema",
+        "path": "/items/0"
+      },
+      {
+        "name": "negative offset",
+        "input": {
+          "offset": -1
+        },
+        "kind": "schema",
+        "path": "/offset"
+      },
+      {
+        "name": "zero limit",
+        "input": {
+          "limit": 0
+        },
+        "kind": "schema",
+        "path": "/limit"
+      },
+      {
+        "name": "upload not a uuid",
+        "input": {
+          "upload": "targets.txt"
+        },
+        "kind": "schema",
+        "path": "/upload"
+      },
+      {
+        "name": "unknown key",
+        "input": {
+          "dedupe": true
+        },
+        "kind": "schema",
+        "path": ""
+      },
+      {
+        "name": "unknown upload",
+        "input": {
+          "upload": "00000000-0000-4000-8000-000000000000"
+        },
+        "kind": "semantic",
+        "path": "/upload"
+      }
+    ]
+  },
+  "analysisConfig": {
+    "valid": [
+      {
+        "name": "item",
+        "input": {
+          "item": "example.org",
+          "index": 0
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "missing index",
+        "input": {
+          "item": "example.org"
+        },
+        "path": ""
+      },
+      {
+        "name": "empty item",
+        "input": {
+          "item": "",
+          "index": 0
+        },
+        "path": "/item"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "inline items are trimmed and empty items skipped",
+      "scanConfig": {
+        "items": [
+          " example.org ",
+          "   ",
+          "a.example",
+          "b.example"
+        ]
+      },
+      "estimate": {
+        "expectedTotal": 3,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "items": [
+            " example.org ",
+            "   ",
+            "a.example",
+            "b.example"
+          ],
+          "upload": null,
+          "offset": 0,
+          "limit": null
+        },
+        "provenance": {
+          "inlineItems": 3,
+          "upload": null
+        },
+        "expectedTotal": 3
+      },
+      "analyses": [
+        {
+          "item": "example.org",
+          "index": 0
+        },
+        {
+          "item": "a.example",
+          "index": 1
+        },
+        {
+          "item": "b.example",
+          "index": 2
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "inline then upload with offset and limit",
+      "scanConfig": {
+        "items": [
+          "x"
+        ],
+        "upload": "7b0c6e2a-1f3d-4c5e-9a8b-0d1e2f3a4b5c",
+        "offset": 1,
+        "limit": 3
+      },
+      "uploads": [
+        {
+          "id": "7b0c6e2a-1f3d-4c5e-9a8b-0d1e2f3a4b5c",
+          "content": "one\r\ntwo\n\n  three  \nfour",
+          "lines": 4
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 3,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "items": [
+            "x"
+          ],
+          "upload": "7b0c6e2a-1f3d-4c5e-9a8b-0d1e2f3a4b5c",
+          "offset": 1,
+          "limit": 3
+        },
+        "provenance": {
+          "inlineItems": 1,
+          "upload": {
+            "id": "7b0c6e2a-1f3d-4c5e-9a8b-0d1e2f3a4b5c",
+            "sha256": "85b7d6a0e31806ac0a63a11a2b23a3743048ea07652db622dd41e79b061ae578",
+            "bytes": 24,
+            "lines": 4
+          }
+        },
+        "expectedTotal": 3
+      },
+      "analyses": [
+        {
+          "item": "one",
+          "index": 1
+        },
+        {
+          "item": "two",
+          "index": 2
+        },
+        {
+          "item": "three",
+          "index": 3
+        }
+      ],
+      "complete": true
+    }
+  ]
+}

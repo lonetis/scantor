@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/cancel.schema.json",
+  "title": "cancel (runtime → connector)",
+  "description": "Ask the connector to abort the in-flight request `id` before the runtime ends it. The v1 runtime sends it only while the worker shuts down (`drain`: drain grace running out; `stop`: scan cancelled or worker stopping); deadlines never produce a cancel. The connector cancels user code and ends the request with `error` type `cancelled` (or its normal reply), which the runtime records as ScantorError type `cancelled` (not retried, not an attempt). After cancelGraceMs the runtime kills the process group.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "reason"
+  ],
+  "properties": {
+    "type": {
+      "const": "cancel"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "reason": {
+      "enum": [
+        "drain",
+        "stop"
+      ]
+    }
+  },
+  "examples": [
+    {
+      "type": "cancel",
+      "id": "r7",
+      "reason": "drain"
+    }
+  ]
+}

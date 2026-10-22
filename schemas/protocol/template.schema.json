@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/template.schema.json",
+  "title": "template (connector → runtime)",
+  "description": "A wrapped template call inside a custom schedule: the runtime validates `scanConfig` against the canonical template schema (defaults applied), resolves it, and streams `templateItem` messages up to the granted credit, then `templateDone` or `error`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "parent",
+    "template",
+    "scanConfig",
+    "credit"
+  ],
+  "properties": {
+    "type": {
+      "const": "template"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "parent": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "template": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]{0,31}$"
+    },
+    "scanConfig": {
+      "$ref": "common.schema.json#/$defs/jsonObject"
+    },
+    "credit": {
+      "$ref": "common.schema.json#/$defs/credit"
+    }
+  },
+  "examples": [
+    {
+      "type": "template",
+      "id": "c1",
+      "parent": "s1",
+      "template": "tranco",
+      "scanConfig": {
+        "list": "latest",
+        "limit": 1000
+      },
+      "credit": 256
+    }
+  ]
+}

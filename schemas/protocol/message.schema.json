@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/message.schema.json",
+  "title": "Connector protocol message (any direction)",
+  "description": "Union of all protocol v1 messages. `$defs.connectorToRuntime` and `$defs.runtimeToConnector` restrict the union per direction; the conformance harness validates every line a connector writes against `#/$defs/connectorToRuntime`.",
+  "oneOf": [
+    {
+      "$ref": "analysis.schema.json"
+    },
+    {
+      "$ref": "cancel.schema.json"
+    },
+    {
+      "$ref": "describe.schema.json"
+    },
+    {
+      "$ref": "description.schema.json"
+    },
+    {
+      "$ref": "done.schema.json"
+    },
+    {
+      "$ref": "error.schema.json"
+    },
+    {
+      "$ref": "file.schema.json"
+    },
+    {
+      "$ref": "fileRef.schema.json"
+    },
+    {
+      "$ref": "hello.schema.json"
+    },
+    {
+      "$ref": "log.schema.json"
+    },
+    {
+      "$ref": "progress.schema.json"
+    },
+    {
+      "$ref": "ready.schema.json"
+    },
+    {
+      "$ref": "result.schema.json"
+    },
+    {
+      "$ref": "run.schema.json"
+    },
+    {
+      "$ref": "schedule.schema.json"
+    },
+    {
+      "$ref": "shutdown.schema.json"
+    },
+    {
+      "$ref": "template.schema.json"
+    },
+    {
+      "$ref": "templateCancel.schema.json"
+    },
+    {
+      "$ref": "templateCredit.schema.json"
+    },
+    {
+      "$ref": "templateDone.schema.json"
+    },
+    {
+      "$ref": "templateItem.schema.json"
+    },
+    {
+      "$ref": "welcome.schema.json"
+    }
+  ],
+  "$defs": {
+    "connectorToRuntime": {
+      "oneOf": [
+        {
+          "$ref": "hello.schema.json"
+        },
+        {
+          "$ref": "ready.schema.json"
+        },
+        {
+          "$ref": "description.schema.json"
+        },
+        {
+          "$ref": "analysis.schema.json"
+        },
+        {
+          "$ref": "done.schema.json"
+        },
+        {
+          "$ref": "result.schema.json"
+        },
+        {
+          "$ref": "error.schema.json"
+        },
+        {
+          "$ref": "file.schema.json"
+        },
+        {
+          "$ref": "log.schema.json"
+        },
+        {
+          "$ref": "progress.schema.json"
+        },
+        {
+          "$ref": "template.schema.json"
+        },
+        {
+          "$ref": "templateCredit.schema.json"
+        },
+        {
+          "$ref": "templateCancel.schema.json"
+        }
+      ]
+    },
+    "runtimeToConnector": {
+      "oneOf": [
+        {
+          "$ref": "welcome.schema.json"
+        },
+        {
+          "$ref": "describe.schema.json"
+        },
+        {
+          "$ref": "schedule.schema.json"
+        },
+        {
+          "$ref": "run.schema.json"
+        },
+        {
+          "$ref": "error.schema.json"
+        },
+        {
+          "$ref": "cancel.schema.json"
+        },
+        {
+          "$ref": "shutdown.schema.json"
+        },
+        {
+          "$ref": "fileRef.schema.json"
+        },
+        {
+          "$ref": "templateItem.schema.json"
+        },
+        {
+          "$ref": "templateDone.schema.json"
+        }
+      ]
+    }
+  }
+}

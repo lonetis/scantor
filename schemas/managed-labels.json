@@ -1,0 +1,86 @@
+{
+  "$comment": "The managed label set of scantor (data, not a JSON Schema). Read by Go internal/container (ManagedLabels) and TS orchestrator/server/utils/labels.ts (managedLabels); both are unit-tested against this file. Every container and network scantor creates gets `fixed` plus `scantor.kind=<kind>` plus the identity labels of its kind; these run-time labels override image labels with the same key. Containers are recognised only by these labels AND their name prefix, never by image labels. `forbiddenImageLabelKeys` is the pattern of Dockerfile rule D9 and of the post-build label check. Test tooling labels (`scantor.test=true`, `scantor.dev=true`) are not managed labels. See docs/architecture.md §7, docs/security.md LBL-1…LBL-5, docs/tasks.md §8.2.",
+  "version": 1,
+  "fixed": {
+    "traefik.enable": "false",
+    "com.docker.compose.project": "scantor-managed",
+    "com.docker.compose.service": "",
+    "scantor.managed": "true"
+  },
+  "kindKey": "scantor.kind",
+  "identityKeys": {
+    "scantor.worker": "worker id",
+    "scantor.scan": "scan id",
+    "scantor.user": "owner user id",
+    "scantor.node": "node id",
+    "scantor.spec-hash": "specHash of the worker's assignment",
+    "scantor.op": "workspace helper operation (init, purge, list, read, write-files, delete-files, scaffold, extract, git-clone, git-pull, commit, discard, snapshot)"
+  },
+  "kinds": {
+    "worker": {
+      "object": "container",
+      "namePrefix": "scantor-w-",
+      "createdBy": "node daemon",
+      "identity": [
+        "scantor.worker",
+        "scantor.scan",
+        "scantor.user",
+        "scantor.node",
+        "scantor.spec-hash"
+      ]
+    },
+    "helper": {
+      "object": "container",
+      "namePrefix": "scantor-h-",
+      "createdBy": "orchestrator (workspace helper runner)",
+      "identity": [
+        "scantor.user",
+        "scantor.op"
+      ]
+    },
+    "build": {
+      "object": "container",
+      "namePrefix": "scantor-b-",
+      "createdBy": "task pipeline (describe and check containers)",
+      "identity": []
+    },
+    "testRun": {
+      "object": "container",
+      "namePrefix": "scantor-t-",
+      "createdBy": "orchestrator (testRun job)",
+      "identity": [
+        "scantor.user"
+      ]
+    },
+    "editor": {
+      "object": "container",
+      "namePrefix": "scantor-editor-",
+      "createdBy": "orchestrator (editor manager)",
+      "identity": [
+        "scantor.user"
+      ]
+    },
+    "egressHelper": {
+      "object": "container",
+      "namePrefix": "scantor-netpol-",
+      "createdBy": "node daemon",
+      "identity": [
+        "scantor.node"
+      ]
+    },
+    "network": {
+      "object": "network",
+      "names": [
+        "scantor-egress",
+        "scantor-workers"
+      ],
+      "createdBy": "orchestrator (scantor-egress), node daemon (scantor-workers)",
+      "identity": []
+    }
+  },
+  "forbiddenImageLabelKeys": {
+    "pattern": "^(traefik\\.|com\\.docker\\.compose\\.|scantor\\.)",
+    "caseInsensitive": true,
+    "forbidDollar": true
+  }
+}

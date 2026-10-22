@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/templates/range.json",
+  "title": "Range",
+  "description": "One analysis per integer of start, start+step, … up to but excluding end (Python range semantics). step must not be 0.",
+  "x-scantor-template": {
+    "name": "range",
+    "version": 1,
+    "resolves": false,
+    "estimate": "exact",
+    "dataSources": [],
+    "uploads": false,
+    "example": {
+      "scanConfig": {
+        "start": 1,
+        "end": 11
+      },
+      "analysisConfig": {
+        "value": 1
+      }
+    }
+  },
+  "$defs": {
+    "scanConfig": {
+      "type": "object",
+      "title": "ScanConfig",
+      "properties": {
+        "start": {
+          "description": "First value (inclusive).",
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991,
+          "default": 0
+        },
+        "end": {
+          "description": "Bound (exclusive).",
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991,
+          "default": 10
+        },
+        "step": {
+          "description": "Increment; negative counts down; 0 is rejected.",
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991,
+          "default": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysisConfig": {
+      "type": "object",
+      "title": "AnalysisConfig",
+      "properties": {
+        "value": {
+          "description": "The integer.",
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

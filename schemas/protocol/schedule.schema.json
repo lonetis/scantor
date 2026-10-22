@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/schedule.schema.json",
+  "title": "schedule (runtime → connector)",
+  "description": "Run the task's schedule function. The connector replies with zero or more `analysis` messages followed by `done`, or by `error`.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "ctx",
+    "scanConfig",
+    "taskConfig"
+  ],
+  "properties": {
+    "type": {
+      "const": "schedule"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "ctx": {
+      "$ref": "common.schema.json#/$defs/ctx"
+    },
+    "scanConfig": {
+      "$ref": "common.schema.json#/$defs/jsonObject"
+    },
+    "taskConfig": {
+      "$ref": "common.schema.json#/$defs/jsonObject"
+    }
+  },
+  "examples": [
+    {
+      "type": "schedule",
+      "id": "s1",
+      "ctx": {
+        "scanId": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+        "analysisId": null,
+        "seq": null,
+        "round": null,
+        "attempt": 1,
+        "executionId": null,
+        "deadlineMs": null,
+        "tmpDir": "/tmp/scantor/x-schedule-1/tmp",
+        "filesDir": null
+      },
+      "scanConfig": {
+        "count": 3
+      },
+      "taskConfig": {
+        "greeting": "Hello"
+      }
+    }
+  ]
+}

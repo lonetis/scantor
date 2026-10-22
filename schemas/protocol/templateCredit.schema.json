@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/templateCredit.schema.json",
+  "title": "templateCredit (connector → runtime)",
+  "description": "Grant `credit` more items for the template stream `id` (sent as user code consumes items).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "credit"
+  ],
+  "properties": {
+    "type": {
+      "const": "templateCredit"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "credit": {
+      "$ref": "common.schema.json#/$defs/credit"
+    }
+  },
+  "examples": [
+    {
+      "type": "templateCredit",
+      "id": "c1",
+      "credit": 128
+    }
+  ]
+}

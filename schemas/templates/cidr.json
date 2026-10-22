@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/templates/cidr.json",
+  "title": "CIDR ranges",
+  "description": "One analysis per IP address (or per subnet of length `prefix`) of IPv4/IPv6 CIDR ranges, minus exclusions. Ranges are normalised, merged and iterated in ascending order, IPv4 before IPv6. The expansion must not exceed `maxAnalyses`.",
+  "x-scantor-template": {
+    "name": "cidr",
+    "version": 1,
+    "resolves": false,
+    "estimate": "exact",
+    "dataSources": [],
+    "uploads": false,
+    "example": {
+      "scanConfig": {
+        "cidrs": [
+          "192.0.2.0/29"
+        ],
+        "maxAnalyses": 65536
+      },
+      "analysisConfig": {
+        "ip": "192.0.2.0",
+        "prefix": 32,
+        "version": 4
+      }
+    }
+  },
+  "$defs": {
+    "scanConfig": {
+      "type": "object",
+      "title": "ScanConfig",
+      "properties": {
+        "cidrs": {
+          "description": "CIDR ranges or single addresses (IPv4 or IPv6). Host bits are cleared.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 49
+          },
+          "default": [
+            "192.0.2.0/29"
+          ]
+        },
+        "exclude": {
+          "description": "CIDR ranges or addresses never to emit (in subnet mode: subnets that intersect an exclusion are skipped).",
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 49
+          },
+          "default": []
+        },
+        "prefix": {
+          "description": "null = one analysis per address; otherwise one analysis per subnet of this length (each cidr must be at least that large; ≤ 32 when any IPv4 range is present).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 128,
+          "default": null
+        },
+        "maxAnalyses": {
+          "description": "Required safety cap: the scan is rejected when the expansion is larger.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100000000,
+          "default": 65536
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysisConfig": {
+      "type": "object",
+      "title": "AnalysisConfig",
+      "properties": {
+        "ip": {
+          "description": "Address, or network address of the subnet (RFC 5952 text form for IPv6).",
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 39
+        },
+        "prefix": {
+          "description": "32/128 for single addresses, otherwise the subnet length.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "version": {
+          "description": "IP version.",
+          "type": "integer",
+          "enum": [
+            4,
+            6
+          ]
+        }
+      },
+      "required": [
+        "ip",
+        "prefix",
+        "version"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

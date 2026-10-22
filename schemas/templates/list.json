@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/templates/list.json",
+  "title": "List",
+  "description": "One analysis per item of an inline list and/or an uploaded newline-separated file, in order. Items are trimmed; empty items are skipped.",
+  "x-scantor-template": {
+    "name": "list",
+    "version": 1,
+    "resolves": false,
+    "estimate": "exact",
+    "dataSources": [],
+    "uploads": true,
+    "example": {
+      "scanConfig": {
+        "items": [
+          "example.org",
+          "example.net"
+        ]
+      },
+      "analysisConfig": {
+        "item": "example.org",
+        "index": 0
+      }
+    }
+  },
+  "$defs": {
+    "scanConfig": {
+      "type": "object",
+      "title": "ScanConfig",
+      "properties": {
+        "items": {
+          "description": "Inline items (trimmed; empty items skipped).",
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "default": []
+        },
+        "upload": {
+          "description": "Id of an uploaded list (POST /api/uploads, kind list); its non-empty lines follow the inline items.",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid",
+          "x-scantor": "upload",
+          "default": null
+        },
+        "offset": {
+          "description": "Skip this many items of the combined sequence.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 0
+        },
+        "limit": {
+          "description": "At most this many analyses; null = all.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "maximum": 9007199254740991,
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysisConfig": {
+      "type": "object",
+      "title": "AnalysisConfig",
+      "properties": {
+        "item": {
+          "description": "The trimmed item.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "index": {
+          "description": "0-based position in the combined sequence (inline items, then upload lines), before offset.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "item",
+        "index"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

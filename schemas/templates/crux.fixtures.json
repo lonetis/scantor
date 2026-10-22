@@ -1,0 +1,206 @@
+{
+  "template": "crux",
+  "scanConfig": {
+    "valid": [
+      {
+        "name": "defaults",
+        "input": {},
+        "effective": {
+          "country": "global",
+          "month": "latest",
+          "bucket": 1000
+        }
+      },
+      {
+        "name": "country month",
+        "input": {
+          "country": "de",
+          "month": "202609",
+          "bucket": 10000
+        },
+        "effective": {
+          "country": "de",
+          "month": "202609",
+          "bucket": 10000
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "bucket not a bucket",
+        "input": {
+          "bucket": 2000
+        },
+        "kind": "schema",
+        "path": "/bucket"
+      },
+      {
+        "name": "bucket beyond 1M",
+        "input": {
+          "bucket": 5000000
+        },
+        "kind": "schema",
+        "path": "/bucket"
+      },
+      {
+        "name": "uppercase country",
+        "input": {
+          "country": "DE"
+        },
+        "kind": "schema",
+        "path": "/country"
+      },
+      {
+        "name": "month 13",
+        "input": {
+          "month": "202613"
+        },
+        "kind": "schema",
+        "path": "/month"
+      },
+      {
+        "name": "unknown key",
+        "input": {
+          "limit": 10
+        },
+        "kind": "schema",
+        "path": ""
+      }
+    ]
+  },
+  "analysisConfig": {
+    "valid": [
+      {
+        "name": "entry",
+        "input": {
+          "origin": "https://www.google.com",
+          "rank": 1000
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "rank not a bucket",
+        "input": {
+          "origin": "https://a.example",
+          "rank": 7
+        },
+        "path": "/rank"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "latest global, bucket 5000",
+      "scanConfig": {
+        "bucket": 5000
+      },
+      "now": "2026-10-21T12:00:00Z",
+      "http": [
+        {
+          "method": "GET",
+          "path": "/data/global/202609.csv.gz",
+          "status": 200,
+          "contentType": "application/octet-stream",
+          "body": "origin,rank\nhttps://www.google.com,1000\nhttps://www.youtube.com,1000\nhttps://example.org,5000\nhttp://example.net,10000\n",
+          "encoding": "gzip"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 5000,
+        "exact": false
+      },
+      "resolution": {
+        "scanConfig": {
+          "country": "global",
+          "month": "202609",
+          "bucket": 5000
+        },
+        "provenance": {
+          "country": "global",
+          "month": "202609",
+          "sourceUrl": "${crux}/data/global/202609.csv.gz",
+          "sha256": "99ff778b6be87681231e00342d98817ee8430ff76e53ba9d60d1a8800527abb6"
+        },
+        "expectedTotal": 3
+      },
+      "analyses": [
+        {
+          "origin": "https://www.google.com",
+          "rank": 1000
+        },
+        {
+          "origin": "https://www.youtube.com",
+          "rank": 1000
+        },
+        {
+          "origin": "https://example.org",
+          "rank": 5000
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "country and month",
+      "scanConfig": {
+        "country": "de",
+        "month": "202609"
+      },
+      "http": [
+        {
+          "method": "GET",
+          "path": "/data/country/de/202609.csv.gz",
+          "status": 200,
+          "contentType": "application/octet-stream",
+          "body": "origin,rank\nhttps://www.google.de,1000\nhttps://www.spiegel.de,1000\n",
+          "encoding": "gzip"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 1000,
+        "exact": false
+      },
+      "resolution": {
+        "scanConfig": {
+          "country": "de",
+          "month": "202609",
+          "bucket": 1000
+        },
+        "provenance": {
+          "country": "de",
+          "month": "202609",
+          "sourceUrl": "${crux}/data/country/de/202609.csv.gz",
+          "sha256": "f97c617968720f376f006f5516a2776b37625161308ad944a517e69f7461a7f8"
+        },
+        "expectedTotal": 2
+      },
+      "analyses": [
+        {
+          "origin": "https://www.google.de",
+          "rank": 1000
+        },
+        {
+          "origin": "https://www.spiegel.de",
+          "rank": 1000
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "month not published",
+      "scanConfig": {
+        "month": "202001"
+      },
+      "http": [],
+      "estimate": {
+        "expectedTotal": 1000,
+        "exact": false
+      },
+      "error": {
+        "type": "validation",
+        "retryable": false,
+        "contains": "CrUX list global 202001 not found"
+      }
+    }
+  ]
+}

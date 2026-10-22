@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/analysis.schema.json",
+  "title": "analysis (connector → runtime)",
+  "description": "One analysis config produced by schedule, in order. The runtime assigns seq by arrival order.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "config"
+  ],
+  "properties": {
+    "type": {
+      "const": "analysis"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "config": {
+      "$ref": "common.schema.json#/$defs/jsonObject"
+    }
+  },
+  "examples": [
+    {
+      "type": "analysis",
+      "id": "s1",
+      "config": {
+        "n": 0
+      }
+    }
+  ]
+}

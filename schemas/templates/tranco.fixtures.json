@@ -1,0 +1,302 @@
+{
+  "template": "tranco",
+  "scanConfig": {
+    "valid": [
+      {
+        "name": "defaults",
+        "input": {},
+        "effective": {
+          "list": "latest",
+          "subdomains": false,
+          "offset": 0,
+          "limit": 1000
+        }
+      },
+      {
+        "name": "list id",
+        "input": {
+          "list": "262W9",
+          "limit": 100000
+        },
+        "effective": {
+          "list": "262W9",
+          "limit": 100000,
+          "subdomains": false,
+          "offset": 0
+        }
+      },
+      {
+        "name": "date with subdomains",
+        "input": {
+          "list": "2026-10-01",
+          "subdomains": true
+        },
+        "effective": {
+          "list": "2026-10-01",
+          "subdomains": true,
+          "offset": 0,
+          "limit": 1000
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "zero limit",
+        "input": {
+          "limit": 0
+        },
+        "kind": "schema",
+        "path": "/limit"
+      },
+      {
+        "name": "limit above 1M",
+        "input": {
+          "limit": 1000001
+        },
+        "kind": "schema",
+        "path": "/limit"
+      },
+      {
+        "name": "bad list",
+        "input": {
+          "list": "yesterday"
+        },
+        "kind": "schema",
+        "path": "/list"
+      },
+      {
+        "name": "unknown key",
+        "input": {
+          "maxRank": 10
+        },
+        "kind": "schema",
+        "path": ""
+      },
+      {
+        "name": "window beyond 1M",
+        "input": {
+          "offset": 999999,
+          "limit": 2
+        },
+        "kind": "semantic",
+        "path": "/limit"
+      }
+    ]
+  },
+  "analysisConfig": {
+    "valid": [
+      {
+        "name": "entry",
+        "input": {
+          "domain": "google.com",
+          "rank": 1
+        }
+      }
+    ],
+    "invalid": [
+      {
+        "name": "rank zero",
+        "input": {
+          "domain": "google.com",
+          "rank": 0
+        },
+        "path": "/rank"
+      },
+      {
+        "name": "missing domain",
+        "input": {
+          "rank": 1
+        },
+        "path": ""
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "latest",
+      "scanConfig": {
+        "limit": 2
+      },
+      "http": [
+        {
+          "method": "GET",
+          "path": "/api/lists/date/latest?subdomains=false",
+          "status": 200,
+          "contentType": "application/json",
+          "body": "{\"list_id\": \"TEST1\", \"available\": true, \"failed\": false, \"download\": \"${tranco}/download/TEST1/1000000\", \"created_on\": \"2026-10-20T22:00:02.703082\", \"configuration\": {\"providers\": [\"crux\", \"farsight\", \"majestic\", \"radar\", \"umbrella\"], \"endDate\": \"2026-10-20\", \"isDailyList\": true, \"combinationMethod\": \"dowdall\", \"listPrefix\": \"1000000\", \"startDate\": \"2026-09-21\", \"filterPLD\": \"on\", \"filterTLD\": \"false\"}}",
+          "encoding": "text"
+        },
+        {
+          "method": "GET",
+          "path": "/download/TEST1/2",
+          "status": 200,
+          "contentType": "text/csv; charset=utf-8",
+          "body": "1,google.com\r\n2,cloudflare.com\r\n",
+          "encoding": "text"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 2,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "list": "TEST1",
+          "subdomains": false,
+          "offset": 0,
+          "limit": 2
+        },
+        "provenance": {
+          "listId": "TEST1",
+          "date": "2026-10-20",
+          "sourceUrl": "${tranco}/download/TEST1/2",
+          "sha256": "c3bacf51f13ebc9ccfcb19fb9f5e42683f19d100c1ef7ccbc7bca3c58cfe57c7"
+        },
+        "expectedTotal": 2
+      },
+      "analyses": [
+        {
+          "domain": "google.com",
+          "rank": 1
+        },
+        {
+          "domain": "cloudflare.com",
+          "rank": 2
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "list id with offset",
+      "scanConfig": {
+        "list": "TEST1",
+        "offset": 1,
+        "limit": 2
+      },
+      "http": [
+        {
+          "method": "GET",
+          "path": "/api/lists/id/TEST1",
+          "status": 200,
+          "contentType": "application/json",
+          "body": "{\"list_id\": \"TEST1\", \"available\": true, \"failed\": false, \"download\": \"${tranco}/download/TEST1/1000000\", \"created_on\": \"2026-10-20T22:00:02.703082\", \"configuration\": {\"providers\": [\"crux\", \"farsight\", \"majestic\", \"radar\", \"umbrella\"], \"endDate\": \"2026-10-20\", \"isDailyList\": true, \"combinationMethod\": \"dowdall\", \"listPrefix\": \"1000000\", \"startDate\": \"2026-09-21\", \"filterPLD\": \"on\", \"filterTLD\": \"false\"}}",
+          "encoding": "text"
+        },
+        {
+          "method": "GET",
+          "path": "/download/TEST1/3",
+          "status": 200,
+          "contentType": "text/csv; charset=utf-8",
+          "body": "1,google.com\r\n2,cloudflare.com\r\n3,microsoft.com\r\n",
+          "encoding": "text"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 2,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "list": "TEST1",
+          "subdomains": false,
+          "offset": 1,
+          "limit": 2
+        },
+        "provenance": {
+          "listId": "TEST1",
+          "date": "2026-10-20",
+          "sourceUrl": "${tranco}/download/TEST1/3",
+          "sha256": "739576bcacb13c9d715818d472b6f026c29dcdec10c383f577d9eb84ff4e8f1b"
+        },
+        "expectedTotal": 2
+      },
+      "analyses": [
+        {
+          "domain": "cloudflare.com",
+          "rank": 2
+        },
+        {
+          "domain": "microsoft.com",
+          "rank": 3
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "date",
+      "scanConfig": {
+        "list": "2026-10-01",
+        "limit": 1
+      },
+      "http": [
+        {
+          "method": "GET",
+          "path": "/daily_list_id?date=2026-10-01&subdomains=false",
+          "status": 200,
+          "contentType": "text/plain",
+          "body": "Y83YG",
+          "encoding": "text"
+        },
+        {
+          "method": "GET",
+          "path": "/download/Y83YG/1",
+          "status": 200,
+          "contentType": "text/csv; charset=utf-8",
+          "body": "1,google.com\r\n",
+          "encoding": "text"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 1,
+        "exact": true
+      },
+      "resolution": {
+        "scanConfig": {
+          "list": "Y83YG",
+          "subdomains": false,
+          "offset": 0,
+          "limit": 1
+        },
+        "provenance": {
+          "listId": "Y83YG",
+          "date": "2026-10-01",
+          "sourceUrl": "${tranco}/download/Y83YG/1",
+          "sha256": "f92b0839a2a0a92a76f41065ca6f78f1bd7cb3b2475a2ad710c2e751cf55e8b0"
+        },
+        "expectedTotal": 1
+      },
+      "analyses": [
+        {
+          "domain": "google.com",
+          "rank": 1
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "date without a list",
+      "scanConfig": {
+        "list": "2018-01-01"
+      },
+      "http": [
+        {
+          "method": "GET",
+          "path": "/daily_list_id?date=2018-01-01&subdomains=false",
+          "status": 503,
+          "contentType": "text/plain",
+          "body": "null",
+          "encoding": "text"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 1000,
+        "exact": true
+      },
+      "error": {
+        "type": "validation",
+        "retryable": false,
+        "contains": "no Tranco list for 2018-01-01"
+      }
+    }
+  ]
+}

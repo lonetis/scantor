@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/protocol/description.schema.json",
+  "title": "description (connector → runtime)",
+  "description": "Reply to describe: raw JSON Schemas of the four types, the schedule kind and connector-side warnings. The runtime derives the final describe output (schemas/describe.schema.json).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "id",
+    "schemas",
+    "schedule",
+    "warnings"
+  ],
+  "properties": {
+    "type": {
+      "const": "description"
+    },
+    "id": {
+      "$ref": "common.schema.json#/$defs/id"
+    },
+    "schemas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskConfig",
+        "scanConfig",
+        "analysisConfig",
+        "result"
+      ],
+      "properties": {
+        "taskConfig": {
+          "$ref": "common.schema.json#/$defs/jsonObject"
+        },
+        "scanConfig": {
+          "$ref": "common.schema.json#/$defs/jsonObject"
+        },
+        "analysisConfig": {
+          "$ref": "common.schema.json#/$defs/jsonObject"
+        },
+        "result": {
+          "$ref": "common.schema.json#/$defs/jsonObject"
+        }
+      }
+    },
+    "schedule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "custom"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "template"
+          ],
+          "properties": {
+            "kind": {
+              "const": "template"
+            },
+            "template": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]{0,31}$"
+            }
+          }
+        }
+      ]
+    },
+    "warnings": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      }
+    }
+  },
+  "examples": [
+    {
+      "type": "description",
+      "id": "d1",
+      "schemas": {
+        "taskConfig": {
+          "type": "object",
+          "properties": {
+            "greeting": {
+              "type": "string",
+              "default": "Hello"
+            }
+          },
+          "additionalProperties": false
+        },
+        "scanConfig": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "analysisConfig": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "text"
+          ]
+        }
+      },
+      "schedule": {
+        "kind": "template",
+        "template": "single"
+      },
+      "warnings": []
+    }
+  ]
+}

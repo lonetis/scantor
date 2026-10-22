@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/templates/tranco.json",
+  "title": "Tranco top list",
+  "description": "Domains of a Tranco research top list (https://tranco-list.eu) with their exact rank. `latest` and dates are resolved to a concrete, immutable list id before the first analysis is published.",
+  "x-scantor-template": {
+    "name": "tranco",
+    "version": 1,
+    "resolves": true,
+    "estimate": "exact",
+    "dataSources": [
+      "tranco"
+    ],
+    "uploads": false,
+    "example": {
+      "scanConfig": {
+        "list": "latest",
+        "limit": 1000
+      },
+      "analysisConfig": {
+        "domain": "google.com",
+        "rank": 1
+      }
+    }
+  },
+  "$defs": {
+    "scanConfig": {
+      "type": "object",
+      "title": "ScanConfig",
+      "properties": {
+        "list": {
+          "description": "`latest`, a date YYYY-MM-DD (the daily list of that date) or a Tranco list id.",
+          "type": "string",
+          "pattern": "^(latest|[0-9]{4}-[0-9]{2}-[0-9]{2}|[0-9A-Z]{4,6})$",
+          "default": "latest"
+        },
+        "subdomains": {
+          "description": "Use the daily list that includes subdomains (only for `latest` and dates).",
+          "type": "boolean",
+          "default": false
+        },
+        "offset": {
+          "description": "Skip this many top entries (offset + limit ≤ 1000000).",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 999999,
+          "default": 0
+        },
+        "limit": {
+          "description": "Number of domains.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000,
+          "default": 1000
+        }
+      },
+      "additionalProperties": false
+    },
+    "analysisConfig": {
+      "type": "object",
+      "title": "AnalysisConfig",
+      "properties": {
+        "domain": {
+          "description": "Registrable domain as listed (no scheme, no www.).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 253
+        },
+        "rank": {
+          "description": "1-based Tranco rank.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
+      },
+      "required": [
+        "domain",
+        "rank"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
