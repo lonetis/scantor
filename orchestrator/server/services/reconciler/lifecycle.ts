@@ -12,7 +12,8 @@ import { recountScan, tryCompleteScan } from '../scans/completion'
  *   cancel     once the scan's RabbitMQ user and queue are gone, pending/retrying analyses become `cancelled`
  *              and the scan is recounted (never-run seqs count as cancelled implicitly)
  *   periodic   every 60 s per running scan: recount, and the completion check when scheduling finished; at once
- *              after a resume
+ *              after a resume. Paused scans are recounted (never completed) at the same cadence while their hint
+ *              counters changed since their last recount
  *   final      terminal scans are recounted once more two minutes after entering their terminal state
  *   delete     scans `deleting` without an active scanDelete job get one (recovery after a crash between the
  *              state change and the job insert, or a job that gave up)
@@ -74,14 +75,24 @@ export class LifecycleConvergence {
 
   private async periodicRecounts(now: Date): Promise<void> {
     const { scans } = this.deps
-    const running = await scans.find({ state: { $in: ['running', 'paused'] } }, { projection: { _id: 1, state: 1, scheduling: 1 } }).toArray()
+    const running = await scans
+      .find({ state: { $in: ['running', 'paused'] } }, { projection: { _id: 1, state: 1, scheduling: 1, updatedAt: 1, 'stats.recountedAt': 1 } })
+      .toArray()
     const live = new Set<string>()
     for (const scan of running) {
       live.add(scan._id)
       const resumed = scan.state === 'running' && this.previousState.get(scan._id) === 'paused'
       this.previousState.set(scan._id, scan.state)
-      if (scan.state !== 'running') continue
       const due = now.getTime() - (this.lastRecount.get(scan._id) ?? 0) >= RECOUNT_INTERVAL_MS
+      if (scan.state === 'paused') {
+        // Work that finished during the drain only moved the hint counters; recount once they settled, so a
+        // paused scan shows exact stats. A paused scan never completes.
+        if (due && scan.updatedAt.getTime() > (scan.stats.recountedAt?.getTime() ?? 0)) {
+          this.lastRecount.set(scan._id, now.getTime())
+          await recountScan(scan._id)
+        }
+        continue
+      }
       if (!due && !resumed) continue
       this.lastRecount.set(scan._id, now.getTime())
       if (scan.scheduling.state === 'done' || scan.scheduling.state === 'failed') await tryCompleteScan(scan._id, resumed ? 'resume' : 'periodic')

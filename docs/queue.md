@@ -589,8 +589,10 @@ The ingestor triggers `checkCompletion(scanId)` (recount, then the conditional u
 the cache, `scheduling.state ∈ {done, failed}`, the scan is `running`, and the hint terminal count
 (`succeeded + failed + lost + cancelled`) is at least `scheduling.confirmed`; at most once per scan per 10 s.
 Other triggers (reconciler): scheduler `done`, end of retry-failed, resume, every 60 s per running scan, and once
-more two minutes after a scan entered a terminal state to absorb late duplicates. A hint that overestimates only
-causes an early recount; one that underestimates delays completion until the periodic recount.
+more two minutes after a scan entered a terminal state to absorb late duplicates. A paused scan is recounted (never
+completed) at the same 60 s cadence while its `updatedAt` is newer than `stats.recountedAt`, so results of work that
+finished during the drain do not leave drifted hints on it. A hint that overestimates only causes an early recount;
+one that underestimates delays completion until the periodic recount.
 
 ### 6.10 Circuit breaker
 

@@ -823,7 +823,8 @@ POST /api/scans ─► scans{creating} ─► reconciler: exchanges✓ queue sca
    and the circuit breaker (`SCANTOR_BREAKER_MIN_ATTEMPTS`, `SCANTOR_BREAKER_RATIO`,
    `SCANTOR_BREAKER_WINDOW`) are updated per flush.
 9. **Recount and completion**: triggered when the hint shows terminal ≥ confirmed, on scheduler `done`,
-   at the end of retry-failed, on resume, and every 60 s per running scan. The recount aggregation writes
+   at the end of retry-failed, on resume, and every 60 s per running scan (paused scans: recount only, while
+   their hints changed since the last recount). The recount aggregation writes
    exact `stats`; completion is one conditional `findOneAndUpdate` requiring `state=running`,
    `scheduling.state ∈ {done, failed}`, the current `round`, and terminal ≥ confirmed. It sets
    `completed`, or `failed` when `scheduling.error` is set. The reconciler then removes workers, the
