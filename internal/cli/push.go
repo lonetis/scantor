@@ -126,6 +126,14 @@ func pushWrite(w io.Writer, res pushResult, waited bool) error {
 	switch {
 	case res.Revision != nil && waited:
 		return apiWriteRevision(w, res.Revision)
+	case res.Revision != nil && res.Revision.State == api.RevisionReady:
+		// A publish of unchanged content returns the existing revision (docs/tasks.md §10).
+		_, err := fmt.Fprintf(w, "Revision %s is ready\n", res.Revision.Ref)
+		return err
+	case res.Revision != nil && res.Revision.State == api.RevisionFailed:
+		_, err := fmt.Fprintf(w, "Revision %s failed; see the build log with 'scantor revisions logs %s'\n",
+			res.Revision.Ref, res.Revision.Ref)
+		return err
 	case res.Revision != nil:
 		_, err := fmt.Fprintf(w, "Revision %s is %s; follow the build with 'scantor revisions logs %s --follow'\n",
 			res.Revision.Ref, res.Revision.State, res.Revision.Ref)

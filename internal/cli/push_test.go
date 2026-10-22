@@ -24,6 +24,18 @@ func testRevisionJSON(state string) map[string]any {
 	}
 }
 
+func TestPushReportsAnUnchangedReadyRevision(t *testing.T) {
+	f := newAPIFake(t)
+	f.reply("POST", "/api/tasks/upload", http.StatusCreated, map[string]any{"task": testTaskJSON("echo"), "revision": testRevisionJSON("ready"), "created": false})
+	code, out, errOut := f.exec("push", writeTaskDir(t, nil))
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, "Updated the workspace of task echo") || !strings.Contains(out, "Revision echo@3 is ready\n") || strings.Contains(out, "follow") {
+		t.Fatalf("stdout %q", out)
+	}
+}
+
 // execEnv runs the CLI against the fake with extra environment.
 func (f *apiFake) execEnv(env map[string]string, args ...string) (int, string, string) {
 	all := map[string]string{"SCANTOR_URL": f.srv.URL, "SCANTOR_TOKEN": apiTestToken}
