@@ -144,9 +144,11 @@ Conventions for recipes:
 | `test-orchestrator-integration *args` | the orchestrator's `*.integration.test.ts` ([testing](testing.md) §4.2) in one root `node` container with the Docker socket, next to throwaway MongoDB, RabbitMQ and RustFS on a private network; every object carries the prefix `scantor-test-orchestrator-it` and is removed afterwards |
 | `test-connectors [base]` | connector unit tests in each base image's `test` stage |
 | `test-conformance [language]` | connector conformance harness |
-| `test-e2e *args` | dockerized Playwright suite (args go to `playwright test`): `docker compose -f docker-compose.tests.yml run --rm --name scantor-test-runner test-runner …` |
+| `test-e2e *args` | dockerized Playwright suite on a fresh stack, torn down afterwards (args go to `playwright test`): `docker compose -f docker-compose.tests.yml run --rm --name scantor-test-runner test-runner …` |
 | `test-api *args` / `test-ui *args` | `test-e2e --project=api` / `--project=ui` |
-| `test-exec *args` | re-run Playwright inside a kept-alive test runner (`docker exec` into `scantor-test-runner`; the runner writes its Playwright environment to `/etc/profile.d/scantor-test.sh`) |
+| `test-up` | start the test runner in the background with `SCANTOR_TEST_KEEP_ALIVE=true` and return once its fresh stack is up |
+| `test-exec *args` | re-run Playwright inside the kept-alive test runner (`docker exec scantor-test-runner scantor-test-playwright …`; the runner writes its Playwright environment to `/etc/profile.d/scantor-test.sh`) |
+| `test-down` | stop the kept-alive runner; its teardown removes the inner stack (the cache volumes stay) |
 | `test-index *flags` | regenerate the `tests/TESTS.md` index; `--check` fails when stale |
 | `test-clean` | remove the test runner, its node_modules volume and its Docker cache volume |
 | **Maintenance** | |
@@ -189,8 +191,10 @@ Conventions for recipes:
 - **Data**: mongo-express, the RabbitMQ management UI and the RustFS console are bound to
   `SCANTOR_ADMIN_BIND_ADDRESS` ([deployment](deployment.md)).
 - **Tests while developing**: run the narrowest suite first (`just test-go ./internal/taskpipe/...`,
-  `just test-orchestrator test/services/query`, `just test-e2e api/scans.spec.ts`); keep the e2e stack alive with
-  `SCANTOR_TEST_KEEP_ALIVE=true` and iterate with `just test-exec`.
+  `just test-orchestrator test/services/query`, `just test-e2e api/scans.spec.ts`); for the dockerized suite
+  start a kept-alive stack with `just test-up`, iterate with `just test-exec <spec> [playwright args]` and
+  remove it with `just test-down` ([testing](testing.md) §3). Changes to the stack's images or to
+  `tests/docker/` need a new stack (`just test-down`, `just test-up`); spec and helper changes do not.
 
 ## 6. Go code organization
 

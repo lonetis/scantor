@@ -33,14 +33,16 @@ volumes behind except named caches (§3).
 tests/
 ├── package.json                 @playwright/test 1.64.1 (exact), @modelcontextprotocol/client ^2.3.1,
 │                                amqplib ^2.2.0, ajv ^8.20.0, yaml ^2.9.1, tar-stream ^3.2.2,
-│                                typescript ~6.0.3, @types/node
+│                                typescript ~6.0.3, @types/node; eslint, prettier (exact)
 ├── package-lock.json
-├── tsconfig.json                strict, ES2022, moduleResolution bundler; path alias #shared → ../orchestrator/shared
+├── tsconfig.json                strict, ES2023, moduleResolution bundler, verbatimModuleSyntax;
+│                                path alias #shared → ../orchestrator/shared
+├── eslint.config.mjs, .prettierignore
 ├── playwright.config.ts
 ├── global-setup.ts
 ├── fixtures.ts                  test.extend: the only `test`/`expect` export specs import
-├── helpers/                     env, limiter, api-client, openapi, users, webauthn, mcp, tasks, scans,
-│                                docker, amqp, keys, tar, ui, cli, debug
+├── helpers/                     env, limiter, unique, api-client, openapi, users, webauthn, mcp, tasks, scans,
+│                                docker, amqp, keys, tar, ui, cli, fixtures-server (debug: with debug.spec.ts)
 ├── api/*.spec.ts                REST API behaviour per tag
 ├── ui/*.spec.ts                 browser tests
 ├── e2e/*.spec.ts                real scans, examples in every language, remote node, CLI, debug, scaffold matrix
@@ -58,17 +60,19 @@ tests/
 │   ├── query-injection/cases.json
 │   ├── keys-vectors.json        HKDF test vectors shared by Go and TypeScript
 │   └── hostile-labels/Dockerfile
-├── fixtures/tasks/<name>/       test-only tasks (schema-zoo, netprobe, nondeterministic, big-result,
+├── fixtures/tasks/<name>/       test-only Python tasks (schema-zoo, netprobe, nondeterministic, big-result,
 │                                crashy, no-hello, hostile-label, hostile-output)
 ├── docker/
-│   ├── Dockerfile               runner image
+│   ├── Dockerfile               runner image (+ Dockerfile.dockerignore)
 │   ├── daemon.json              inner dockerd config
 │   ├── entrypoint.sh            phases (§7.4)
+│   ├── playwright.sh            `playwright test` with the stack's environment (entrypoint and `just test-exec`)
 │   ├── stack.tests.yml          compose override layered over docker-compose.prod.yml
 │   ├── stack.env                non-secret test settings for the inner stack
-│   ├── join-remote-node.mjs     creates the remote node record and starts its daemon
+│   ├── join-remote-node.mjs     creates the remote node record and starts its daemon inside the remote node
 │   ├── traefik/tls.yml          file-provider config that makes the test CA wildcard certificate Traefik's default
-│   └── fixtures/                fixtures server image: Dockerfile, server.mjs, data/ (tranco, crux, git repos)
+│   └── fixtures/                fixtures server image: Dockerfile, main.go (templatestest data sources, git
+│                                smart-HTTP, control API), build-repos.sh, repo-task/ (the repositories' task)
 ├── scripts/
 │   ├── test-index.mjs           generates the TESTS.md index; --check mode
 │   ├── check-terms.mjs          terminology lint for UI strings and guides
@@ -90,11 +94,13 @@ tests/
 | `just test-orchestrator-integration *args` | starts throwaway MongoDB (replica set, keyFile, `--noscripting`), RabbitMQ and RustFS on a network `scantor-test-orchestrator-it`, then runs `vitest run` over the `*.integration.test.ts` files (or the given paths) as root in a `node` container with the Docker socket, the three editor stand-in volumes and `SCANTOR_TEST_INTEGRATION=true` plus the connection variables; removes every object with that prefix afterwards (§4.2) |
 | `just test-connectors [base]` | builds `--target test` of `connectors/<base>/Dockerfile` (all bases by default) and runs it with `--network none` |
 | `just test-conformance [language]` | runs the conformance harness for one language (default: every row of `schemas/languages.json`) |
-| `just test-e2e *args` | `just init` (so `.env` has the "Tests" variables), `docker buildx bake --load test-runner` (the runner image, [development](development.md) §10), then `docker compose -f docker-compose.tests.yml run --rm test-runner *args` (args go to `playwright test`) |
+| `just test-e2e *args` | `just init` (so `.env` has the "Tests" variables), `docker buildx bake --load test-runner` (the runner image, [development](development.md) §10), then `docker compose -f docker-compose.tests.yml run --rm --name scantor-test-runner test-runner *args` (args go to `playwright test`) and `compose down` (the project network; the cache volumes stay); refuses to start while a runner exists |
 | `just test-api *args` / `just test-ui *args` | `test-e2e --project=api *args` / `--project=ui` |
-| `just test-exec *args` | re-runs `playwright test *args` inside a kept-alive runner (`SCANTOR_TEST_KEEP_ALIVE=true`) without rebuilding or restarting the stack |
+| `just test-up` | starts the runner in the background with `SCANTOR_TEST_KEEP_ALIVE=true` (Playwright only lists the suite, `--list`), follows its log and returns once the fresh stack is up (`/run/scantor-test/ready`); a no-op when a ready runner exists |
+| `just test-exec *args` | runs `scantor-test-playwright *args` (`playwright test` with the stack's environment, reports handed to the host user) inside the kept-alive runner, without rebuilding or restarting the stack |
+| `just test-down` | `docker stop` of the runner (its trap tears the inner stack down first, up to 5 minutes), then `compose down`; the cache volumes stay |
 | `just test-index [--check]` | regenerates the generated part of `tests/TESTS.md` (or fails when it is stale) |
-| `just test-clean` | removes the runner container, its node_modules volume and the inner-Docker cache volume |
+| `just test-clean` | `test-down`, then removes the runner's node_modules volume and the inner-Docker cache volume |
 
 Examples: `just test-e2e --project=security`, `just test-ui ui/scans.spec.ts -g "pause"`,
 `just test-e2e --grep @scaffold`.
@@ -108,7 +114,9 @@ uid/gid from `id -u`/`id -g` (the shell wins over `.env` in compose interpolatio
 root-owned.
 
 Workflow rule (from agentor): run the suite once, save the output, then re-run only the failing files with
-`just test-exec <file>`; do not loop the whole suite.
+`just test-exec <file>` against a stack started with `just test-up` (or `SCANTOR_TEST_KEEP_ALIVE=true just
+test-e2e`, which keeps the stack after the suite); do not loop the whole suite. Re-runs of the `chaos`
+project pass `--no-deps`, otherwise Playwright runs every other project first.
 
 ## 4. Unit tests
 
@@ -263,14 +271,17 @@ name: scantor-tests
 services:
   test-runner:
     image: scantor-test-runner:dev
+    init: true
     privileged: true
     container_name: scantor-test-runner
     shm_size: 2gb
+    stop_grace_period: 5m
     volumes:
       - test-runner-docker:/var/lib/docker
       - test-runner-node-modules:/work/tests/node_modules
       - ./:/src:ro
       - ./tests:/work/tests
+      - ./orchestrator/shared:/work/orchestrator/shared:ro
     environment:
       - SCANTOR_TEST_WORKERS=${SCANTOR_TEST_WORKERS}
       - SCANTOR_TEST_KEEP_ALIVE=${SCANTOR_TEST_KEEP_ALIVE}
@@ -296,33 +307,45 @@ volumes:
   defined only in `docker-bake.hcl` (§14 decision 8).
 - No ports: the runner is fully isolated and can run next to a developer's `just up` stack.
 - `/var/lib/docker` is a named volume (overlay2 needs a real filesystem; it doubles as the image and
-  BuildKit cache across runs). `node_modules` lives in its own volume, never the host's.
+  BuildKit cache across runs). `node_modules` lives in its own volume, never the host's; `npm ci` empties the
+  mount point instead of removing it.
+- `orchestrator/shared` is mounted next to `tests/`, so the `#shared` alias resolves at run time too: specs
+  may import the enum and error-code lists of `#shared/utils/*`, not only types.
+- `init: true` (tini as PID 1) forwards `docker stop` and Ctrl+C to the entrypoint, whose trap needs up to
+  `stop_grace_period` to tear the inner stack down.
 
 ### 7.2 Runner image (`tests/docker/Dockerfile`)
 
 `FROM mcr.microsoft.com/playwright:v1.64.1-noble` (the tag must equal the exact `@playwright/test`
 version) plus Docker Engine 29.9.2 with the buildx and compose plugins from Docker's apt repository
-(pinned), `dnsmasq`, `iptables`, `openssl`, `libnss3-tools`, `jq`, `curl`, `uidmap`. Its build context is
-the repository root (as for every bake target), so the `COPY` paths are `tests/docker/daemon.json`,
-`tests/docker/entrypoint.sh`, `tests/docker/stack.tests.yml`, `tests/docker/stack.env`,
-`tests/docker/traefik/` and `tests/docker/join-remote-node.mjs`.
+(pinned), `dnsmasq`, `iptables`, `openssl`, `libnss3-tools`, `jq`, `curl`, `git`, `uidmap`, and the
+`scantor` CLI built from the checkout in a `golang:1.27.3-trixie` stage (empty image prefix, so it refers
+to the locally built images). Its build context is the repository root (as for every bake target),
+filtered by `tests/docker/Dockerfile.dockerignore`, so the `COPY` paths are `tests/docker/daemon.json`,
+`tests/docker/entrypoint.sh` (as `/usr/local/bin/scantor-test-entrypoint`), `tests/docker/playwright.sh`
+(as `/usr/local/bin/scantor-test-playwright`), `tests/docker/stack.tests.yml`, `tests/docker/stack.env`,
+`tests/docker/traefik/` and `tests/docker/join-remote-node.mjs` (the last four into `/opt/scantor-test/`).
 `ENTRYPOINT ["/usr/local/bin/scantor-test-entrypoint"]`, `WORKDIR /work/tests`.
 
-`daemon.json`: `{"storage-driver": "overlay2", "bip": "172.17.0.1/16", "dns": ["172.17.0.1"],
-"log-driver": "json-file", "log-opts": {"max-size": "10m", "max-file": "3"}}`.
+`daemon.json`: `{"storage-driver": "overlay2", "bip": "172.17.0.1/16", "default-address-pools": [{"base":
+"10.10.0.0/16", "size": 24}], "dns": ["172.17.0.1"], "log-driver": "json-file", "log-opts": {"max-size":
+"10m", "max-file": "3"}}`. The address pool keeps the inner networks clear of the subnet the runner itself
+is attached to (the outer Docker allocates from 172.17–31 and 192.168).
 
 ### 7.3 Inner stack
 
 ```
  test-runner container (privileged, own netns, no published ports)
  ├── dnsmasq  127.0.0.1 + 172.17.0.1   *.scantor.localhost → 172.17.0.1 ; rest → outer Docker DNS
- ├── dockerd  (bip 172.17.0.1/16, dns 172.17.0.1, data on scantor-test-runner-docker)
+ ├── dockerd  (bip 172.17.0.1/16, pools 10.10.0.0/16, dns 172.17.0.1, data on scantor-test-runner-docker)
  │    └── compose project "scantor" = docker-compose.prod.yml + tests/docker/stack.tests.yml (profile traefik)
  │         traefik :443/:80 published on 0.0.0.0 of the runner ─┐  default cert = test CA wildcard
  │         orchestrator · mongo · rabbitmq · rustfs · registry · mongo-express · node (built-in, pool shared)
- │         fixtures   (tranco/crux data on :8089; git smart-HTTP behind Traefik as git.scantor.localhost)
- │         remote-node        docker:29.9-dind (own dockerd, trusts the test CA)          ┐ simulated remote
- │         remote-node-daemon scantor:dev `scantor node`, DOCKER_HOST=tcp://remote-node:2375 ┘ node, pool "remote"
+ │         fixtures   (tranco/crux on :8089 as fixtures.scantor.localhost; git behind Traefik as git.scantor.localhost)
+ │         remote-node  docker:29.9-dind on its own network scantor-remote (own dockerd: bip 10.20.0.1/24,
+ │                      pools 10.21.0.0/16, dns 172.17.0.1, trusts the test CA)       ┐ simulated remote node
+ │              └── scantor-node  scantor:dev `scantor node`, started with createNode's   ┘ "remote-1", pool "remote"
+ │                                join command (+ SCANTOR_CA_CERT); workers next to it
  │              workers on the remote dockerd reach the master only via https://*.scantor.localhost
  └── playwright (Node 24 from the image) → https://scantor.localhost (Chromium resolves *.localhost to 127.0.0.1)
 ```
@@ -354,18 +377,19 @@ the repository root (as for every bake target), so the `COPY` paths are `tests/d
 - The inner stack is the real `docker-compose.prod.yml` with `SCANTOR_IMAGE_PREFIX=` (empty, honoured by
   its `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}` references) and `SCANTOR_IMAGE_TAG=dev` (both from
   `stack.env`, below), started with `--pull never` after the absent third-party images were pulled
-  (§7.4 phase 7), so the production compose file is tested. Its project directory is
+  (§7.4 phase 8), so the production compose file is tested. Its project directory is
   `/run/scantor-test` (`--project-directory`), so the compose file's relative paths (`env_file: .env`,
   `./traefik/dynamic`) resolve to the generated test files and never to the developer's `/src/.env`.
-  `stack.tests.yml` only adds the fixtures server, the remote node pair and test settings, and uses no
-  relative paths. `stack.env` holds non-secret settings chosen for speed and determinism:
+  `stack.tests.yml` only adds the fixtures server and the remote node and uses no relative paths (the
+  remote node mounts the CA from its absolute runner path). `stack.env` holds non-secret settings chosen for
+  speed and determinism; every key must exist in `.env.example` (the entrypoint and `lint-env.mjs` check it):
 
 | Setting | Test value | Why |
 |---|---|---|
 | `COMPOSE_PROFILES` | `traefik` | the production Traefik mode (also seen by the startup guard) |
 | `SCANTOR_IMAGE_PREFIX` | empty | locally built images: honoured by the compose file's `${SCANTOR_IMAGE_PREFIX-…}` references and by the orchestrator's image references ([architecture](architecture.md) §4.2) |
-| `SCANTOR_IMAGE_TAG` | `dev` | the `:dev` images built or loaded in phase 5 |
-| `SCANTOR_DOMAIN` and the URL set of [deployment](deployment.md) §7.7 | `scantor.localhost`; `SCANTOR_PUBLIC_URL` / `SCANTOR_EDITOR_URL` = `https://scantor.localhost` / `https://editor.scantor.localhost`, S3 `https://s3.scantor.localhost`, AMQP `amqps://amqp.scantor.localhost:443`, registry `registry.scantor.localhost`; `SCANTOR_TRAEFIK_CERT_RESOLVER` empty | one HTTPS origin (passkeys need it), the public endpoint profile for the remote node |
+| `SCANTOR_IMAGE_TAG` | `dev` | the `:dev` images built or loaded in phase 6 |
+| `SCANTOR_DOMAIN` and the URL set of [deployment](deployment.md) §7.7 | `scantor.localhost`; `SCANTOR_PUBLIC_URL` / `SCANTOR_EDITOR_URL` = `https://scantor.localhost` / `https://editor.scantor.localhost`, S3 `https://s3.scantor.localhost`, AMQP `amqps://amqp.scantor.localhost:443`, registry `registry.scantor.localhost`, RustFS console `https://rustfs.scantor.localhost`; `SCANTOR_TRAEFIK_CERT_RESOLVER` empty | one HTTPS origin (passkeys need it), the public endpoint profile for the remote node |
 | `SCANTOR_TRUST_PROXY` | `true` | as in production behind Traefik |
 | `SCANTOR_TRAEFIK_BIND_ADDRESS` | `0.0.0.0` | Traefik reachable at 127.0.0.1 and the docker0 address inside the runner (`SCANTOR_BIND_ADDRESS` keeps its loopback value) |
 | `SCANTOR_ADMIN_EMAIL` | `admin@scantor.test` (password random, generated by the entrypoint) | headless first admin |
@@ -378,27 +402,41 @@ the repository root (as for every bake target), so the `COPY` paths are `tests/d
 | `SCANTOR_SCAN_STALL_AFTER` | `30s` | stall detection testable |
 | `SCANTOR_BUILTIN_NODE_MAX_WORKERS` | `16` | parallel e2e scans fit on the built-in node (the prod compose file maps it onto the daemon's `SCANTOR_NODE_MAX_WORKERS`, [deployment](deployment.md) §4.2) |
 | `SCANTOR_EDITOR_IDLE_TIMEOUT` | `3m` | idle stop testable |
+| `SCANTOR_NODE_MIN_FREE_DISK` | `1GiB` | placement keeps working on a small CI disk or a nearly full laptop |
+
+- The remote node is a single `docker:29.9-dind` container on its own network `scantor-remote`: the node
+  daemon runs **inside** it, started by `join-remote-node.mjs` with the exact `dockerRun` command of
+  `createNode` plus `-e SCANTOR_CA_CERT`. A daemon outside the DinD with `DOCKER_HOST` pointing at it would
+  fail its self-inspection ([nodes](nodes.md) §2), which disables the egress helper. The DinD's own dockerd
+  uses `--dns 172.17.0.1` (containers of a DinD on a user-defined network cannot use the embedded DNS) and
+  address ranges that cannot collide with the runner's, appends the test CA to its system bundle (the
+  token realm) and to `/etc/docker/certs.d/<registry host>/ca.crt`, and keeps everything in the volume
+  `scantor-remote-node-docker`, which `compose down -v` removes. Partition tests disconnect the container
+  from `scantor-remote`.
 
 ### 7.4 Entrypoint phases (`tests/docker/entrypoint.sh`)
 
 `#!/usr/bin/env bash`, `set -euo pipefail`, helpers `log`/`err`. The cleanup function runs from a
-`trap … EXIT INT TERM` installed **first**, so Ctrl+C, failures and normal exits all tear down.
+`trap … EXIT` installed **first** (INT and TERM exit with 130/143 and so run it), so Ctrl+C, `docker stop`,
+failures and normal exits all tear down. Playwright and the keep-alive wait run in the background with
+`wait`, so a signal reaches the trap at once.
 
 | Phase | Action | Failure handling |
 |---|---|---|
-| 0. trap | `trap cleanup EXIT INT TERM`; `cleanup` = phase 9 | – |
-| 1. cgroup v2 nesting | move processes into `/sys/fs/cgroup/init`, enable all controllers in `cgroup.subtree_control` (official dind trick) | warn and continue |
+| 0. trap | `trap cleanup EXIT`; `cleanup` = phase 9 | – |
+| 1. cgroup v2 nesting | move processes into `/sys/fs/cgroup/init`, enable all controllers in `cgroup.subtree_control` (official dind trick, retried) | warn and continue |
 | 2. DNS | save upstream nameservers to `/etc/resolv.conf.upstream`; dnsmasq with `listen-address=127.0.0.1,172.17.0.1`, `bind-dynamic`, `address=/scantor.localhost/172.17.0.1`, `resolv-file=/etc/resolv.conf.upstream` (never together with `no-resolv`), `filter-AAAA`, `no-poll`; point `/etc/resolv.conf` at 127.0.0.1; verify `getent hosts scantor.localhost` and an upstream name | exit 1 |
-| 3. dockerd | remove stale pid/socket files; start `dockerd` with `daemon.json`; wait ≤ 30 s for the socket | exit 1 with the dockerd log tail |
-| 4. stale state | run `cleanup` once (leftovers of an aborted run); never `docker network prune`/`volume prune` (breaks BuildKit) | ignore errors |
-| 5. images | `SCANTOR_TEST_IMAGES_DIR` set → `docker load` every `*.tar`; `SCANTOR_TEST_SKIP_BUILD=true` → require the images to exist; otherwise `docker buildx bake --load test` from `/src` (`docker-bake.hcl`, `IMAGE_TAG=dev`), retried 4× (cold pulls in DinD hit TLS timeouts) | exit 1 |
-| 6. secrets and certificates | write `/run/scantor-test/.env`: `/src/.env.example`, overridden by `stack.env` (so compose interpolation and the orchestrator's `env_file` see the empty `SCANTOR_IMAGE_PREFIX` and `SCANTOR_IMAGE_TAG=dev`, never the shipped GHCR values), with every `-insecure-dev` value replaced by 48 random hex characters (the `just init` merge of [deployment](deployment.md) §8.3) and a random `SCANTOR_ADMIN_PASSWORD`; create the CA and wildcard certificate and `tls.yml` in `/run/scantor-test/traefik/dynamic/`; add the CA PEM as `SCANTOR_CA_CERT` (double-quoted, `\n`-escaped); install trust (system, NSS, Node) | exit 1 |
-| 7. stack | pull every image the two compose files name (including the remote node pair's `docker:29.9-dind`) that is absent locally, with `docker pull` retried 4× like the build; after phase 5 only the pinned third-party images can be absent (once per cache volume locally, on every CI run). Then `docker compose -p scantor --project-directory /run/scantor-test -f /src/docker-compose.prod.yml -f /src/tests/docker/stack.tests.yml up -d --pull never` (profiles from `COMPOSE_PROFILES` in the project `.env`; without the remote node services) | exit 1 |
-| 8a. wait | poll `https://scantor.localhost/api/health` until `status: ok` and every component `ok` (≤ 300 s) | dump `compose logs --tail 200`, exit 1 |
-| 8b. remote node | `node join-remote-node.mjs`: sign in as the seeded admin (one sign-in), `createNode {name: "remote-1", pool: "remote", labels: {zone: "remote"}}`, write the token to the env file, `compose up -d remote-node remote-node-daemon` (same project flags as phase 7), wait ≤ 120 s until the node is `online` | exit 1 |
-| 8c. playwright | `npm ci` into the node_modules volume when `package-lock.json` changed (hash stamp); export `SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `SCANTOR_ADMIN_EMAIL`, `SCANTOR_ADMIN_PASSWORD`, `SCANTOR_SECRET`, `NODE_EXTRA_CA_CERTS`; run `npx playwright test "$@"`; keep its exit code | – |
-| 8d. keep alive | `SCANTOR_TEST_KEEP_ALIVE=true` → print `docker compose -f docker-compose.tests.yml exec test-runner bash` and block (`tail -f /dev/null`) until interrupted | – |
-| 9. cleanup | `compose down -v --remove-orphans` (same project flags as phase 7); remove every container with label `scantor.managed=true` or `scantor.test=true` (workers, helpers, editors, test-run and build containers, test-created orchestrators); remove app-created networks (`scantor-egress`, label `scantor.kind=network`) and the boot-created volumes `scantor-workspaces` and `scantor-editor-home`; remove task and draft images (`*/tasks/*`); keep platform images and build cache; `chown -R` `playwright-report/` and `test-results/` to `SCANTOR_TEST_HOST_UID:GID` when set; exit with the Playwright exit code | best effort, logs every failure |
+| 3. CA and certificates | create the throwaway CA (P-256, 30 days) and the wildcard certificate in `/run/scantor-test/ca/` and `/run/scantor-test/traefik/dynamic/` (with `tls.yml`); install trust: system store (`update-ca-certificates`), NSS (`certutil`, Chromium), Node (`NODE_EXTRA_CA_CERTS`). Before dockerd, because Go loads the system roots once per process and the inner dockerd needs the CA for the registry token realm | exit 1 |
+| 4. dockerd | remove stale pid/socket files; start `dockerd` with `daemon.json`; wait ≤ 30 s for `docker info` | exit 1 with the dockerd log tail |
+| 5. stale state | run the stack removal of phase 9 once (an aborted run's stack would otherwise restart from the cache volume with `restart: unless-stopped`); never `docker network prune`/`volume prune` (breaks BuildKit) | log and continue |
+| 6. images | `SCANTOR_TEST_IMAGES_DIR` set → `docker load` every `*.tar`; `SCANTOR_TEST_SKIP_BUILD=true` → use the images in the cache volume; otherwise `docker buildx bake --load test` from `/src` (`IMAGE_PREFIX=`, `IMAGE_TAG=dev`, `VERSION=dev`, `COMMIT` from git), retried 4× (cold pulls in DinD hit TLS timeouts). Then every tag of `bake --print test` must exist | exit 1 |
+| 7. the stack's `.env` | write `/run/scantor-test/.env`: `/src/.env.example`, overridden by `stack.env` (so compose interpolation and the orchestrator's `env_file` see the empty `SCANTOR_IMAGE_PREFIX` and `SCANTOR_IMAGE_TAG=dev`, never the shipped GHCR values), with every other `-insecure-dev` value replaced by 48 random hex characters (the `just init` merge of [deployment](deployment.md) §8.3), a random `SCANTOR_ADMIN_PASSWORD` and the CA PEM as `SCANTOR_CA_CERT` (double-quoted, `\n`-escaped); a `stack.env` key missing from `.env.example` fails | exit 1 |
+| 8. stack | pull every image that `compose config --images` names and that is absent locally, with `docker pull` retried 4× like the build; after phase 6 only the pinned third-party images (including the remote node's `docker:29.9-dind`) can be absent (once per cache volume locally, on every CI run). Then `docker compose -p scantor --project-directory /run/scantor-test -f /src/docker-compose.prod.yml -f /opt/scantor-test/stack.tests.yml up -d --pull never` (profiles from `COMPOSE_PROFILES` in the project `.env`) | exit 1 |
+| 8a. wait | poll `https://scantor.localhost/api/health` until `status: ok` and every component `ok` (≤ 300 s) | dump `compose ps` and `compose logs --tail 200`, exit 1 |
+| 8b. remote node | `node join-remote-node.mjs`: sign in as the seeded admin (one sign-in), `createNode {name: "remote-1", pool: "remote", labels: {zone: "remote"}}`, `docker save scantor:dev \| docker exec -i scantor-remote-node docker load`, run the `dockerRun` of the response inside the remote node with `-e SCANTOR_CA_CERT`, wait ≤ 120 s until the node is `online`, write `{id, name, pool, labels, token}` to `/run/scantor-test/remote-node.json` (0600) | the node daemon's log tail, exit 1 |
+| 8c. playwright | `npm ci` into the node_modules volume when `package-lock.json` changed (stamp `node_modules/.scantor-package-lock.json`); remove `tests/.auth`; write `SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `SCANTOR_ADMIN_EMAIL`, `SCANTOR_ADMIN_PASSWORD`, `SCANTOR_SECRET`, `NODE_EXTRA_CA_CERTS`, `SCANTOR_TEST_WORKERS`, the host uid/gid and `CI` to `/etc/profile.d/scantor-test.sh`; run `scantor-test-playwright "$@"` (`tests/docker/playwright.sh`: sources that file, runs `npx playwright test` in `/work/tests`, hands `playwright-report/`, `test-results/` and `.auth/` to `SCANTOR_TEST_HOST_UID:GID`); keep its exit code | – |
+| 8d. keep alive | `SCANTOR_TEST_KEEP_ALIVE=true` → touch `/run/scantor-test/ready`, print how to use `just test-exec` and `just test-down`, and block until interrupted | – |
+| 9. cleanup | `compose down -v --remove-orphans` (same project flags as phase 8, when the `.env` exists); remove every container with label `scantor.managed=true`, `scantor.test=true` or `com.docker.compose.project=scantor` (workers, helpers, editors, test-run and build containers, test-created orchestrators); remove app-created networks (`scantor-egress`, label `scantor.kind=network`) and the project's networks; remove the project's volumes and the boot-created volumes `scantor-workspaces` and `scantor-editor-home`; remove task and draft images (`*/tasks/*`) and images labelled `scantor.test=true`; keep platform images and build cache; stop dockerd cleanly (the cache volume stays consistent); hand the reports to the host user; exit with the Playwright exit code (or the failing phase's) | best effort, logs every failure |
 
 ### 7.5 Playwright configuration
 
@@ -429,8 +467,8 @@ export default defineConfig({
     { name: 'security', testMatch: 'security/**/*.spec.ts' },
     { name: 'mcp', testMatch: 'mcp/**/*.spec.ts', timeout: 300_000 },
     { name: 'e2e', testMatch: 'e2e/**/*.spec.ts', timeout: 600_000 },
-    { name: 'ui', testMatch: 'ui/**/*.spec.ts',
-      use: { ...devices['Desktop Chrome'], viewport: { width: 1920, height: 1080 } } },
+    { name: 'ui', testMatch: 'ui/**/*.spec.ts',             // the browser sends its own Origin: a forced one
+      use: { ...devices['Desktop Chrome'], viewport: { width: 1920, height: 1080 }, extraHTTPHeaders: {} } },
     { name: 'chaos', testMatch: 'chaos/**/*.spec.ts', timeout: 900_000, fullyParallel: false,
       dependencies: ['api', 'authz', 'security', 'mcp', 'e2e', 'ui'] },
   ],
@@ -438,19 +476,23 @@ export default defineConfig({
 ```
 
 `chaos` starts only after every other project has finished, and its single spec file is serial, so
-fault injection never disturbs other tests. The `authz` seed runs once as a setup project, so the matrix's
+fault injection never disturbs other tests. The `ui` project drops the `Origin` header the other projects
+send: Playwright would add it to every browser request, including the editor's WebSocket upgrade, whose
+origin check would then fail. The `authz` seed runs once as a setup project, so the matrix's
 generated tests can run in parallel on every worker.
 
 ### 7.6 Global setup
 
 Fails loudly (every error is thrown; nothing is swallowed):
 
-1. Read the environment (`helpers/env.ts` is the only place reading `process.env` in tests).
+1. Read the environment (`helpers/env.ts` is the only place reading `process.env` in tests) and check
+   `helpers/keys.ts` against `corpora/keys-vectors.json`.
 2. Poll `GET /api/health` (≤ 120 s) until `status: ok`.
-3. Reset the sign-in limiter state (`.auth/limiter/`, §9). Sign in as
-   `SCANTOR_ADMIN_EMAIL`/`SCANTOR_ADMIN_PASSWORD` through `POST /api/auth/sign-in/email` with an API
-   request context (one limiter slot); save `.auth/admin.json` (storage state). Browser pages reuse that
-   storage state (same origin, cookie only), so no UI login happens in setup.
+3. Remove stale limiter lock files (`.auth/limiter/`, §9); the timestamp logs stay, so back-to-back `just
+   test-exec` runs share the sign-in budget. Sign in as `SCANTOR_ADMIN_EMAIL`/`SCANTOR_ADMIN_PASSWORD`
+   through `POST /api/auth/sign-in/email` with an API request context (one limiter slot); save
+   `.auth/admin.json` (storage state). Browser pages reuse storage states (same origin, cookie only), so no
+   UI login happens in setup.
 4. Fetch `/api/docs/openapi.json` and save it to `.auth/openapi.json` (used by the generic client and the
    authz matrix).
 5. Verify the built-in node (`builtin`) and `remote-1` are `online` (`listNodes`).
@@ -466,64 +508,84 @@ the test (404 counts as success).
 | `env` | worker | URLs, admin credentials, secret, paths | – |
 | `openapi` | worker | parsed OpenAPI document, operation index by `operationId` | – |
 | `adminApi` | worker | `ApiClient` as the seeded admin (session from global setup) | dispose |
-| `role` | option | `'user'` (default) or `'admin'` for `page`/`api` | – |
-| `user` | worker | the worker's **tenant**: a user created by admin (`createUser`, unique email `w<workerIndex>-<unique>@scantor.test`, random password), signed in once through the limiter (storage state `.auth/user-<workerIndex>.json`), plus one `default` API key created with that session | `deleteUser` (202, `userPurge` job) at worker teardown |
+| `role` | option | `'user'` (default) or `'admin'` for `page`/`api`/`mcp` | – |
+| `pageUser`, `mcpScopes` | option | `page` as the tenant (default) or as `freshUser` (`'fresh'`); the scopes `mcp` requests (default `offline_access scantor:read scantor:write`) | – |
+| `user` | worker | the worker's **tenant** (`Tenant`: `id`, `email`, `name`, `password`, `role`, `storageState`, `apiKey`): a user created by admin (`createUser`, unique email `w<workerIndex>-<unique>@scantor.test`, random password), signed in once through the limiter (storage state `.auth/user-<workerIndex>.json`), plus one `default` API key created with that session | `deleteUser` (202, `userPurge` job) at worker teardown |
 | `api` | test | `ApiClient` with the tenant's session (admin's when `role: 'admin'`) | dispose |
 | `apiKeyApi` | test | `ApiClient` with the tenant's API key (`Authorization: Bearer sk_scantor_…`) | dispose |
 | `otherUser`, `otherApi` | worker (lazy) | a second tenant for cross-user checks | `deleteUser` |
 | `freshUser`, `freshApi` | test (lazy) | a dedicated user and session for tests that change account-level state: password, passkeys, sessions, API key or OAuth app revocation, ban, role and limits, the editor | `deleteUser` |
 | `anonApi` | test | `ApiClient` without credentials | dispose |
 | `page` | test | browser page with the tenant's storage state (admin's when `role: 'admin'`, `freshUser`'s with option `pageUser: 'fresh'`) | Playwright |
-| `mcp` | test (lazy) | MCP client connected through the real OAuth flow as the tenant, with the worker's registered OAuth client (one `/oauth2/register` per worker, through the limiter; `helpers/mcp.ts`); option `mcpScopes` | close |
+| `oauthClient` | worker (lazy) | the worker's OAuth client, registered once through dynamic client registration and the limiter | – |
+| `mcp` | test (lazy) | `McpConnection` (`client`, `provider`, `accessToken`) through the real OAuth flow as the tenant (admin with `role: 'admin'`), with `oauthClient` (`helpers/mcp.ts`); option `mcpScopes` | close |
 | `mcpKey` | test (lazy) | MCP client authenticated with the tenant's API key ([mcp](mcp.md) §3.7) | close |
 | `webauthn` | test (lazy) | CDP virtual authenticator on `page` (`ctap2`, resident key, user verification) | remove authenticator |
-| `docker` | worker | inner-Docker helper: `inspect`, `exec`, `kill`, `networkDisconnect/Connect`, `logs`, `mongoCount` (read-only `mongosh` as `scantor_query`), `rabbitmqQueues` | – |
-| `tasks` | test | `tasks.upload(dir, {name?})` (packs a folder with a unique manifest name, `uploadTask?wait=120`, expects `ready`), `tasks.fixture(name)`, `tasks.example(dir)` | `deleteTask` for every task it created |
-| `scans` | test | `scans.start(body)`, `scans.wait(id, {state, timeoutMs})`, `scans.counts(id)` | `cancelScan` when not terminal, then `deleteScan`, for every scan it started (before the `tasks` teardown) |
+| `docker` | worker | inner-Docker helper (`helpers/docker.ts`): `inspect`, `exec`, `kill`, `restart`, `pause`/`unpause`, `networkDisconnect/Connect`, `logs`, `containersByLabel`, `remote` (`docker` in the remote node), `mongosh` (read-only as `scantor_query`, or root), `mongoCount`, `rabbitmqQueues` | – |
+| `tasks` | test | `tasks.upload(dir, {name?, expectState?})` (packs a folder with a unique manifest name, `uploadTask?wait=120`, waits for the build, expects `ready` unless `expectState`), `tasks.fixture(name)`, `tasks.example(dir)`, `tasks.track(name)` for tasks created another way (CLI, MCP, git import) | `deleteTask` for every task it created or tracks (retrying `taskInUse` while a scan is still being deleted) |
+| `scans` | test | `scans.start(body)` (small settings unless the body sets them), `scans.wait(id, {state, timeoutMs})`, `scans.counts(id)`, `scans.track(id)` | `cancelScan` when not terminal, then `deleteScan` and its job, for every scan it started or tracks (depends on `tasks`, so it runs before the `tasks` teardown) |
 
 Tenants are per worker because better-auth limits sign-ins per client IP and the whole suite shares one
 IP (§9). Unique names (`unique()`) keep tests of the same tenant apart; the `tasks` and `scans` fixtures
 delete what they created, and `deleteUser` at worker teardown removes everything else of the tenant
-(scans, tasks, revisions, files, keys, [data model](data-model.md) §5).
+(scans, tasks, revisions, files, keys, [data model](data-model.md) §5). Task names that a test cannot
+choose (git imports of the fixture repositories, `git-*`) repeat within a worker: such tests use
+`freshUser` or wait for the deletion of the previous task.
 
 ### 7.8 Helpers
 
 | Helper | Contract |
 |---|---|
-| `helpers/limiter.ts` | `reserve(path)`: a cross-worker sliding-window limiter (a lock file plus a timestamp log per path under `.auth/limiter/`) that blocks until a slot is free; at most 8 per rolling 60 s for `/sign-in/email` and for `/oauth2/register`, 16 for `/passkey/verify-authentication` (below the limits of [auth](auth.md) §2.7, with a margin for window-boundary effects) |
-| `helpers/api-client.ts` | `ApiClient(request)`: generic `call(operationId, {path, query, body, headers})` resolved through the OpenAPI index (method + path template) returning `{status, headers, body}` (body `{}` when not JSON); thin typed wrappers for frequent operations using type-only imports from `#shared/types`; 2xx JSON bodies are validated against the operation's response schema (ajv, OpenAPI 3.0-style `nullable` converted to type arrays) so documentation drift fails tests |
-| `helpers/users.ts` | `createUser`, `signedInContext(email, password)`, `browserSignIn(context, user)`; every sign-in (API, browser form, wrong-password attempts) first calls `reserve('/sign-in/email')`; every context carries `Origin` |
-| `helpers/webauthn.ts` | `installVirtualAuthenticator(page)`, `listCredentials`, `dispose`; passkey sign-ins reserve `/passkey/verify-authentication` |
-| `helpers/mcp.ts` | `TestOAuthProvider`, `registerClient()` (DCR, reserves `/oauth2/register`; cached per worker), `connectMcp(session, {scopes, client?})` (401 challenge → discovery → registration unless a client is given → consent via `POST /api/auth/oauth2/consent` → token → connect), `connectMcpWithKey(key)`, `callJson`, `callError`, `resultText`; redirect URI `http://127.0.0.1:53682/callback` (nothing listens; the code is read from the redirect) |
-| `helpers/tasks.ts` | deterministic tar.gz of a folder with the manifest `name` rewritten (`yaml`), upload, publish, wait |
-| `helpers/scans.ts` | `wait()` loops `getScan?wait=50` until the scan reaches the wanted state and throws with the scan's `state`, `stateReason` and `conditions` when it reaches another terminal state or times out; `counts()` uses `aggregateAnalyses [{$group: {_id: "$status", n: {$sum: 1}}}]` (exact, never the `stats` hints) |
-| `helpers/docker.ts` | `execFile('docker', [...])` only (never a shell string), label-filtered lookups (`scantor.scan=<id>`, `scantor.kind=worker`) |
-| `helpers/amqp.ts` | publish raw messages as a scan's RabbitMQ user (password via `helpers/keys.ts`) or as the admin, for security and chaos cases |
-| `helpers/keys.ts` | HKDF derivations of [architecture](architecture.md) §9 from the stack's `SCANTOR_SECRET` for white-box tests (`amqp`, `registry-push`, `worker-token` with the worker documents from `listScanWorkers`, `mongo-query`, `tools-cookie`, `editor-cookie`), checked against `corpora/keys-vectors.json` |
-| `helpers/tar.ts` | builds hostile archives (traversal, absolute, symlink, hardlink, device, FIFO, NUL, backslash, too many files, gzip bomb) from `corpora/tar-slip/cases.json` |
-| `helpers/ui.ts` | `gotoWithRetry` (retries only on `net::ERR_NETWORK_CHANGED`), `expectToast(text)`, `openTab(name)` |
-| `helpers/cli.ts` | runs `scantor:dev` with the shim flags against the inner dockerd and returns `{exitCode, stdout, stderr, json}` |
-| `helpers/debug.ts` | minimal attach clients that resume a debuggee waiting for its debugger: DAP for debugpy (`initialize`, `attach`, `configurationDone`), the Chrome DevTools protocol for Node (`Runtime.runIfWaitingForDebugger`), delve's JSON-RPC API v2 (`RPCServer.Command {name: "continue"}`) |
-| `unique(prefix)` | `${prefix}-${workerIndex}-${Date.now().toString(36)}-${rand4}`, lowercase slug ≤ 64 |
+| `helpers/env.ts` | `env` (`TestEnv`: `publicUrl`, `editorUrl`, `domain`, `mcpUrl`, `admin`, `secret`, `testWorkers`, `ci`, `caCertFile`, `paths` of the tests, the repository (`/src` in the runner), the stack files (`/run/scantor-test`), `.auth/`); `workerIndex()`; `childEnv(extra, {inherit})` for child processes. The only module reading `process.env`; a missing variable throws |
+| `helpers/limiter.ts` | `reserve(path)`: a cross-worker sliding-window limiter (a lock file plus a timestamp log per path under `.auth/limiter/`) that blocks until a slot is free; at most 8 per rolling 60 s for `/sign-in/email` and for `/oauth2/register`, 16 for `/passkey/verify-authentication` (below the limits of [auth](auth.md) §2.7, with a margin for window-boundary effects and the runner's own sign-in); `resetLocks()` |
+| `helpers/unique.ts` | `unique(prefix)`: `${prefix}-${workerIndex}-${Date.now().toString(36)}-${rand4}`, lowercase slug ≤ 64 (also exported by `fixtures.ts`) |
+| `helpers/openapi.ts` | `OpenApiIndex`: operations by `operationId` (method, path template, parameters, request body, responses, `x-*` extensions) and `validateResponse(operationId, status, body)` (ajv 2020-12, OpenAPI 3.0-style `nullable` converted to type arrays, formats not asserted) |
+| `helpers/api-client.ts` | `ApiClient(request, openapi)`: generic `call(operationId, {path, query, body, headers, maxRedirects (0), validate})` resolved through the OpenAPI index returning `{status, headers, body, raw}` (body `{}` when not JSON; a Buffer body is sent as is); never throws on a status: `ok(response)` returns the body of a 2xx or throws `ApiError`; thin typed wrappers for frequent operations using type-only imports from `#shared/types`; 2xx JSON bodies are validated against the operation's response schema, so documentation drift fails tests |
+| `helpers/users.ts` | `newApiContext({storageState, headers})` (public origin, `Origin` header), `createUser(adminApi, {prefix, role, …})`, `deleteUser`, `signIn(context, email, password)` (returns the response, also for wrong passwords), `signedInContext(email, password)`, `browserSignIn(page, user, redirect?)`; every sign-in first calls `reserve('/sign-in/email')` |
+| `helpers/webauthn.ts` | `installVirtualAuthenticator(page)` → `{listCredentials, setUserVerified, dispose}`; passkey sign-ins reserve `/passkey/verify-authentication` |
+| `helpers/mcp.ts` | `TestOAuthProvider`, `registerClient(context)` (DCR, reserves `/oauth2/register`), `approveAuthorization(session, url, {accept, scope})` (the consent page's `POST /api/auth/oauth2/consent` with the signed query and the scope), `connectMcp(session, {scopes, consentScope, client?})` (401 challenge → discovery → the given client, else one registration → consent → token → connect), `connectMcpWithKey(key)`, `callJson`, `callError`, `resultText`; redirect URI `http://127.0.0.1:53682/callback` (nothing listens; the code is read from the redirect) |
+| `helpers/tasks.ts` | `packTask(dir, {name})` (deterministic tar.gz, manifest `name` rewritten with `yaml`), `copyTask(dir, name)` (a renamed copy for the CLI; `removeDir`), `uploadAndPublish`, `publishAndWait`, `waitForRevision`, `deleteTask`, `fixtureTaskDir(name)`, `exampleTaskDir(name)` |
+| `helpers/scans.ts` | `SMALL_SETTINGS` (1 runner × 1 process, 0.25 CPU, 256 MiB), `startScan`, `waitForScanState(api, id, states, timeoutMs)` (long-polls `getScan?wait=50`; throws with the scan's `state`, `stateReason`, `conditions`, scheduling, progress and workers when it settles in another terminal state or times out), `startScanAndWait`, `scanCounts` (`aggregateAnalyses [{$group: {_id: "$status", n: {$sum: 1}}}]`, exact, never the `stats` hints), `cancelAndDeleteScan` |
+| `helpers/docker.ts` | `docker(args)` through `execFile` only (never a shell string), `innerDocker` (the `docker` fixture), `CONTAINERS` (the stack's container names), `REMOTE_NODE_NETWORK`, `stackEnv()` (the stack's generated `.env`) |
+| `helpers/amqp.ts` | `connectAsScan(scanId)` (user `scan-<scanId>`, password via `helpers/keys.ts`), `connectAsAdmin()`, `connectAs(user, password)` over `amqps://amqp.<domain>:443/scantor` (Traefik, the test CA); `publish(session, exchange, routingKey, body, properties)` on a confirm channel (`user_id` defaults to the session's user), for security and chaos cases |
+| `helpers/keys.ts` | `Keys`/`stackKeys()`: HKDF derivations of [architecture](architecture.md) §9 from the stack's `SCANTOR_SECRET` for white-box tests (`amqpPassword`, `registryPushPassword`, `workerToken` with the worker documents from `listScanWorkers`, `mongoQueryPassword`, `builtinNodeToken`, `toolsCookie`, `editorCookie`); `verifyVectors()` checks them against `corpora/keys-vectors.json` (global setup) |
+| `helpers/tar.ts` | `loadTarCorpus()`, `buildCaseArchive(case)`, `buildTarGz(entries)`: hostile archives (traversal, absolute, symlink, hardlink, device, FIFO, backslash, too many files, gzip bomb, PAX records) from `corpora/tar-slip/cases.json`; zip cases and `nameBase64` names are refused (the Go and vitest suites cover them) |
+| `helpers/ui.ts` | `gotoWithRetry` (retries only on `net::ERR_NETWORK_CHANGED`), `expectToast(page, text)` (an open item of the "Notifications" region), `openTab(page, name)` |
+| `helpers/cli.ts` | `scantor(args, {token, cwd, env, image, input})`: the runner's own `scantor` binary (built from the checkout into the runner image) against the stack and the inner dockerd, or with `image: true` the `scantor:dev` image through the shim pattern (working directory mounted at the same path, the inner Docker socket); always with `SCANTOR_URL`, the empty image prefix and tag `dev`, the test CA and the fixture data sources (`FIXTURE_DATA_SOURCES`); returns `{exitCode, stdout, stderr, json}` (`json` = parsed JSON or NDJSON output) |
+| `helpers/fixtures-server.ts` | `FIXTURES_URL`, `GIT_URL`, `GIT_REPOS` (`single`, `multi`, `private`, `diverge`), `PRIVATE_GIT_CREDENTIAL`, `copyGitRepo(request, from)` and `moveGitMain(request, url, branch)` for per-test pull scenarios (§7.9) |
+| `helpers/debug.ts` | (added with `e2e/debug.spec.ts`) minimal attach clients that resume a debuggee waiting for its debugger: DAP for debugpy (`initialize`, `attach`, `configurationDone`), the Chrome DevTools protocol for Node (`Runtime.runIfWaitingForDebugger`), delve's JSON-RPC API v2 (`RPCServer.Command {name: "continue"}`) |
 
 ### 7.9 Fixture tasks and fixtures server
 
-- `tests/fixtures/tasks/` (Python unless noted; small and fast to build): `schema-zoo` (one field per
-  construct of the supported JSON Schema subset ([tasks](tasks.md) §6.4) including a discriminated union,
-  `writeOnly`, upload and FileRef fields; also in TypeScript and Go to compare describe output),
-  `netprobe` (TCP connect attempts to hosts from its task config, returns reachability; mode `env` returns
-  the names of its environment variables), `nondeterministic` (custom schedule yielding random items
-  slowly), `big-result` (exceeds `SCANTOR_MAX_RESULT_BYTES`), `crashy` (modes: exit 3, allocate beyond its
-  memory limit, hang past the timeout), `no-hello` (connector never sends `hello`), `hostile-label`
-  (Dockerfile with forbidden `LABEL`s), `hostile-output` (results and logs with HTML/script strings and
-  ANSI sequences; files `x.html`, `x.svg`, `x.png` and a name with CR/LF and quotes).
-- Fixtures server (`tests/docker/fixtures/`, image `scantor-test-fixtures:dev`, Node 26 + git): serves
-  exactly the upstream endpoints of [templates](templates.md) §9.5–§9.6 from small pinned files, under
-  `/tranco` (`/api/lists/date/latest`, `/daily_list_id`, `/api/lists/id/<id>`, `/download/<id>/<n>` with
-  CRLF CSVs) and `/crux` (`data/global/<YYYYMM>.csv.gz`, `data/country/<cc>/<YYYYMM>.csv.gz`, `HEAD`
-  probes), a git smart-HTTP endpoint (`git http-backend`) with a public repository
-  (one task), a multi-task repository (candidate selection) and a private repository behind Basic auth (git
-  credentials), and a repository whose second commit diverges (pull conflicts).
+- `tests/fixtures/tasks/` (Python; small and fast to build; each has a `.dockerignore`): `schema-zoo` (one
+  task-config field per construct of the supported JSON Schema subset ([tasks](tasks.md) §6.4): bounded
+  strings and numbers, enum, nullable, array with `uniqueItems`, map, nested object, a discriminated union,
+  a `SecretStr` (`writeOnly`) and an upload field; the result echoes the config with the secret's SHA-256
+  and carries a FileRef; TypeScript and Go variants to compare describe output are still to be added),
+  `netprobe` (TCP connect attempts to the `host:port` targets of its task config, returns reachability; mode
+  `env` returns the names of its environment variables), `nondeterministic` (custom schedule yielding random
+  items slowly), `big-result` (exceeds `SCANTOR_MAX_RESULT_BYTES`), `crashy` (modes `exit` (code 3),
+  `memory` (allocates beyond its limit), `hang` (past the timeout), `ok`), `no-hello` (an `ENV
+  SCANTOR_CONNECTOR_CMD` whose process never sends `hello`: the revision fails at describe), `hostile-label`
+  (Dockerfile with forbidden `LABEL`s, literal and ARG-expanded: the revision fails at static), `hostile-output`
+  (results, logs and an error with HTML/script strings, ANSI sequences and a `javascript:` link; files
+  `x.html`, `x.svg`, `x.png` and a name with CR/LF and quotes).
+- Fixtures server (`tests/docker/fixtures/`, image `scantor-test-fixtures:dev`, a Go program on Alpine with
+  git): one plain-HTTP port 8089, published on the runner (`http://fixtures.scantor.localhost:8089`) and
+  routed by Traefik as `https://git.scantor.localhost` (the test CA's certificate):
+  - `/tranco` and `/crux`: the fakes of `internal/templates/templatestest` (`NewHandler(DefaultDataSet(now))`),
+    exactly the upstream endpoints of [templates](templates.md) §9.5–§9.6 with small deterministic lists
+    relative to the server's start (`/api/lists/date/latest`, `/daily_list_id`, `/api/lists/id/<id>`,
+    `/download/<id>/<n>` with CRLF CSVs; `data/global/<YYYYMM>.csv.gz`, `data/country/<cc>/<YYYYMM>.csv.gz`,
+    `HEAD` probes), plus `GET /healthz`;
+  - `/<name>.git/…`: read-only git smart-HTTP (`git http-backend` through Go's CGI handler; uploads only)
+    over bare repositories built at image build time (`build-repos.sh`, fixed authors and dates): `single`
+    (one task, `git-single`), `multi` (`alpha/` and `beta/`: candidate selection), `private` (Basic auth
+    `scantor-test` / `fixtures-token`, a git credential's username and token) and `diverge` (`main`, a
+    fast-forward branch `advanced` and an unrelated history `rewritten`);
+  - `POST /control/repos {"from": "<name>"}` → 201 `{"name"}` copies a repository for one test (copies of
+    `private` stay private); `POST /control/repos/<name>/main {"branch"}` → 204 points its `main` at a branch,
+    so pull tests (fast-forward, `gitDiverged`) never share state.
 
 ## 8. Suites
 
@@ -681,7 +743,7 @@ never timing. Cases run serially after all other projects.
 | delete with a result backlog | `docker pause` the orchestrator for 20 s while a fast scan keeps publishing results (they queue in `scantor.results.ingest`), `docker unpause`, then immediately cancel and delete the scan | tombstone `deleted`; zero analyses for the scan after 60 s (no resurrection); queue and RabbitMQ user absent |
 | duplicate result | re-publish a captured result message as the scan user | counts unchanged |
 | non-deterministic schedule | `nondeterministic` scan; kill the scheduler after `scheduling.confirmed > 0` | scan `failed`; `scheduling.error.message` contains "schedule() is not deterministic" |
-| remote node partition | `docker network disconnect` the remote node pair for 40 s (> `SCANTOR_NODE_OFFLINE_AFTER`), then reconnect | node `offline` then `online`; its workers `lost` and replaced; scan `completed` with exact counts; stale containers removed after return |
+| remote node partition | `docker network disconnect` the remote node (`scantor-remote-node` from `scantor-remote`) for 40 s (> `SCANTOR_NODE_OFFLINE_AFTER`), then reconnect | node `offline` then `online`; its workers `lost` and replaced; scan `completed` with exact counts; stale containers removed after return |
 | lost analyses retried | a `throws` scan whose analyses are `retrying` with a long `backoff.initialMs`; delete the scan queue with its delayed messages through the RabbitMQ management API (the reconciler recreates it empty) | after `SCANTOR_SCAN_STALL_AFTER` the documents are `lost` with their config and the scan ends; `retryFailedAnalyses` resets them; scan `completed` with `succeeded == total` |
 | broker alarm | lower RabbitMQ's memory watermark (`rabbitmqctl set_vm_memory_high_watermark absolute 1`) during a running scan, restore it after 20 s | while the alarm lasts `startScan` returns 503 `brokerAlarm` and the running scan shows the `brokerAlarm` condition; afterwards the condition clears and the scan completes with exact counts |
 
@@ -769,11 +831,12 @@ regenerates the index in the same commit ([development](development.md) §13).
 
 ## 11. Static checks run with tests
 
-- `tests/scripts/check-terms.mjs` (part of `just lint`): fails when user-facing strings in
+- `tests/scripts/check-terms.mjs` (part of `just lint`, dependency-free): fails when user-facing strings in
   `orchestrator/app/**/*.vue`, `docs/guide/*.md` and `README.md` use a curated list of forbidden terms from
-  [architecture](architecture.md) §2 ("replica", "concurrency" in scaling contexts, "dry run", "campaign",
-  "control plane", "head node", "scan template", "worker machine", "scan token"). Code identifiers and env
-  variable names are exempt.
+  [architecture](architecture.md) §2 ("replica" except MongoDB's "replica set", "concurrency", "dry run",
+  "campaign", "control plane", "head node", "scan template", "worker machine", "scan token"). Code is exempt:
+  comments, fenced code blocks and inline code spans, identifiers (camelCase, snake_case) and env variable
+  names.
 - `tests/scripts/lint-compose.mjs` (`just lint-compose`, part of `just lint`) parses the compose files
   and fails when the infrastructure services (`mongo`, `rabbitmq`, `rustfs`, `registry`, `mongo-express`,
   `traefik`) differ between `docker-compose.dev.yml` and `docker-compose.prod.yml`, or when a compose rule
@@ -781,10 +844,13 @@ regenerates the index in the same commit ([development](development.md) §13).
   and `api.insecure=false`; admin GUIs and MongoDB published only on `SCANTOR_ADMIN_BIND_ADDRESS`; the
   MongoDB TCP router only with `SCANTOR_EXPOSE_MONGO`; mongo-express read-only; `mongod --noscripting`;
   memory limits on the orchestrator, mongo and rabbitmq; the orchestrator never mounts
-  `scantor-workspaces`; no variable default anywhere except the image prefix fallback; the orchestrator
-  and Traefik get `env_file: .env`.
-- `tests/scripts/lint-env.mjs` (part of `just lint`) fails when a `SCANTOR_*` variable read by code (Go
-  `LoadConfig`s, `server/utils/config.ts`, compose interpolations, recipes) is missing from `.env.example`,
+  `scantor-workspaces`; no variable default anywhere (every `docker-compose.*.yml` and
+  `tests/docker/stack.tests.yml`) except the image prefix fallback; the orchestrator and Traefik get
+  `env_file: .env`.
+- `tests/scripts/lint-env.mjs` (part of `just lint`, dependency-free) fails when a `SCANTOR_*` variable read
+  by code (the Go `LoadConfig`s in `internal/*/config.go` and direct `Getenv`/`LookupEnv` calls,
+  `server/utils/config.ts`, compose interpolations including `tests/docker/stack.tests.yml`, recipes,
+  `tests/docker/stack.env` and `tests/helpers/env.ts`) is missing from `.env.example`,
   when a non-empty default of a variable whose name contains `PASSWORD` or `SECRET` does not end in
   `-insecure-dev` (empty defaults such as `SCANTOR_ADMIN_PASSWORD` pass; `SCANTOR_S3_ACCESS_KEY` is not a
   secret), or when a shipped value breaks a secure default:
@@ -810,12 +876,15 @@ Triggers: `push` to `main` and `pull_request` (all branches). `concurrency: test
 |---|---|---|
 | `static` | `ubuntu-latest` | `actions/checkout@v7`, `extractions/setup-just@v4` (just 1.59.0), `just lint`, `just typecheck`, `just docs --check`, `just test-index --check` |
 | `unit` | `ubuntu-latest`, matrix `suite: [go, go-integration, orchestrator, orchestrator-integration, connectors, conformance]` | checkout, setup-just, `docker/setup-buildx-action@v4`, `just test-<suite>`; for `go-integration` first the dev-tagged `scantor` and base images (`docker/bake-action`, `load: true`, reading the GHA cache) and the service images `rabbitmq:4.4-management` and `registry:3.1.2` |
-| `e2e` | `ubuntu-latest`, `timeout-minutes: 120` | checkout, setup-just, setup-buildx; build the `test` bake group with `docker/bake-action` (`load: true`, `cache-from/to: type=gha`), `just test-images-save` (writes `.test-images/*.tar`), `SCANTOR_TEST_IMAGES_DIR=/src/.test-images CI=true just test-e2e`; on failure upload `tests/playwright-report` and `tests/test-results` with `actions/upload-artifact@v7` (7 days) |
+| `e2e` | `ubuntu-latest`, `timeout-minutes: 120` | checkout; free disk space (remove the preinstalled .NET, Android, GHC, CodeQL, Boost and Swift toolchains and images; move Docker's `data-root` to `/mnt` when that disk has more room); setup-just, setup-buildx; build the `test` bake group and `test-runner` with `docker/bake-action` (`load: true`, `cache-from/to: type=gha` per target), `just test-images-save` (writes `.test-images/*.tar`), `SCANTOR_TEST_IMAGES_DIR=/src/.test-images CI=true just test-e2e`; on failure upload `tests/playwright-report` and `tests/test-results` with `actions/upload-artifact@v7` (7 days) |
 
 The privileged DinD runner works on GitHub-hosted Linux runners. Images are built on the CI host (with
 the GitHub Actions cache) and loaded into the runner because the runner's cache volume does not survive
-between CI runs; the runner image itself is baked on the CI host by `just test-e2e`, and the pinned
-third-party images are pulled inside the runner on every CI run (§7.4 phase 7, retried). A pull request is mergeable only when all three jobs pass.
+between CI runs; the runner image is baked by the same step (so `just test-e2e` finds it in the builder's
+cache), and the pinned third-party images are pulled inside the runner on every CI run (§7.4 phase 8,
+retried). The images, their tarballs, the runner's volume and the suite's task images need about 40 GB,
+more than a hosted runner's root disk has free by default. A pull request is mergeable only when all three
+jobs pass.
 
 ## 13. Writing a new test (checklist)
 
@@ -828,7 +897,8 @@ third-party images are pulled inside the runner on every CI run (§7.4 phase 7, 
 4. Tag the test with its FEATURES.md ids.
 5. For a new API operation: add its entries to `authz/requests.ts`; for a new MCP tool: update the
    expected tool set in `mcp/tools.spec.ts`.
-6. Run the file with `just test-exec <file>` against a kept-alive stack; then `just test-index`.
+6. Run the file with `just test-exec <file>` against a stack kept alive with `just test-up` (remove it with
+   `just test-down`); then `just test-index`.
 
 ## 14. Decisions
 
@@ -844,8 +914,10 @@ third-party images are pulled inside the runner on every CI run (§7.4 phase 7, 
    browser, the runner, master workers and the simulated remote node's workers.
 4. **The CLI's local mode honours `SCANTOR_TRANCO_URL` and `SCANTOR_CRUX_URL`** so the scaffold matrix and
    `dev run` can use fixture data sources ([architecture](architecture.md) §10, [tasks](tasks.md) §11.4).
-5. **The simulated remote node is a `docker:29.9-dind` service plus a separate `scantor node` service**
-   (pool `remote`), so pulls, TLS and the public endpoint profile are exercised for real.
+5. **The simulated remote node is one `docker:29.9-dind` service running the node daemon inside it**
+   (pool `remote`), joined with the exact `dockerRun` command of `createNode`, so the join snippet, pulls
+   through the public registry host, TLS with the test CA and the public endpoint profile are exercised for
+   real, and the daemon's self-inspection (egress helper, free disk) works as on a real host.
 6. **Orchestrator unit tests with vitest** for pure server logic, alongside Go and connector unit tests.
 7. **Conformance runs through real task builds** (hidden `scantor conformance`), so the harness needs no
    per-language build logic.
