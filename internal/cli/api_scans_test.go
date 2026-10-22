@@ -223,7 +223,7 @@ func TestAPIScansLifecycle(t *testing.T) {
 func TestAPIScansOperatorViews(t *testing.T) {
 	f := newAPIFake(t)
 	base := "/api/scans/" + apiScanID
-	f.reply("GET", base+"/inflight", 200, map[string]any{"items": []any{map[string]any{"analysisId": apiScanID + "-7", "seq": 7, "round": 1, "attempt": 2, "startedAt": "2026-10-21T10:00:00.000Z", "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a", "progress": map[string]any{"pct": 50}}}, "updatedAt": nil})
+	f.reply("GET", base+"/inflight", 200, map[string]any{"items": []any{map[string]any{"analysisId": apiScanID + "-7", "seq": 7, "round": 1, "attempt": 2, "startedAt": "2026-10-21T10:00:00.000Z", "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a", "progress": map[string]any{"pct": 50}}, map[string]any{"analysisId": apiScanID + "-8", "seq": 8, "round": 1, "attempt": 1, "startedAt": "2026-10-21T10:00:00.000Z", "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a", "progress": map[string]any{"fraction": 0.6667, "message": "4 of 6 s"}}}, "updatedAt": nil})
 	f.reply("GET", base+"/conditions", 200, map[string]any{"items": []any{map[string]any{"type": "crashLoop", "severity": "error", "reason": "exit", "message": "worker exits 1", "since": "2026-10-21T10:00:00.000Z", "updatedAt": "2026-10-21T10:00:00.000Z"}}})
 	f.reply("GET", base+"/events", 200, map[string]any{"items": []any{map[string]any{"id": "e1", "at": "2026-10-21T10:00:00.000Z", "type": "scan.created", "level": "info", "userId": nil, "message": "scan created"}}, "nextCursor": nil})
 	f.reply("GET", base+"/workers", 200, map[string]any{"items": []any{map[string]any{"id": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "userId": "u", "scanId": apiScanID, "role": "runner", "nodeId": nil, "epoch": 0, "state": "pending", "stateReason": map[string]any{"code": "noNodes"}, "spec": map[string]any{"repository": "r", "digest": "d", "resources": map[string]any{"cpus": 1, "memoryMiB": 512}, "privileged": false, "dindMode": nil}, "processes": map[string]any{"desired": 2, "assigned": 0, "applied": 0, "running": 0}, "container": nil, "runtime": nil, "logs": nil, "node": nil, "scan": nil, "createdAt": "2026-10-21T10:00:00.000Z", "assignedAt": nil, "startedAt": nil, "stoppedAt": nil, "updatedAt": "2026-10-21T10:00:00.000Z"}}, "nextCursor": nil})
@@ -234,6 +234,7 @@ func TestAPIScansOperatorViews(t *testing.T) {
 		want string
 	}{
 		{[]string{"scans", "inflight", apiScanID}, `{"pct":50}`},
+		{[]string{"scans", "inflight", apiScanID}, "67% 4 of 6 s"},
 		{[]string{"scans", "conditions", apiScanID}, "crashLoop"},
 		{[]string{"scans", "events", apiScanID, "--type", "scan.created"}, "scan created"},
 		{[]string{"scans", "workers", apiScanID, "--state", "pending,assigned"}, "pending (noNodes)"},

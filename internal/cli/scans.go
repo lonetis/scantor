@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -783,16 +784,38 @@ func newScansInflightCommand(app *App) *cobra.Command {
 			return app.Output().Print(list, func(w io.Writer) error {
 				t := Table{Headers: []string{"ANALYSIS", "ROUND", "ATTEMPT", "RUNNING", "WORKER", "NODE", "PROGRESS"}}
 				for _, a := range list.Items {
-					progress := "-"
-					if len(a.Progress) > 0 && string(a.Progress) != "null" {
-						progress = apiTruncate(string(a.Progress), 60)
-					}
-					t.Add(a.AnalysisID, fmt.Sprintf("%d", a.Round), fmt.Sprintf("%d", a.Attempt), HumanAge(&a.StartedAt, now), apiShortID(a.WorkerID), apiShortID(a.NodeID), progress)
+					t.Add(a.AnalysisID, fmt.Sprintf("%d", a.Round), fmt.Sprintf("%d", a.Attempt), HumanAge(&a.StartedAt, now), apiShortID(a.WorkerID), apiShortID(a.NodeID), inflightProgress(a.Progress))
 				}
 				return t.Write(w)
 			})
 		},
 	}
+}
+
+// inflightProgress renders the latest progress report of an analysis ({fraction, message}, protocol
+// `progress`) as "67% 4 of 6 s"; any other shape is shown as compact JSON.
+func inflightProgress(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "-"
+	}
+	var p api.BusyProgress
+	if err := json.Unmarshal(raw, &p); err == nil {
+		var parts []string
+		if p.Fraction != nil {
+			parts = append(parts, fmt.Sprintf("%.0f%%", *p.Fraction*100))
+		}
+		if p.Message != nil && *p.Message != "" {
+			parts = append(parts, *p.Message)
+		}
+		if len(parts) > 0 {
+			return apiTruncate(strings.Join(parts, " "), 60)
+		}
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, raw); err != nil {
+		return apiTruncate(string(raw), 60)
+	}
+	return apiTruncate(compact.String(), 60)
 }
 
 func newScansConditionsCommand(app *App) *cobra.Command {
