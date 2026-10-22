@@ -27,7 +27,7 @@ function choose(template: string): void {
         </div>
         <UBadge v-if="template.resolves" label="pins inputs" color="info" variant="subtle" size="xs" />
       </div>
-      <p class="text-xs text-muted">{{ template.description }}</p>
+      <p class="text-xs text-muted"><InlineCodeText :text="template.description" /></p>
       <JsonView :value="template.example.analysisConfig" :collapsed-depth="1" :copyable="false" />
       <UButton :label="`Use ${template.title}`" size="xs" variant="outline" class="mt-auto self-start" @click="choose(template.name)" />
     </div>

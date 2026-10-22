@@ -65,6 +65,9 @@ function setNull(checked: boolean | 'indeterminate'): void {
     :ui="{ root: isContainer ? 'rounded-md border border-default p-3' : undefined, label: 'text-sm' }"
     :data-field-path="name"
   >
+    <template v-if="!hideLabel && field.description" #description>
+      <InlineCodeText :text="field.description" />
+    </template>
     <template v-if="!hideLabel" #label>
       <span class="inline-flex flex-wrap items-center gap-1.5">
         <span>{{ labelText }}</span>

@@ -106,3 +106,24 @@ export function shortId(id: string | null | undefined, length = 8): string {
 export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${formatCount(count)} ${count === 1 ? singular : pluralForm}`
 }
+
+export interface TextPart {
+  text: string
+  code: boolean
+}
+
+/** Splits text at Markdown code spans (`code`); an unpaired backtick stays plain text. */
+export function splitCodeSpans(text: string): TextPart[] {
+  const parts: TextPart[] = []
+  let rest = text
+  for (;;) {
+    const open = rest.indexOf('`')
+    const close = open === -1 ? -1 : rest.indexOf('`', open + 1)
+    if (close === -1) break
+    if (open > 0) parts.push({ text: rest.slice(0, open), code: false })
+    if (close > open + 1) parts.push({ text: rest.slice(open + 1, close), code: true })
+    rest = rest.slice(close + 1)
+  }
+  if (rest) parts.push({ text: rest, code: false })
+  return parts
+}

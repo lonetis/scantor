@@ -39,7 +39,7 @@ async function run(): Promise<void> {
       </div>
       <UBadge v-if="template.resolves" label="pins inputs at scan start" color="info" variant="subtle" size="xs" icon="i-lucide-pin" />
     </div>
-    <p class="text-sm text-muted">{{ template.description }}</p>
+    <p class="text-sm text-muted"><InlineCodeText :text="template.description" /></p>
 
     <div class="grid gap-3 md:grid-cols-2">
       <div class="space-y-1">

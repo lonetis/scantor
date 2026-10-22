@@ -10,6 +10,7 @@ import {
   formatRelativeTime,
   plural,
   shortId,
+  splitCodeSpans,
 } from '../../app/utils/format'
 
 const NOW = Date.parse('2026-10-21T12:00:00.000Z')
@@ -114,5 +115,27 @@ describe('shortId', () => {
     expect(shortId('7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c')).toBe('7f3b2c1a')
     expect(shortId('sha256:4e5f6a7b8c9d')).toBe('4e5f6a7b')
     expect(shortId(null)).toBe('')
+  })
+})
+
+describe('splitCodeSpans', () => {
+  it('marks Markdown code spans and keeps the rest as text', () => {
+    expect(splitCodeSpans('per subnet of length `prefix`, at most `maxAnalyses`.')).toEqual([
+      { text: 'per subnet of length ', code: false },
+      { text: 'prefix', code: true },
+      { text: ', at most ', code: false },
+      { text: 'maxAnalyses', code: true },
+      { text: '.', code: false },
+    ])
+  })
+
+  it('leaves unpaired backticks and plain text alone', () => {
+    expect(splitCodeSpans('no code')).toEqual([{ text: 'no code', code: false }])
+    expect(splitCodeSpans('`a` and `b')).toEqual([
+      { text: 'a', code: true },
+      { text: ' and `b', code: false },
+    ])
+    expect(splitCodeSpans('``')).toEqual([])
+    expect(splitCodeSpans('')).toEqual([])
   })
 })
