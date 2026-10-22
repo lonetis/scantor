@@ -1,0 +1,15 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "scantor: attach to dev debug",
+      "type": "node",
+      "request": "attach",
+      "address": "localhost",
+      "port": 9229,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "/task",
+      "skipFiles": ["<node_internals>/**", "/node_modules/**"]
+    }
+  ]
+}

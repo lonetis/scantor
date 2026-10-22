@@ -1,0 +1,22 @@
+# [[.Name]] — a scantor task ([[.Language]])
+
+This folder is a scantor task. The definition lives in `main.ts`; `scantor.yaml` is the manifest.
+
+Commands:
+- `scantor validate .` — static checks, image build, describe and type check (as on publish)
+- `scantor dev run . --limit 5` — build and run locally (add `--remote` to run on the platform)
+- `scantor dev debug .` — run one analysis and wait for a debugger
+- `scantor push .` — upload and publish a revision
+- `scantor scans start [[.Name]]@latest` — start a scan of the latest revision
+
+Rules: keep `name` in scantor.yaml unchanged; `schedule` must be deterministic; put large outputs in
+`ctx.files`; raise `Fatal` for permanent and `Retry` for transient failures.
+
+TypeScript: `main.ts` default-exports `defineTask(...)` from `@scantor/connector`; import `z` from
+`@scantor/connector`, never from `zod`; build configs with `config()` and give every field a default;
+Node runs the file with type stripping, so use only erasable syntax (no `enum`, `namespace` or
+parameter properties) and `.ts` extensions in local imports; add npm packages to `package.json`
+(never `zod` or `@scantor/connector`) and keep `package-lock.json` in sync; `tsc` with `tsconfig.json`
+must pass, because `scantor validate` and publishing run it.
+
+Guide: https://github.com/lonetis/scantor/blob/v[[.Version]]/docs/guide/authoring-[[.Language]].md

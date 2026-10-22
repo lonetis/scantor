@@ -1,0 +1,10 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/main/schemas/task-manifest.schema.json
+scantor: 1
+name: power
+language: javascript
+description: Computes base^exponent for every base of an integer range.
+defaults:
+  timeout: 30s
+  resources:
+    cpus: 0.25
+    memory: 128MiB

@@ -1,0 +1,21 @@
+# Used by BuildKit instead of the repository's .dockerignore for this Dockerfile (context: repo root).
+*
+!connectors/js/package.json
+!connectors/js/package-lock.json
+!connectors/js/tsconfig.json
+!connectors/js/tsconfig.build.json
+!connectors/js/serve.js
+!connectors/js/check.js
+!connectors/js/src
+!connectors/js/test
+!connectors/js/check-tools/package.json
+!connectors/js/check-tools/package-lock.json
+!schemas
+!tasks/http-status
+!tasks/power
+!scaffolds/typescript
+!scaffolds/javascript
+!docs/guide/authoring-typescript.md
+!docs/guide/authoring-javascript.md
+tasks/*/node_modules
+tasks/*/.scantor

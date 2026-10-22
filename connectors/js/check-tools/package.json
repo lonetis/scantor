@@ -1,0 +1,10 @@
+{
+  "name": "scantor-base-js-check-tools",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Root /node_modules of scantor-base-js: the type checker behind SCANTOR_CHECK_CMD",
+  "dependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "~6.0.3"
+  }
+}

@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=[[.ManifestSchemaURL]]
+scantor: 1
+name: [[.Name]]
+language: [[.Language]]
+[[- if .Description]]
+description: [[printf "%q" .Description]]
+[[- end]]

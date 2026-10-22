@@ -1,0 +1,20 @@
+// @ts-check
+// [[.Name]]: a scantor task with one analysis per item of a list (template list).
+import { config, defineTask, z } from "@scantor/connector";
+import { list } from "@scantor/connector/templates";
+
+export default defineTask({
+  // Task config: set per scan, the same for all its analyses. Give every field a default.
+  taskConfig: config({ greeting: z.string().default("Hello") }),
+  // The template's configs: the scan config parameterises the template, run gets its analysis configs.
+  scanConfig: list.ScanConfig,
+  analysisConfig: list.AnalysisConfig,
+  // The result of one analysis.
+  result: z.object({ text: z.string() }),
+  // The template's proxy, passed unwrapped: the platform generates the analyses natively.
+  schedule: list.schedule,
+  run(ctx, analysisConfig, taskConfig) {
+    ctx.log("info", "analysing", { item: analysisConfig.item, index: analysisConfig.index });
+    return { text: `${taskConfig.greeting}, ${analysisConfig.item} (#${analysisConfig.index})!` };
+  },
+});

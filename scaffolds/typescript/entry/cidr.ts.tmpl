@@ -1,0 +1,19 @@
+// [[.Name]]: a scantor task with one analysis per IP address of CIDR ranges (template cidr).
+import { config, defineTask, z } from "@scantor/connector";
+import { cidr } from "@scantor/connector/templates";
+
+export default defineTask({
+  // Task config: set per scan, the same for all its analyses. Give every field a default.
+  taskConfig: config({ greeting: z.string().default("Hello") }),
+  // The template's configs: the scan config parameterises the template, run gets its analysis configs.
+  scanConfig: cidr.ScanConfig,
+  analysisConfig: cidr.AnalysisConfig,
+  // The result of one analysis.
+  result: z.object({ text: z.string() }),
+  // The template's proxy, passed unwrapped: the platform generates the analyses natively.
+  schedule: cidr.schedule,
+  run(ctx, analysisConfig, taskConfig) {
+    ctx.log("info", "analysing", { ip: analysisConfig.ip, version: analysisConfig.version });
+    return { text: `${taskConfig.greeting}, ${analysisConfig.ip}/${analysisConfig.prefix}!` };
+  },
+});

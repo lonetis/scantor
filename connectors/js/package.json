@@ -1,0 +1,55 @@
+{
+  "name": "@scantor/connector",
+  "version": "0.0.0",
+  "private": true,
+  "description": "scantor connector for TypeScript and JavaScript tasks: typed task definitions and the connector protocol",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
+  "exports": {
+    ".": {
+      "scantor-source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./templates": {
+      "scantor-source": "./src/templates/index.ts",
+      "types": "./dist/templates/index.d.ts",
+      "default": "./dist/templates/index.js"
+    },
+    "./serve": {
+      "scantor-source": "./src/serve.ts",
+      "default": "./dist/serve.js"
+    },
+    "./check": {
+      "scantor-source": "./src/check.ts",
+      "default": "./dist/check.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "serve.js",
+    "check.js"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --conditions=scantor-source --test --test-concurrency=4 \"test/**/*.test.ts\"",
+    "test:all": "npm run typecheck && npm test && npm run test:typing",
+    "test:typing": "tsc -p test/typing/ts/tsconfig.json && tsc -p test/typing/js/jsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "ajv": "^8.20.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "yaml": "^2.9.1"
+  }
+}

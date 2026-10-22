@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/main/schemas/task-manifest.schema.json
+scantor: 1
+name: http-status
+language: typescript
+description: Fetches every origin of a CrUX top list and checks its HTTP status code.
+defaults:
+  processes: 4
+  timeout: 1m
+  resources:
+    cpus: 0.25
+    memory: 256MiB

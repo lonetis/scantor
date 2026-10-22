@@ -1,0 +1,21 @@
+// [[.Name]]: a scantor task with its own schedule: one analysis per number below the scan config's count.
+import { config, defineTask, z } from "@scantor/connector";
+
+export default defineTask({
+  // Task config: set per scan, the same for all its analyses. Give every field a default.
+  taskConfig: config({ greeting: z.string().default("Hello") }),
+  // Scan config: the input of schedule.
+  scanConfig: config({ count: z.number().int().min(0).max(1000).default(3).describe("Number of analyses.") }),
+  // Analysis config: the input of one run, produced by schedule.
+  analysisConfig: config({ n: z.number().int() }),
+  // The result of one analysis.
+  result: z.object({ text: z.string() }),
+  // Must be deterministic: the same configs always yield the same analyses in the same order.
+  *schedule(ctx, scanConfig) {
+    for (let n = 0; n < scanConfig.count; n++) yield { n };
+  },
+  run(ctx, analysisConfig, taskConfig) {
+    ctx.log("info", "analysing", { n: analysisConfig.n });
+    return { text: `${taskConfig.greeting}, number ${analysisConfig.n}!` };
+  },
+});

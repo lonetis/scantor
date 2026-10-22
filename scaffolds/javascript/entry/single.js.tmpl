@@ -1,0 +1,14 @@
+// @ts-check
+// [[.Name]]: a scantor task. Without a schedule each scan has exactly one analysis (template single).
+import { config, defineTask, z } from "@scantor/connector";
+
+export default defineTask({
+  // Task config: set per scan, the same for all its analyses. Give every field a default.
+  taskConfig: config({ greeting: z.string().default("Hello") }),
+  // The result of one analysis.
+  result: z.object({ text: z.string() }),
+  run(ctx, analysisConfig, taskConfig) {
+    ctx.log("info", "analysing", { scanId: ctx.scanId });
+    return { text: `${taskConfig.greeting}, world!` };
+  },
+});
