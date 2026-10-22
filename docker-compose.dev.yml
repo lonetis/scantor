@@ -1,0 +1,383 @@
+name: scantor
+
+x-logging: &logging
+  driver: local
+  options:
+    max-size: 20m
+    max-file: "5"
+
+services:
+  orchestrator:
+    image: scantor-orchestrator-dev:dev
+    command: ["sh", "-c", "npm install --no-audit --no-fund && exec npx nuxt dev --host 0.0.0.0 --port 3000"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 180s
+    container_name: scantor-orchestrator
+    working_dir: /app/orchestrator
+    mem_limit: ${SCANTOR_ORCHESTRATOR_MEMORY_LIMIT}
+    stop_grace_period: 30s
+    logging: *logging
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.scantor.rule=Host(`${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.scantor.service=scantor
+      - traefik.http.services.scantor.loadbalancer.server.port=3000
+      - traefik.http.routers.scantor-editor.rule=Host(`editor.${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.scantor-editor.service=scantor-editor
+      - traefik.http.services.scantor-editor.loadbalancer.server.port=3001
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_PORT}:3000"
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_EDITOR_PORT}:3001"
+    networks:
+      - scantor
+      - scantor-sandbox
+    volumes:
+      - .:/app
+      - scantor-orchestrator-node-modules:/app/orchestrator/node_modules
+      - /var/run/docker.sock:/var/run/docker.sock
+      - scantor-editor-sockets:/run/scantor/editor-sockets
+      - scantor-registry-auth:/run/scantor/registry-auth
+    environment:
+      - SCANTOR_IMAGE_PREFIX=
+      - SCANTOR_IMAGE_TAG=dev
+      - NODE_ENV=development
+    env_file:
+      - .env
+
+  node:
+    image: scantor:dev
+    command: ["node"]
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/scantor", "node", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    container_name: scantor-node
+    stop_grace_period: 30s
+    logging: *logging
+    networks:
+      - scantor
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - SCANTOR_URL=${SCANTOR_INTERNAL_URL}
+      - SCANTOR_NODE_BUILTIN=true
+      - SCANTOR_SECRET=${SCANTOR_SECRET}
+      - SCANTOR_NODE_MAX_WORKERS=${SCANTOR_BUILTIN_NODE_MAX_WORKERS}
+      - SCANTOR_NODE_DIND=${SCANTOR_BUILTIN_NODE_DIND}
+      - SCANTOR_NODE_EGRESS_DENY=${SCANTOR_NODE_EGRESS_DENY}
+      - SCANTOR_NODE_PIDS_LIMIT=${SCANTOR_NODE_PIDS_LIMIT}
+      - SCANTOR_NODE_SHM_SIZE=${SCANTOR_NODE_SHM_SIZE}
+      - SCANTOR_NODE_NOFILE=${SCANTOR_NODE_NOFILE}
+      - SCANTOR_NODE_WORKER_LOG_MAX_SIZE=${SCANTOR_NODE_WORKER_LOG_MAX_SIZE}
+      - SCANTOR_NODE_WORKER_LOG_MAX_FILES=${SCANTOR_NODE_WORKER_LOG_MAX_FILES}
+      - SCANTOR_NODE_IMAGE_RETENTION=${SCANTOR_NODE_IMAGE_RETENTION}
+      - SCANTOR_NODE_PULL_TIMEOUT=${SCANTOR_NODE_PULL_TIMEOUT}
+      - SCANTOR_LOG_LEVEL=${SCANTOR_LOG_LEVEL}
+      - SCANTOR_LOG_FORMAT=${SCANTOR_LOG_FORMAT}
+
+  mongo:
+    image: mongo:9.0
+    command: ["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--bind_ip_all"]
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        openssl rand -base64 756 > /tmp/mongo-keyfile
+        chmod 400 /tmp/mongo-keyfile
+        chown mongodb:mongodb /tmp/mongo-keyfile
+        exec docker-entrypoint.sh "$$@"
+      - mongo-entrypoint
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          mongosh --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin
+          --eval "try { rs.status().ok } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] }).ok }"
+      interval: 5s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+      start_interval: 2s
+    container_name: scantor-mongo
+    mem_limit: ${SCANTOR_MONGO_MEMORY_LIMIT}
+    logging: *logging
+    labels:
+      - traefik.enable=${SCANTOR_EXPOSE_MONGO}
+      - traefik.tcp.routers.mongo.rule=HostSNI(`mongo.${SCANTOR_DOMAIN}`)
+      - traefik.tcp.routers.mongo.entrypoints=websecure
+      - traefik.tcp.routers.mongo.tls=true
+      - traefik.tcp.routers.mongo.tls.certresolver=${SCANTOR_TRAEFIK_CERT_RESOLVER}
+      - traefik.tcp.routers.mongo.service=mongo
+      - traefik.tcp.services.mongo.loadbalancer.server.port=27017
+    ports:
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017"
+    networks:
+      - scantor
+    volumes:
+      - scantor-mongo-data:/data/db
+      - scantor-mongo-config:/data/configdb
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${SCANTOR_MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${SCANTOR_MONGO_PASSWORD}
+
+  rabbitmq:
+    image: rabbitmq:4.4-management
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
+    container_name: scantor-rabbitmq
+    hostname: rabbitmq
+    mem_limit: ${SCANTOR_RABBITMQ_MEMORY_LIMIT}
+    logging: *logging
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.rabbitmq.rule=Host(`rabbitmq.${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.rabbitmq.service=rabbitmq
+      - traefik.http.routers.rabbitmq.middlewares=scantor-tools-auth@docker
+      - traefik.http.services.rabbitmq.loadbalancer.server.port=15672
+      - traefik.tcp.routers.amqp.rule=HostSNI(`amqp.${SCANTOR_DOMAIN}`)
+      - traefik.tcp.routers.amqp.entrypoints=websecure
+      - traefik.tcp.routers.amqp.tls=true
+      - traefik.tcp.routers.amqp.tls.certresolver=${SCANTOR_TRAEFIK_CERT_RESOLVER}
+      - traefik.tcp.routers.amqp.service=amqp
+      - traefik.tcp.services.amqp.loadbalancer.server.port=5672
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_AMQP_PORT}:5672"
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RABBITMQ_MANAGEMENT_PORT}:15672"
+    networks:
+      - scantor
+      - scantor-sandbox
+    volumes:
+      - scantor-rabbitmq-data:/var/lib/rabbitmq
+    environment:
+      - RABBITMQ_DEFAULT_USER=${SCANTOR_RABBITMQ_USER}
+      - RABBITMQ_DEFAULT_PASS=${SCANTOR_RABBITMQ_PASSWORD}
+      - "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbit max_message_size 4194304 -rabbit vm_memory_high_watermark {absolute,\"${SCANTOR_RABBITMQ_MEMORY_WATERMARK}\"} -rabbit disk_free_limit {absolute,\"${SCANTOR_RABBITMQ_DISK_FREE_LIMIT}\"} -rabbit consumer_timeout 1800000 -rabbit anonymous_login_user none -rabbit auth_mechanisms ['PLAIN','AMQPLAIN']"
+
+  rustfs:
+    image: rustfs/rustfs:1.0.3
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    container_name: scantor-rustfs
+    logging: *logging
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.s3.rule=Host(`s3.${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.s3.service=s3
+      - traefik.http.services.s3.loadbalancer.server.port=9000
+      - traefik.http.routers.rustfs.rule=Host(`rustfs.${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.rustfs.service=rustfs
+      - traefik.http.routers.rustfs.middlewares=scantor-tools-auth@docker,rustfs-console-root
+      - traefik.http.middlewares.rustfs-console-root.redirectregex.regex=^https://([^/]+)/?$$
+      - traefik.http.middlewares.rustfs-console-root.redirectregex.replacement=https://$${1}/rustfs/console/
+      - traefik.http.services.rustfs.loadbalancer.server.port=9001
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_S3_PORT}:9000"
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RUSTFS_CONSOLE_PORT}:9001"
+    networks:
+      - scantor
+      - scantor-sandbox
+    volumes:
+      - scantor-rustfs-data:/data
+    environment:
+      - RUSTFS_ACCESS_KEY=${SCANTOR_S3_ACCESS_KEY}
+      - RUSTFS_SECRET_KEY=${SCANTOR_S3_SECRET_KEY}
+      - RUSTFS_OBS_LOG_DIRECTORY=
+      - RUSTFS_OBS_LOGGER_LEVEL=info
+      - RUSTFS_CHECK_UPDATE=false
+      - RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS=${SCANTOR_RUSTFS_CONSOLE_URL}
+      - RUSTFS_BROWSER_REDIRECT_URL=${SCANTOR_RUSTFS_CONSOLE_URL}
+
+  registry:
+    image: registry:3.1.2
+    entrypoint:
+      - sh
+      - -c
+      - |
+        until [ -s /run/scantor/registry-auth/jwks.json ] && [ -s /run/scantor/registry-auth/http-secret ]; do
+          echo "registry: waiting for the orchestrator to write /run/scantor/registry-auth"
+          sleep 2
+        done
+        REGISTRY_HTTP_SECRET="$$(cat /run/scantor/registry-auth/http-secret)"
+        export REGISTRY_HTTP_SECRET
+        exec /entrypoint.sh /etc/distribution/config.yml
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:5001/debug/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 180s
+    container_name: scantor-registry
+    logging: *logging
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.registry.rule=Host(`registry.${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.registry.service=registry
+      - traefik.http.services.registry.loadbalancer.server.port=5000
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_REGISTRY_PORT}:5000"
+    networks:
+      - scantor
+    volumes:
+      - scantor-registry-data:/var/lib/registry
+      - scantor-registry-auth:/run/scantor/registry-auth:ro
+    environment:
+      - OTEL_TRACES_EXPORTER=none
+      - REGISTRY_LOG_LEVEL=info
+      - REGISTRY_HTTP_RELATIVEURLS=true
+      - REGISTRY_STORAGE_DELETE_ENABLED=true
+      - REGISTRY_AUTH_TOKEN_REALM=${SCANTOR_PUBLIC_URL}/api/registry/token
+      - REGISTRY_AUTH_TOKEN_SERVICE=scantor-registry
+      - REGISTRY_AUTH_TOKEN_ISSUER=scantor
+      - REGISTRY_AUTH_TOKEN_JWKS=/run/scantor/registry-auth/jwks.json
+
+  mongo-express:
+    image: mongo-express:1.0.2-20-alpine3.19
+    depends_on:
+      mongo:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    container_name: scantor-mongo-express
+    logging: *logging
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.mongo-express.rule=Host(`mongo-express.${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.mongo-express.service=mongo-express
+      - traefik.http.routers.mongo-express.middlewares=scantor-tools-auth@docker
+      - traefik.http.services.mongo-express.loadbalancer.server.port=8081
+    ports:
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081"
+    networks:
+      - scantor
+    environment:
+      - ME_CONFIG_MONGODB_URL=mongodb://${SCANTOR_MONGO_USER}:${SCANTOR_MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true
+      - ME_CONFIG_BASICAUTH=true
+      - ME_CONFIG_BASICAUTH_USERNAME=${SCANTOR_MONGO_EXPRESS_USER}
+      - ME_CONFIG_BASICAUTH_PASSWORD=${SCANTOR_MONGO_EXPRESS_PASSWORD}
+      - ME_CONFIG_SITE_COOKIESECRET=${SCANTOR_MONGO_EXPRESS_SECRET}
+      - ME_CONFIG_SITE_SESSIONSECRET=${SCANTOR_MONGO_EXPRESS_SECRET}
+      - ME_CONFIG_OPTIONS_READONLY=${SCANTOR_MONGO_EXPRESS_READONLY}
+
+  traefik:
+    image: traefik:v3.7
+    command:
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+      - --ping=true
+      - --log.level=${SCANTOR_TRAEFIK_LOG_LEVEL}
+      - --accesslog=${SCANTOR_TRAEFIK_ACCESS_LOG}
+      - --api.dashboard=true
+      - --api.insecure=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --providers.docker.network=scantor
+      - --providers.docker.constraints=Label(`com.docker.compose.project`,`scantor`)
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.scheme=https
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.websecure.asdefault=true
+      - --entrypoints.websecure.http.tls=true
+      - --entrypoints.websecure.http.tls.certresolver=${SCANTOR_TRAEFIK_CERT_RESOLVER}
+      - --entrypoints.websecure.http.tls.domains[0].main=${SCANTOR_DOMAIN}
+      - --entrypoints.websecure.http.tls.domains[0].sans=*.${SCANTOR_DOMAIN}
+      - --entrypoints.websecure.transport.respondingTimeouts.readTimeout=${SCANTOR_TRAEFIK_READ_TIMEOUT}
+      - --certificatesresolvers.acme.acme.email=${SCANTOR_ACME_EMAIL}
+      - --certificatesresolvers.acme.acme.storage=/acme/acme.json
+      - --certificatesresolvers.acme.acme.caserver=${SCANTOR_ACME_CA_SERVER}
+      - --certificatesresolvers.acme.acme.dnschallenge.provider=${SCANTOR_ACME_DNS_PROVIDER}
+      - --certificatesresolvers.acme.acme.dnschallenge.resolvers=${SCANTOR_ACME_DNS_RESOLVERS}
+      - --certificatesresolvers.acme.acme.dnschallenge.propagation.delaybeforechecks=${SCANTOR_ACME_DNS_DELAY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    container_name: scantor-traefik
+    profiles:
+      - traefik
+    logging: *logging
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.traefik.rule=Host(`traefik.${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.traefik.service=api@internal
+      - traefik.http.routers.traefik.middlewares=scantor-tools-auth@docker
+      - traefik.http.middlewares.scantor-tools-auth.forwardauth.address=http://orchestrator:3000/api/tools/forward-auth
+      - traefik.http.middlewares.scantor-tools-auth.forwardauth.authResponseHeaders=X-Scantor-User
+      - traefik.http.middlewares.scantor-tools-auth.forwardauth.trustForwardHeader=false
+      - traefik.http.middlewares.scantor-tools-auth.forwardauth.maxResponseBodySize=65536
+    ports:
+      - "${SCANTOR_TRAEFIK_BIND_ADDRESS}:${SCANTOR_HTTP_PORT}:80"
+      - "${SCANTOR_TRAEFIK_BIND_ADDRESS}:${SCANTOR_HTTPS_PORT}:443"
+    networks:
+      - scantor
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - scantor-traefik-acme:/acme
+      - ./traefik/dynamic:/etc/traefik/dynamic:ro
+    env_file:
+      - .env
+
+volumes:
+  scantor-orchestrator-node-modules:
+    name: scantor-orchestrator-node-modules
+  scantor-mongo-data:
+    name: scantor-mongo-data
+  scantor-mongo-config:
+    name: scantor-mongo-config
+  scantor-rabbitmq-data:
+    name: scantor-rabbitmq-data
+  scantor-rustfs-data:
+    name: scantor-rustfs-data
+  scantor-registry-data:
+    name: scantor-registry-data
+  scantor-registry-auth:
+    name: scantor-registry-auth
+  scantor-editor-sockets:
+    name: scantor-editor-sockets
+  scantor-traefik-acme:
+    name: scantor-traefik-acme
+
+networks:
+  scantor:
+    name: scantor
+  scantor-sandbox:
+    name: scantor-sandbox

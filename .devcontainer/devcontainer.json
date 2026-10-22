@@ -1,0 +1,19 @@
+// Development container of this repository (docs/development.md §2): the toolchain stage of
+// editor/Dockerfile plus its own Docker daemon, so every just recipe works unchanged inside it.
+{
+  "name": "scantor",
+  "build": { "dockerfile": "../editor/Dockerfile", "context": "..", "target": "toolchain" },
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:4": { "moby": false }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go", "ms-python.python", "detachhead.basedpyright", "charliermarsh.ruff",
+        "Vue.volar", "dbaeumer.vscode-eslint", "esbenp.prettier-vscode", "redhat.vscode-yaml",
+        "ms-playwright.playwright"
+      ]
+    }
+  }
+}

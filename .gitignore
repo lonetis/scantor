@@ -1,0 +1,39 @@
+# Local configuration with secrets (created by `just init` from .env.example)
+.env
+
+# Build outputs of just recipes
+/bin/
+/.test-images/
+/dist/
+
+# Node
+node_modules/
+.nuxt/
+.output/
+.data/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Go
+coverage.out
+*.test
+
+# Playwright reports and local test state
+/tests/playwright-report/
+/tests/test-results/
+/tests/.auth/
+
+# Local outputs of `scantor dev run` inside task folders
+.scantor/
+
+# Editors and OS
+.DS_Store
+.idea/
+*.swp
