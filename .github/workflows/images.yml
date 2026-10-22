@@ -1,0 +1,143 @@
+# Platform images for GHCR (docs/development.md §14): every target of the bake release group is
+# built on a native runner per architecture, pushed by digest and merged into one multi-arch
+# manifest. main → latest + sha-<short>; vX.Y.Z → X.Y.Z, X.Y, sha-<short>. Pull requests only build.
+name: images
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY_PREFIX: ghcr.io/lonetis/
+  PUSH: ${{ github.event_name != 'pull_request' }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [scantor, orchestrator, editor, base-python, base-js, base-go]
+        arch: [amd64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ${{ matrix.target == 'scantor' && 'scantor' || format('scantor-{0}', matrix.target) }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="$(git describe --tags --always)"
+            version="${version#v}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        if: env.PUSH == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build
+        id: bake
+        uses: docker/bake-action@v7
+        env:
+          IMAGE_PREFIX: ${{ env.REGISTRY_PREFIX }}
+          IMAGE_TAG: ${{ steps.version.outputs.version }}
+          VERSION: ${{ steps.version.outputs.version }}
+          COMMIT: ${{ github.sha }}
+        with:
+          source: .
+          targets: release-${{ matrix.target }}
+          set: |
+            release-${{ matrix.target }}.platform=linux/${{ matrix.arch }}
+            release-${{ matrix.target }}.tags=${{ env.REGISTRY_PREFIX }}${{ env.IMAGE }}
+            release-${{ matrix.target }}.output=type=image,push-by-digest=true,name-canonical=true,push=${{ env.PUSH }}
+            release-${{ matrix.target }}.cache-from=type=gha,scope=${{ env.IMAGE }}-${{ matrix.arch }}
+            release-${{ matrix.target }}.cache-to=type=gha,scope=${{ env.IMAGE }}-${{ matrix.arch }},mode=max
+
+      - name: Export the digest
+        if: env.PUSH == 'true'
+        env:
+          METADATA: ${{ steps.bake.outputs.metadata }}
+          TARGET: release-${{ matrix.target }}
+        run: |
+          digest="$(jq -r --arg target "$TARGET" '.[$target]["containerimage.digest"]' <<< "$METADATA")"
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v7
+        if: env.PUSH == 'true'
+        with:
+          name: digest-${{ matrix.target }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge:
+    needs: build
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [scantor, orchestrator, editor, base-python, base-js, base-go]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ${{ matrix.target == 'scantor' && 'scantor' || format('scantor-{0}', matrix.target) }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-${{ matrix.target }}-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/metadata-action@v6
+        id: meta
+        with:
+          images: ${{ env.REGISTRY_PREFIX }}${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Merge the manifests
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          tags="$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
+          # shellcheck disable=SC2046,SC2086
+          docker buildx imagetools create $tags $(printf "${REGISTRY_PREFIX}${IMAGE}@sha256:%s " *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect "${REGISTRY_PREFIX}${IMAGE}:${{ steps.meta.outputs.version }}"

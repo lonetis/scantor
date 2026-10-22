@@ -1,0 +1,107 @@
+# Lint, type checks, unit suites and the dockerized e2e suite (docs/testing.md §12). Every job calls
+# the same just recipes developers run.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.59.0
+      - run: just lint
+      - run: just typecheck
+      - run: just docs --check
+      - run: just test-index --check
+
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [go, go-integration, orchestrator, orchestrator-integration, connectors, conformance]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.59.0
+      - uses: docker/setup-buildx-action@v4
+      # The Go integration tests use the dev-tagged scantor and base images and never build them
+      # (reading the build cache the e2e job writes).
+      - name: Images of the Go integration tests
+        if: matrix.suite == 'go-integration'
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          targets: scantor,base-python,base-js,base-go
+          load: true
+          set: |
+            scantor.cache-from=type=gha,scope=test-scantor
+            base-python.cache-from=type=gha,scope=test-base-python
+            base-js.cache-from=type=gha,scope=test-base-js
+            base-go.cache-from=type=gha,scope=test-base-go
+      - name: Service images of the Go integration tests
+        if: matrix.suite == 'go-integration'
+        run: |
+          docker pull rabbitmq:4.4-management
+          docker pull registry:3.1.2
+      - run: just test-${{ matrix.suite }}
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.59.0
+      - uses: docker/setup-buildx-action@v4
+      # The runner's own image cache does not survive between CI runs, so the images are built here
+      # with the GitHub Actions cache and loaded into the runner.
+      - name: Build the test images
+        uses: docker/bake-action@v7
+        with:
+          source: .
+          targets: test
+          load: true
+          set: |
+            scantor.cache-from=type=gha,scope=test-scantor
+            scantor.cache-to=type=gha,scope=test-scantor,mode=max
+            orchestrator.cache-from=type=gha,scope=test-orchestrator
+            orchestrator.cache-to=type=gha,scope=test-orchestrator,mode=max
+            editor.cache-from=type=gha,scope=test-editor
+            editor.cache-to=type=gha,scope=test-editor,mode=max
+            base-python.cache-from=type=gha,scope=test-base-python
+            base-python.cache-to=type=gha,scope=test-base-python,mode=max
+            base-js.cache-from=type=gha,scope=test-base-js
+            base-js.cache-to=type=gha,scope=test-base-js,mode=max
+            base-go.cache-from=type=gha,scope=test-base-go
+            base-go.cache-to=type=gha,scope=test-base-go,mode=max
+            test-fixtures.cache-from=type=gha,scope=test-fixtures
+            test-fixtures.cache-to=type=gha,scope=test-fixtures,mode=max
+      - run: just test-images-save
+      - run: just test-e2e
+        env:
+          SCANTOR_TEST_IMAGES_DIR: /src/.test-images
+          CI: "true"
+      - if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: |
+            tests/playwright-report
+            tests/test-results
+          retention-days: 7

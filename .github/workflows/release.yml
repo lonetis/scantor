@@ -1,0 +1,47 @@
+# Native scantor binaries for release tags (docs/development.md §14): darwin/linux × amd64/arm64,
+# SHA256SUMS and the docker shim, attached to a GitHub release with generated notes. The images are
+# published by images.yml.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the binaries
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp -e CGO_ENABLED=0 -v "$PWD:/src" -w /src \
+            golang:1.27.3-trixie sh -euc '
+              pkg=github.com/lonetis/scantor/internal/version
+              for platform in darwin/amd64 darwin/arm64 linux/amd64 linux/arm64; do
+                os="${platform%/*}" arch="${platform#*/}"
+                echo "==> scantor-$os-$arch"
+                GOOS="$os" GOARCH="$arch" go build -trimpath -o "dist/scantor-$os-$arch" \
+                  -ldflags "-s -w -X $pkg.Version=$1 -X $pkg.Commit=$2 -X $pkg.ImagePrefix=ghcr.io/lonetis/" \
+                  ./cmd/scantor
+              done' sh "$version" "$GITHUB_SHA"
+
+      - name: Docker shim
+        run: |
+          sed "s/^default_tag=.*/default_tag=\"${GITHUB_REF_NAME#v}\"/" scantor.sh > dist/scantor.sh
+          chmod +x dist/scantor.sh
+          grep -q "^default_tag=\"${GITHUB_REF_NAME#v}\"$" dist/scantor.sh
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum scantor-* scantor.sh > SHA256SUMS
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$GITHUB_REF_NAME" dist/*
