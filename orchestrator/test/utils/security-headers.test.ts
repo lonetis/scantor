@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildCsp, cspOptionsFrom, isNoFramePage } from '../../server/utils/security-headers'
+import { buildCsp, buildDocsCsp, cspOptionsFrom, isNoFramePage } from '../../server/utils/security-headers'
 
 // Dashboard CSP (security.md HDR-1, HDR-2; docs/ui.md §13).
 
@@ -25,6 +25,16 @@ describe('buildCsp', () => {
     const csp = buildCsp(cspOptionsFrom({ editorUrl: 'http://localhost:3001', s3PublicUrl: 'http://localhost:9000' }, true))
     expect(csp).toContain("'unsafe-eval'")
     expect(csp).toContain('connect-src')
+  })
+})
+
+describe('buildDocsCsp', () => {
+  it('admits the Scalar bundle CDN and its font origin, and nothing else from outside', () => {
+    const csp = buildDocsCsp()
+    expect(csp).toContain("script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;")
+    expect(csp).toMatch(/font-src [^;]*https:\/\/fonts\.scalar\.com/)
+    expect(csp).toContain("connect-src 'self';")
+    expect(csp).toContain("object-src 'none'")
   })
 })
 

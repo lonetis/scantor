@@ -964,8 +964,8 @@ and the reason is recorded in this section; the required headers stay. `script-s
 `'unsafe-eval'` in production, which is why the browser JSON-Schema validator is `@cfworker/json-schema`
 rather than ajv (§6.1); only the development server (`nuxt dev`) adds `'unsafe-eval'` and
 `'unsafe-inline'` for Vite. `/api/docs` (Nitro's Scalar UI) is
-the only exception to `script-src`/`style-src`: it additionally allows the pinned Scalar bundle's CDN
-origin. The editor host has its own headers ([editor](editor.md) §8.8).
+the only exception to `script-src`/`style-src`/`font-src`: it additionally allows the pinned Scalar bundle's CDN
+origin and the font origin that bundle loads from (`https://fonts.scalar.com`). The editor host has its own headers ([editor](editor.md) §8.8).
 
 Rendering rules that keep untrusted content harmless: no `v-html` anywhere (lint
 rule `vue/no-v-html` as an error), logs are ANSI-stripped text, JSON is rendered by `JsonView` as text,

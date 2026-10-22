@@ -39,13 +39,16 @@ export function buildCsp(options: CspOptions): string {
   ].join('; ')
 }
 
-/** CSP of the Scalar UI at /api/docs: its pinned bundle comes from a CDN (the documented exception). */
+/**
+ * CSP of the Scalar UI at /api/docs: its pinned bundle comes from a CDN (the documented exception) and loads its
+ * Inter and mono fonts from fonts.scalar.com.
+ */
 export function buildDocsCsp(): string {
   return [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
     "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
-    "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net",
+    "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net https://fonts.scalar.com",
     "img-src 'self' data: blob:",
     "connect-src 'self'",
     "object-src 'none'",
