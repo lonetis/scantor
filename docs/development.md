@@ -176,6 +176,16 @@ Conventions for recipes:
   image at their next start.
 - **Tasks**: `just dev-run tasks/<example>` runs an example locally; `just cli push tasks/<example>`
   publishes it to the dev stack (create an API key on the "CLI & MCP access" page first).
+- **Remote node against the dev stack** (Docker Desktop): point the four public endpoints of `.env` at
+  `host.docker.internal` (`SCANTOR_PUBLIC_URL=http://host.docker.internal:3000`, AMQP `:5672`, S3 `:9000`,
+  registry `host.docker.internal:5000`) and run `docker compose -f docker-compose.dev.yml up -d`; the
+  browser and the CLI keep using `localhost`. Start a privileged `docker:29.9-dind` on its own network
+  with `DOCKER_TLS_CERTDIR=` and the dockerd flags `--insecure-registry host.docker.internal:5000 --dns
+  <the DNS server of a normal container's /etc/resolv.conf>` (inner containers cannot use the embedded
+  DNS that resolves `host.docker.internal`), load the image with `docker save scantor:dev | docker exec -i
+  <dind> docker load`, create the node with `scantor nodes create <name> --pool remote` and run the printed
+  `dockerRun` inside the DinD container. Restore `.env` afterwards: the registry's token realm follows
+  `SCANTOR_PUBLIC_URL`.
 - **Data**: mongo-express, the RabbitMQ management UI and the RustFS console are bound to
   `SCANTOR_ADMIN_BIND_ADDRESS` ([deployment](deployment.md)).
 - **Tests while developing**: run the narrowest suite first (`just test-go ./internal/taskpipe/...`,
