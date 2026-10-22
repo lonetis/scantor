@@ -133,7 +133,7 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
 | networks | `scantor`, `scantor-sandbox` (the service name `orchestrator` is its DNS alias on both) |
 | ports | 3000 and 3001 (§1) |
 | volumes | `/var/run/docker.sock` (builds, helpers, editors, test runs, registry GC exec); `scantor-editor-sockets:/run/scantor/editor-sockets`; `scantor-registry-auth:/run/scantor/registry-auth`. **Never `scantor-workspaces`.** |
-| env | `env_file: .env` (dev adds `SCANTOR_IMAGE_PREFIX=`, `SCANTOR_IMAGE_TAG=dev`, `NODE_ENV=development`) |
+| env | `env_file: .env` (dev adds `SCANTOR_IMAGE_PREFIX=`, `SCANTOR_IMAGE_TAG=dev`, `SCANTOR_BUILD_CACHE_MAX_BYTES=0` because the dev stack shares the developer's Docker daemon and its build cache with other projects, and `NODE_ENV=development`) |
 | process | runs as root inside its container (Docker socket; connects to the editors' 0600 sockets) |
 
 Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 does the following:
@@ -779,6 +779,7 @@ services:
     environment:
       - SCANTOR_IMAGE_PREFIX=
       - SCANTOR_IMAGE_TAG=dev
+      - SCANTOR_BUILD_CACHE_MAX_BYTES=0
       - NODE_ENV=development
     env_file:
       - .env

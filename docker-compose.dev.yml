@@ -52,6 +52,7 @@ services:
     environment:
       - SCANTOR_IMAGE_PREFIX=
       - SCANTOR_IMAGE_TAG=dev
+      - SCANTOR_BUILD_CACHE_MAX_BYTES=0
       - NODE_ENV=development
     env_file:
       - .env
