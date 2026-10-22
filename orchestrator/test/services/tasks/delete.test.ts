@@ -51,17 +51,21 @@ const { newTaskDoc } = await import('../../../server/services/tasks/store')
 
 function context(job: JobDoc) {
   const cursors: string[] = []
+  const progress: { done: number; total?: number }[] = []
   const ctx: JobContext = {
     job,
     log: useLogger('test'),
     config: {} as Config,
     signal: new AbortController().signal,
-    saveCursor: async (cursor) => {
+    saveCursor: async (cursor, step) => {
       cursors.push(String(cursor.phase))
+      if (step) progress.push(step)
     },
-    setProgress: async () => {},
+    setProgress: async (done, total) => {
+      progress.push({ done, total })
+    },
   }
-  return { ctx, cursors }
+  return { ctx, cursors, progress }
 }
 
 let task: TaskDoc
@@ -83,9 +87,10 @@ beforeEach(async () => {
 describe('taskDelete job', () => {
   it('runs every phase in order and removes all data of the task', async () => {
     const job = { _id: 'j', kind: 'taskDelete', subject: { kind: 'task', id: task._id }, cursor: {} } as unknown as JobDoc
-    const { ctx, cursors } = context(job)
+    const { ctx, cursors, progress } = context(job)
     await taskDeleteJobKind.handler(job, ctx)
     expect(cursors).toEqual([...TASK_DELETE_PHASES])
+    expect(progress.at(-1)).toEqual({ done: TASK_DELETE_PHASES.length, total: TASK_DELETE_PHASES.length })
     expect(effects).toEqual([
       's3:test-runs/tr-1/',
       `manifests:${task._id}:sha256:one`,

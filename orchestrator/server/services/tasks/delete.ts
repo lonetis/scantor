@@ -168,6 +168,7 @@ export const taskDeleteJobKind: JobKindDefinition = {
       await ctx.saveCursor({ phase, buildsStopped: state.buildsStopped }, { done: index, total: TASK_DELETE_PHASES.length })
       await runPhase(phase, task, ctx, state)
     }
+    await ctx.setProgress(TASK_DELETE_PHASES.length, TASK_DELETE_PHASES.length)
     ctx.log.info('task deleted', { taskId: task._id, name: task.name, userId: task.userId })
   },
 }
