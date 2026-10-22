@@ -65,17 +65,34 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
+      # The images, their tarballs, the runner's cache volume and the task images of the suite need about
+      # 40 GB: drop the preinstalled toolchains and keep Docker's data on the larger /mnt disk when there is one.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
+          sudo docker image prune --all --force >/dev/null
+          if mountpoint -q /mnt && [ "$(df --output=avail -k /mnt | tail -n 1)" -gt "$(df --output=avail -k / | tail -n 1)" ]; then
+            sudo systemctl stop docker.socket docker
+            sudo mkdir -p /mnt/docker
+            config=/etc/docker/daemon.json
+            if [ -s "$config" ]; then current="$(sudo cat "$config")"; else current='{}'; fi
+            jq '. + {"data-root": "/mnt/docker"}' <<< "$current" | sudo tee "$config" >/dev/null
+            sudo systemctl start docker
+          fi
+          df -h / /mnt
+          docker info --format 'Docker data: {{.DockerRootDir}}'
       - uses: extractions/setup-just@v4
         with:
           just-version: 1.59.0
       - uses: docker/setup-buildx-action@v4
       # The runner's own image cache does not survive between CI runs, so the images are built here
-      # with the GitHub Actions cache and loaded into the runner.
-      - name: Build the test images
+      # with the GitHub Actions cache and loaded into the runner; the runner image itself is cached too.
+      - name: Build the test images and the runner image
         uses: docker/bake-action@v7
         with:
           source: .
-          targets: test
+          targets: test,test-runner
           load: true
           set: |
             scantor.cache-from=type=gha,scope=test-scantor
@@ -92,6 +109,8 @@ jobs:
             base-go.cache-to=type=gha,scope=test-base-go,mode=max
             test-fixtures.cache-from=type=gha,scope=test-fixtures
             test-fixtures.cache-to=type=gha,scope=test-fixtures,mode=max
+            test-runner.cache-from=type=gha,scope=test-runner
+            test-runner.cache-to=type=gha,scope=test-runner,mode=max
       - run: just test-images-save
       - run: just test-e2e
         env:
