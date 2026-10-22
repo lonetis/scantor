@@ -1,0 +1,5 @@
+{
+  "name": "echo-async",
+  "private": true,
+  "type": "module"
+}
