@@ -47,8 +47,10 @@ func remoteFake(t *testing.T, final map[string]any) *apiFake {
 	content := "file content"
 	sum := sha256.Sum256([]byte(content))
 	analysis := map[string]any{
-		"id": testRunID + "-0", "seq": 0, "status": "succeeded", "attempt": 1, "result": map[string]any{"text": "Hi"},
-		"error": nil, "attempts": []any{}, "logTail": "",
+		"id": testRunID + "-0", "seq": 0, "status": "succeeded", "attempt": 2, "result": map[string]any{"text": "Hi"},
+		"error": nil, "logTail": "",
+		"attempts": []any{map[string]any{"attempt": 1, "startedAt": nil, "finishedAt": nil, "durationMs": 1, "logTail": "",
+			"error": map[string]any{"type": "taskError", "message": "boom", "retryable": true}}},
 		"files": []any{map[string]any{"id": "f1", "name": "report.txt", "size": len(content), "sha256": hex.EncodeToString(sum[:]), "contentType": "text/plain"}},
 	}
 	f.reply("POST", "/api/tasks/upload", http.StatusCreated, map[string]any{"task": testTaskJSON("echo"), "revision": nil, "created": false})
@@ -87,7 +89,7 @@ func TestDevRunRemote(t *testing.T) {
 		t.Fatalf("upload query %v", up.Query)
 	}
 	apiJSONEqual(t, f.last("POST", "/api/tasks/echo/test-runs").Body, `{"taskConfig":{"greeting":"Hi"},"limit":2,"maxAttempts":1,"timeoutMs":30000}`)
-	for _, want := range []string{"[-] build: #1 [1/2] FROM python", "[#0] stderr: [info] greeting Hi", `[#0] succeeded (attempt 1, 0ms): {"text":"Hi"}`, "done (completed): 1 analyses, 1 succeeded, 0 failed"} {
+	for _, want := range []string{"[-] build: #1 [1/2] FROM python", "[#0] stderr: [info] greeting Hi", "[#0] attempt 1 failed: taskError: boom; retrying", `[#0] succeeded (attempt 2, 0ms): {"text":"Hi"}`, "done (completed): 1 analyses, 1 succeeded, 0 failed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stdout lacks %q:\n%s", want, out)
 		}

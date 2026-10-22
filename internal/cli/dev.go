@@ -689,6 +689,10 @@ func (p *devPrinter) renderAnalysis(a api.TestRunAnalysis) {
 	if a.Timings != nil {
 		duration = a.Timings.DurationMs
 	}
+	// The test run reports an analysis once it settled; its earlier attempts render as local mode's attempt events.
+	for _, earlier := range a.Attempts {
+		p.line("%s attempt %d failed: %s; retrying", seq, earlier.Attempt, devErrorText(earlier.Error))
+	}
 	p.renderResult(seq, a.Status, a.Attempt, duration, a.Result, a.Error)
 	for _, f := range a.Files {
 		p.line("    file %s (%s), downloaded when the test run ends", f.Name, HumanBytes(f.Size))
