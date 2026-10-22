@@ -1,0 +1,8 @@
+# Shared data tables keep their hand-made layout; outputs and dependencies are not source.
+corpora/
+playwright-report/
+test-results/
+.auth/
+node_modules/
+package-lock.json
+TESTS.md
