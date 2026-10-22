@@ -1,0 +1,23 @@
+# Build context of editor/Dockerfile (the repository root): only what the image needs. BuildKit uses
+# this file instead of the repository's .dockerignore for this Dockerfile (also for .devcontainer/).
+*
+!go.mod
+!go.sum
+!embed.go
+!cmd/
+!internal/
+!schemas/
+!scaffolds/
+!docs/guide/
+!connectors/python/
+!connectors/js/
+!connectors/go/
+!editor/extensions.txt
+!editor/machine-settings.json
+!editor/entrypoint.sh
+**/node_modules
+**/__pycache__
+**/.venv
+**/.ruff_cache
+**/.pytest_cache
+connectors/js/dist

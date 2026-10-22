@@ -1,0 +1,12 @@
+# VS Code extensions baked into the scantor-editor image from Open VSX
+# (docs/editor.md §2.2). One <publisher>.<name>@<version> per line, installed in
+# order. The members of the ms-python.python extension pack are pinned before the
+# pack itself, so the pack resolves to the pinned versions.
+ms-python.debugpy@2026.6.0
+ms-python.vscode-python-envs@1.40.0
+ms-python.python@2026.4.0
+detachhead.basedpyright@1.40.2
+charliermarsh.ruff@2026.88.0
+golang.go@0.58.0
+redhat.vscode-yaml@2.0.0
+dbaeumer.vscode-eslint@3.0.34

@@ -1,0 +1,21 @@
+{
+  "task.allowAutomaticTasks": "off",
+  "security.workspace.trust.enabled": true,
+  "telemetry.telemetryLevel": "off",
+  "redhat.telemetry.enabled": false,
+  "update.mode": "none",
+  "extensions.autoUpdate": false,
+  "extensions.autoCheckUpdates": false,
+  "extensions.ignoreRecommendations": true,
+  "workbench.startupEditor": "none",
+  "workbench.enableExperiments": false,
+  "files.exclude": { ".scantor-staging": true },
+  "files.watcherExclude": { "**/node_modules/**": true, "**/.venv/**": true, "**/.scantor/**": true },
+  "python.defaultInterpreterPath": "/usr/local/bin/python3",
+  "python.languageServer": "None",
+  "basedpyright.analysis.typeCheckingMode": "standard",
+  "go.toolsManagement.autoUpdate": false,
+  "go.toolsManagement.checkForUpdates": "off",
+  "yaml.schemas": { "/opt/scantor/schemas/task-manifest.schema.json": "scantor.yaml" },
+  "terminal.integrated.defaultProfile.linux": "bash"
+}
