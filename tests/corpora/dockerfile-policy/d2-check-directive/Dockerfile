@@ -1,0 +1,3 @@
+# check=skip=all
+ARG SCANTOR_BASE
+FROM ${SCANTOR_BASE}

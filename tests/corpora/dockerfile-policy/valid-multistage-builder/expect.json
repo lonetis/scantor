@@ -1,0 +1,5 @@
+{
+  "description": "a public builder stage copied into the final stage built from ${SCANTOR_BASE}",
+  "errors": [],
+  "warnings": []
+}

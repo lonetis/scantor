@@ -1,0 +1,3 @@
+ARG SCANTOR_BASE
+FROM registry:5000/library/python:3.14 AS b
+FROM ${SCANTOR_BASE}

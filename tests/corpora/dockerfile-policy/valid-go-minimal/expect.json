@@ -1,0 +1,5 @@
+{
+  "description": "the minimal Go Dockerfile of docs/tasks.md \u00a78.1 with SCANTOR_GCFLAGS",
+  "errors": [],
+  "warnings": []
+}

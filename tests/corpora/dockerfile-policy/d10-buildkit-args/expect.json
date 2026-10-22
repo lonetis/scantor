@@ -1,0 +1,18 @@
+{
+  "description": "BUILDKIT_* arguments before and after FROM",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D10"
+    },
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 4,
+      "rule": "D10"
+    }
+  ],
+  "warnings": []
+}

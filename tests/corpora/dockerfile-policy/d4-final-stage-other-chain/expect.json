@@ -1,0 +1,12 @@
+{
+  "description": "the final stage descends from a stage that is not built from ${SCANTOR_BASE}",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 4,
+      "rule": "D4"
+    }
+  ],
+  "warnings": []
+}

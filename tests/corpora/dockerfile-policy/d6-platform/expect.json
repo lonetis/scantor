@@ -1,0 +1,12 @@
+{
+  "description": "FROM --platform",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D6"
+    }
+  ],
+  "warnings": []
+}

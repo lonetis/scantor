@@ -1,0 +1,12 @@
+{
+  "description": "ADD an https URL",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D7"
+    }
+  ],
+  "warnings": []
+}

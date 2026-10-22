@@ -1,0 +1,12 @@
+{
+  "description": "an ADD source built from an ARG would bypass the URL check",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 4,
+      "rule": "D7"
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,12 @@
+{
+  "description": "a syntax parser directive selects a custom frontend",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 1,
+      "rule": "D2"
+    }
+  ],
+  "warnings": []
+}

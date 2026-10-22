@@ -1,0 +1,26 @@
+{
+  "description": "ENTRYPOINT, CMD, HEALTHCHECK and STOPSIGNAL are ignored (W1); ENV overrides a SCANTOR_* variable (W2)",
+  "errors": [],
+  "warnings": [
+    {
+      "line": 3,
+      "rule": "W2"
+    },
+    {
+      "line": 5,
+      "rule": "W1"
+    },
+    {
+      "line": 6,
+      "rule": "W1"
+    },
+    {
+      "line": 7,
+      "rule": "W1"
+    },
+    {
+      "line": 8,
+      "rule": "W1"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "description": "BuildKit also detects // syntax= directives",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 1,
+      "rule": "D2"
+    }
+  ],
+  "warnings": []
+}

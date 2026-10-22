@@ -1,0 +1,5 @@
+{
+  "description": "public registries, a digest reference and a literal COPY --from image",
+  "errors": [],
+  "warnings": []
+}

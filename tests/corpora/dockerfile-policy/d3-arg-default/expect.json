@@ -1,0 +1,12 @@
+{
+  "description": "ARG SCANTOR_BASE has a default value",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 1,
+      "rule": "D3"
+    }
+  ],
+  "warnings": []
+}

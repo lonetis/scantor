@@ -1,0 +1,5 @@
+{
+  "description": "bind and tmpfs mounts, a bind mount from an earlier stage and --network=default",
+  "errors": [],
+  "warnings": []
+}

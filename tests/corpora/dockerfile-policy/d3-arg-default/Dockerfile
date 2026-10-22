@@ -1,0 +1,3 @@
+ARG SCANTOR_BASE=python:3.14-slim
+FROM ${SCANTOR_BASE}
+COPY . .

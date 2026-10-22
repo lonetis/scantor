@@ -1,0 +1,12 @@
+{
+  "description": "COPY --from a stage index that is not an earlier stage",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

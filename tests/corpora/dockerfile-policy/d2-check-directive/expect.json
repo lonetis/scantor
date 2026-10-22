@@ -1,0 +1,12 @@
+{
+  "description": "a check parser directive",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 1,
+      "rule": "D2"
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,3 @@
+ARG SCANTOR_BASE
+FROM ghcr.io/Tasks/x:1 AS a
+FROM ${SCANTOR_BASE}

@@ -1,0 +1,12 @@
+{
+  "description": "a private IPv4 registry",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

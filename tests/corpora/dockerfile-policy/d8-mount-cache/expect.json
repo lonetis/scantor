@@ -1,0 +1,12 @@
+{
+  "description": "cache mounts are shared across users",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D8"
+    }
+  ],
+  "warnings": []
+}

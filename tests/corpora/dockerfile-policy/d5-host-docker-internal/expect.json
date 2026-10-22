@@ -1,0 +1,12 @@
+{
+  "description": "the Docker host alias",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

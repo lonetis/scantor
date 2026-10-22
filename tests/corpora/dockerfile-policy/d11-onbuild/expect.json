@@ -1,0 +1,12 @@
+{
+  "description": "ONBUILD",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D11"
+    }
+  ],
+  "warnings": []
+}

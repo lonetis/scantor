@@ -1,0 +1,4 @@
+ARG SCANTOR_BASE
+FROM ${SCANTOR_BASE}
+ARG URL=http://169.254.169.254/latest/meta-data/
+ADD ${URL} /meta

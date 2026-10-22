@@ -1,0 +1,12 @@
+{
+  "description": "the exploit of docs/security.md BLD-2: COPY --from another user's task image on the local registry",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

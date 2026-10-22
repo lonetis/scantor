@@ -1,0 +1,3 @@
+ARG SCANTOR_BASE
+FROM ${SCANTOR_BASE}
+COPY --from=[::1]:5000/x /a /b

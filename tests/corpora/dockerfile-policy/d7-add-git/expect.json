@@ -1,0 +1,18 @@
+{
+  "description": "ADD git remotes (scp-like and an https .git URL)",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D7"
+    },
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 4,
+      "rule": "D7"
+    }
+  ],
+  "warnings": []
+}

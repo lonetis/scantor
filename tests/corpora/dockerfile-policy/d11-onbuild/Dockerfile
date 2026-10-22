@@ -1,0 +1,3 @@
+ARG SCANTOR_BASE
+FROM ${SCANTOR_BASE}
+ONBUILD ADD https://example.com/x /x

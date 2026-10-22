@@ -1,0 +1,6 @@
+ARG SCANTOR_BASE
+FROM alpine:3.24 AS builder
+CMD ["sh"]
+ENV SCANTOR_X=1
+FROM ${SCANTOR_BASE}
+COPY . .

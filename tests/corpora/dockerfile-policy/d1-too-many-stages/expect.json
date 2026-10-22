@@ -1,0 +1,12 @@
+{
+  "description": "33 stages; the limit is 32",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 34,
+      "rule": "D1"
+    }
+  ],
+  "warnings": []
+}

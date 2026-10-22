@@ -1,0 +1,5 @@
+{
+  "description": "COPY --from an earlier stage by index",
+  "errors": [],
+  "warnings": []
+}

@@ -1,0 +1,12 @@
+{
+  "description": "a label key built from an ARG would bypass the pattern",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 4,
+      "rule": "D9"
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,5 @@
+{
+  "description": "the final stage descends from ${SCANTOR_BASE} through named stages ($SCANTOR_BASE form)",
+  "errors": [],
+  "warnings": []
+}

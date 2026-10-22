@@ -1,0 +1,12 @@
+{
+  "description": "a mount type from an ARG",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 4,
+      "rule": "D8"
+    }
+  ],
+  "warnings": []
+}

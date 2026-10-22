@@ -1,0 +1,12 @@
+{
+  "description": "a Dockerfile without FROM",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 0,
+      "rule": "D1"
+    }
+  ],
+  "warnings": []
+}

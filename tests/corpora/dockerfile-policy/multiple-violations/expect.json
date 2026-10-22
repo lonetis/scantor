@@ -1,0 +1,41 @@
+{
+  "description": "every violation of every rule is reported with its line",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 1,
+      "rule": "D3"
+    },
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D6"
+    },
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D5"
+    },
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 4,
+      "rule": "D7"
+    },
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 5,
+      "rule": "D11"
+    }
+  ],
+  "warnings": [
+    {
+      "line": 6,
+      "rule": "W1"
+    }
+  ]
+}

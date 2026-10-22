@@ -1,0 +1,5 @@
+{
+  "description": "W1 and W2 apply only to stages the final image is built from",
+  "errors": [],
+  "warnings": []
+}

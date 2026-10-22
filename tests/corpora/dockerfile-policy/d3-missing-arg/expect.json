@@ -1,0 +1,12 @@
+{
+  "description": "ARG SCANTOR_BASE is not declared",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 1,
+      "rule": "D3"
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,2 @@
+FROM ${SCANTOR_BASE}
+COPY . .

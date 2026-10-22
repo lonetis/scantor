@@ -1,0 +1,3 @@
+ARG SCANTOR_BASE
+FROM host.docker.internal:5000/x AS b
+FROM ${SCANTOR_BASE}

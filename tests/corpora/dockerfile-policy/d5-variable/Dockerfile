@@ -1,0 +1,4 @@
+ARG SCANTOR_BASE
+ARG IMAGE=localhost:5000/tasks/x:y
+FROM ${IMAGE} AS b
+FROM ${SCANTOR_BASE}

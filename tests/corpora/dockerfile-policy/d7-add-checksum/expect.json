@@ -1,0 +1,12 @@
+{
+  "description": "ADD --checksum",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D7"
+    }
+  ],
+  "warnings": []
+}

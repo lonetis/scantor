@@ -1,0 +1,22 @@
+{
+  "description": "the hosts of SCANTOR_REGISTRY_PUBLIC_HOST and SCANTOR_PUBLIC_URL",
+  "options": {
+    "registryPublicHost": "registry.scantor.example:443",
+    "publicUrl": "https://scantor.example"
+  },
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D5"
+    },
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

@@ -1,0 +1,12 @@
+{
+  "description": "a tasks/ repository on Docker Hub matches local draft image tags",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

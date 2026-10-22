@@ -1,0 +1,12 @@
+{
+  "description": "an upper-case repository is not a valid reference",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

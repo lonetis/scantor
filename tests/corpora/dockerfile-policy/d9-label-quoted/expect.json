@@ -1,0 +1,12 @@
+{
+  "description": "quoted label keys",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D9"
+    }
+  ],
+  "warnings": []
+}
