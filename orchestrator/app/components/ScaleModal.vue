@@ -43,7 +43,7 @@ function submit(): void {
           <UInputNumber v-model="state.processes" :min="1" :max="limits?.maxProcessesPerWorker" class="w-full" />
         </UFormField>
         <p class="text-xs text-muted tabular-nums">
-          {{ formatCount(state.workers * state.processes) }} concurrent analyses; per worker {{ perWorker }}
+          {{ plural(state.workers * state.processes, 'concurrent analysis', 'concurrent analyses') }}; per worker {{ perWorker }}
         </p>
       </UForm>
     </template>

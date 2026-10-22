@@ -89,7 +89,7 @@ func TestDevRunRemote(t *testing.T) {
 		t.Fatalf("upload query %v", up.Query)
 	}
 	apiJSONEqual(t, f.last("POST", "/api/tasks/echo/test-runs").Body, `{"taskConfig":{"greeting":"Hi"},"limit":2,"maxAttempts":1,"timeoutMs":30000}`)
-	for _, want := range []string{"[-] build: #1 [1/2] FROM python", "[#0] stderr: [info] greeting Hi", "[#0] attempt 1 failed: taskError: boom; retrying", `[#0] succeeded (attempt 2, 0ms): {"text":"Hi"}`, "done (completed): 1 analyses, 1 succeeded, 0 failed"} {
+	for _, want := range []string{"[-] build: #1 [1/2] FROM python", "[#0] stderr: [info] greeting Hi", "[#0] attempt 1 failed: taskError: boom; retrying", `[#0] succeeded (attempt 2, 0ms): {"text":"Hi"}`, "done (completed): 1 analysis, 1 succeeded, 0 failed"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stdout lacks %q:\n%s", want, out)
 		}
@@ -274,7 +274,7 @@ func TestDevPrinterLocal(t *testing.T) {
 		"[#0] succeeded (attempt 1, 40ms): {\"text\":\"Hi\"}\n" +
 		"    file a.txt (3 B) → " + filepath.Join("/tmp/out", "files", "0", "f1", "a.txt") + "\n" +
 		"error: validation: bad scan config\n" +
-		"done (done): 1 analyses, 1 succeeded, 0 failed\n"
+		"done (done): 1 analysis, 1 succeeded, 0 failed\n"
 	if out.String() != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", out, want)
 	}

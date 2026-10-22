@@ -569,7 +569,7 @@ func (p *devPrinter) renderLocal(ev taskpipe.LocalEvent) {
 		if ev.Summary != nil {
 			summary = *ev.Summary
 		}
-		p.line("done (%s): %d analyses, %d succeeded, %d failed", ev.Reason, summary.Analyses, summary.Succeeded, summary.Failed)
+		p.line("done (%s): %s, %d succeeded, %d failed", ev.Reason, countNoun(summary.Analyses, "analysis", "analyses"), summary.Succeeded, summary.Failed)
 	}
 }
 
@@ -672,7 +672,7 @@ func (p *devPrinter) testRunEvent(ev api.ServerEvent) (*api.TestRun, error) {
 			return nil, PlatformError(fmt.Errorf("invalid end event of the test run: %w", err))
 		}
 		if !p.out.JSON() {
-			p.line("done (%s): %d analyses, %d succeeded, %d failed", run.State, run.Summary.Analyses, run.Summary.Succeeded, run.Summary.Failed)
+			p.line("done (%s): %s, %d succeeded, %d failed", run.State, countNoun(run.Summary.Analyses, "analysis", "analyses"), run.Summary.Succeeded, run.Summary.Failed)
 		}
 		return &run, nil
 	}

@@ -41,7 +41,7 @@ const advancedOpen = ref(false)
       </UFormField>
     </div>
     <p class="text-xs text-muted tabular-nums">
-      Total: {{ settings.workers }} runner workers × {{ settings.processes }} processes = {{ formatCount(totals.concurrent) }} concurrent analyses;
+      Total: {{ plural(settings.workers, 'runner worker') }} × {{ plural(settings.processes, 'process', 'processes') }} = {{ plural(totals.concurrent, 'concurrent analysis', 'concurrent analyses') }};
       per worker: {{ totals.cpus }} CPUs, {{ formatCount(totals.memoryMiB) }} MiB memory
     </p>
 
