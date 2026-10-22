@@ -822,7 +822,8 @@ What hot reload covers:
   container's limit is therefore `SCANTOR_DEV_ORCHESTRATOR_MEMORY_LIMIT`, not
   `SCANTOR_ORCHESTRATOR_MEMORY_LIMIT`; Node sizes its heap from it.
 - Vite answers 403 to a `Host` it does not know (its DNS-rebinding guard). `nuxt.config.ts` allows the hosts
-  of `SCANTOR_INTERNAL_URL` (the built-in node dials `http://orchestrator:3000`) and `SCANTOR_PUBLIC_URL`;
+  of `SCANTOR_INTERNAL_URL` (the built-in node dials `http://orchestrator:3000`) and `SCANTOR_PUBLIC_URL`, and
+  `host.docker.internal`, which the containerized CLI (`just cli`) dials for a localhost `SCANTOR_URL`;
   `localhost`, `*.localhost` and IP addresses always pass.
 - `SCANTOR_PUBLIC_URL` stays a localhost URL. The browser, the host Docker daemon (registry
   realm) and the CLI on the host all reach it there.

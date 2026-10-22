@@ -22,11 +22,15 @@ const staticSecurityHeaders = {
 
 // `nuxt dev` only (docker-compose.dev.yml): Vite answers 403 to every request whose Host it does not know, its guard
 // against DNS rebinding. localhost, *.localhost and IP addresses always pass; the dev stack also reaches the server
-// by the host of SCANTOR_INTERNAL_URL (the built-in node dials http://orchestrator:3000) and of SCANTOR_PUBLIC_URL
-// (a dev stack behind Traefik). The orchestrator's config loader validates both URLs and aborts the boot on a bad
-// value, so an unparsable one is left out here instead of failing the dev server before that message is logged.
+// by the host of SCANTOR_INTERNAL_URL (the built-in node dials http://orchestrator:3000), of SCANTOR_PUBLIC_URL (a
+// dev stack behind Traefik) and as host.docker.internal, which the containerized CLI (`just cli`, scantor.sh) dials
+// for a loopback SCANTOR_URL (internal/cli/config.go ContainerHost). The orchestrator's config loader validates both
+// URLs and aborts the boot on a bad value, so an unparsable one is left out here instead of failing the dev server
+// before that message is logged.
+const CONTAINERIZED_CLI_HOST = 'host.docker.internal'
+
 function devServerAllowedHosts(urls: Array<string | undefined>): string[] {
-  const hosts = new Set<string>()
+  const hosts = new Set<string>([CONTAINERIZED_CLI_HOST])
   for (const url of urls) {
     if (!url || !URL.canParse(url)) continue
     hosts.add(new URL(url).hostname)
