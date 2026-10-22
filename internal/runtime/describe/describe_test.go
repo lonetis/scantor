@@ -17,6 +17,7 @@ import (
 	"github.com/lonetis/scantor/internal/runtime"
 	"github.com/lonetis/scantor/internal/runtime/internal/fakeconn"
 	"github.com/lonetis/scantor/internal/schema"
+	"github.com/lonetis/scantor/internal/templates"
 )
 
 func TestMain(m *testing.M) {
@@ -228,5 +229,52 @@ func TestSingleWithAnalysisConfigRejectingEmpty(t *testing.T) {
 	out, errs = Derive(in)
 	if n := len(slices.DeleteFunc(slices.Clone(out.Warnings), func(w string) bool { return !isEmptyWarning(w) })); len(errs) > 0 || n != 1 {
 		t.Fatalf("connector warning: %d warnings about {} in %v", n, out.Warnings)
+	}
+}
+
+func TestDeriveKeepsPropertyOrder(t *testing.T) {
+	// Forms render properties in schema order, so the output keeps the connector's key order at every level
+	// ($schema, which normalisation adds, comes first).
+	task := `{"type":"object","properties":{"zeta":{"type":"string","default":"z"},"alpha":{"type":"object","properties":{"y":{"type":"integer","default":1},"b":{"type":"integer","default":2}},"additionalProperties":false,"default":{}}},"additionalProperties":false}`
+	scan := `{"type":"object","properties":{"start":{"type":"integer","default":1},"end":{"type":"integer","default":11},"onlyOdd":{"type":"boolean","default":false}},"additionalProperties":false}`
+	out, errs := Derive(input(task, scan, closed, closed, protocol.ScheduleInfo{Kind: "custom"}))
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	wantTask := `{"$schema":"` + SchemaURL + `","type":"object","properties":{"zeta":{"type":"string","default":"z"},"alpha":{"type":"object","properties":{"y":{"type":"integer","default":1},"b":{"type":"integer","default":2}},"additionalProperties":false,"default":{}}},"additionalProperties":false}`
+	if string(out.Schemas.TaskConfig) != wantTask {
+		t.Fatalf("task config\n got %s\nwant %s", out.Schemas.TaskConfig, wantTask)
+	}
+	if !strings.Contains(string(out.Schemas.ScanConfig), `"properties":{"start":{"type":"integer","default":1},"end":`) {
+		t.Fatalf("scan config order %s", out.Schemas.ScanConfig)
+	}
+	// The canonical template schemas keep the order of their source files.
+	out, errs = Derive(input(closed, scan, `{"type":"object","properties":{"value":{"type":"integer"}},"required":["value"],"additionalProperties":false}`, closed, protocol.ScheduleInfo{Kind: "template", Template: "range"}))
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	canonical, _ := templates.Lookup("range")
+	want := readKeyOrder(canonical.Info().ScanConfigSchema)["/properties"]
+	if got := readKeyOrder(out.Schemas.ScanConfig)["/properties"]; slices.IsSorted(want) || !slices.Equal(got, want) {
+		t.Fatalf("range scan config properties %v, canonical %v", got, want)
+	}
+}
+
+func TestMarshalOrdered(t *testing.T) {
+	raw := []byte(`{"b":1,"a/x":{"d":[{"z":1,"y":2}],"c":true},"b":3}`)
+	v, err := schema.ParseJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v.(map[string]any)["0added"] = "x"
+	got, err := marshalOrdered(v, readKeyOrder(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"0added":"x","b":3,"a/x":{"d":[{"z":1,"y":2}],"c":true}}`; string(got) != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+	if got, _ := marshalOrdered(v, readKeyOrder([]byte("{"))); string(got) != `{"0added":"x","a/x":{"c":true,"d":[{"y":2,"z":1}]},"b":3}` {
+		t.Fatalf("unreadable source: %s", got)
 	}
 }

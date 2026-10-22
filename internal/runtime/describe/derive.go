@@ -60,6 +60,8 @@ func Derive(in Input) (*api.Description, []string) {
 type deriver struct {
 	errs     []string
 	warnings []string
+	// sources are the documents the schemas were decoded from, whose key order the output keeps.
+	sources map[string]json.RawMessage
 	// connectorWarnings are the warnings of the description, which come first in the output.
 	connectorWarnings []string
 }
@@ -76,6 +78,7 @@ func (d *deriver) derive(in Input) (*api.Description, []string) {
 		TaskConfig: desc.Schemas.TaskConfig, ScanConfig: desc.Schemas.ScanConfig,
 		AnalysisConfig: desc.Schemas.AnalysisConfig, Result: desc.Schemas.Result,
 	}
+	d.sources = maps.Clone(raw)
 	for _, name := range typeNames {
 		v, err := schema.ParseJSON(raw[name])
 		if err != nil {
@@ -125,7 +128,7 @@ func (d *deriver) derive(in Input) (*api.Description, []string) {
 		c := &checker{d: d, name: name, root: s}
 		c.walk(s, "#", "", 0, map[string]bool{}, false)
 		paths[name] = c.paths
-		b, err := json.Marshal(s)
+		b, err := marshalOrdered(s, readKeyOrder(d.sources[name]))
 		if err != nil {
 			d.errorf("the %s schema cannot be encoded: %v", name, err)
 			continue
@@ -178,12 +181,14 @@ func (d *deriver) applyTemplate(name string, schemas map[string]any) {
 			d.errorf("a task without a schedule (template single) cannot declare a scan config, but it has %s", strings.Join(slices.Sorted(maps.Keys(props)), ", "))
 		}
 		schemas[ScanConfig] = canonScan
+		d.sources[ScanConfig] = info.ScanConfigSchema
 		d.checkEmptyAnalysisConfig(schemas[AnalysisConfig])
 		return
 	}
 	d.warnings = append(d.warnings, CompareTemplate(name, ScanConfig, schemas[ScanConfig], canonScan)...)
 	d.warnings = append(d.warnings, CompareTemplate(name, AnalysisConfig, schemas[AnalysisConfig], canonAnalysis)...)
 	schemas[ScanConfig], schemas[AnalysisConfig] = canonScan, canonAnalysis
+	d.sources[ScanConfig], d.sources[AnalysisConfig] = info.ScanConfigSchema, info.AnalysisConfigSchema
 }
 
 // checkEmptyAnalysisConfig warns when the analysis config of a task without a schedule rejects {} filled
