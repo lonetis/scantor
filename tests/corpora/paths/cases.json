@@ -1,0 +1,360 @@
+{
+  "version": 1,
+  "description": "Path cases for the workspace helpers (docs/editor.md §9.5, docs/security.md WS-3/WS-5). `paths`: request paths (file maps, --path, archive entries) with their validity; `pathBase64` carries bytes JSON cannot (invalid UTF-8). `workspace`: operations against a task folder that the user prepared in the editor (`setup`: entries below the task folder; `symlink` = link target, `file` = content, `dir` = true), with the operation (`op`: list|read|write|delete), its `path` and the expected outcome: a helper error `code`, or for list the expected entries (`entries`: path and type). A symlink is never followed: nothing outside the task folder is read, written or deleted.",
+  "paths": [
+    {
+      "path": "scantor.yaml",
+      "valid": true
+    },
+    {
+      "path": "src/main.py",
+      "valid": true
+    },
+    {
+      "path": ".vscode/launch.json",
+      "valid": true
+    },
+    {
+      "path": "a/b/c/d.txt",
+      "valid": true
+    },
+    {
+      "path": "ünïcödé/файл.txt",
+      "valid": true
+    },
+    {
+      "path": "with space.txt",
+      "valid": true
+    },
+    {
+      "path": "-leading-dash",
+      "valid": true
+    },
+    {
+      "path": "a-b_c.d",
+      "valid": true
+    },
+    {
+      "path": "...",
+      "valid": true
+    },
+    {
+      "path": "..a",
+      "valid": true
+    },
+    {
+      "path": "a..",
+      "valid": true
+    },
+    {
+      "path": ".hidden",
+      "valid": true
+    },
+    {
+      "path": "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d",
+      "valid": true
+    },
+    {
+      "path": "sssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+      "valid": true
+    },
+    {
+      "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbb",
+      "valid": true
+    },
+    {
+      "path": "",
+      "valid": false,
+      "reason": "empty"
+    },
+    {
+      "path": "/etc/passwd",
+      "valid": false,
+      "reason": "absolute"
+    },
+    {
+      "path": "../x",
+      "valid": false,
+      "reason": "dotdot"
+    },
+    {
+      "path": "a/../../x",
+      "valid": false,
+      "reason": "inner dotdot"
+    },
+    {
+      "path": "a/..",
+      "valid": false,
+      "reason": "trailing dotdot"
+    },
+    {
+      "path": "..",
+      "valid": false,
+      "reason": "dotdot only"
+    },
+    {
+      "path": ".",
+      "valid": false,
+      "reason": "dot only"
+    },
+    {
+      "path": "./a",
+      "valid": false,
+      "reason": "leading dot segment"
+    },
+    {
+      "path": "a/./b",
+      "valid": false,
+      "reason": "dot segment"
+    },
+    {
+      "path": "a//b",
+      "valid": false,
+      "reason": "empty segment"
+    },
+    {
+      "path": "a/",
+      "valid": false,
+      "reason": "trailing slash"
+    },
+    {
+      "path": "/",
+      "valid": false,
+      "reason": "root"
+    },
+    {
+      "path": "a\\b",
+      "valid": false,
+      "reason": "backslash"
+    },
+    {
+      "path": "..\\x",
+      "valid": false,
+      "reason": "backslash dotdot"
+    },
+    {
+      "path": "a\u0000b",
+      "valid": false,
+      "reason": "NUL"
+    },
+    {
+      "path": ".scantor-staging",
+      "valid": false,
+      "reason": "staging folder"
+    },
+    {
+      "path": ".scantor-staging/x/tree/a",
+      "valid": false,
+      "reason": "inside staging"
+    },
+    {
+      "path": "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d",
+      "valid": false,
+      "reason": "33 levels"
+    },
+    {
+      "path": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+      "valid": false,
+      "reason": "256-byte segment"
+    },
+    {
+      "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbb",
+      "valid": false,
+      "reason": "1025 bytes"
+    },
+    {
+      "pathBase64": "YmFk/w==",
+      "valid": false,
+      "reason": "invalid UTF-8"
+    }
+  ],
+  "workspace": [
+    {
+      "id": "list-symlink-to-passwd",
+      "setup": [
+        {
+          "path": "passwd",
+          "symlink": "/etc/passwd"
+        }
+      ],
+      "op": "list",
+      "path": "",
+      "expect": {
+        "entries": [
+          {
+            "path": "passwd",
+            "type": "symlink"
+          }
+        ]
+      }
+    },
+    {
+      "id": "read-symlink-to-passwd",
+      "setup": [
+        {
+          "path": "passwd",
+          "symlink": "/etc/passwd"
+        }
+      ],
+      "op": "read",
+      "path": "passwd",
+      "expect": {
+        "code": "invalidPath"
+      }
+    },
+    {
+      "id": "read-through-symlinked-dir",
+      "setup": [
+        {
+          "path": "etc",
+          "symlink": "/etc"
+        }
+      ],
+      "op": "read",
+      "path": "etc/passwd",
+      "expect": {
+        "code": "invalidPath"
+      }
+    },
+    {
+      "id": "read-relative-escape",
+      "setup": [
+        {
+          "path": "up",
+          "symlink": "../.."
+        }
+      ],
+      "op": "read",
+      "path": "up/secret",
+      "expect": {
+        "code": "invalidPath"
+      }
+    },
+    {
+      "id": "list-through-symlinked-dir",
+      "setup": [
+        {
+          "path": "etc",
+          "symlink": "/etc"
+        }
+      ],
+      "op": "list",
+      "path": "etc",
+      "expect": {
+        "entries": [
+          {
+            "path": "etc",
+            "type": "symlink"
+          }
+        ]
+      }
+    },
+    {
+      "id": "list-below-symlinked-dir",
+      "setup": [
+        {
+          "path": "etc",
+          "symlink": "/etc"
+        }
+      ],
+      "op": "list",
+      "path": "etc/ssl",
+      "expect": {
+        "code": "invalidPath"
+      }
+    },
+    {
+      "id": "write-through-symlinked-dir",
+      "setup": [
+        {
+          "path": "tmp",
+          "symlink": "/tmp"
+        }
+      ],
+      "op": "write",
+      "path": "tmp/evil",
+      "expect": {
+        "code": "invalidPath"
+      }
+    },
+    {
+      "id": "write-over-symlink",
+      "setup": [
+        {
+          "path": "main.py",
+          "symlink": "/etc/passwd"
+        }
+      ],
+      "op": "write",
+      "path": "main.py",
+      "expect": {
+        "code": "invalidPath"
+      }
+    },
+    {
+      "id": "write-relative-escape",
+      "setup": [
+        {
+          "path": "up",
+          "symlink": ".."
+        }
+      ],
+      "op": "write",
+      "path": "up/other-task/x",
+      "expect": {
+        "code": "invalidPath"
+      }
+    },
+    {
+      "id": "delete-through-symlinked-dir",
+      "setup": [
+        {
+          "path": "victim",
+          "symlink": "/tmp"
+        }
+      ],
+      "op": "delete",
+      "path": "victim/x",
+      "expect": {
+        "code": "invalidPath"
+      }
+    },
+    {
+      "id": "delete-symlink-removes-link",
+      "setup": [
+        {
+          "path": "data",
+          "dir": true
+        },
+        {
+          "path": "data/keep",
+          "file": "x"
+        },
+        {
+          "path": "link",
+          "symlink": "data"
+        }
+      ],
+      "op": "delete",
+      "path": "link",
+      "expect": {
+        "deleted": [
+          "link"
+        ],
+        "remaining": [
+          "data",
+          "data/keep"
+        ]
+      }
+    },
+    {
+      "id": "write-into-staging",
+      "setup": [],
+      "op": "write",
+      "path": ".scantor-staging/x",
+      "expect": {
+        "code": "invalidPath"
+      }
+    }
+  ]
+}

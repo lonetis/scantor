@@ -1,0 +1,958 @@
+{
+  "version": 1,
+  "description": "Archive cases for the workspace helper `extract` (docs/editor.md §9.5, docs/security.md WS-3). Each case describes the entries of an upload archive; the consumer builds the archive (format tar.gz unless `format` is zip; `raw` replaces the archive with these literal bytes), optionally prepares the user's workspace (`workspace`: entries created below the workspace root before the run, `symlink` = link target), runs extract with the default limits overridden by `limits` (maxFiles, maxBytes, maxPackBytes, maxWorkspaceBytes), and checks `expect`: a failure with the helper error `code` (and `path`, the offending archive path, when given), or success with exactly `tree` in the staging tree (lstat; mode = permission bits). Entry fields: `name` (or `nameBase64` for bytes that JSON cannot carry), `type` (file|dir|symlink|hardlink|char|block|fifo), `content` (UTF-8), `zeros` (that many zero bytes, streamed), `random` (that many incompressible bytes), `mode` (permission bits, default 0644/0755), `linkname`, `devmajor`/`devminor`, `declaredSize` (zip: the uncompressed size written into the headers), `generate` ({prefix, count, content}: count files named <prefix><i>) and `globalPax` (a PAX global header with these records). Names with NUL, invalid UTF-8 or more than 100 bytes are written with PAX path records.",
+  "manifest": "scantor: 1\nname: slip\nlanguage: python\n",
+  "cases": [
+    {
+      "id": "dotdot",
+      "description": "an entry that leaves the root with ../",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "../x",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "../x"
+      }
+    },
+    {
+      "id": "absolute",
+      "description": "an absolute entry name",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "/abs",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "/abs"
+      }
+    },
+    {
+      "id": "inner-dotdot",
+      "description": "a .. segment inside the name (a/../../x)",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "a/../../x",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "a/../../x"
+      }
+    },
+    {
+      "id": "dot-segment",
+      "description": "a . segment inside the name",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "a/./b",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "a/./b"
+      }
+    },
+    {
+      "id": "empty-segment",
+      "description": "an empty segment (a//b)",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "a//b",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "a//b"
+      }
+    },
+    {
+      "id": "backslash",
+      "description": "a Windows separator",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "a\\..\\..\\x",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "a\\..\\..\\x"
+      }
+    },
+    {
+      "id": "nul",
+      "description": "a NUL byte in the name (zip: tar readers cannot carry NUL in names)",
+      "format": "zip",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "a\u0000b",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "a\u0000b"
+      }
+    },
+    {
+      "id": "invalid-utf8",
+      "description": "a name that is not valid UTF-8 (PAX path record)",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "nameBase64": "YmFk//4=",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath"
+      }
+    },
+    {
+      "id": "staging",
+      "description": "an entry inside the reserved .scantor-staging folder",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": ".scantor-staging/x",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": ".scantor-staging/x"
+      }
+    },
+    {
+      "id": "long-path",
+      "description": "a 1025-byte path (PAX path record)",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbb",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/bbbbbbbbbbbbbbbbbbbb"
+      }
+    },
+    {
+      "id": "long-segment",
+      "description": "a 256-byte path segment",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss"
+      }
+    },
+    {
+      "id": "deep",
+      "description": "a path 33 levels deep",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d"
+      }
+    },
+    {
+      "id": "symlink",
+      "description": "a symlink to /etc/passwd",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "passwd",
+          "type": "symlink",
+          "linkname": "/etc/passwd"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "passwd"
+      }
+    },
+    {
+      "id": "symlink-relative",
+      "description": "an in-tree relative symlink (packs allow it, uploads do not)",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "main.py",
+          "type": "file",
+          "content": "x"
+        },
+        {
+          "name": "link",
+          "type": "symlink",
+          "linkname": "main.py"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "link"
+      }
+    },
+    {
+      "id": "symlink-then-write",
+      "description": "a symlinked directory followed by a file below it",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "dir",
+          "type": "symlink",
+          "linkname": "/tmp"
+        },
+        {
+          "name": "dir/evil",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "dir"
+      }
+    },
+    {
+      "id": "hardlink",
+      "description": "a hardlink to /etc/passwd",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "passwd",
+          "type": "hardlink",
+          "linkname": "/etc/passwd"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "passwd"
+      }
+    },
+    {
+      "id": "hardlink-in-tree",
+      "description": "a hardlink to an earlier entry",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "main.py",
+          "type": "file",
+          "content": "x"
+        },
+        {
+          "name": "copy.py",
+          "type": "hardlink",
+          "linkname": "main.py"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "copy.py"
+      }
+    },
+    {
+      "id": "char-device",
+      "description": "a character device",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "null",
+          "type": "char",
+          "devmajor": 1,
+          "devminor": 3
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "null"
+      }
+    },
+    {
+      "id": "block-device",
+      "description": "a block device",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "sda",
+          "type": "block",
+          "devmajor": 8,
+          "devminor": 0
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "sda"
+      }
+    },
+    {
+      "id": "fifo",
+      "description": "a FIFO",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "pipe",
+          "type": "fifo"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "pipe"
+      }
+    },
+    {
+      "id": "duplicate-file",
+      "description": "the same file twice (the second would overwrite the first)",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "main.py",
+          "type": "file",
+          "content": "good"
+        },
+        {
+          "name": "main.py",
+          "type": "file",
+          "content": "evil"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "main.py"
+      }
+    },
+    {
+      "id": "duplicate-normalised",
+      "description": "the same file under ./ and without it",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "main.py",
+          "type": "file",
+          "content": "good"
+        },
+        {
+          "name": "./main.py",
+          "type": "file",
+          "content": "evil"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "main.py"
+      }
+    },
+    {
+      "id": "file-below-file",
+      "description": "an entry below a regular file",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "a",
+          "type": "file",
+          "content": "x"
+        },
+        {
+          "name": "a/b",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "a/b"
+      }
+    },
+    {
+      "id": "too-many-files",
+      "description": "10 001 files with the cap at 10 000",
+      "limits": {
+        "maxFiles": 10000
+      },
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "generate": {
+            "prefix": "f/",
+            "count": 10001,
+            "content": "x"
+          }
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "tooManyFiles"
+      }
+    },
+    {
+      "id": "gzip-bomb",
+      "description": "a few KiB of gzip that expand to 1 GiB (counted while streaming)",
+      "limits": {
+        "maxBytes": 1048576
+      },
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "bomb",
+          "type": "file",
+          "zeros": 1073741824
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "tooLarge"
+      }
+    },
+    {
+      "id": "compressed-cap",
+      "description": "an archive larger than --max-pack-bytes",
+      "limits": {
+        "maxPackBytes": 65536
+      },
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "noise",
+          "type": "file",
+          "random": 262144
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "tooLarge"
+      }
+    },
+    {
+      "id": "workspace-cap",
+      "description": "an archive that would grow the workspace beyond --max-workspace-bytes",
+      "limits": {
+        "maxWorkspaceBytes": 1048576
+      },
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "data",
+          "type": "file",
+          "zeros": 2097152
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "workspaceFull"
+      }
+    },
+    {
+      "id": "not-an-archive",
+      "description": "plain text instead of an archive",
+      "raw": "hello",
+      "entries": [],
+      "expect": {
+        "ok": false,
+        "code": "invalidArgument"
+      }
+    },
+    {
+      "id": "missing-manifest",
+      "description": "a valid archive without scantor.yaml",
+      "entries": [
+        {
+          "name": "main.py",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "manifestInvalid"
+      }
+    },
+    {
+      "id": "invalid-manifest",
+      "description": "a manifest with a duplicate key",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nname: slip2\nlanguage: python\n"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "manifestInvalid"
+      }
+    },
+    {
+      "id": "manifest-symlink",
+      "description": "scantor.yaml as a symlink",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "symlink",
+          "linkname": "/etc/passwd"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "scantor.yaml"
+      }
+    },
+    {
+      "id": "zip-dotdot",
+      "description": "zip slip: ../ in a zip entry",
+      "format": "zip",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "../../x",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "../../x"
+      }
+    },
+    {
+      "id": "zip-absolute",
+      "description": "zip slip: an absolute zip entry",
+      "format": "zip",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "/x",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "/x"
+      }
+    },
+    {
+      "id": "zip-symlink",
+      "description": "a zip entry with the symlink mode bits",
+      "format": "zip",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "passwd",
+          "type": "symlink",
+          "linkname": "/etc/passwd"
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidPath",
+        "path": "passwd"
+      }
+    },
+    {
+      "id": "zip-bomb",
+      "description": "a zip entry that expands to 8 MiB with the cap at 1 MiB",
+      "format": "zip",
+      "limits": {
+        "maxBytes": 1048576
+      },
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "bomb",
+          "type": "file",
+          "zeros": 8388608
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "tooLarge"
+      }
+    },
+    {
+      "id": "zip-understated",
+      "description": "a zip entry whose headers understate its size: reading stops at the declared size",
+      "format": "zip",
+      "limits": {
+        "maxBytes": 1048576
+      },
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "bomb",
+          "type": "file",
+          "zeros": 8388608,
+          "declaredSize": 1
+        }
+      ],
+      "expect": {
+        "ok": false,
+        "code": "invalidArgument"
+      }
+    },
+    {
+      "id": "ok-normalised",
+      "description": "a valid archive: ./ prefixes, modes normalised, .git/ dropped",
+      "entries": [
+        {
+          "name": "./",
+          "type": "dir"
+        },
+        {
+          "name": "./scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n",
+          "mode": 384
+        },
+        {
+          "name": "./bin/",
+          "type": "dir",
+          "mode": 448
+        },
+        {
+          "name": "./bin/run.sh",
+          "type": "file",
+          "content": "#!/bin/sh\n",
+          "mode": 448
+        },
+        {
+          "name": "./lib/util.py",
+          "type": "file",
+          "content": "x = 1\n",
+          "mode": 438
+        },
+        {
+          "name": "./.git/config",
+          "type": "file",
+          "content": "[core]\n"
+        },
+        {
+          "name": "./sub/.git/HEAD",
+          "type": "file",
+          "content": "ref: x\n"
+        }
+      ],
+      "expect": {
+        "ok": true,
+        "tree": [
+          {
+            "path": "bin",
+            "type": "dir",
+            "mode": 493
+          },
+          {
+            "path": "bin/run.sh",
+            "type": "file",
+            "mode": 493
+          },
+          {
+            "path": "lib",
+            "type": "dir",
+            "mode": 493
+          },
+          {
+            "path": "lib/util.py",
+            "type": "file",
+            "mode": 420
+          },
+          {
+            "path": "scantor.yaml",
+            "type": "file",
+            "mode": 420
+          }
+        ]
+      }
+    },
+    {
+      "id": "ok-top-level",
+      "description": "a GitHub-style tarball: one top-level folder holding scantor.yaml is stripped",
+      "entries": [
+        {
+          "globalPax": {
+            "comment": "0123456789abcdef0123456789abcdef01234567"
+          }
+        },
+        {
+          "name": "repo-main/",
+          "type": "dir"
+        },
+        {
+          "name": "repo-main/scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "repo-main/main.py",
+          "type": "file",
+          "content": "print(1)\n"
+        }
+      ],
+      "expect": {
+        "ok": true,
+        "tree": [
+          {
+            "path": "main.py",
+            "type": "file",
+            "mode": 420
+          },
+          {
+            "path": "scantor.yaml",
+            "type": "file",
+            "mode": 420
+          }
+        ]
+      }
+    },
+    {
+      "id": "ok-zip",
+      "description": "a valid zip archive",
+      "format": "zip",
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        },
+        {
+          "name": "main.py",
+          "type": "file",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "ok": true,
+        "tree": [
+          {
+            "path": "main.py",
+            "type": "file",
+            "mode": 420
+          },
+          {
+            "path": "scantor.yaml",
+            "type": "file",
+            "mode": 420
+          }
+        ]
+      }
+    },
+    {
+      "id": "ok-staging-symlink",
+      "description": "an existing workspace symlink pointing outside: .scantor-staging replaced by a link to /",
+      "workspace": [
+        {
+          "path": ".scantor-staging",
+          "symlink": "/"
+        }
+      ],
+      "entries": [
+        {
+          "name": "scantor.yaml",
+          "type": "file",
+          "content": "scantor: 1\nname: slip\nlanguage: python\n"
+        }
+      ],
+      "expect": {
+        "ok": true,
+        "tree": [
+          {
+            "path": "scantor.yaml",
+            "type": "file",
+            "mode": 420
+          }
+        ]
+      }
+    }
+  ]
+}
