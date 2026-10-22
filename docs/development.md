@@ -293,7 +293,8 @@ orchestrator/
 │   │                             editor §8.1), 30.tasks, 40.scans, 50.results, 60.nodes (also registry and
 │   │                             runtime), 70.editor (reaper, purge step, lockout hook); 99.start (runs the boot
 │   │                             steps in order, then starts the SCANTOR_COMPONENTS); csp.ts (per-response CSP
-│   │                             nonce, ui §13)
+│   │                             nonce, ui §13); openapi.ts (narrows /api/docs/openapi.json to the API
+│   │                             operations, api §1.1)
 │   ├── services/<area>/          domain logic (mappers turn documents into API representations): account,
 │   │                             analyses, catalog, configs, credentials, editor, exports, helpers, ingestor, jobs,
 │   │                             mcp, metrics, nodes, pipeline, placement, query, reconciler, registry, revisions,

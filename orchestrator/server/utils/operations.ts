@@ -110,6 +110,27 @@ export function buildOperationRegistry(document: OpenApiDocument): OperationRegi
   return { operations, problems }
 }
 
+/**
+ * The document served at /api/docs/openapi.json: Nitro lists every handler, including middleware (under the path
+ * key "", which OpenAPI forbids) and framework routes without metadata (`/api/auth/**`, `/mcp`, `/__nuxt_*`, the
+ * docs themselves). Only operations with an operationId are API operations (docs/api.md §1.1), so the others and
+ * the path items left empty are dropped; everything else is kept as generated.
+ */
+export function publishedOpenApiDocument<T extends OpenApiDocument>(document: T): T {
+  const paths: NonNullable<OpenApiDocument['paths']> = {}
+  for (const [pathTemplate, item] of Object.entries(document.paths ?? {})) {
+    if (!pathTemplate.startsWith('/') || !item || typeof item !== 'object') continue
+    const kept = Object.fromEntries(
+      Object.entries(item).filter(([key, value]) => {
+        if (!(HTTP_METHODS as readonly string[]).includes(key)) return true
+        return typeof (value as Record<string, unknown> | null)?.operationId === 'string'
+      }),
+    )
+    if (HTTP_METHODS.some((method) => method in kept)) paths[pathTemplate] = kept
+  }
+  return { ...document, paths }
+}
+
 function safeDecode(segment: string): string | null {
   try {
     return decodeURIComponent(segment)

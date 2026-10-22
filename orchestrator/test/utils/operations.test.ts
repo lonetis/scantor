@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildOperationRegistry, expectedScopeFor, matchOperation, type OpenApiDocument } from '../../server/utils/operations'
+import {
+  buildOperationRegistry,
+  expectedScopeFor,
+  matchOperation,
+  type OpenApiDocument,
+  publishedOpenApiDocument,
+} from '../../server/utils/operations'
 
 function op(operationId: string, scope: string, extra: Record<string, unknown> = {}) {
   return { operationId, tags: ['t'], 'x-scantor-scope': scope, 'x-mcp': false, ...extra }
@@ -143,5 +149,38 @@ describe('expectedScopeFor', () => {
     ['/api/scans', 'GET', ['owner', 'admin']],
   ])('%s %s → %j', (path, method, scopes) => {
     expect(expectedScopeFor(path, method)).toEqual(scopes)
+  })
+})
+
+describe('publishedOpenApiDocument', () => {
+  const generated = {
+    openapi: '3.1.0',
+    info: { title: 'scantor API', version: 'dev' },
+    paths: {
+      '': { get: { tags: ['App Routes'], responses: {} } },
+      '/api/auth/{all}': { get: { tags: ['API Routes'], responses: {} } },
+      '/api/docs/openapi.json': { get: { tags: ['API Routes'], responses: {} } },
+      '/api/tasks': {
+        parameters: [],
+        get: op('listTasks', 'owner'),
+        post: { tags: ['API Routes'], responses: {} },
+      },
+      '/api/tasks/{task}': { get: op('getTask', 'owner') },
+    },
+    components: { schemas: { Error: { type: 'object' } } },
+  }
+
+  it('keeps only operations with an operationId and drops path items left without one', () => {
+    const published = publishedOpenApiDocument(generated)
+    expect(Object.keys(published.paths ?? {})).toEqual(['/api/tasks', '/api/tasks/{task}'])
+    expect(published.paths?.['/api/tasks']).toEqual({ parameters: [], get: op('listTasks', 'owner') })
+  })
+
+  it('keeps the rest of the document and does not modify its input', () => {
+    const published = publishedOpenApiDocument(generated)
+    expect(published.openapi).toBe('3.1.0')
+    expect(published.components).toBe(generated.components)
+    expect(Object.keys(generated.paths)).toHaveLength(5)
+    expect(generated.paths['/api/tasks']).toHaveProperty('post')
   })
 })

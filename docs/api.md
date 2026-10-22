@@ -15,7 +15,9 @@ the system context is in [architecture](architecture.md).
 - Every route is a Nitro file route under `orchestrator/server/api/` (one file per method). Its first
   statement is `defineRouteMeta({ openAPI: { … } })` with a static object literal (no imported constants).
 - The OpenAPI 3.1 document is generated at runtime (`nitro.openAPI.production: "runtime"`) and served
-  publicly at `GET /api/docs/openapi.json`; the Scalar UI is at `GET /api/docs`.
+  publicly at `GET /api/docs/openapi.json`; the Scalar UI is at `GET /api/docs`. Nitro lists every handler,
+  including middleware and framework routes; `server/plugins/openapi.ts` serves only the operations that
+  have an `operationId` (the API operations), which keeps the document valid OpenAPI.
 - Every operation declares exactly one tag from §4, `summary`, a `description` written for an AI agent
   reader, `operationId`, parameters, request body, responses (errors reference `#/components/schemas/Error`)
   and these extensions:
