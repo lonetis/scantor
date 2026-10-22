@@ -1,0 +1,25 @@
+"""A scantor task without a schedule: every scan has exactly one analysis (template single)."""
+
+from pydantic import BaseModel
+
+import scantor
+
+
+class TaskConfig(scantor.Config):
+    """Task config: set per scan, the same for all its analyses. Give every field a default."""
+
+    greeting: str = "Hello"
+
+
+class Result(BaseModel):
+    """The result of one analysis."""
+
+    text: str
+
+
+def run(ctx: scantor.Context, analysis_config: scantor.Empty, task_config: TaskConfig) -> Result:
+    ctx.log("info", "greeting", greeting=task_config.greeting)
+    return Result(text=f"{task_config.greeting}, world!")
+
+
+task = scantor.Task(task_config=TaskConfig, result=Result, run=run)

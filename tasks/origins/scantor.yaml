@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/main/schemas/task-manifest.schema.json
+scantor: 1
+name: origins
+language: python
+description: Fetches every origin of a Tranco top list and records its HTTP status and response headers.
+defaults:
+  processes: 4
+  timeout: 1m
+  resources:
+    cpus: 0.25
+    memory: 256MiB

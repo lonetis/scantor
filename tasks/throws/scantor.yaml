@@ -1,0 +1,11 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/main/schemas/task-manifest.schema.json
+scantor: 1
+name: throws
+language: python
+description: Every way an analysis or a schedule can fail, chosen by the task config.
+defaults:
+  timeout: 30s
+  maxAttempts: 3
+  backoff:
+    initial: 1s
+    max: 10s

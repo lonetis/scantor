@@ -1,0 +1,1 @@
+# This example needs no packages beyond the connector (pydantic is part of the base image).

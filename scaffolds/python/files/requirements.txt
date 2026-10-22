@@ -1,0 +1,4 @@
+# Python packages this task needs, one requirement per line; installed by `pip` in the image build.
+# Example: httpx>=0.28.1,<1
+# pydantic and the scantor connector are part of the base image: do not list them here. The base image
+# pins them through PIP_CONSTRAINT, so a requirement that needs another pydantic fails the build.

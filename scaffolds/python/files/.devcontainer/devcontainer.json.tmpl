@@ -1,0 +1,19 @@
+{
+  "name": "[[.Name]]",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "..",
+    "args": { "SCANTOR_BASE": "[[.BaseImage]]" }
+  },
+  "workspaceFolder": "/task",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/task,type=bind",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "detachhead.basedpyright", "redhat.vscode-yaml"],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "yaml.schemas": { "[[.ManifestSchemaURL]]": "scantor.yaml" }
+      }
+    }
+  }
+}

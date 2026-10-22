@@ -1,0 +1,20 @@
+# Used by BuildKit instead of the repository's .dockerignore for this Dockerfile (context: repo root).
+*
+!connectors/python/pyproject.toml
+!connectors/python/constraints.txt
+!connectors/python/src
+!connectors/python/tests
+!schemas
+!scaffolds/python
+!tasks/echo
+!tasks/sleep
+!tasks/throws
+!tasks/files
+!tasks/origins
+!docs/guide/authoring-python.md
+**/__pycache__
+**/*.py[cod]
+**/.ruff_cache
+**/.pytest_cache
+**/.scantor
+**/.DS_Store

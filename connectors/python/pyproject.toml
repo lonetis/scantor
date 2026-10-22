@@ -1,0 +1,63 @@
+[project]
+name = "scantor"
+# Placeholder: the connector is not published to PyPI. The version reported in the protocol `hello` is
+# scantor.__version__ (src/scantor/_version.py, "dev" in a checkout), which the base image build stamps
+# with the scantor version (VERSION build argument).
+version = "0.0.0"
+description = "scantor Python connector: define scantor tasks with typed pydantic models"
+requires-python = ">=3.14"
+dependencies = ["pydantic>=2.14,<3"]
+
+[dependency-groups]
+dev = [
+  "basedpyright==1.40.2",
+  "debugpy>=1.8.22",
+  "httpx>=0.28.1,<1",
+  "jsonschema>=4.25",
+  "pytest>=9.1",
+  "pytest-asyncio>=1.4",
+  "pyyaml>=6.0.3",
+  "ruff==0.17.1",
+]
+
+[build-system]
+requires = ["uv_build>=0.13.4,<0.14"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "PT", "PL", "TRY"]
+ignore = [
+  "PLR0911", # many return statements in classifiers are clearer than nesting
+  "PLR0912",
+  "PLR0913", # Task(...) mirrors the documented keyword API
+  "PLR2004", # protocol constants are named where they matter
+  "TRY003",  # messages are part of the user-facing API
+  "TRY300",
+  "RUF012",  # pydantic copies mutable field defaults per instance
+  "RUF001",  # "…" and "≤" in messages are intended
+  "RUF002",
+  "N818",    # Fatal and Retry are the documented names
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLC0415", "PT011", "N802", "B018"]
+"tests/typing/**" = ["F841", "ARG001", "B018"]
+"tests/fixtures/**" = ["ARG001", "TRY002", "B018"]
+
+[tool.basedpyright]
+include = ["src", "tests"]
+exclude = ["tests/fixtures"]
+pythonVersion = "3.14"
+typeCheckingMode = "standard"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-p no:cacheprovider"

@@ -1,0 +1,52 @@
+"""A scantor task with its own schedule: one analysis per number below the scan config's count."""
+
+from collections.abc import Iterator
+
+from pydantic import BaseModel, Field
+
+import scantor
+
+
+class TaskConfig(scantor.Config):
+    """Task config: set per scan, the same for all its analyses. Give every field a default."""
+
+    greeting: str = "Hello"
+
+
+class ScanConfig(scantor.Config):
+    """Scan config: the input of schedule."""
+
+    count: int = Field(default=3, ge=0, le=1000, description="Number of analyses.")
+
+
+class AnalysisConfig(scantor.Config):
+    """Analysis config: the input of one run, produced by schedule."""
+
+    n: int
+
+
+class Result(BaseModel):
+    """The result of one analysis."""
+
+    text: str
+
+
+def schedule(ctx: scantor.Context, scan_config: ScanConfig, task_config: TaskConfig) -> Iterator[AnalysisConfig]:
+    # Must be deterministic: the same configs always yield the same analyses in the same order.
+    for n in range(scan_config.count):
+        yield AnalysisConfig(n=n)
+
+
+def run(ctx: scantor.Context, analysis_config: AnalysisConfig, task_config: TaskConfig) -> Result:
+    ctx.log("info", "analysing", n=analysis_config.n)
+    return Result(text=f"{task_config.greeting}, number {analysis_config.n}!")
+
+
+task = scantor.Task(
+    task_config=TaskConfig,
+    scan_config=ScanConfig,
+    analysis_config=AnalysisConfig,
+    result=Result,
+    schedule=schedule,
+    run=run,
+)

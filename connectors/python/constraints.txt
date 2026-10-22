@@ -1,0 +1,10 @@
+# Exact pins of the connector's runtime dependencies in scantor-base-python.
+# The base image points PIP_CONSTRAINT and UV_CONSTRAINT at this file, so a task's requirements.txt can
+# never replace them: an incompatible requirement fails loudly at `pip install` during the image build.
+# Update these pins together with docs/development.md §11.
+annotated-types==0.8.0
+debugpy==1.8.22
+pydantic==2.14.1
+pydantic-core==2.50.1
+typing-extensions==4.16.0
+typing-inspection==0.4.4

@@ -1,0 +1,28 @@
+"""A scantor task: the same analysis a number of times (template repeat)."""
+
+from pydantic import BaseModel
+
+import scantor
+from scantor import templates
+
+
+class TaskConfig(scantor.Config):
+    """Task config: set per scan, the same for all its analyses. Give every field a default."""
+
+    greeting: str = "Hello"
+
+
+class Result(BaseModel):
+    """The result of one analysis."""
+
+    text: str
+
+
+def run(ctx: scantor.Context, analysis_config: templates.repeat.AnalysisConfig, task_config: TaskConfig) -> Result:
+    ctx.log("info", "analysing", iteration=analysis_config.iteration)
+    return Result(text=f"{task_config.greeting}, iteration {analysis_config.iteration}!")
+
+
+# The template's proxy, passed unwrapped: the platform schedules natively with the template's scan
+# config, and run receives the template's analysis configs.
+task = scantor.Task(task_config=TaskConfig, result=Result, schedule=templates.repeat.schedule, run=run)

@@ -1,0 +1,28 @@
+"""A scantor task: one analysis per item of an inline list or an uploaded file (template list)."""
+
+from pydantic import BaseModel
+
+import scantor
+from scantor import templates
+
+
+class TaskConfig(scantor.Config):
+    """Task config: set per scan, the same for all its analyses. Give every field a default."""
+
+    greeting: str = "Hello"
+
+
+class Result(BaseModel):
+    """The result of one analysis."""
+
+    text: str
+
+
+def run(ctx: scantor.Context, analysis_config: templates.list.AnalysisConfig, task_config: TaskConfig) -> Result:
+    ctx.log("info", "analysing", item=analysis_config.item, index=analysis_config.index)
+    return Result(text=f"{task_config.greeting}, {analysis_config.item}!")
+
+
+# The template's proxy, passed unwrapped: the platform schedules natively with the template's scan
+# config, and run receives the template's analysis configs.
+task = scantor.Task(task_config=TaskConfig, result=Result, schedule=templates.list.schedule, run=run)
