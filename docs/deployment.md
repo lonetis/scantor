@@ -753,7 +753,7 @@ services:
       start_period: 180s
     container_name: scantor-orchestrator
     working_dir: /app/orchestrator
-    mem_limit: ${SCANTOR_ORCHESTRATOR_MEMORY_LIMIT}
+    mem_limit: ${SCANTOR_DEV_ORCHESTRATOR_MEMORY_LIMIT}
     stop_grace_period: 30s
     logging: *logging
     labels:
@@ -816,6 +816,11 @@ What hot reload covers:
   Node 26 with the `scantor` binary built in a Go stage. The Nuxt source is mounted at `/app` for hot
   reload; its dependencies are installed into the named `node_modules` volume at container start, so
   Linux/musl modules never touch the host.
+- `nuxt dev` (Vite, the Nitro builder and the app) needs far more memory than the production server: its
+  heap holds about 600 MiB at rest and about 800 MiB after a full Nuxt restart (a new file under
+  `server/plugins/`, a `nuxt.config.ts` change), which overflows the heap Node derives from a 2 GiB limit. The
+  container's limit is therefore `SCANTOR_DEV_ORCHESTRATOR_MEMORY_LIMIT`, not
+  `SCANTOR_ORCHESTRATOR_MEMORY_LIMIT`; Node sizes its heap from it.
 - Vite answers 403 to a `Host` it does not know (its DNS-rebinding guard). `nuxt.config.ts` allows the hosts
   of `SCANTOR_INTERNAL_URL` (the built-in node dials `http://orchestrator:3000`) and `SCANTOR_PUBLIC_URL`;
   `localhost`, `*.localhost` and IP addresses always pass.
