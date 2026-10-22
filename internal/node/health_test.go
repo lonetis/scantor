@@ -51,17 +51,30 @@ func TestClockEstimate(t *testing.T) {
 	if c.ms() != 0 {
 		t.Error("offset before the first sample")
 	}
-	c.observe(100 * time.Millisecond)
+	c.observe(100*time.Millisecond, 10*time.Millisecond)
 	if c.ms() != 100 {
 		t.Errorf("first sample = %d", c.ms())
 	}
-	c.observe(200 * time.Millisecond) // EWMA α = 0.2: 0.2 × 200 + 0.8 × 100
+	c.observe(200*time.Millisecond, 10*time.Millisecond) // EWMA α = 0.2: 0.2 × 200 + 0.8 × 100
 	if c.ms() != 120 {
 		t.Errorf("smoothed = %d, want 120", c.ms())
 	}
-	c.observe(-1000 * time.Millisecond)
+	c.observe(-1000*time.Millisecond, clockMaxSampleRTT)
 	if c.ms() != -104 {
 		t.Errorf("smoothed = %d, want -104", c.ms())
+	}
+	// A held long-poll answered after 25 s: serverTime is taken at the answer, so rtt/2 adds 12.5 s.
+	c.observe(12500*time.Millisecond, 25*time.Second)
+	if c.ms() != -104 {
+		t.Errorf("a sample with rtt > %s changed the offset to %d", clockMaxSampleRTT, c.ms())
+	}
+}
+
+func TestClockEstimateFirstSampleSetsOffsetWhateverTheRTT(t *testing.T) {
+	var c clockEstimate
+	c.observe(300*time.Millisecond, 5*time.Second)
+	if c.ms() != 300 {
+		t.Errorf("first sample = %d, want 300", c.ms())
 	}
 }
 

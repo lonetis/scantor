@@ -246,7 +246,7 @@ func (d *Daemon) observeClock(serverTimeMs int64, resp *api.Response) {
 	if serverTimeMs <= 0 || resp == nil {
 		return
 	}
-	d.clock.observe(api.ClockOffset(serverTimeMs, resp.Sent, resp.Received))
+	d.clock.observe(api.ClockOffset(serverTimeMs, resp.Sent, resp.Received), resp.Received.Sub(resp.Sent))
 }
 
 // runtimeBinary returns the binary injected into workers, resolved once.

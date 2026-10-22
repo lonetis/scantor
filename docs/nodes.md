@@ -546,10 +546,13 @@ Sent every `config.statusIntervalMs` (±10 % jitter), and additionally right aft
 
   `arch`, `os`, `kernel`, `hostname` and `dockerVersion` are sent in `hello` (they never change while
   the daemon runs).
-- `clockOffsetMs`: for every response, `offset = serverTime + rtt/2 − localTimeAtResponse`, smoothed
-  with an EWMA (α = 0.2). The reconciler raises the scan condition `clockSkew` for scans with workers on a
-  node whose `|clockOffsetMs| > 2000`. Workers correct their own offset through state polls
-  ([runtime](runtime.md)), so skew is only reported, never fatal.
+- `clockOffsetMs`: per response, `sample = serverTime + rtt/2 − localTimeAtResponse`. As in the runtime
+  ([runtime](runtime.md) §5.2), the first sample sets the offset and later samples with `rtt ≤ 2000 ms`
+  update it with an EWMA (α = 0.2); slower samples, such as an assignments long-poll the server held, are
+  discarded, because `rtt/2` estimates the one-way delay only when the server answered at once. The
+  reconciler raises the scan condition `clockSkew` for scans with workers on a node whose
+  `|clockOffsetMs| > 2000`. Workers correct their own offset through state polls ([runtime](runtime.md)),
+  so skew is only reported, never fatal.
 
 The response `{serverTime, rev, nextStatusMs}` updates the clock offset. A `rev` greater than the applied
 rev triggers an immediate assignments request. `nextStatusMs` (when > 0) is the interval until the next

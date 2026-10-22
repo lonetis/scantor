@@ -76,24 +76,31 @@ func Healthcheck(path string, now time.Time) error {
 }
 
 // clockEstimate smooths the offset to the orchestrator's clock with an EWMA (α = 0.2):
-// offset = serverTime + rtt/2 − localTimeAtResponse for every response (docs/nodes.md §7.1).
+// offset = serverTime + rtt/2 − localTimeAtResponse per response (docs/nodes.md §7.1). As in the
+// runtime's clock, the first sample sets the offset and later samples count only with an rtt of at
+// most clockMaxSampleRTT: rtt/2 estimates the one-way delay only when the server answered at once,
+// and an assignments long-poll holds the request for up to its wait.
 type clockEstimate struct {
 	mu     sync.Mutex
 	valid  bool
 	offset float64 // milliseconds
 }
 
-const clockAlpha = 0.2
+const (
+	clockAlpha        = 0.2
+	clockMaxSampleRTT = 2 * time.Second
+)
 
-func (c *clockEstimate) observe(sample time.Duration) {
+func (c *clockEstimate) observe(sample, rtt time.Duration) {
 	ms := float64(sample) / float64(time.Millisecond)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if !c.valid {
+	switch {
+	case !c.valid:
 		c.offset, c.valid = ms, true
-		return
+	case rtt <= clockMaxSampleRTT:
+		c.offset = clockAlpha*ms + (1-clockAlpha)*c.offset
 	}
-	c.offset = clockAlpha*ms + (1-clockAlpha)*c.offset
 }
 
 // ms returns the smoothed offset in whole milliseconds (0 before the first sample).
