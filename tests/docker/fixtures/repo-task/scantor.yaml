@@ -1,0 +1,5 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/main/schemas/task-manifest.schema.json
+scantor: 1
+name: git-task
+language: python
+description: A task served by the fixtures server's git repositories (git import tests).

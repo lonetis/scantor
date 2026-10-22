@@ -1,0 +1,19 @@
+# Build-context filter of tests/docker/fixtures/Dockerfile. The context is the repository root
+# (docker-bake.hcl); BuildKit uses this file instead of the root .dockerignore, so it allowlists exactly
+# what the image needs: the Go sources the server imports (internal/templates/templatestest pulls in the
+# root package and its embedded files) and the server's own files.
+
+**
+
+!go.mod
+!go.sum
+!embed.go
+!internal/
+!schemas/
+!scaffolds/
+!docs/guide/
+!tests/docker/fixtures/main.go
+!tests/docker/fixtures/build-repos.sh
+!tests/docker/fixtures/repo-task/
+
+**/.DS_Store
