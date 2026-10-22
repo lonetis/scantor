@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "scantor",
+  "description": "Claude Code plugin for scantor, the distributed scanning platform",
+  "owner": {
+    "name": "Louis Jannett",
+    "url": "https://github.com/lonetis"
+  },
+  "plugins": [
+    {
+      "name": "scantor",
+      "source": "./",
+      "description": "Skills for developing scantor tasks and running and analysing scans, plus the scantor MCP server (configured from SCANTOR_URL and SCANTOR_TOKEN)",
+      "category": "development",
+      "homepage": "https://github.com/lonetis/scantor"
+    }
+  ]
+}

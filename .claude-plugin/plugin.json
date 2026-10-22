@@ -1,0 +1,11 @@
+{
+  "name": "scantor",
+  "description": "Skills for developing scantor tasks and running and analysing scans, plus the scantor MCP server (configured from SCANTOR_URL and SCANTOR_TOKEN)",
+  "author": {
+    "name": "Louis Jannett",
+    "url": "https://github.com/lonetis"
+  },
+  "homepage": "https://github.com/lonetis/scantor",
+  "repository": "https://github.com/lonetis/scantor",
+  "keywords": ["scantor", "scanning", "mcp", "tasks", "scans"]
+}
