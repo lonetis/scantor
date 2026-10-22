@@ -1,0 +1,262 @@
+import { BSON, type Collection, type Document } from 'mongodb'
+import type { ScanDoc } from '../../types/documents'
+import type { Config } from '../../utils/config'
+import type { Logger } from '../../utils/logger'
+import {
+  analysesCompleted,
+  breakerTrips,
+  ingestBatchSize,
+  ingestFlushSeconds,
+  ingestMessages,
+  ingestWriteFailed,
+} from '../metrics/catalogue'
+import { type AnalysisWrite, buildMinimalFailedWrite, type WriteTarget } from './build-document'
+import type { IngestItem } from './items'
+import type { CachedScan, ScanStateCache } from './scan-cache'
+import { BreakerWindow, RateWindow } from './windows'
+import { type ItemResult, type WriteItem, writeBatch, writeIsolated } from './writer'
+
+/*
+ * One flush of the ingestor (docs/queue.md §6.4–§6.10), shared by the result consumer and the dead-letter consumer:
+ *
+ *   1. load the scans of the batch (cache) and apply checks 4–7 per item: drop items of unknown, deleting or
+ *      deleted scans and of rounds above the scan's (re-read fresh first), record unusable messages as minimal
+ *      failed documents;
+ *   2. write every guarded upsert with one unordered bulkWrite plus its follow-up (writer.ts); a whole-batch failure
+ *      throws BatchWriteError and the consumer nacks;
+ *   3. after the consumer settled the deliveries, `finish` updates the live hint counters, the rate window and the
+ *      breaker per scan, and triggers completion checks.
+ */
+
+/** Largest update document check 7 accepts (MongoDB's limit is 16 MiB per document). */
+export const MAX_UPDATE_BYTES = 15 * 1024 * 1024
+export const COMPLETION_TRIGGER_INTERVAL_MS = 10_000
+const SWEEP_INTERVAL_MS = 60_000
+
+export type ItemOutcome = 'applied' | 'failedRecorded' | 'duplicate' | 'dropped' | 'writeFailed'
+
+/** Functions of the scans area (contracts of server/services/scans/{lifecycle,completion}.ts). */
+export interface IngestorHooks {
+  pauseScanBySystem(scanId: string, reason: 'failureRate' | 'brokerAlarm' | (string & {}), details?: object): Promise<void>
+  tryCompleteScan(scanId: string, trigger: string): Promise<boolean>
+}
+
+export type ProcessorConfig = Pick<Config, 'maxResultBytes' | 'breakerMinAttempts' | 'breakerRatio' | 'breakerWindowMs'>
+
+export interface ProcessorDeps {
+  analyses: Collection<Document>
+  scans: Collection<ScanDoc>
+  cache: ScanStateCache
+  config: ProcessorConfig
+  hooks: IngestorHooks
+  log: Logger
+  now?: () => Date
+}
+
+interface ScanTally {
+  succeeded: number
+  failed: number
+  retrying: number
+}
+
+export interface FlushResult {
+  outcomes: ItemOutcome[]
+  /** applied writes per scan */
+  tallies: Map<string, ScanTally>
+  /** the scans as the flush saw them */
+  scans: Map<string, CachedScan>
+  now: Date
+}
+
+const GONE_STATES = new Set(['deleting', 'deleted'])
+
+/** Check 7: the reason why an update document cannot be stored, or null. */
+export function bsonProblem(update: Document): string | null {
+  let size: number
+  try {
+    size = BSON.serialize(update).length
+  } catch (error) {
+    return (error as Error).message
+  }
+  return size >= MAX_UPDATE_BYTES ? `the analysis update is ${size} bytes, above the ${MAX_UPDATE_BYTES}-byte limit` : null
+}
+
+export class BatchProcessor {
+  private readonly rate = new RateWindow()
+  private readonly breaker: BreakerWindow
+  private readonly lastCompletionTrigger = new Map<string, number>()
+  private readonly now: () => Date
+  private lastSweep = 0
+
+  constructor(private readonly deps: ProcessorDeps) {
+    this.breaker = new BreakerWindow(deps.config.breakerWindowMs)
+    this.now = deps.now ?? (() => new Date())
+  }
+
+  /** Checks 4–5: the scans of the batch, re-read fresh for items whose round is above the cached one. */
+  private async scansFor(items: readonly IngestItem[]): Promise<Map<string, CachedScan>> {
+    const scans = await this.deps.cache.load(items.map((item) => item.scanId))
+    const stale = items.filter((item) => {
+      const scan = scans.get(item.scanId)
+      return scan?.exists && item.round > scan.round
+    })
+    if (stale.length > 0) {
+      for (const [id, scan] of await this.deps.cache.reload(stale.map((item) => item.scanId))) scans.set(id, scan)
+    }
+    return scans
+  }
+
+  private accepts(item: IngestItem, scan: CachedScan | undefined): boolean {
+    if (!scan || !scan.exists || (scan.state && GONE_STATES.has(scan.state))) return false
+    if (item.round > scan.round) {
+      this.deps.log.warn('futureRound: dropping a message whose round is above the scan round', {
+        scanId: item.scanId,
+        seq: item.seq,
+        round: item.round,
+        scanRound: scan.round,
+      })
+      return false
+    }
+    return true
+  }
+
+  private writeItem(item: IngestItem, target: WriteTarget): WriteItem {
+    const fallback = (reason: string) => buildMinimalFailedWrite(target, { reason, executionId: item.executionId })
+    let write: AnalysisWrite = item.prepare(target)
+    const problem = bsonProblem(write.update)
+    if (problem) write = fallback(`result could not be stored: ${problem}`)
+    return { write, fallback }
+  }
+
+  /**
+   * Checks and writes a batch. Throws BatchWriteError on a whole-batch failure (nothing may be acknowledged then).
+   * Items whose analysis id is in `isolate` are written one per bulkWrite (isolation mode, §6.6).
+   */
+  async process(items: readonly IngestItem[], isolate: ReadonlySet<string> = new Set()): Promise<FlushResult> {
+    const started = performance.now()
+    const now = this.now()
+    const scans = await this.scansFor(items)
+    const outcomes: ItemOutcome[] = items.map(() => 'dropped')
+    const batch: { index: number; item: WriteItem }[] = []
+    const isolated: { index: number; item: WriteItem }[] = []
+    for (const [index, item] of items.entries()) {
+      const scan = scans.get(item.scanId)
+      if (!this.accepts(item, scan)) continue
+      const target: WriteTarget = { scanId: item.scanId, seq: item.seq, round: item.round, attempt: item.attempt, userId: scan!.userId, now }
+      const writeItem = this.writeItem(item, target)
+      ;(isolate.has(writeItem.write.id) ? isolated : batch).push({ index, item: writeItem })
+    }
+
+    const results: (ItemResult | null)[] = items.map(() => null)
+    const batchResults = await writeBatch(this.deps.analyses, batch.map((entry) => entry.item), this.deps.log)
+    for (const [position, entry] of batch.entries()) results[entry.index] = batchResults[position]!
+    for (const entry of isolated) results[entry.index] = await writeIsolated(this.deps.analyses, entry.item, this.deps.log)
+
+    const tallies = new Map<string, ScanTally>()
+    for (const [index, result] of results.entries()) {
+      if (!result) continue
+      const item = items[index]!
+      if (result.status === 'duplicate') {
+        outcomes[index] = 'duplicate'
+      } else if (result.status === 'writeFailed') {
+        outcomes[index] = 'writeFailed'
+      } else {
+        outcomes[index] = result.write.minimal ? 'failedRecorded' : 'applied'
+        const tally = tallies.get(item.scanId) ?? { succeeded: 0, failed: 0, retrying: 0 }
+        tally[result.write.outcome] += 1
+        tallies.set(item.scanId, tally)
+      }
+    }
+    for (const [index, outcome] of outcomes.entries()) {
+      if (outcome === 'writeFailed') ingestWriteFailed.inc()
+      else ingestMessages.inc({ kind: items[index]!.kind, outcome })
+    }
+    ingestBatchSize.observe(undefined, items.length)
+    ingestFlushSeconds.observe(undefined, (performance.now() - started) / 1000)
+    return { outcomes, tallies, scans, now }
+  }
+
+  /** Bounds the per-scan in-memory state over the process lifetime. */
+  private sweep(nowMs: number): void {
+    if (nowMs - this.lastSweep < SWEEP_INTERVAL_MS) return
+    this.lastSweep = nowMs
+    this.rate.sweep(nowMs)
+    this.breaker.sweep(nowMs)
+    for (const [scanId, at] of this.lastCompletionTrigger) {
+      if (nowMs - at > COMPLETION_TRIGGER_INTERVAL_MS) this.lastCompletionTrigger.delete(scanId)
+    }
+  }
+
+  /** Step 6 of §6.4: hint counters, rate, breaker and completion triggers; failures are logged, never thrown. */
+  async finish(result: FlushResult): Promise<void> {
+    const nowMs = result.now.getTime()
+    this.sweep(nowMs)
+    for (const [scanId, tally] of result.tallies) {
+      const terminal = tally.succeeded + tally.failed
+      if (tally.succeeded > 0) analysesCompleted.inc({ status: 'succeeded' }, tally.succeeded)
+      if (tally.failed > 0) analysesCompleted.inc({ status: 'failed' }, tally.failed)
+      this.rate.record(scanId, terminal, nowMs)
+      this.breaker.record(scanId, tally.succeeded, tally.failed + tally.retrying, nowMs, result.scans.get(scanId)?.pausedAt ?? null)
+      try {
+        await this.deps.scans.updateOne(
+          { _id: scanId },
+          {
+            $inc: { 'stats.succeeded': tally.succeeded, 'stats.failed': tally.failed, 'stats.retrying': tally.retrying },
+            $set: { 'stats.ratePerMin': this.rate.ratePerMin(scanId, nowMs), updatedAt: result.now },
+          },
+        )
+      } catch (error) {
+        this.deps.log.warn('updating the live scan counters failed', { scanId, err: error })
+      }
+    }
+    for (const scanId of this.breaker.scanIds()) {
+      const scan = result.scans.get(scanId) ?? this.deps.cache.get(scanId)
+      if (scan && scan.state !== 'running') this.breaker.clear(scanId)
+    }
+    for (const [scanId, tally] of result.tallies) {
+      const scan = result.scans.get(scanId)
+      if (!scan || scan.state !== 'running') continue
+      if (await this.checkBreaker(scanId, nowMs)) continue
+      this.checkCompletion(scan, tally, nowMs)
+    }
+  }
+
+  private async checkBreaker(scanId: string, nowMs: number): Promise<boolean> {
+    const { breakerMinAttempts, breakerRatio, breakerWindowMs } = this.deps.config
+    const tripped = this.breaker.trips(scanId, nowMs, breakerMinAttempts, breakerRatio)
+    if (!tripped) return false
+    this.breaker.clear(scanId)
+    const ratio = Math.round(tripped.ratio * 1000) / 1000
+    const details = {
+      ratio,
+      attempts: tripped.attempts,
+      windowMs: breakerWindowMs,
+      message: `${Math.round(tripped.ratio * 100)}% of the last ${tripped.attempts} attempts failed`,
+    }
+    try {
+      await this.deps.hooks.pauseScanBySystem(scanId, 'failureRate', details)
+      breakerTrips.inc()
+      this.deps.log.warn('circuit breaker paused a scan', { scanId, ratio, attempts: tripped.attempts })
+    } catch (error) {
+      this.deps.log.error('pausing a scan for its failure rate failed', { scanId, err: error })
+    }
+    this.deps.cache.invalidate(scanId)
+    return true
+  }
+
+  /** Triggers completion when the hint terminal count reaches the confirmed count (at most every 10 s per scan). */
+  private checkCompletion(scan: CachedScan, tally: ScanTally, nowMs: number): void {
+    if (scan.schedulingState !== 'done' && scan.schedulingState !== 'failed') return
+    const terminal = scan.stats.succeeded + scan.stats.failed + scan.stats.lost + scan.stats.cancelled + tally.succeeded + tally.failed
+    if (terminal < scan.confirmed) return
+    const last = this.lastCompletionTrigger.get(scan.id) ?? 0
+    if (nowMs - last < COMPLETION_TRIGGER_INTERVAL_MS) return
+    this.lastCompletionTrigger.set(scan.id, nowMs)
+    this.deps.hooks.tryCompleteScan(scan.id, 'ingestor').then(
+      (completed) => {
+        if (completed) this.deps.cache.invalidate(scan.id)
+      },
+      (error: unknown) => this.deps.log.error('completion check failed', { scanId: scan.id, err: error }),
+    )
+  }
+}
