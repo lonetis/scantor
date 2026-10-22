@@ -50,7 +50,7 @@ const actions = SIDEBAR_ACTIONS
     resizable
     :min-size="14"
     :default-size="16"
-    :max-size="26"
+    :max-size="24"
     :ui="{ root: 'bg-elevated/40', footer: 'border-t border-default' }"
   >
     <template #header="{ collapsed }">

@@ -9,7 +9,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <UDashboardGroup storage="local" storage-key="scantor-dashboard" unit="%">
+  <UDashboardGroup storage="local" storage-key="scantor-dashboard" unit="rem">
     <AppSidebar />
     <slot />
     <div
