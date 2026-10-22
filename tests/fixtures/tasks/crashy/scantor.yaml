@@ -1,0 +1,5 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/main/schemas/task-manifest.schema.json
+scantor: 1
+name: crashy
+language: python
+description: "Test fixture: analyses that exit, exceed their memory limit or hang past the timeout."

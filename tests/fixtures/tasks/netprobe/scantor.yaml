@@ -1,0 +1,5 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/main/schemas/task-manifest.schema.json
+scantor: 1
+name: netprobe
+language: python
+description: "Test fixture: TCP reachability of the targets in the task config, or the names of the environment variables."
