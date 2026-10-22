@@ -510,13 +510,19 @@ test-conformance language="":
       {{run}} {{docker_socket}} scantor:dev conformance --language "$language"
     done <<< "$languages"
 
-# Dockerized Playwright suite (args go to playwright test)
+# Dockerized Playwright suite on a fresh stack, torn down afterwards (args go to playwright test)
 [group('tests')]
 test-e2e *args: init
     #!/usr/bin/env bash
     set -euo pipefail
+    if docker container inspect scantor-test-runner >/dev/null 2>&1; then
+      echo "a test runner is already running (keep-alive?); use just test-exec, or just test-down first" >&2
+      exit 1
+    fi
     echo "==> Building the test runner image"
     {{bake}} --load test-runner
+    # compose run leaves the project network behind; the cache volumes stay.
+    trap '{{tests_compose}} down --remove-orphans >/dev/null 2>&1 || true' EXIT
     echo "==> Running the dockerized suite"
     SCANTOR_TEST_HOST_UID="$(id -u)" SCANTOR_TEST_HOST_GID="$(id -g)" \
       {{tests_compose}} run --rm --name scantor-test-runner test-runner "$@"
@@ -531,14 +537,62 @@ test-api *args:
 test-ui *args:
     {{just}} test-e2e --project=ui "$@"
 
-# Re-run playwright test inside a kept-alive runner (SCANTOR_TEST_KEEP_ALIVE=true)
+# Start the test runner in the background and keep its fresh stack up for just test-exec (SCANTOR_TEST_KEEP_ALIVE=true)
+[group('tests')]
+test-up: init
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if docker container inspect scantor-test-runner >/dev/null 2>&1; then
+      if docker exec scantor-test-runner test -f /run/scantor-test/ready 2>/dev/null; then
+        echo "==> The test stack is already up: just test-exec <args>"
+        exit 0
+      fi
+      echo "a test runner exists but its stack is not ready; see docker logs scantor-test-runner, or just test-down" >&2
+      exit 1
+    fi
+    echo "==> Building the test runner image"
+    {{bake}} --load test-runner
+    echo "==> Starting the test runner (keep-alive)"
+    # --list only checks that the suite loads; the stack stays up until just test-down.
+    SCANTOR_TEST_KEEP_ALIVE=true SCANTOR_TEST_HOST_UID="$(id -u)" SCANTOR_TEST_HOST_GID="$(id -g)" \
+      {{tests_compose}} run -d --rm --name scantor-test-runner test-runner --list >/dev/null
+    # Stopping the follower makes the CLI report its closed log stream; that line is noise.
+    docker logs -f scantor-test-runner 2> >(grep --line-buffered -v 'use of closed network connection' >&2) &
+    follower=$!
+    trap 'kill "$follower" 2>/dev/null || true' EXIT
+    until docker exec scantor-test-runner test -f /run/scantor-test/ready 2>/dev/null; do
+      if ! docker container inspect scantor-test-runner >/dev/null 2>&1; then
+        echo "the test runner exited before its stack was ready (its log is above)" >&2
+        exit 1
+      fi
+      sleep 3
+    done
+    echo "==> The test stack is up: just test-exec <playwright args>; just test-down to remove it"
+
+# Re-run playwright test inside the kept-alive runner (just test-up, or SCANTOR_TEST_KEEP_ALIVE=true just test-e2e)
 [group('tests')]
 test-exec *args:
     #!/usr/bin/env bash
     set -euo pipefail
+    if ! docker exec scantor-test-runner test -f /run/scantor-test/ready 2>/dev/null; then
+      echo "no kept-alive test stack is ready; start one with just test-up" >&2
+      exit 1
+    fi
     tty=""
     if [ -t 0 ] && [ -t 1 ]; then tty="-t"; fi
-    docker exec -i $tty scantor-test-runner bash -lc 'cd /work/tests && exec npx playwright test "$@"' bash "$@"
+    docker exec -i $tty scantor-test-runner scantor-test-playwright "$@"
+
+# Stop the test runner: its teardown removes the inner stack (the cache volumes stay)
+[group('tests')]
+test-down:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if docker container inspect scantor-test-runner >/dev/null 2>&1; then
+      echo "==> Stopping the test runner (it tears its stack down first)"
+      docker stop --time 300 scantor-test-runner >/dev/null
+      docker rm -f scantor-test-runner >/dev/null 2>&1 || true
+    fi
+    {{tests_compose}} down --remove-orphans >/dev/null 2>&1 || true
 
 # Regenerate the tests/TESTS.md index (--check fails when it is stale)
 [group('tests')]
@@ -547,12 +601,11 @@ test-index *flags: _caches
 
 # Remove the test runner, its node_modules volume and its Docker cache volume
 [group('tests')]
-test-clean:
+test-clean: test-down
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "==> Removing the test runner and its volumes"
-    docker rm -f scantor-test-runner >/dev/null
-    {{tests_compose}} down -v --remove-orphans
+    echo "==> Removing the test runner's volumes"
+    {{tests_compose}} down -v --remove-orphans >/dev/null 2>&1 || true
     docker volume rm -f scantor-test-runner-docker scantor-test-runner-node-modules >/dev/null
 
 # ── Maintenance ──────────────────────────────────────────────────────────────

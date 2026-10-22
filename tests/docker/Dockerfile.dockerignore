@@ -1,0 +1,23 @@
+# Build-context filter of tests/docker/Dockerfile (the runner image). The context is the repository root
+# (docker-bake.hcl); BuildKit uses this file instead of the root .dockerignore, so it allowlists exactly what
+# the image needs: the Go sources of the scantor CLI and the runner's own files.
+
+**
+
+!go.mod
+!go.sum
+!embed.go
+!cmd/
+!internal/
+!schemas/
+!scaffolds/
+!docs/guide/
+!tests/docker/daemon.json
+!tests/docker/entrypoint.sh
+!tests/docker/playwright.sh
+!tests/docker/stack.tests.yml
+!tests/docker/stack.env
+!tests/docker/join-remote-node.mjs
+!tests/docker/traefik/
+
+**/.DS_Store

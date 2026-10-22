@@ -1,0 +1,67 @@
+# Override of docker-compose.prod.yml for the test stack inside the runner (docs/testing.md §7.3). It adds
+# the fixtures server and the simulated remote node and uses no relative paths: the runner starts the stack
+# with --project-directory /run/scantor-test, where the generated .env and Traefik's TLS files live.
+
+services:
+  # Tranco and CrUX fakes on :8089 (plain HTTP, reached as fixtures.<domain>:8089) and git smart-HTTP
+  # repositories behind Traefik as https://git.<domain> (docs/testing.md §7.9).
+  fixtures:
+    image: scantor-test-fixtures:${SCANTOR_IMAGE_TAG}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8089/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    container_name: scantor-fixtures
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.fixtures-git.rule=Host(`git.${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.fixtures-git.service=fixtures-git
+      - traefik.http.services.fixtures-git.loadbalancer.server.port=8089
+    ports:
+      - "8089:8089"
+    networks:
+      - scantor
+
+  # A remote node host: its own dockerd, reachable only through the public endpoints (Traefik on the
+  # runner's docker0 address). join-remote-node.mjs loads scantor:dev into it and runs the node daemon
+  # with the join command of createNode. Its inner networks stay clear of the runner's 172.17.0.0/16
+  # and 10.10.0.0/16, and its containers resolve through the runner's dnsmasq on 172.17.0.1.
+  remote-node:
+    image: docker:29.9-dind
+    entrypoint:
+      - sh
+      - -euc
+      - |
+        bundle=/etc/ssl/certs/ca-certificates.crt
+        if ! grep -qF "$$(sed -n 2p /run/scantor-test/ca.crt)" "$$bundle"; then cat /run/scantor-test/ca.crt >> "$$bundle"; fi
+        mkdir -p "/etc/docker/certs.d/$$SCANTOR_REGISTRY_PUBLIC_HOST"
+        cp /run/scantor-test/ca.crt "/etc/docker/certs.d/$$SCANTOR_REGISTRY_PUBLIC_HOST/ca.crt"
+        exec dockerd-entrypoint.sh dockerd --host=unix:///var/run/docker.sock \
+          --bip=10.20.0.1/24 --default-address-pool=base=10.21.0.0/16,size=24 --dns=172.17.0.1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "docker", "info"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+    container_name: scantor-remote-node
+    hostname: remote-1
+    privileged: true
+    networks:
+      - scantor-remote
+    volumes:
+      - scantor-remote-node-docker:/var/lib/docker
+      - /run/scantor-test/ca/ca.crt:/run/scantor-test/ca.crt:ro
+    environment:
+      - DOCKER_TLS_CERTDIR=
+      - SCANTOR_REGISTRY_PUBLIC_HOST=${SCANTOR_REGISTRY_PUBLIC_HOST}
+
+volumes:
+  scantor-remote-node-docker:
+    name: scantor-remote-node-docker
+
+networks:
+  scantor-remote:
+    name: scantor-remote
