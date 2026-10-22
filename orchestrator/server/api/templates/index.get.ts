@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'listTemplates',
     summary: 'List templates',
     description:
-      'Lists the schedule templates (single, list, range, repeat, tranco, crux, cidr): reusable schedule implementations with predefined scan config and analysis config types. A task uses one by passing the template\'s schedule (see the authoring guide); createTask scaffolds a task for a template. Each item has the JSON Schemas of its scan config and analysis config, an example, and resolves = true when non-deterministic inputs (for example "latest" lists) are pinned at scan start.',
+      'Lists the schedule templates (single, list, range, repeat, tranco, crux, cidr): reusable schedule implementations with predefined scan config and analysis config types. A task uses one by passing the template’s schedule (see the authoring guide); createTask scaffolds a task for a template. Each item has the JSON Schemas of its scan config and analysis config, an example, and resolves = true when non-deterministic inputs (for example "latest" lists) are pinned at scan start.',
     'x-scantor-scope': 'owner',
     'x-mcp': true,
     responses: {

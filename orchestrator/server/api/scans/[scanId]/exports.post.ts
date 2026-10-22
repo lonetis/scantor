@@ -35,7 +35,7 @@ defineRouteMeta({
                 items: { type: 'string', maxLength: 256 },
                 description: 'Dot paths of the Analysis representation to include, for example ["seq", "status", "result.title"]',
               },
-              afterSeq: { type: 'integer', minimum: -1, maximum: 9007199254740991, description: 'Only analyses with a larger seq' },
+              afterSeq: { type: 'integer', maximum: 9007199254740991, description: 'Only analyses with a larger seq (-1 or more)' },
             },
           },
         },

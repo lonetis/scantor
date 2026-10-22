@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'listTasks',
     summary: 'List tasks',
     description:
-      'Lists your tasks, newest first. Each task carries its cached workspace status (workspace.dirty = the workspace differs from the latest published revision), its latest revision and its latest ready revision (the target of "<name>@latest"). Filter with q (substring of name or description) and language. Admins see every user\'s tasks and may filter with userId. Page with cursor and limit.',
+      'Lists your tasks, newest first. Each task carries its cached workspace status (workspace.dirty = the workspace differs from the latest published revision), its latest revision and its latest ready revision (the target of "<name>@latest"). Filter with q (substring of name or description) and language. Admins see every user’s tasks and may filter with userId. Page with cursor and limit.',
     'x-scantor-scope': 'owner',
     'x-mcp': true,
     parameters: [

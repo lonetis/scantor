@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'createUpload',
     summary: 'Upload a list file',
     description:
-      'Uploads a file for the list template (one item per line; body text/plain or application/octet-stream, at most SCANTOR_MAX_UPLOAD_BYTES). Reference the returned id in a config field annotated "x-scantor": "upload" (for example the list template\'s scan config). Identical content you uploaded before returns the existing upload with 200 instead of 201. lines counts the non-empty lines.',
+      'Uploads a file for the list template (one item per line; body text/plain or application/octet-stream, at most SCANTOR_MAX_UPLOAD_BYTES). Reference the returned id in a config field annotated "x-scantor": "upload" (for example the list template’s scan config). Identical content you uploaded before returns the existing upload with 200 instead of 201. lines counts the non-empty lines.',
     'x-scantor-scope': 'owner',
     'x-mcp': false,
     parameters: [

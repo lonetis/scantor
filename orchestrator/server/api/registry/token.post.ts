@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'createRegistryToken',
     summary: 'Issue a registry token (OAuth2 password grant)',
     description:
-      'The token realm\'s POST flow used by containerd (the Docker 29 image store): an application/x-www-form-urlencoded OAuth2 password grant with username node or orchestrator, the matching password, and space-separated scopes. Grants are the same as the GET flow; the response carries access_token only and no refresh token. Errors use the registry format {"errors": [{"code", "message"}]}.',
+      'The token realm’s POST flow used by containerd (the Docker 29 image store): an application/x-www-form-urlencoded OAuth2 password grant with username node or orchestrator, the matching password, and space-separated scopes. Grants are the same as the GET flow; the response carries access_token only and no refresh token. Errors use the registry format {"errors": [{"code", "message"}]}.',
     'x-scantor-scope': 'node',
     'x-mcp': false,
     requestBody: {

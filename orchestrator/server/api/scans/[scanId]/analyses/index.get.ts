@@ -16,7 +16,7 @@ defineRouteMeta({
         description: 'Comma-separated statuses: pending, retrying, succeeded, failed, lost, cancelled',
         schema: { type: 'string', maxLength: 128 },
       },
-      { name: 'afterSeq', in: 'query', required: false, schema: { type: 'integer', minimum: -1, maximum: 9007199254740991 } },
+      { name: 'afterSeq', in: 'query', required: false, description: 'Only analyses with a larger seq (-1 or more)', schema: { type: 'integer', maximum: 9007199254740991 } },
       { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 1000, default: 50 } },
       {
         name: 'fields',

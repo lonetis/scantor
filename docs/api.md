@@ -14,6 +14,10 @@ the system context is in [architecture](architecture.md).
 
 - Every route is a Nitro file route under `orchestrator/server/api/` (one file per method). Its first
   statement is `defineRouteMeta({ openAPI: { … } })` with a static object literal (no imported constants).
+  Nitro extracts it statically and silently drops every value that is not an object, array, string,
+  number, boolean or `null` literal: negative numbers (write the bound in the description; zod enforces
+  it), template literals, and strings that contain both `'` and `"` (esbuild prints those as template
+  literals; use `’` for apostrophes). `test/api/route-meta.test.ts` enforces this.
 - The OpenAPI 3.1 document is generated at runtime (`nitro.openAPI.production: "runtime"`) and served
   publicly at `GET /api/docs/openapi.json`; the Scalar UI is at `GET /api/docs`. Nitro lists every handler,
   including middleware and framework routes; `server/plugins/openapi.ts` serves only the operations that

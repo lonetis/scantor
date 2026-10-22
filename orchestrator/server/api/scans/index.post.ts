@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'startScan',
     summary: 'Start a scan',
     description:
-      'Starts a scan of a ready task revision. revision is "<task>@<N>", "<task>@latest", "<task>" (= latest) or a revision id. taskConfig and scanConfig are validated against the revision\'s schemas with defaults filled (422 configInvalid lists every issue as a JSON pointer); omit fields to use their defaults. settings (workers, processes, timeoutMs, maxAttempts, backoff, resources per process, maxAnalysesPerProcess, nodeSelector) are merged over the revision\'s defaults. For template schedules the number of analyses is estimated first: above the instance threshold the request must repeat with confirm: true (422 confirmationRequired with details.expectedTotal), above the instance maximum it is refused (422 scanTooLarge). Returns the new scan in state creating; poll getScan (with wait) to follow it. Other errors: 404 unknown revision or upload, 409 revisionNotReady, 403 privilegedNotAllowed, 503 brokerAlarm.',
+      'Starts a scan of a ready task revision. revision is "<task>@<N>", "<task>@latest", "<task>" (= latest) or a revision id. taskConfig and scanConfig are validated against the revision’s schemas with defaults filled (422 configInvalid lists every issue as a JSON pointer); omit fields to use their defaults. settings (workers, processes, timeoutMs, maxAttempts, backoff, resources per process, maxAnalysesPerProcess, nodeSelector) are merged over the revision’s defaults. For template schedules the number of analyses is estimated first: above the instance threshold the request must repeat with confirm: true (422 confirmationRequired with details.expectedTotal), above the instance maximum it is refused (422 scanTooLarge). Returns the new scan in state creating; poll getScan (with wait) to follow it. Other errors: 404 unknown revision or upload, 409 revisionNotReady, 403 privilegedNotAllowed, 503 brokerAlarm.',
     'x-scantor-scope': 'owner',
     'x-mcp': true,
     requestBody: {
@@ -34,7 +34,7 @@ defineRouteMeta({
               revision: { type: 'string', minLength: 1, maxLength: 200, description: '<task>@<N>, <task>@latest, <task> or a revision id' },
               name: { type: 'string', minLength: 1, maxLength: 100, description: 'Optional label' },
               taskConfig: { type: 'object', additionalProperties: true, description: 'Task config; validated with defaults against the revision schema' },
-              scanConfig: { type: 'object', additionalProperties: true, description: 'Scan config (for templates: the template\'s scan config)' },
+              scanConfig: { type: 'object', additionalProperties: true, description: 'Scan config (for templates: the template’s scan config)' },
               settings: {
                 type: 'object',
                 additionalProperties: false,

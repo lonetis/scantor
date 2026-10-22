@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'listTaskFiles',
     summary: 'List task files',
     description:
-      'Lists the files and folders of a task\'s workspace folder (or, with revision, of that published revision\'s snapshot), sorted by path. path selects a folder ("" = the task root); recursive (default true) lists the whole subtree. Symlinks are listed, never followed. At most 5000 entries (truncated tells when more exist). Use readTaskFile for content.',
+      'Lists the files and folders of a task’s workspace folder (or, with revision, of that published revision’s snapshot), sorted by path. path selects a folder ("" = the task root); recursive (default true) lists the whole subtree. Symlinks are listed, never followed. At most 5000 entries (truncated tells when more exist). Use readTaskFile for content.',
     'x-scantor-scope': 'owner',
     'x-mcp': true,
     parameters: [

@@ -334,7 +334,9 @@ Route conventions:
 
 - Bracket names equal the OpenAPI parameter names (`[task]`, `[revision]`, `[scanId]`, `[analysisId]`,
   `[fileId]`, …). Static segments (`upload`, `import-git`) win over parameters.
-- The first statement is `defineRouteMeta({ openAPI: { … } })` with a static object literal: tag,
+- The first statement is `defineRouteMeta({ openAPI: { … } })` with a static object literal of plain
+  literals only ([api](api.md) §1.1: no negative numbers, template literals or strings with both quote
+  kinds; `test/api/route-meta.test.ts` checks it): tag,
   `operationId`, `summary`, a `description` written for an AI agent, parameters, request body, responses
   (errors `$ref: '#/components/schemas/Error'`), `x-scantor-scope`, `x-mcp`, and `x-admin-only` /
   `x-read-only` when true.

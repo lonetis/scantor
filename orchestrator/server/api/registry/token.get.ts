@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'getRegistryToken',
     summary: 'Issue a registry token (GET flow)',
     description:
-      'The token realm of the platform registry, called by Docker daemons (docker login, Engine API /auth, legacy pulls) with Basic credentials: node:<node token> gets pull on tasks/<taskId> for the task repositories of the node\'s current assignments; orchestrator:<derived push password> gets pull, push and delete on tasks/* and the catalog. The token (ES256 JWT, 300 s) holds the intersection of the requested scopes and the allowed actions; a request without scope gets "access": []. Errors use the registry format {"errors": [{"code", "message"}]}.',
+      'The token realm of the platform registry, called by Docker daemons (docker login, Engine API /auth, legacy pulls) with Basic credentials: node:<node token> gets pull on tasks/<taskId> for the task repositories of the node’s current assignments; orchestrator:<derived push password> gets pull, push and delete on tasks/* and the catalog. The token (ES256 JWT, 300 s) holds the intersection of the requested scopes and the allowed actions; a request without scope gets "access": []. Errors use the registry format {"errors": [{"code", "message"}]}.',
     'x-scantor-scope': 'node',
     'x-mcp': false,
     parameters: [
