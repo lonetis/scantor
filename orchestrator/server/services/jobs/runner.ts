@@ -195,8 +195,10 @@ export class JobsRunner {
         const result = await this.options.jobs.updateOne(leased, {
           $set: { state: 'succeeded', active: false, lease: null, error: null, finishedAt: now, updatedAt: now, expiresAt: new Date(now.getTime() + JOB_RETENTION_MS) },
         })
-        if (result.matchedCount === 0) log.warn('job finished after losing its lease')
-        else log.info('job succeeded')
+        if (result.matchedCount > 0) log.info('job succeeded')
+        // A cancellation (for example cancelTestRun) may stop the handler before the lease check notices it.
+        else if ((await this.options.jobs.findOne({ _id: job._id }, { projection: { state: 1 } }))?.state === 'cancelled') log.info('job cancelled')
+        else log.warn('job finished after losing its lease')
       } catch (error) {
         if (abort.signal.aborted && abort.signal.reason instanceof LeaseLostError) {
           log.info('job interrupted: its lease was lost or it was cancelled')

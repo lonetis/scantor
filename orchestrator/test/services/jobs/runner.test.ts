@@ -3,7 +3,7 @@ import type { JobDoc } from '../../../server/types/documents'
 import type { Config } from '../../../server/utils/config'
 import { cancelActiveJobs, createJob, FatalJobError, type JobKindDefinition, JOB_LEASE_MS } from '../../../server/utils/jobs'
 import { backoffDelay, JobsRunner } from '../../../server/services/jobs/runner'
-import { useLogger } from '../../../server/utils/logger'
+import { type Logger, useLogger } from '../../../server/utils/logger'
 import { FakeCollection } from '../../helpers/fake-collection'
 
 // The jobs runner (docs/data-model.md §4.12, §6.8): leased claims, cursors, retries with backoff, per-kind and
@@ -254,6 +254,35 @@ describe('JobsRunner', () => {
     await vi.waitFor(() => expect(aborted).toBe(true))
     await new Promise((resolve) => setTimeout(resolve, 30))
     expect(job(created._id)).toMatchObject({ state: 'cancelled', active: false, cursor: {} })
+  })
+
+  it('logs a job cancelled while its handler was finishing as cancelled, not as a lost lease', async () => {
+    const messages: string[] = []
+    const record = (level: string) => (message: string) => void messages.push(`${level}: ${message}`)
+    const recording = { debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error') } as unknown as Logger
+    Object.assign(recording, { child: () => recording })
+    const release = deferred()
+    // The lease renewal is slow here, so the handler returns before the runner notices the cancellation.
+    const instance = new JobsRunner({
+      component: 'reconciler',
+      jobs: jobs.asCollection(),
+      kinds: [['scanDelete', { component: 'reconciler', concurrency: 1, handler: () => release.promise }]],
+      config,
+      log: recording,
+      owner: 'runner-1',
+      now,
+      pollMs: 5,
+      renewMs: 60_000,
+    })
+    runners.push(instance)
+    const created = await create('scanDelete', 's1')
+    instance.start()
+    await vi.waitFor(() => expect(job(created._id).state).toBe('running'))
+    await cancelActiveJobs('scanDelete', 's1', jobs.asCollection())
+    release.resolve()
+    await vi.waitFor(() => expect(messages).toContain('info: job cancelled'))
+    expect(messages).not.toContain('warn: job finished after losing its lease')
+    expect(job(created._id).state).toBe('cancelled')
   })
 
   it('requeues jobs whose lease expired and fails them once attempts are exhausted', async () => {
