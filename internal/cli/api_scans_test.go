@@ -31,6 +31,19 @@ func TestAPIScansStartRequest(t *testing.T) {
 	}
 	apiJSONEqual(t, f.last("POST", "/api/scans").Body, `{"revision":"echo"}`)
 
+	// Nested settings stay partial: nothing left out is sent as a zero value or null.
+	code, _, errOut = f.exec("scans", "start", "echo", "--settings",
+		`{"nodeSelector": {"pool": "remote"}, "resources": {"cpus": 0.5}, "backoff": {"jitter": false}}`)
+	if code != 0 {
+		t.Fatalf("nested settings: exit %d, err %q", code, errOut)
+	}
+	apiJSONEqual(t, f.last("POST", "/api/scans").Body, `{"revision":"echo","settings":{"nodeSelector":{"pool":"remote"},"resources":{"cpus":0.5},"backoff":{"jitter":false}}}`)
+	code, _, errOut = f.exec("scans", "start", "echo", "--settings", `{"nodeSelector": {"labels": {}}}`)
+	if code != 0 {
+		t.Fatalf("empty labels: exit %d, err %q", code, errOut)
+	}
+	apiJSONEqual(t, f.last("POST", "/api/scans").Body, `{"revision":"echo","settings":{"nodeSelector":{"labels":{}}}}`)
+
 	before := f.count()
 	for name, args := range map[string][]string{
 		"no revision":       {"scans", "start"},

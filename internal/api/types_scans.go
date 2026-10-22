@@ -157,16 +157,38 @@ type ScanRevisionRef struct {
 	Ref    string `json:"ref"`
 }
 
-// SettingsPatch is a partial ScanSettings without privileged (StartScan.settings).
+// SettingsPatch is a partial ScanSettings without privileged (StartScan.settings). It is partial at every
+// level: a field left out, also inside backoff, resources and nodeSelector, keeps the revision's default,
+// so nothing the caller did not give is ever sent as a zero value or null.
 type SettingsPatch struct {
-	Workers               *int          `json:"workers,omitempty"`
-	Processes             *int          `json:"processes,omitempty"`
-	TimeoutMs             *int64        `json:"timeoutMs,omitempty"`
-	MaxAttempts           *int          `json:"maxAttempts,omitempty"`
-	Backoff               *Backoff      `json:"backoff,omitempty"`
-	Resources             *Resources    `json:"resources,omitempty"`
-	MaxAnalysesPerProcess *int          `json:"maxAnalysesPerProcess,omitempty"`
-	NodeSelector          *NodeSelector `json:"nodeSelector,omitempty"`
+	Workers               *int               `json:"workers,omitempty"`
+	Processes             *int               `json:"processes,omitempty"`
+	TimeoutMs             *int64             `json:"timeoutMs,omitempty"`
+	MaxAttempts           *int               `json:"maxAttempts,omitempty"`
+	Backoff               *BackoffPatch      `json:"backoff,omitempty"`
+	Resources             *ResourcesPatch    `json:"resources,omitempty"`
+	MaxAnalysesPerProcess *int               `json:"maxAnalysesPerProcess,omitempty"`
+	NodeSelector          *NodeSelectorPatch `json:"nodeSelector,omitempty"`
+}
+
+// BackoffPatch is a partial Backoff.
+type BackoffPatch struct {
+	InitialMs *int64   `json:"initialMs,omitempty"`
+	Factor    *float64 `json:"factor,omitempty"`
+	MaxMs     *int64   `json:"maxMs,omitempty"`
+	Jitter    *bool    `json:"jitter,omitempty"`
+}
+
+// ResourcesPatch is a partial Resources.
+type ResourcesPatch struct {
+	CPUs      *float64 `json:"cpus,omitempty"`
+	MemoryMiB *int64   `json:"memoryMiB,omitempty"`
+}
+
+// NodeSelectorPatch is a partial NodeSelector. Labels left out are omitted; an explicit {} is sent as is.
+type NodeSelectorPatch struct {
+	Pool   *string           `json:"pool,omitempty"`
+	Labels map[string]string `json:"labels,omitzero"`
 }
 
 // StartScan is the body of startScan.
