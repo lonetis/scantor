@@ -8,7 +8,7 @@ import { expect, test, unique } from '../fixtures'
 // and a real scan runs on the built-in node.
 
 test.describe('CLI scan', () => {
-  test('a pushed task runs to completion from the CLI', { tag: ['@F3.1'] }, async ({ user, api, tasks, scans }) => {
+  test('a pushed task runs to completion from the CLI', { tag: ['@CLI-004'] }, async ({ user, api, tasks, scans }) => {
     const name = unique('echo')
     const dir = await copyTask(exampleTaskDir('echo'), name)
     tasks.track(name)

@@ -159,7 +159,7 @@ model, api) wins and the other doc is fixed.
 - **User-visible behaviour** (feature, CLI, UI, setup) → `README.md` and the affected `docs/guide/*.md`.
 - **Structure, component, convention or design decision** → this file and the affected `docs/*.md`, in
   the same commit.
-- **Behaviour** → `tests/FEATURES.md` bullets, tagged tests (`@F<n>.<m>`) and `just test-index`.
+- **Behaviour** → `tests/FEATURES.md` lines, tagged tests (`@<AREA>-<NNN>`, e.g. `@SCAN-012`) and `just test-index`.
 - **Environment variable** → `.env.example` first (section, default, description, how to obtain a
   secret), then the single config loader, then compose passthrough ([docs/development.md](docs/development.md) §9.5).
 - **CLI command or flag, example task included in a guide** → `just docs` (`--check` runs in CI).

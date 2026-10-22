@@ -2,7 +2,9 @@
 // Generates the index of tests/TESTS.md between its markers (docs/testing.md §10): per Playwright project the spec
 // files with their top-level describe titles and test counts, per FEATURES.md id the tests that cover it, the
 // uncovered ids and unknown feature tags, and the unit suites by location. `--check` fails when the file is stale or
-// when an id is uncovered or a tag unknown. Lists the suite with `playwright test --list` (no stack needed).
+// when an id is uncovered or a tag unknown. Lists the suite with `playwright test --list` (no stack needed). Parsing
+// FEATURES.md also validates its format: unique ids whose prefix matches their section, known surfaces, one line
+// per feature.
 //
 //   node scripts/test-index.mjs [--check]        (just test-index [--check])
 import { spawnSync } from 'node:child_process'
@@ -14,19 +16,50 @@ const testsDir = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const repo = resolve(testsDir, '..')
 const BEGIN = '<!-- BEGIN GENERATED: test-index -->'
 const END = '<!-- END GENERATED: test-index -->'
-const FEATURE_TAG = /^@(F\d+\.\d+)$/
+// Feature ids are `<AREA>-<NNN>`, where an area is one or more uppercase words joined by `-` (`SCAN`, `UI-SCAN`).
+const AREA = '[A-Z][A-Z0-9]*(?:-[A-Z][A-Z0-9]*)*'
+const FEATURE_TAG = new RegExp(`^@(${AREA}-\\d{3})$`)
+const SECTION = new RegExp(`^## (${AREA})\\. \\S`)
+const FEATURE = new RegExp(`^- \\*\\*((${AREA})-\\d{3})\\*\\* \\[([a-z0-9, ]+)\\] (\\S.*)$`)
+const SURFACES = new Set(['api', 'ui', 'cli', 'mcp', 'e2e', 'authz', 'security', 'chaos'])
+const SUMMARY_LENGTH = 100
 
-/** `### F<n>.<m> <Feature>` headings of FEATURES.md, in document order. */
+/**
+ * The features of FEATURES.md in document order: `## <AREA>. <Title>` sections holding one
+ * `- **<AREA>-<NNN>** [<surface>, …] <behaviour>` line per feature. Returns id → one-line summary.
+ */
 function readFeatures() {
   const features = new Map()
-  for (const line of readFileSync(join(testsDir, 'FEATURES.md'), 'utf8').split('\n')) {
-    const match = /^### (F\d+\.\d+) (.+)$/.exec(line)
-    if (match) {
-      if (features.has(match[1])) throw new Error(`FEATURES.md defines ${match[1]} twice`)
-      features.set(match[1], match[2].trim())
-    }
-  }
+  let area = null
+  readFileSync(join(testsDir, 'FEATURES.md'), 'utf8')
+    .split('\n')
+    .forEach((line, index) => {
+      const where = `FEATURES.md:${index + 1}`
+      const section = SECTION.exec(line)
+      if (section) {
+        area = section[1]
+        return
+      }
+      if (!line.startsWith('- ') || area === null) return
+      const match = FEATURE.exec(line)
+      if (!match) throw new Error(`${where}: a feature line must read "- **${area}-<NNN>** [<surfaces>] <behaviour>"`)
+      const [, id, prefix, surfaces, text] = match
+      if (prefix !== area) throw new Error(`${where}: ${id} is listed in section ${area}`)
+      if (features.has(id)) throw new Error(`${where}: FEATURES.md defines ${id} twice`)
+      for (const surface of surfaces.split(',').map((s) => s.trim())) {
+        if (!SURFACES.has(surface)) throw new Error(`${where}: unknown surface "${surface}" (known: ${[...SURFACES].join(', ')})`)
+      }
+      features.set(id, summary(text))
+    })
   return features
+}
+
+/** The behaviour text without Markdown emphasis or code marks, cut at a word boundary for the coverage table. */
+function summary(text) {
+  const plain = text.replaceAll('`', '').replaceAll('**', '')
+  if (plain.length <= SUMMARY_LENGTH) return plain
+  const cut = plain.slice(0, SUMMARY_LENGTH)
+  return `${cut.slice(0, cut.lastIndexOf(' ') > 0 ? cut.lastIndexOf(' ') : SUMMARY_LENGTH)} …`
 }
 
 /** The suite as Playwright lists it: [{project, file, describe, title, tags}]. */
@@ -127,10 +160,10 @@ export function generate() {
     }
   }
   const uncovered = [...features.keys()].filter((id) => !covering.has(id))
-  lines.push('## Feature coverage', '', '| Feature | Tests |', '|---|---|')
+  lines.push('## Feature coverage', '', '| Feature | Behaviour | Tests |', '|---|---|---|')
   for (const [id, title] of features) {
     const covered = [...new Set(covering.get(id) ?? [])]
-    lines.push(`| ${id} ${cell(title)} | ${covered.length ? covered.map((t) => cell(t)).join('<br>') : '**uncovered**'} |`)
+    lines.push(`| ${id} | ${cell(title)} | ${covered.length ? covered.map((t) => cell(t)).join('<br>') : '**uncovered**'} |`)
   }
   lines.push('', '### Uncovered features', '', ...(uncovered.length ? uncovered.map((id) => `- ${id} ${features.get(id)}`) : ['None.']))
   lines.push('', '### Unknown feature tags', '', ...(unknown.length ? [...new Set(unknown)].map((u) => `- ${u}`) : ['None.']))

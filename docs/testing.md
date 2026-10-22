@@ -589,7 +589,7 @@ choose (git imports of the fixture repositories, `git-*`) repeat within a worker
 
 ## 8. Suites
 
-Every test carries the FEATURES.md ids it covers as tags (`{ tag: ['@F5.2'] }`, §10).
+Every test carries the FEATURES.md ids it covers as tags (`{ tag: ['@SCAN-012'] }`, §10).
 
 ### 8.1 API (`api/`)
 
@@ -802,29 +802,35 @@ Flake avoidance (agentor's pitfalls):
 
 ## 10. `FEATURES.md` and `TESTS.md`
 
-`tests/FEATURES.md` is the hand-written inventory of user-visible behaviour and drives coverage:
+`tests/FEATURES.md` is the hand-written, canonical inventory of user-visible behaviour and drives coverage:
 
-- Numbered sections `## F<n>. <Area>` and subsections `### F<n>.<m> <Feature>` (new subsections take the
-  next free number; ids are never reused). Bullets describe observable behaviour in present tense,
-  including validation and error paths ("Starting a scan above the confirmation threshold without
-  `confirm` returns 422 `confirmationRequired`").
-- It describes behaviour, not internals; it links to `docs/` for mechanisms.
-- Every subsection id must be covered by at least one test tag (`{ tag: ['@F5.2'] }`); tags must reference
-  existing ids.
+- Areas are sections `## <AREA>. <Title>` (`SCAN`, `UI-SCAN`, …: uppercase words joined by `-`), each with a
+  line linking the `docs/` sections that document the mechanisms.
+- Each feature is exactly one line `- **<AREA>-<NNN>** [<surfaces>] <behaviour>`: a three-digit id within its
+  area, the surfaces that exercise it (`api`, `ui`, `cli`, `mcp`, `e2e`, `authz`, `security`, `chaos`), and the
+  observable behaviour in present tense, including validation and error paths ("Starting a scan above the
+  confirmation threshold without `confirm` returns 422 `confirmationRequired`"). It describes behaviour, not
+  internals.
+- Ids are stable: a new feature takes the next free number of its area, and the id of a removed feature is never
+  reused (the gap stays).
+- Every id must be covered by at least one Playwright test tag (`{ tag: ['@SCAN-012'] }`); tags in that shape
+  must reference existing ids. Behaviour that only Go or vitest unit tests can reach is not listed (§4).
 
 `tests/TESTS.md` has a short hand-written preamble (how to run: a pointer to this document, no duplicated
 runbook) and a generated index between `<!-- BEGIN GENERATED: test-index -->` and
 `<!-- END GENERATED: test-index -->`:
 
 - per project: spec files, their top-level `describe` titles and test counts;
-- per FEATURES.md id: the tests that cover it;
+- per FEATURES.md id: a one-line summary and the tests that cover it;
 - uncovered ids and unknown tags (the `--check` mode fails on either);
 - unit suites by location (Go packages with tests, vitest files, connector test directories), without
   counts.
 
 `just test-index` runs `tests/scripts/test-index.mjs` in the Playwright image: it calls
-`npx playwright test --list --reporter=json` (no stack needed) and parses FEATURES.md. No document
-anywhere (README, CLAUDE.md, docs) contains hand-kept test counts. CI runs `just test-index --check`.
+`npx playwright test --list --reporter=json` (no stack needed) and parses FEATURES.md, failing on a line that
+breaks its format (a malformed feature line, a duplicate id, an id outside its area's section, an unknown
+surface). No document anywhere (README, CLAUDE.md, docs, FEATURES.md) contains hand-kept test or feature
+counts. CI runs `just test-index --check`.
 
 Every change that adds or changes behaviour updates FEATURES.md, adds or adjusts tagged tests and
 regenerates the index in the same commit ([development](development.md) §13).

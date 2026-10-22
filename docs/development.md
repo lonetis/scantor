@@ -411,7 +411,7 @@ and [templates](templates.md).
 5. If MCP-exposed, update the expected tool set in `tests/mcp/tools.spec.ts`; check the tool description
    reads well for an agent.
 6. Add a request factory for the operation to `tests/authz/requests.ts` (the authorization matrix fails
-   without it), API tests in `tests/api/<tag>.spec.ts`, FEATURES.md bullets and tags; UI tests if the UI
+   without it), API tests in `tests/api/<tag>.spec.ts`, FEATURES.md lines and tags; UI tests if the UI
    uses it.
 7. If users need it from the terminal, add the CLI command (`internal/api` client method +
    `internal/cli` command) and regenerate `docs/guide/cli.md` with `just docs`.

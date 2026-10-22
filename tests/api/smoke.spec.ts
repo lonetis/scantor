@@ -5,13 +5,13 @@ import { expect, test } from '../fixtures'
 // admin, the worker's tenant (session) and its API key as distinct principals.
 
 test.describe('API plumbing', () => {
-  test('health reports every component ok', { tag: ['@F1.1'] }, async ({ anonApi }) => {
+  test('health reports every component ok', { tag: ['@PLAT-001'] }, async ({ anonApi }) => {
     const health = ok(await anonApi.getHealth(), 'getHealth')
     expect(health.status).toBe('ok')
     for (const [component, state] of Object.entries(health.components)) expect(state, component).toBe('ok')
   })
 
-  test('the session, the API key and the admin act as their own principals', { tag: ['@F2.2'] }, async ({ api, apiKeyApi, adminApi, user }) => {
+  test('the session, the API key and the admin act as their own principals', { tag: ['@AUTH-001'] }, async ({ api, apiKeyApi, adminApi, user }) => {
     const account = ok(await api.getAccount(), 'getAccount')
     expect(account.email).toBe(user.email)
     expect(account.role).toBe('user')
