@@ -361,7 +361,7 @@ test.describe('inside the editor', () => {
     'the CLI uses the editor key: tasks, scans and remote dev runs work, admin routes do not',
     { tag: ['@EDIT-007'] },
     async ({ adminApi, freshApi, freshUser, openapi }) => {
-      test.setTimeout(300_000)
+      test.setTimeout(180_000)
       // An admin's editor key still never has admin power.
       ok(await adminApi.call('updateUser', { path: { userId: freshUser.id }, body: { role: 'admin' } }), 'updateUser')
       const task = unique('edit-cli')
@@ -390,7 +390,7 @@ test.describe('inside the editor', () => {
       // `dev run` in a task folder of the workspace is a platform test run.
       const devRun = await execInEditor(freshUser.id, ['scantor', 'dev', 'run', '.', '--limit', '2', '-o', 'json'], {
         workdir: `${WORKSPACE_ROOT}/${task}`,
-        timeoutMs: 240_000,
+        timeoutMs: 120_000,
       })
       expect(devRun.exitCode, `${devRun.stdout}\n${devRun.stderr}`).toBe(0)
       const events = devRun.stdout

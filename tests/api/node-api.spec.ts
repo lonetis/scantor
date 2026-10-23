@@ -270,7 +270,6 @@ test.describe('assignments', () => {
   )
 
   test('the built-in node pulls by digest from localhost with the same limits', { tag: ['@NODE-019'] }, async ({ api, docker, scans, tasks }) => {
-    test.setTimeout(240_000)
     const sleep = await tasks.example('sleep')
     const resources = { cpus: 0.25, memoryMiB: 256 }
     const scan = await scans.start({
@@ -286,7 +285,7 @@ test.describe('assignments', () => {
           runner = (await scanWorkers(api, scan.id)).find((worker) => worker.role === 'runner' && worker.state === 'running')
           return runner?.state
         },
-        { timeout: 180_000, intervals: [1000, 2000, 5000] },
+        { timeout: 120_000, intervals: [1000, 2000, 5000] },
       )
       .toBe('running')
     const container = await docker.inspect<{ Config: { Image: string; Env: string[] }; HostConfig: { Memory: number; NanoCpus: number } }>(

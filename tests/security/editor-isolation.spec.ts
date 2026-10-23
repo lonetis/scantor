@@ -80,7 +80,7 @@ test.describe('the editor container', () => {
     'is hardened, has no Docker socket and cannot be reached from a master worker',
     { tag: ['@EDIT-013', '@EDIT-014'] },
     async ({ adminApi, api, freshApi, freshUser, scans, tasks }) => {
-      test.setTimeout(240_000)
+      test.setTimeout(180_000)
       const netprobe = await tasks.fixture('netprobe')
       await startEditor(freshApi)
       const container = await inspectEditor(freshUser.id)
@@ -133,7 +133,7 @@ test.describe('the editor container', () => {
       expect(address).toMatch(/^\d+\.\d+\.\d+\.\d+$/)
       const targets = [`${address}:8080`, `${address}:80`, `${address}:443`, `${address}:3000`, `${address}:22`, 'orchestrator:3000']
       const scan = await scans.start({ revision: netprobe.revision.id, taskConfig: { mode: 'connect', targets, timeout_seconds: 3 } })
-      await scans.wait(scan.id, { timeoutMs: 240_000 })
+      await scans.wait(scan.id, { timeoutMs: 120_000 })
       const workers = ok(await api.listScanWorkers(scan.id), 'listScanWorkers').items
       const builtin = ok(await adminApi.listNodes(), 'listNodes').items.find((node) => node.builtIn)!
       expect(workers.filter((worker) => worker.role === 'runner').map((worker) => worker.nodeId)).toEqual([builtin.id])
