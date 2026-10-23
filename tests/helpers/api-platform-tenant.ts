@@ -31,15 +31,26 @@ export interface PlatformTenant extends TestUser {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** How long one sign-in request may take before it is sent again. */
+const SIGN_IN_REQUEST_TIMEOUT_MS = 40_000
+
 /**
  * `POST /api/auth/sign-in/email` through the limiter; a 429 is waited out (`X-Retry-After`) and retried with a new
- * limiter slot until `timeoutMs`. Returns the last response (also a failing one).
+ * limiter slot until `timeoutMs`. A request that gets no answer in time (the shared stack stalls for tens of seconds
+ * while other runs load it) is sent again with a new slot as well; a sign-in only creates a session, so a repeat is
+ * harmless. Returns the last response (also a failing one).
  */
 export async function signInPatiently(context: APIRequestContext, email: string, password: string, timeoutMs = 90_000): Promise<ApiResponse> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     await reserve('/sign-in/email')
-    const response = await context.post('/api/auth/sign-in/email', { data: { email, password } })
+    let response: Awaited<ReturnType<APIRequestContext['post']>>
+    try {
+      response = await context.post('/api/auth/sign-in/email', { data: { email, password }, timeout: SIGN_IN_REQUEST_TIMEOUT_MS })
+    } catch (error) {
+      if (error instanceof Error && error.name === 'TimeoutError' && Date.now() + SIGN_IN_REQUEST_TIMEOUT_MS < deadline) continue
+      throw error
+    }
     const raw = await response.body()
     const headers = response.headers()
     const body: unknown = (headers['content-type'] ?? '').includes('json') && raw.length > 0 ? JSON.parse(raw.toString('utf8')) : {}
@@ -106,24 +117,33 @@ function seededAdminSession(): Promise<APIRequestContext> {
  * sessions reaches it. Everything these specs do as the admin needs only admin power, not the seeded account.
  */
 export async function withPlatformAdmin(openapi: OpenApiIndex, use: (adminApi: ApiClient) => Promise<void>): Promise<void> {
+  // The creator's session also deletes the admin at the end, which saves a sign-in per worker; only when that session
+  // was revoked in between (401) does the teardown sign in again.
   const creator = await seededAdminSession()
-  let admin: PlatformTenant
+  let session: APIRequestContext | null = null
   try {
-    admin = await createPlatformTenant(new ApiClient(creator, openapi), openapi, { prefix: 'platform-admin', role: 'admin' })
+    const admin = await createPlatformTenant(new ApiClient(creator, openapi), openapi, { prefix: 'platform-admin', role: 'admin' })
+    try {
+      session = await stateContext(admin.storageState)
+      await use(new ApiClient(session, openapi))
+    } finally {
+      await session?.dispose()
+      await deleteWithSeededAdmin(openapi, creator, admin)
+    }
   } finally {
     await creator.dispose()
   }
-  const session = await stateContext(admin.storageState)
+}
+
+/** Deletes a tenant with the given seeded-admin session, or with a new one when that session no longer works. */
+async function deleteWithSeededAdmin(openapi: OpenApiIndex, seeded: APIRequestContext, tenant: PlatformTenant): Promise<void> {
+  const current = new ApiClient(seeded, openapi)
+  if ((await current.getAccount()).status !== 401) return deletePlatformTenant(current, tenant)
+  const remover = await seededAdminSession()
   try {
-    await use(new ApiClient(session, openapi))
+    await deletePlatformTenant(new ApiClient(remover, openapi), tenant)
   } finally {
-    await session.dispose()
-    const remover = await seededAdminSession()
-    try {
-      await deletePlatformTenant(new ApiClient(remover, openapi), admin)
-    } finally {
-      await remover.dispose()
-    }
+    await remover.dispose()
   }
 }
 
