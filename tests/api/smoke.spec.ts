@@ -1,5 +1,8 @@
 import { ok } from '../helpers/api-client'
-import { expect, test } from '../fixtures'
+import { withAuthTenants } from '../helpers/api-auth'
+import { expect, test as base } from '../fixtures'
+
+const test = withAuthTenants(base)
 
 // Smoke test of the API plumbing: the stack answers through Traefik with the test CA, and the fixtures provide the
 // admin, the worker's tenant (session) and its API key as distinct principals.
