@@ -41,6 +41,8 @@ export interface TestEnv {
   secret: string
   /** Playwright workers (SCANTOR_TEST_WORKERS) */
   testWorkers: number
+  /** SCANTOR_AUTH_RATE_LIMIT_SCALE of the stack: better-auth's per-IP limits are multiplied by it. */
+  authRateLimitScale: number
   ci: boolean
   /** PEM file of the throwaway test CA (NODE_EXTRA_CA_CERTS) */
   caCertFile: string
@@ -69,6 +71,7 @@ function load(): TestEnv {
     admin: { email: required('SCANTOR_ADMIN_EMAIL'), password: required('SCANTOR_ADMIN_PASSWORD') },
     secret: required('SCANTOR_SECRET'),
     testWorkers: positiveInteger('SCANTOR_TEST_WORKERS'),
+    authRateLimitScale: process.env.SCANTOR_AUTH_RATE_LIMIT_SCALE ? positiveInteger('SCANTOR_AUTH_RATE_LIMIT_SCALE') : 1,
     ci: process.env.CI === 'true' || process.env.CI === '1',
     caCertFile: required('NODE_EXTRA_CA_CERTS'),
     paths: {

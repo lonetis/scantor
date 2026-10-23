@@ -15,7 +15,7 @@ import {
   DISABLED_PATHS,
   isAllowedMcpRedirect,
   OAUTH_SCOPES,
-  RATE_LIMIT,
+  rateLimitConfig,
   resolveMcpConfig,
   resolvePasskeyConfig,
   trustedOrigins,
@@ -166,7 +166,7 @@ function buildAuth(): AuthInstance {
       freshAge: 86_400,
       cookieCache: { enabled: false },
     },
-    rateLimit: RATE_LIMIT,
+    rateLimit: rateLimitConfig(config.authRateLimitScale),
     advanced: {
       cookiePrefix: 'scantor',
       useSecureCookies: config.publicUrl.startsWith('https://'),

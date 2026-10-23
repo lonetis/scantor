@@ -6,7 +6,8 @@ import { env } from './env'
 // better-auth allows 10 sign-ins and 10 dynamic registrations per minute per client IP (docs/auth.md §2.7) and the
 // whole suite reaches Traefik from one IP, so every Playwright worker (a separate process) reserves a slot in a
 // timestamp log per path under .auth/limiter/, guarded by an exclusive lock file. The budgets stay below the
-// server limits, leaving room for window-boundary effects and the runner's own remote-node sign-in.
+// server limits, leaving room for window-boundary effects and the runner's own remote-node sign-in; both are
+// multiplied by the stack's SCANTOR_AUTH_RATE_LIMIT_SCALE.
 
 export const LIMITED_PATHS = {
   '/sign-in/email': 8,
@@ -62,7 +63,7 @@ async function readLog(log: string): Promise<number[]> {
 
 /** Blocks until a request to `path` fits the suite's budget, then records it. Call right before the request. */
 export async function reserve(path: LimitedPath): Promise<void> {
-  const limit = LIMITED_PATHS[path]
+  const limit = LIMITED_PATHS[path] * env.authRateLimitScale
   const { log, lock } = files(path)
   await mkdir(env.paths.limiter, { recursive: true })
   for (;;) {

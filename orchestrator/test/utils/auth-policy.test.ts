@@ -4,6 +4,7 @@ import {
   isAllowedMcpRedirect,
   mcpLevelForScopes,
   RATE_LIMIT,
+  rateLimitConfig,
   resolveMcpConfig,
   resolvePasskeyConfig,
   trustedOrigins,
@@ -108,5 +109,10 @@ describe('better-auth policy constants', () => {
   it('limits sign-in to 10 per minute per IP', () => {
     expect(RATE_LIMIT.enabled).toBe(true)
     expect(RATE_LIMIT.customRules['/sign-in/email']).toEqual({ window: 60, max: 10 })
+    expect(rateLimitConfig(1)).toEqual(RATE_LIMIT)
+    const scaled = rateLimitConfig(50)
+    expect(scaled.max).toBe(RATE_LIMIT.max * 50)
+    expect(scaled.customRules['/sign-in/email']).toEqual({ window: 60, max: 500 })
+    expect(RATE_LIMIT.customRules['/sign-in/email'].max).toBe(10)
   })
 })

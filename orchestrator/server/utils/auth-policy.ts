@@ -60,6 +60,16 @@ export const RATE_LIMIT = {
     '/oauth2/register': { window: 60, max: 10 },
   },
 }
+
+/**
+ * The better-auth rate limits with every maximum multiplied by SCANTOR_AUTH_RATE_LIMIT_SCALE. Production keeps 1;
+ * the dockerized test stack raises it because the whole suite reaches the orchestrator from one client IP.
+ */
+export function rateLimitConfig(scale: number): typeof RATE_LIMIT {
+  const customRules = Object.fromEntries(
+    Object.entries(RATE_LIMIT.customRules).map(([path, rule]) => [path, { window: rule.window, max: rule.max * scale }]),
+  ) as typeof RATE_LIMIT.customRules
+  return { ...RATE_LIMIT, max: RATE_LIMIT.max * scale, customRules }
 }
 
 /**

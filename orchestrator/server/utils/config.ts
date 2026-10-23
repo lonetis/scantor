@@ -98,6 +98,7 @@ export interface Config {
   maxWorkersPerScan: number
   maxProcessesPerWorker: number
   userMaxWorkers: number
+  authRateLimitScale: number
   maxAnalysisConfigBytes: number
   maxResultBytes: number
   maxFileBytes: number
@@ -394,6 +395,7 @@ const VARIABLES = {
   maxWorkersPerScan: v('SCANTOR_MAX_WORKERS_PER_SCAN', '100', integer(1, 100_000)),
   maxProcessesPerWorker: v('SCANTOR_MAX_PROCESSES_PER_WORKER', '64', integer(1, 10_000)),
   userMaxWorkers: v('SCANTOR_USER_MAX_WORKERS', '0', integer(0)),
+  authRateLimitScale: v('SCANTOR_AUTH_RATE_LIMIT_SCALE', '1', integer(1, 10000), true),
   maxAnalysisConfigBytes: v('SCANTOR_MAX_ANALYSIS_CONFIG_BYTES', '64KiB', byteSize(1)),
   maxResultBytes: v('SCANTOR_MAX_RESULT_BYTES', '1MiB', byteSize(1)),
   maxFileBytes: v('SCANTOR_MAX_FILE_BYTES', '1GiB', byteSize(1)),
