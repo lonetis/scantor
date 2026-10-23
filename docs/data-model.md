@@ -20,7 +20,7 @@ system context is in [architecture](architecture.md).
 | Ownership | Every user-owned document has `userId` (string, the better-auth `user._id`). It is set from the principal at creation, or copied from the parent document for derived documents, and never changes. A request never supplies `userId`. |
 | Representation | The API maps `_id` → `id`, omits fields marked *internal* below, and masks secrets. |
 | Encrypted values | Format `enc:v1:<base64url(iv, 12 bytes)>:<base64url(ciphertext ‖ tag)>`, AES-256-GCM with an HKDF key ([architecture](architecture.md) §9), AAD = `<collection>:<_id>:<field or JSON pointer>`. Used for git credentials and `writeOnly` config values. |
-| Index management | The orchestrator creates every index at boot with `createIndexes` (idempotent). TTL durations that come from env are applied with `collMod` when they differ. Boot step 3 creates the indexes better-auth declares (field `unique`/`index` attributes and table indexes of `$context.tables`; unique only for required fields), because the MongoDB adapter does not create them (§3). |
+| Index management | The orchestrator creates every index at boot with `createIndexes` (idempotent). TTL durations that come from env are applied with `collMod` when they differ. Boot step 3 creates the indexes better-auth declares (field `unique`/`index` attributes and table indexes of `$context.tables`; unique only for required fields) under better-auth's own index names, because the MongoDB adapter creates only the table-level ones, lazily and by name (§3, [auth](auth.md) §2.1). |
 | Schema version | `meta` document `schema` holds the data-model version (1). Migrations run at boot under the `migrations` lock. |
 | Writes to better-auth data | Only through better-auth (`auth.api.*`, `ctx.internalAdapter`, `ctx.adapter`). Scantor reads `user` and `apikey` directly only for listings. |
 
@@ -51,7 +51,8 @@ system context is in [architecture](architecture.md).
 Adapter: `mongodbAdapter(db, { client, usePlural: false })` from `better-auth/adapters/mongodb` (transactions
 on, which needs the replica set). The adapter maps `id` ↔ `_id`. Collections are created lazily; their
 indexes (for example `session.token`, `user.email`, `apikey.key`) are created at boot by the orchestrator
-from better-auth's table metadata, because the adapter creates none ([auth](auth.md) §2.1).
+from better-auth's table metadata under better-auth's own names, because the adapter creates only the
+table-level ones, lazily ([auth](auth.md) §2.1).
 
 | Collection | Added by | Purpose | Notable fields |
 |---|---|---|---|

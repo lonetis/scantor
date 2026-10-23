@@ -5,10 +5,12 @@ import { fetchClientMetadataResource } from '@better-auth/cimd/node'
 import { mcp } from '@better-auth/mcp'
 import { passkey } from '@better-auth/passkey'
 import { betterAuth } from 'better-auth'
+import { getDatabaseFieldIndexName, getDatabaseIndexName } from '@better-auth/core/db/internal'
 import { mongodbAdapter } from 'better-auth/adapters/mongodb'
 import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/api'
 import { symmetricDecrypt } from 'better-auth/crypto'
 import { admin, jwt } from 'better-auth/plugins'
+import type { CreateIndexesOptions, Db } from 'mongodb'
 import {
   DISABLED_PATHS,
   isAllowedMcpRedirect,
@@ -21,7 +23,7 @@ import {
 import { useConfig } from './config'
 import { useKeys } from './keys'
 import { type Logger, useLogger } from './logger'
-import { type IndexSpec, ensureCollectionIndexes, useMongo } from './mongo'
+import { type IndexSpec, useMongo } from './mongo'
 import { DEFAULT_API_KEY_PATTERN, EDITOR_API_KEY_PATTERN, bearerValue } from './principal'
 import { completePasskeySetupUser, resolvePasskeySetupUser } from './setup'
 import { invalidateCachedUser } from './user-cache'
@@ -273,29 +275,64 @@ export interface AuthTableMeta {
   indexes?: { fields: string[]; unique?: boolean }[]
 }
 
+/** A better-auth index: always named, because the MongoDB adapter creates table-level indexes under these names. */
+export interface AuthIndexSpec extends IndexSpec {
+  options: CreateIndexesOptions & { name: string }
+}
+
 /**
  * The indexes better-auth declares for its tables (field `unique`/`index` attributes and table-level indexes),
- * mapped onto MongoDB collections. The MongoDB adapter does not create them itself, and without them every session,
- * API key and OAuth token lookup scans its collection. Unique indexes are kept only for required fields, so that
- * absent optional values can never collide.
+ * mapped onto MongoDB collections, under the names better-auth itself uses. The MongoDB adapter creates only the
+ * table-level indexes, lazily on first use of a model and by name; field-level indexes it never creates, so without
+ * them every session, API key and OAuth token lookup scans its collection. Using better-auth's names makes the
+ * adapter's own `createIndex` a no-op instead of an IndexOptionsConflict. Unique indexes are kept only for required
+ * fields, so that absent optional values can never collide.
  */
-export function authIndexesFrom(tables: Record<string, AuthTableMeta>): { collection: string; specs: IndexSpec[] }[] {
-  const result: { collection: string; specs: IndexSpec[] }[] = []
+export function authIndexesFrom(tables: Record<string, AuthTableMeta>): { collection: string; specs: AuthIndexSpec[] }[] {
+  const result: { collection: string; specs: AuthIndexSpec[] }[] = []
   for (const table of Object.values(tables)) {
     const column = (name: string) => (name === 'id' ? '_id' : (table.fields[name]?.fieldName ?? name))
-    const specs: IndexSpec[] = []
+    const specs: AuthIndexSpec[] = []
     for (const [name, field] of Object.entries(table.fields)) {
       if (name === 'id' || (!field.unique && !field.index)) continue
       const unique = field.unique === true && field.required !== false
-      specs.push({ key: { [column(name)]: 1 }, ...(unique ? { options: { unique: true } } : {}) })
+      const options = { name: getDatabaseFieldIndexName(table.modelName, column(name), unique), ...(unique ? { unique: true } : {}) }
+      specs.push({ key: { [column(name)]: 1 }, options })
     }
     for (const index of table.indexes ?? []) {
-      const key = Object.fromEntries(index.fields.map((name) => [column(name), 1 as const]))
-      specs.push({ key, ...(index.unique ? { options: { unique: true } } : {}) })
+      const columns = index.fields.map(column)
+      const unique = index.unique === true
+      const options = { name: getDatabaseIndexName(table.modelName, { fields: columns, unique }), ...(unique ? { unique: true } : {}) }
+      specs.push({ key: Object.fromEntries(columns.map((name) => [name, 1 as const])), options })
     }
     if (specs.length > 0) result.push({ collection: table.modelName, specs })
   }
   return result
+}
+
+/**
+ * Creates named indexes idempotently. An index with the same key pattern under another name (created by an earlier
+ * boot, which used MongoDB's default names) is dropped and recreated under the better-auth name, because MongoDB
+ * refuses a second index with the same key and a different name.
+ */
+async function ensureNamedIndexes(db: Db, name: string, specs: AuthIndexSpec[], log: Logger): Promise<void> {
+  const collection = db.collection(name)
+  const existing = await collection
+    .listIndexes()
+    .toArray()
+    .catch((error: unknown) => {
+      if ((error as { code?: number }).code === 26) return [] // NamespaceNotFound: collection not created yet
+      throw error
+    })
+  for (const spec of specs) {
+    if (existing.some((index) => index.name === spec.options.name)) continue
+    const sameKey = existing.find((index) => JSON.stringify(index.key) === JSON.stringify(spec.key))
+    if (sameKey) {
+      await collection.dropIndex(sameKey.name as string)
+      log.info('renamed a better-auth index', { collection: name, from: sameKey.name, to: spec.options.name })
+    }
+    await collection.createIndex(spec.key, spec.options)
+  }
 }
 
 /**
@@ -308,7 +345,7 @@ export async function ensureAuthIndexes(log: Logger = useLogger('auth')): Promis
   const { db } = useMongo()
   for (const { collection, specs } of authIndexesFrom(ctx.tables as Record<string, AuthTableMeta>)) {
     try {
-      await ensureCollectionIndexes(db, collection, specs, log)
+      await ensureNamedIndexes(db, collection, specs, log)
     } catch (error) {
       log.error('ensuring better-auth indexes failed', { collection, err: error })
     }

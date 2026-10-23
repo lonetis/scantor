@@ -23,10 +23,27 @@ describe('authIndexesFrom', () => {
       },
       plain: { modelName: 'plain', fields: { a: {} } },
     })
+    // The names are better-auth's own: the MongoDB adapter creates table-level indexes lazily under exactly these
+    // names, so any other name for the same key makes its createIndex fail with IndexOptionsConflict.
     expect(indexes).toEqual([
-      { collection: 'session', specs: [{ key: { token: 1 }, options: { unique: true } }, { key: { userId: 1 } }] },
-      { collection: 'user', specs: [{ key: { email: 1 }, options: { unique: true } }, { key: { nickname: 1 } }] },
-      { collection: 'oauthClientResource', specs: [{ key: { client_id: 1, resourceId: 1 }, options: { unique: true } }] },
+      {
+        collection: 'session',
+        specs: [
+          { key: { token: 1 }, options: { name: 'session_token_uidx', unique: true } },
+          { key: { userId: 1 }, options: { name: 'session_userId_idx' } },
+        ],
+      },
+      {
+        collection: 'user',
+        specs: [
+          { key: { email: 1 }, options: { name: 'user_email_uidx', unique: true } },
+          { key: { nickname: 1 }, options: { name: 'user_nickname_idx' } },
+        ],
+      },
+      {
+        collection: 'oauthClientResource',
+        specs: [{ key: { client_id: 1, resourceId: 1 }, options: { name: 'oauthClientResource_client_id_resourceId_uidx', unique: true } }],
+      },
     ])
   })
 })

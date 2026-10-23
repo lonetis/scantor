@@ -61,10 +61,15 @@ them into `user` principals via `mcp` ([mcp](mcp.md)).
 version** (1.7.12) in `orchestrator/package.json`; upgrades move them together. The MongoDB adapter is
 `better-auth/adapters/mongodb` (no extra dependency); the driver is `mongodb` 7.x, shared with scantor.
 `getMigrations()` must never be called: it supports only Kysely and calls `process.exit(1)` for any other
-adapter. Collections are created lazily by the adapter, but the adapter creates none of the indexes
-better-auth declares, so boot step 3 creates them from better-auth's own table metadata
-(`$context.tables`: field `unique`/`index` attributes and table indexes; unique only for required
-fields). A failure there is logged and does not stop the boot.
+adapter. Collections are created lazily by the adapter. The adapter also creates the table-level indexes
+lazily (on first use of a model, under better-auth's generated names), but never the field-level
+`unique`/`index` attributes. Boot step 3 therefore creates every index of better-auth's table metadata
+(`$context.tables`; unique only for required fields) under exactly the names better-auth uses
+(`getDatabaseIndexName` / `getDatabaseFieldIndexName` from `@better-auth/core/db/internal`, a direct
+dependency pinned with the other better-auth packages). With any other name, the adapter's own
+`createIndex` for the same key fails with `IndexOptionsConflict` (this broke OAuth client
+registration). An index with the same key under another name is dropped and recreated. A failure is
+logged and does not stop the boot.
 
 ### 2.2 Configuration
 
