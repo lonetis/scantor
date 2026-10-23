@@ -580,7 +580,14 @@ test-exec *args:
     fi
     tty=""
     if [ -t 0 ] && [ -t 1 ]; then tty="-t"; fi
-    docker exec -i $tty scantor-test-runner scantor-test-playwright "$@"
+    # Playwright empties its output directory when a run starts, so concurrent runs against the kept-alive stack
+    # each get their own unless --output is given.
+    args=("$@")
+    case " $* " in
+      *" --output"*) ;;
+      *) args+=("--output=test-results/exec-$(date +%Y%m%d-%H%M%S)-$$") ;;
+    esac
+    docker exec -i $tty scantor-test-runner scantor-test-playwright "${args[@]}"
 
 # Stop the test runner: its teardown removes the inner stack (the cache volumes stay)
 [group('tests')]
