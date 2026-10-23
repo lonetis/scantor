@@ -47,6 +47,9 @@ describe('resolveMcpConfig', () => {
     })
     expect(resolveMcpConfig({ publicUrl: 'http://localhost:3000', mcpEnabled: true }).oauth).toBe(true)
     expect(resolveMcpConfig({ publicUrl: 'http://10.0.0.5:3000', mcpEnabled: true })).toMatchObject({ enabled: true, oauth: false })
+    // @better-auth/mcp rejects http *.localhost resource URLs, so OAuth stays off there instead of failing the boot.
+    expect(resolveMcpConfig({ publicUrl: 'http://scantor.localhost:3000', mcpEnabled: true })).toMatchObject({ enabled: true, oauth: false })
+    expect(resolveMcpConfig({ publicUrl: 'http://127.0.0.1:3000', mcpEnabled: true }).oauth).toBe(true)
   })
 })
 

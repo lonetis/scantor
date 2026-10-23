@@ -1,6 +1,5 @@
 import { isIP } from 'node:net'
 import type { Config } from './config'
-import { isLoopbackHost } from './startup-guard'
 
 // Pure authentication policy derived from the configuration (docs/auth.md §2.5, §2.7, §4, docs/mcp.md §3.4, §3.8).
 // server/utils/auth.ts builds better-auth from it; the middleware and the MCP endpoint use the same functions.
@@ -61,6 +60,7 @@ export const RATE_LIMIT = {
     '/oauth2/register': { window: 60, max: 10 },
   },
 }
+}
 
 /**
  * The origins trusted for CSRF and better-auth (docs/auth.md §4.2): the public origin plus, when its host is
@@ -106,11 +106,22 @@ export interface McpConfig {
 }
 
 /** docs/mcp.md §3.8. */
+/**
+ * The loopback hosts @better-auth/mcp accepts for an http resource URL: exactly `localhost`, `[::1]` and
+ * 127.0.0.0/8. Narrower than the startup guard's rule, which also counts `*.localhost`; with such a host the plugin
+ * throws at initialisation, so MCP then stays on API keys only instead of failing the boot.
+ */
+export function isMcpLoopbackHost(hostname: string): boolean {
+  const octets = hostname.split('.')
+  const ipv4Loopback = octets.length === 4 && octets[0] === '127' && octets.every((octet) => /^\d+$/.test(octet) && Number(octet) <= 255)
+  return hostname === 'localhost' || hostname === '[::1]' || ipv4Loopback
+}
+
 export function resolveMcpConfig(config: Pick<Config, 'publicUrl' | 'mcpEnabled'>): McpConfig {
   const resource = `${config.publicUrl}/mcp`
   if (!config.mcpEnabled) return { enabled: false, oauth: false, resource, disabledReason: 'SCANTOR_MCP_ENABLED=false' }
   const url = new URL(config.publicUrl)
-  if (url.protocol !== 'https:' && !isLoopbackHost(url.hostname)) {
+  if (url.protocol !== 'https:' && !isMcpLoopbackHost(url.hostname)) {
     return {
       enabled: true,
       oauth: false,
