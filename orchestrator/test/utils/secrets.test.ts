@@ -3,11 +3,13 @@ import { createKeyring } from '../../server/utils/keys'
 import {
   configSecretAad,
   decryptSecret,
+  dropDefaultedSecrets,
   encryptSecret,
   expandPointer,
   extractSecrets,
   formatPointer,
   MASK,
+  maskedSecretPointers,
   maskSecrets,
   parsePointer,
   restoreSecrets,
@@ -77,5 +79,20 @@ describe('masking writeOnly values', () => {
     expect(JSON.stringify(encrypted)).not.toContain('top-secret')
     expect(restoreSecrets(masked, encrypted, aadFor, keys)).toEqual(config)
     expect(aadFor('/apiKey')).toBe('scans:scan-1:/taskConfig/apiKey')
+  })
+})
+
+describe('secrets of an effective config', () => {
+  it('drops secrets the request did not send, with the outermost member the defaults added', () => {
+    const requested = { given: 's', creds: { user: 'v' }, list: ['a'] }
+    const effective = { given: 's', filled: '**********', creds: { user: 'v', key: '**********' }, added: { key: '**********', other: 1 }, list: ['a', 'b', 'c'], plain: 'p' }
+    dropDefaultedSecrets(effective, requested, ['/given', '/filled', '/creds/key', '/added/key', '/list/*', '/absent'])
+    expect(effective).toEqual({ given: 's', creds: { user: 'v' }, list: ['a'], plain: 'p' })
+  })
+
+  it('finds secrets sent as the mask itself', () => {
+    const config = { apiKey: MASK, tokens: { a: 't', b: MASK }, plain: MASK, list: [MASK] }
+    expect(maskedSecretPointers(config, ['/apiKey', '/tokens/*', '/list/*', '/absent'])).toEqual(['/apiKey', '/tokens/b', '/list/0'])
+    expect(maskedSecretPointers({ value: 'x' }, [''])).toEqual([])
   })
 })

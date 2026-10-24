@@ -5,13 +5,24 @@ import type { DescriptionDoc } from '../../types/documents'
 import { apiError } from '../../utils/errors'
 import { type Keyring, useKeys } from '../../utils/keys'
 import { useLogger } from '../../utils/logger'
-import { configSecretAad, decryptSecret, encryptSecret, extractSecrets, formatPointer, restoreSecrets } from '../../utils/secrets'
+import {
+  configSecretAad,
+  decryptSecret,
+  dropDefaultedSecrets,
+  encryptSecret,
+  extractSecrets,
+  formatPointer,
+  MASK,
+  maskedSecretPointers,
+  restoreSecrets,
+} from '../../utils/secrets'
 
 /*
  * Effective configs (docs/tasks.md §6.3, §6.5; docs/data-model.md §1 "Encrypted values"): the task, scan and analysis
  * configs of a request are validated with ajv (draft 2020-12, `useDefaults`, `discriminator`, ajv-formats for the
  * asserted formats, unknown formats ignored) against the revision's describe schemas. The result is the effective
- * config (defaults filled), its `writeOnly` values encrypted by JSON pointer (HKDF label `config-secrets`, AAD
+ * config (defaults filled, but a secret only ever from the request, never from a default and never as the mask "***"),
+ * its `writeOnly` values encrypted by JSON pointer (HKDF label `config-secrets`, AAD
  * `<collection>:<_id>:/<configKind><pointer>`) and the masked config that is stored and returned ("***").
  *
  * Used by startScan (orch-scans) and test runs (orch-tasks). Callers that persist the secrets pass the document they
@@ -221,10 +232,19 @@ export async function validateConfigs(
   const effective: Partial<Record<ConfigKind, ConfigObject>> = {}
   const issues: ValidationIssue[] = []
   for (const kind of kinds) {
-    const result = validateConfig(kind, description.schemas[kind], input[kind] ?? {})
+    const requested = input[kind] ?? {}
+    const result = validateConfig(kind, description.schemas[kind], requested)
     issues.push(...result.issues)
     if (result.issues.length === 0 && !isConfigObject(result.value)) issues.push({ path: `/${kind}`, message: 'must be an object' })
-    if (isConfigObject(result.value)) effective[kind] = result.value
+    if (!isConfigObject(result.value)) continue
+    effective[kind] = result.value
+    // Secrets come from the request only (docs/tasks.md §6.5): never from a default of a stored description, and
+    // never as the mask of a response sent back.
+    const secretPaths = description.secretPaths[kind] ?? []
+    dropDefaultedSecrets(result.value, requested, secretPaths)
+    for (const pointer of maskedSecretPointers(result.value, secretPaths)) {
+      issues.push({ path: `/${kind}${pointer}`, message: `is the mask "${MASK}" of a secret; send the secret value itself` })
+    }
   }
   if (issues.length > 0) {
     throw apiError('configInvalid', `config rejected by the revision schema: ${issues[0]!.path || '/'} ${issues[0]!.message}`, {

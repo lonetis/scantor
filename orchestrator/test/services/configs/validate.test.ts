@@ -237,6 +237,45 @@ describe('validateConfigs: writeOnly secrets', () => {
     expect(() => restoreConfigSecrets(result.masked, result.secrets, binding, createKeyring('another-secret'))).toThrow(/cannot be decrypted/)
   })
 
+  it('never takes a secret from a default, and removes the outermost member the defaults added', async () => {
+    // A description stored before describe dropped such defaults (pydantic exports SecretStr defaults masked).
+    const stored = {
+      type: 'object',
+      properties: {
+        token: { anyOf: [{ type: 'string', writeOnly: true }, { type: 'null' }], default: '**********' },
+        empty: { anyOf: [{ type: 'string', writeOnly: true }, { type: 'null' }], default: null },
+        creds: {
+          type: 'object',
+          properties: { user: { type: 'string', default: 'u' }, key: { type: 'string', writeOnly: true, default: '**********' } },
+          default: { user: 'u', key: '**********' },
+        },
+        plain: { type: 'string', default: 'visible' },
+      },
+      additionalProperties: false,
+    }
+    const paths = { taskConfig: ['/token', '/empty', '/creds/key'] }
+    const omitted = await validateConfigs(description({ taskConfig: stored }, paths), { taskConfig: {} }, binding, keys)
+    expect(omitted.effective.taskConfig).toEqual({ plain: 'visible' })
+    expect(omitted.secrets.taskConfig).toEqual({})
+
+    const partial = await validateConfigs(description({ taskConfig: stored }, paths), { taskConfig: { creds: { user: 'v' } } }, binding, keys)
+    expect(partial.effective.taskConfig).toEqual({ creds: { user: 'v' }, plain: 'visible' })
+
+    const given = await validateConfigs(description({ taskConfig: stored }, paths), { taskConfig: { token: 't-1', empty: null, creds: { key: 'k-1' } } }, binding, keys)
+    expect(given.effective.taskConfig).toEqual({ token: 't-1', empty: null, creds: { user: 'u', key: 'k-1' }, plain: 'visible' })
+    expect(Object.keys(given.secrets.taskConfig).sort()).toEqual(['/creds/key', '/empty', '/token'])
+  })
+
+  it('rejects the mask "***" sent back as a secret value', async () => {
+    const issues = await issuesOf(
+      validateConfigs(description({ taskConfig: schema }, secretPaths), { taskConfig: { apiKey: MASK, tokens: { a: 't-a', b: MASK }, plain: MASK } }, binding, keys),
+    )
+    expect(issues).toEqual([
+      { path: '/taskConfig/apiKey', message: expect.stringContaining('mask') },
+      { path: '/taskConfig/tokens/b', message: expect.stringContaining('mask') },
+    ])
+  })
+
   it('re-encrypts secrets for a restart clone', async () => {
     const result = await validateConfigs(description({ taskConfig: schema }, secretPaths), { taskConfig: { apiKey: 'k-123' } }, binding, keys)
     const clone = { collection: 'scans', id: '0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11' }

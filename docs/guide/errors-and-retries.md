@@ -249,7 +249,7 @@ most:
 | `revisionNotReady` | 409 | the revision is still building or failed |
 | `nothingToRetry` | 409 | retry-failed found no failed or lost analysis with a config |
 | `workspaceDirty` | 409 | the workspace has unpublished changes; repeat with `force` (`--force`) |
-| `configInvalid` | 422 | a config does not match the revision's schema; `details.issues: [{path, message}]` |
+| `configInvalid` | 422 | a config does not match the revision's schema, or sends a secret as its mask `***` (send the value itself; a restart reuses the stored secrets); `details.issues: [{path, message}]` |
 | `confirmationRequired` | 422 | the scan is larger than the confirmation threshold; repeat with `confirm: true` (`--confirm`) |
 | `scanTooLarge` | 422 | the scan is larger than the instance maximum |
 | `tooManyRequests` | 429 | too many simultaneous waits or queries; retry later |

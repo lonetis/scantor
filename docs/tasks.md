@@ -972,6 +972,11 @@ export such defaults masked (pydantic: `"**********"`) or as `null`, and filling
 value as the secret. An omitted secret therefore stays absent from the effective config and the
 connector's native default applies (Go: the zero value).
 
+The orchestrator takes a secret only from the request, whatever the stored description says: when it
+fills defaults (§6.3), a secret that the request does not contain is removed again together with the
+outermost member the defaults added. A secret sent as `"***"` (a masked response fed back) is a
+`configInvalid` issue at its path; `restartScan` reuses the stored secrets instead.
+
 ### 6.6 `x-scantor` annotations
 
 | Value | Where | Meaning |

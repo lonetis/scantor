@@ -99,6 +99,45 @@ function setAt(value: unknown, segments: string[], replacement: unknown): void {
   if (node !== null && typeof node === 'object') (node as Record<string, unknown>)[segments.at(-1)!] = replacement
 }
 
+/** Index of the first segment of `segments` that `value` does not have (null when the whole path exists). */
+function firstMissingSegment(value: unknown, segments: readonly string[]): number | null {
+  let node = value
+  for (const [index, segment] of segments.entries()) {
+    if (node === null || typeof node !== 'object' || !Object.hasOwn(node, segment)) return index
+    node = (node as Record<string, unknown>)[segment]
+  }
+  return null
+}
+
+function removeAt(value: unknown, segments: readonly string[]): void {
+  const parent = getAt(value, segments.slice(0, -1))
+  const last = segments.at(-1)
+  if (last === undefined || parent === null || typeof parent !== 'object') return
+  // An array member that defaults added lies past the end of the requested array, as do all after it.
+  if (Array.isArray(parent)) parent.length = Math.min(parent.length, Number(last))
+  else Reflect.deleteProperty(parent, last)
+}
+
+/**
+ * Removes from `effective` (`requested` with schema defaults filled in) every secret that `requested` does not have,
+ * together with the outermost member the defaults added: a secret only ever comes from the request (docs/tasks.md
+ * §6.5), and the task's native default applies to the removed member. Modifies `effective` in place.
+ */
+export function dropDefaultedSecrets(effective: Record<string, unknown>, requested: unknown, patterns: readonly string[]): void {
+  for (const pattern of patterns) {
+    for (const pointer of expandPointer(effective, pattern)) {
+      const segments = parsePointer(pointer)
+      const missing = firstMissingSegment(requested, segments)
+      if (missing !== null) removeAt(effective, segments.slice(0, missing + 1))
+    }
+  }
+}
+
+/** Concrete pointers of the secrets of `config` whose value is the mask "***" itself. */
+export function maskedSecretPointers(config: Record<string, unknown>, patterns: readonly string[]): string[] {
+  return patterns.flatMap((pattern) => expandPointer(config, pattern).filter((pointer) => pointer !== '' && getAt(config, parsePointer(pointer)) === MASK))
+}
+
 /** A deep copy of `value` with every value at a secret path replaced by "***" (results, analysis configs). */
 export function maskSecrets<T>(value: T, patterns: readonly string[]): T {
   if (patterns.length === 0 || value === null || typeof value !== 'object') return value
