@@ -103,15 +103,24 @@ function waitContainersGone(scanId: string, timeoutMs = 90_000): Promise<string[
 
 /**
  * The scan's queue once the management statistics caught up with `done` (they lag by about 5–12 s, docs/queue.md
- * §3.5); throws with the last view when the queue is missing or never matches.
+ * §3.5); throws with the last view when the queue is missing or never matches. A queue whose statistics were not
+ * collected yet reads 0 everywhere, so it never matches.
  */
 function waitQueue(scanId: string, what: string, done: (queue: NonNullable<Awaited<ReturnType<typeof scanQueue>>>) => boolean, timeoutMs = 30_000) {
   return waitFor(
     what,
     () => scanQueue(scanId),
-    (queue) => queue !== null && done(queue),
+    (queue) => queue !== null && queue.statsReported && done(queue),
     { timeoutMs, intervalMs: 1000 },
   ) as Promise<NonNullable<Awaited<ReturnType<typeof scanQueue>>>>
+}
+
+/**
+ * The scan's queue as the broker itself counts it right now (rabbitmqctl), or null when it does not exist: unlike the
+ * management statistics, these counts neither lag nor start out missing for a new queue.
+ */
+async function liveQueue(scanId: string) {
+  return (await innerDocker.rabbitmqQueues()).find((queue) => queue.name === `scantor.scan.${scanId}`) ?? null
 }
 
 type AnalysisRow = { seq: number; status: string; round: number; config?: unknown; attempts: { round: number }[] }
@@ -457,8 +466,13 @@ test.describe('pause, resume and scale', () => {
         (rows) => rows.some((row) => row.seq === inflight[0]!.seq && row.status === 'succeeded'),
         { timeoutMs: 30_000 },
       )
-      const queue = await waitQueue(scan.id, 'no consumer on the paused scan queue', (current) => current.consumers === 0)
-      expect(queue.messagesReady).toBeGreaterThan(0)
+      const queue = await waitFor(
+        'no consumer on the paused scan queue',
+        () => liveQueue(scan.id),
+        (current) => current !== null && current.consumers === 0,
+        { timeoutMs: 30_000 },
+      )
+      expect(queue!.messages_ready).toBeGreaterThan(0)
       expect(await scanUserExists(scan.id)).toBe(true)
       const checkpoint = (await getScan(api, scan.id)).scheduling
       expect(checkpoint.state).toBe('running')

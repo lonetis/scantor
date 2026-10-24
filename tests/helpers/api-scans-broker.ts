@@ -39,6 +39,11 @@ export interface ScanQueue {
   type: string
   /** queue arguments by name (`x-delivery-limit`, `x-overflow`, …) */
   arguments: Record<string, unknown>
+  /**
+   * Whether the management API reports the queue's statistics yet: it omits the counts of a queue until their first
+   * collection (seconds after the declare, more under load), and the counts below then read 0.
+   */
+  statsReported: boolean
   consumers: number
   messagesReady: number
   messagesUnacknowledged: number
@@ -64,6 +69,7 @@ export async function scanQueue(scanId: string): Promise<ScanQueue | null> {
     name: raw.name,
     type: raw.type,
     arguments: raw.arguments,
+    statsReported: raw.consumers !== undefined && raw.messages_ready !== undefined,
     consumers: raw.consumers ?? 0,
     messagesReady: raw.messages_ready ?? 0,
     messagesUnacknowledged: raw.messages_unacknowledged ?? 0,
