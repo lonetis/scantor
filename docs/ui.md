@@ -392,7 +392,9 @@ Tabs (`?tab=`):
   (`useFollowScroll`, shared with `LogView`).
 - **Describe** (`DescribeView`, ready revisions): `UTabs` "Task config", "Scan config", "Analysis
   config", "Result"; each shows a `SchemaTable` (property path, type, required, default, constraints,
-  description, badges `secret` (`writeOnly`), `upload`, `file`) with a "Raw JSON" toggle; below: settings
+  description, badges `secret` (`writeOnly`), `upload`, `file`, `deprecated`, `read-only`; a nullable
+  property, `anyOf: [X, {type: "null"}]`, takes them from X unless the wrapper sets the keyword) with a
+  "Raw JSON" toggle; below: settings
   defaults table (`settingsDefaults`), warnings list, normalised manifest (JsonView).
 
 ### 5.10 Editor (`/editor`)

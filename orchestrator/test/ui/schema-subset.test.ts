@@ -180,6 +180,32 @@ describe('flattenSchema', () => {
     }
     expect(flattenSchema(schema).map((row) => row.path)).toEqual(['tree', 'tree.child'])
   })
+
+  it('reads the badges of a nullable property from its non-null member', () => {
+    // pydantic: `api_token: SecretStr | None = None`, `report: FileRef | None`, `old: Annotated[str | None, deprecated]`.
+    const schema: SchemaObject = {
+      type: 'object',
+      properties: {
+        api_token: { anyOf: [{ type: 'string', format: 'password', writeOnly: true }, { type: 'null' }], default: null, title: 'Api Token' },
+        wordlist: { anyOf: [{ type: 'string', 'x-scantor': 'upload' }, { type: 'null' }] },
+        report: { anyOf: [{ $ref: '#/$defs/FileRef' }, { type: 'null' }] },
+        computed: { anyOf: [{ type: 'integer', readOnly: true }, { type: 'null' }] },
+        old: { anyOf: [{ type: 'string' }, { type: 'null' }], deprecated: true },
+        shown: { anyOf: [{ type: 'string', writeOnly: true }, { type: 'null' }], writeOnly: false },
+      },
+      $defs: { FileRef: { type: 'object', 'x-scantor': 'file', properties: { id: { type: 'string' } } } },
+    }
+    const rows = flattenSchema(schema)
+    expect(rows.map((row) => [row.path, row.badges])).toEqual([
+      ['api_token', ['secret']],
+      ['wordlist', ['upload']],
+      ['report', ['file']],
+      ['computed', ['readOnly']],
+      ['old', ['deprecated']],
+      ['shown', []],
+    ])
+    expect(rows[0]).toMatchObject({ type: 'string | null', hasDefault: true, default: null, description: 'Api Token' })
+  })
 })
 
 describe('flattenSchema type labels for unions', () => {

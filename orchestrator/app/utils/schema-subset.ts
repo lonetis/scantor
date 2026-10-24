@@ -442,6 +442,28 @@ function constraintsOf(schema: SchemaObject): string[] {
   return result
 }
 
+/** The non-null member of a nullable `anyOf: [X, {type: "null"}]`, dereferenced; null for any other schema. */
+function nullableMember(schema: SchemaObject, root: JsonSchema, refStack: string[]): Dereferenced | null {
+  if (!Array.isArray(schema.anyOf) || schema.anyOf.length !== 2 || !schema.anyOf.some(isNullSchema)) return null
+  const member = schema.anyOf.find((candidate) => !isNullSchema(candidate))
+  return member === undefined ? null : dereference(member as JsonSchema, root, refStack)
+}
+
+/**
+ * The badges of a property. A nullable property (`SecretStr | None` is `anyOf: [{…, writeOnly: true}, {type: "null"}]`)
+ * carries its keywords on the non-null member, so the member counts unless the wrapper sets the keyword itself.
+ */
+function badgesOf(schema: SchemaObject, member: SchemaObject | null): SchemaRow['badges'] {
+  const keyword = (key: string): unknown => (Object.hasOwn(schema, key) ? schema[key] : member?.[key])
+  const badges: SchemaRow['badges'] = []
+  if (keyword('writeOnly') === true) badges.push('secret')
+  if (keyword('x-scantor') === 'upload') badges.push('upload')
+  if (keyword('x-scantor') === 'file') badges.push('file')
+  if (keyword('deprecated') === true) badges.push('deprecated')
+  if (keyword('readOnly') === true) badges.push('readOnly')
+  return badges
+}
+
 /** Flattens an object schema into one row per property path (`a.b`, `items[].c`). */
 export function flattenSchema(schema: JsonSchema, root: JsonSchema = schema): SchemaRow[] {
   const rows: SchemaRow[] = []
@@ -450,11 +472,11 @@ export function flattenSchema(schema: JsonSchema, root: JsonSchema = schema): Sc
     if (!isSchemaObject(deref.schema) || deref.recursive || depth > MAX_TABLE_DEPTH) return
     let current = deref.schema
     let stack = deref.refStack
-    if (Array.isArray(current.anyOf) && current.anyOf.length === 2 && current.anyOf.some(isNullSchema)) {
-      const member = dereference(current.anyOf.find((candidate) => !isNullSchema(candidate)) as JsonSchema, root, stack)
-      if (!isSchemaObject(member.schema) || member.recursive) return
-      current = member.schema
-      stack = member.refStack
+    const nullable = nullableMember(current, root, stack)
+    if (nullable) {
+      if (!isSchemaObject(nullable.schema) || nullable.recursive) return
+      current = nullable.schema
+      stack = nullable.refStack
     }
     if (current.type === 'array' && isSchemaObject(current.items)) {
       visit(current.items, `${prefix}[]`, depth, stack)
@@ -464,12 +486,9 @@ export function flattenSchema(schema: JsonSchema, root: JsonSchema = schema): Sc
       const path = prefix ? `${prefix}.${property.name}` : property.name
       const resolved = dereference(property.schema, root, stack)
       const propertySchema = isSchemaObject(resolved.schema) ? resolved.schema : {}
-      const badges: SchemaRow['badges'] = []
-      if (propertySchema.writeOnly === true) badges.push('secret')
-      if (propertySchema['x-scantor'] === 'upload') badges.push('upload')
-      if (propertySchema['x-scantor'] === 'file') badges.push('file')
-      if (propertySchema.deprecated === true) badges.push('deprecated')
-      if (propertySchema.readOnly === true) badges.push('readOnly')
+      const member = resolved.recursive ? null : nullableMember(propertySchema, root, resolved.refStack)
+      const memberSchema = member && !member.recursive && isSchemaObject(member.schema) ? member.schema : null
+      const badges = badgesOf(propertySchema, memberSchema)
       rows.push({
         path,
         depth,
@@ -481,7 +500,7 @@ export function flattenSchema(schema: JsonSchema, root: JsonSchema = schema): Sc
         description: typeof propertySchema.description === 'string' ? propertySchema.description : (typeof propertySchema.title === 'string' ? propertySchema.title : undefined),
         badges,
       })
-      if (!resolved.recursive && propertySchema['x-scantor'] !== 'file') visit(property.schema, path, depth + 1, stack)
+      if (!resolved.recursive && !badges.includes('file')) visit(property.schema, path, depth + 1, stack)
     }
   }
   visit(schema, '', 0, [])
