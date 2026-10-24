@@ -90,6 +90,13 @@ async function getAnalysis(api: ApiClient, analysisId: string): Promise<Analysis
   return ok(await api.call<Analysis>('getAnalysis', { path: { analysisId } }), 'getAnalysis')
 }
 
+/** Waits until no worker of the scan is active or pending: the workers of a scan drain and stop after it completed. */
+async function workersStopped(api: ApiClient, scanId: string): Promise<void> {
+  await expect
+    .poll(async () => ok(await api.getScan(scanId), 'getScan').workers, { message: `the workers of scan ${scanId} stopped`, timeout: 60_000 })
+    .toMatchObject({ active: 0, pending: 0, desired: 0 })
+}
+
 test.describe('results of a finished scan', () => {
   test('the status filter syncs with ?status= and "Go to seq" starts the table at a seq', { tag: ['@UI-RES-001'] }, async ({ page, user, openapi }) => {
     const { scan, seq } = await resultsScan(user, openapi)
@@ -660,6 +667,7 @@ test.describe('results of a finished scan', () => {
     { tag: ['@UI-RES-018'] },
     async ({ page, user, openapi }) => {
       const { scan } = await resultsScan(user, openapi)
+      await workersStopped(await tenantApi(user, openapi), scan.id)
       await openScanPage(page, scan.id, '?tab=workers')
       await expect(page.getByText('0 active · 0 pending · 0 desired')).toBeVisible()
       const workers = uTable(page, 'Workers')
