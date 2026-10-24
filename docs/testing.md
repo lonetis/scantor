@@ -832,8 +832,12 @@ Flake avoidance (agentor's pitfalls):
 13. Retries are 0 locally; CI allows one retry for diagnostics but fails on flaky tests.
 14. RabbitMQ management statistics lag by seconds and omit a new queue's counts until their first collection,
     so helpers never read a missing count as 0 (`statsReported` in `helpers/api-scans-broker.ts`). A check of
-    what a queue holds right now reads the broker itself (`innerDocker.rabbitmqQueues()`, rabbitmqctl); only the
-    delayed count needs the management API.
+    what a queue holds reads the broker itself (`innerDocker.rabbitmqQueues()`, rabbitmqctl), which knows a new
+    queue's counts at once; only the delayed count needs the management API. Both views of a quorum queue refresh
+    on its 5 s tick, so neither samples a busy queue more finely: the ready count of a scan whose runners keep up
+    with its scheduler can go from a refill to nearly empty and back between two ticks. A test that must see the
+    queue fill makes the runners slower than the scheduler (`e2e/backpressure.spec.ts` starts with one process
+    slot) instead of hoping a snapshot lands on a peak.
 15. A container's address on a Docker network is not stable: while it is stopped (`docker restart` included)
     another container can take it, and the restarted one gets a new address. Helpers that reach a container by
     IP read it again after a restart (`ThrowawayOrchestrator.restart()`); otherwise the test talks to another

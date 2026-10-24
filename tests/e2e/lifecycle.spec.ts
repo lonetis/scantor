@@ -117,8 +117,9 @@ function waitQueue(scanId: string, what: string, done: (queue: NonNullable<Await
 }
 
 /**
- * The scan's queue as the broker itself counts it right now (rabbitmqctl), or null when it does not exist: unlike the
- * management statistics, these counts neither lag nor start out missing for a new queue.
+ * The scan's queue as the broker itself counts it (rabbitmqctl), or null when it does not exist: unlike the management
+ * statistics, these counts never start out missing for a new queue (a quorum queue still refreshes them on
+ * its 5 s tick, docs/testing.md §9).
  */
 async function liveQueue(scanId: string) {
   return (await innerDocker.rabbitmqQueues()).find((queue) => queue.name === `scantor.scan.${scanId}`) ?? null

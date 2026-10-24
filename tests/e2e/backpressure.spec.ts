@@ -1,7 +1,8 @@
 import type { Analysis } from '#shared/types/analyses'
 import type { Scan } from '#shared/types/scans'
+import { ok } from '../helpers/api-client'
 import { stackEnv } from '../helpers/docker'
-import { allAnalyses, backoff, findCondition, pollScan, scanQueue, scanWorkers, settings, sleep, type ScanQueue } from '../helpers/e2e-runtime'
+import { allAnalyses, backoff, findCondition, pollScan, pollUntil, scanQueue, scanWorkers, settings, sleep, type ScanQueue } from '../helpers/e2e-runtime'
 import { extendRuntime } from '../helpers/e2e-runtime-fixtures'
 import { TERMINAL_STATES } from '../helpers/scans'
 import type { ProbeConfig } from '../helpers/e2e-runtime-tasks'
@@ -55,16 +56,28 @@ test.describe('backpressure', () => {
       // The documented case: 20 000 analyses through a queue of 500 take a minute or two.
       test.setTimeout(360_000)
       expect(stackEnv().SCANTOR_SCAN_QUEUE_MAX_READY).toBe(String(MAX_READY))
-      // wrap: a custom schedule that wraps the range template, like the power example; 4 process slots work through
-      // the analyses.
+      // wrap: a custom schedule that wraps the range template, like the power example. One process slot works through
+      // the analyses until the scheduler is ahead of it, then 4.
       const { revision } = await shared.generated('wrap')
       const scan = await scans.start({
         revision: revision.ref,
         scanConfig: { start: 0, end: 20_000 },
-        settings: settings({ workers: 2, processes: 2, resources: { cpus: 0.5, memoryMiB: 128 } }),
+        settings: settings({ workers: 1, processes: 1, resources: { cpus: 0.5, memoryMiB: 128 } }),
       })
       const completed = scans.wait(scan.id, { timeoutMs: 330_000 })
       const { samples, sampling } = observeQueue(scan.id, completed)
+
+      // The scheduler runs ahead of the runners up to its share and waits there, so it never runs into the limit. With
+      // 4 process slots the runners can keep up with it, and the ready count then moves between a refill and nearly
+      // empty within a second, which the broker's count, refreshed every 5 s, need not show (docs/testing.md §9): the
+      // single slot makes the scheduler get ahead first.
+      const ahead = await pollUntil(
+        'the scheduler ahead of the single runner process',
+        () => scanQueue(scan.id),
+        (queue) => (queue?.messages_ready ?? 0) >= SHARE / 2,
+        { timeoutMs: 120_000, intervalMs: 500 },
+      )
+      ok(await api.call<Scan>('scaleScan', { path: { scanId: scan.id }, body: { workers: 2, processes: 2 } }), 'scaleScan')
       const final = await completed
       await sampling
       await test.info().attach('queue samples [at, ready]', {
@@ -72,14 +85,10 @@ test.describe('backpressure', () => {
         contentType: 'application/json',
       })
 
-      // The queue is declared with the limit and reject-publish. The scheduler runs ahead of the runners up to its share
-      // and waits there, so it never runs into the limit. The runners empty part of the queue between two reads of the
-      // ready count, and the broker refreshes the sampled count every 5 s, so the samples need not show the share
-      // itself; a runner that gives a delivery back may add one message per process slot.
-      const declared = samples.find((s) => s.queue !== null)?.queue
-      expect(declared?.arguments).toMatchObject({ 'x-max-length': MAX_READY, 'x-overflow': 'reject-publish', 'x-queue-type': 'quorum' })
+      // The queue is declared with the limit and reject-publish. Its ready count never exceeds the scheduler's share; a
+      // runner that gives a delivery back may add one message per process slot.
+      expect(ahead!.arguments).toMatchObject({ 'x-max-length': MAX_READY, 'x-overflow': 'reject-publish', 'x-queue-type': 'quorum' })
       const ready = samples.map((s) => s.queue?.messages_ready ?? 0)
-      expect(Math.max(...ready), 'the scheduler ran ahead of the runners').toBeGreaterThanOrEqual(SHARE / 2)
       expect(Math.max(...ready), "the scheduler's share of the queue").toBeLessThanOrEqual(SHARE + 4)
       // The scheduler counts the publishes the full queue refused itself; its last state poll follows its final confirms
       // and stays on its worker (runtime.scheduler).
