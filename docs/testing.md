@@ -845,6 +845,10 @@ Flake avoidance (agentor's pitfalls):
 16. A worker's lifecycle and its results travel separately: the runtime exits once the broker confirmed a result,
     and the ingestor writes it up to a flush interval later. After a worker drained, exited or stopped, wait for
     the analysis document (`waitForAnalysis`) instead of reading it once.
+17. dockerd can lose the attached output of a container that exits within milliseconds (`copy stream failed …
+    reading from a closed fifo` in `/var/log/dockerd.log` of the runner; the CLI still exits 0). Helpers that run
+    such a container for its output (`runScantorShell`) redirect the script's output into files and copy them
+    out with `docker cp` after the container exited.
 
 ## 10. `FEATURES.md` and `TESTS.md`
 

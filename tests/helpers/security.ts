@@ -1,5 +1,8 @@
 import { spawn } from 'node:child_process'
 import { createHash, createHmac, randomBytes } from 'node:crypto'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { APIRequestContext } from '@playwright/test'
 import type { Worker } from '#shared/types/workers'
 import type { WorkerRole } from '#shared/utils/enums'
@@ -64,19 +67,48 @@ export async function containerImage(container: string): Promise<string> {
   return (await docker(['inspect', '--format', '{{.Config.Image}}', container])).stdout.trim()
 }
 
+/** Where runScantorShell's container keeps the script's output until it is copied out. */
+const SHELL_STDOUT = '/tmp/scantor-sh.stdout'
+const SHELL_STDERR = '/tmp/scantor-sh.stderr'
+
+/** One file of a stopped container, read through `docker cp` (no attached stream). */
+async function copyOut(container: string, path: string): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'scantor-sh-'))
+  try {
+    await docker(['cp', `${container}:${path}`, join(dir, 'file')])
+    return await readFile(join(dir, 'file'), 'utf8')
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+}
+
 /**
- * Runs a short-lived shell command in a test-owned container of the scantor image (`--rm`, label `scantor.test=true`,
- * no network), for white-box reads and writes of test-owned volumes. Returns the exec result; throws on failure.
+ * Runs a short-lived shell command in a test-owned container of the scantor image (label `scantor.test=true`, no
+ * network, removed afterwards), for white-box reads and writes of test-owned volumes. Returns the exec result; throws
+ * on failure.
+ *
+ * The script's stdout and stderr go to files in the container and are copied out after it exited. dockerd can lose
+ * the attached output of a container that exits within milliseconds (its log then shows "copy stream failed …
+ * reading from a closed fifo"), and these scripts are mostly a single `cat` or `find` (docs/testing.md §9).
  */
 export async function runScantorShell(script: string, options: { mounts?: string[]; user?: string; allowFailure?: boolean } = {}) {
   const image = await containerImage(CONTAINERS.node)
-  const args = ['run', '--rm', '--name', unique('scantor-test-sh'), '--label', 'scantor.test=true', '--network', 'none']
+  const name = unique('scantor-test-sh')
+  const args = ['create', '--name', name, '--label', 'scantor.test=true', '--network', 'none']
   if (options.user) args.push('--user', options.user)
   for (const mount of options.mounts ?? []) args.push('--mount', mount)
-  args.push('--entrypoint', 'sh', image, '-c', script)
-  const result = await docker(args, { allowFailure: true })
-  if (result.exitCode !== 0 && !options.allowFailure) throw new DockerError(['run', '…', 'sh', '-c', script], result)
-  return result
+  // The outer shell only redirects; the script runs verbatim as the inner shell's command string ($1).
+  args.push('--entrypoint', 'sh', image, '-c', `sh -c "$1" >${SHELL_STDOUT} 2>${SHELL_STDERR}`, 'sh', script)
+  await docker(args)
+  try {
+    await docker(['start', name])
+    const exitCode = Number((await docker(['wait', name])).stdout.trim())
+    const result = { exitCode, stdout: await copyOut(name, SHELL_STDOUT), stderr: await copyOut(name, SHELL_STDERR) }
+    if (exitCode !== 0 && !options.allowFailure) throw new DockerError(['run', '…', 'sh', '-c', script], result)
+    return result
+  } finally {
+    await docker(['rm', '-f', name], { allowFailure: true })
+  }
 }
 
 /** The workspace folder of one task, mounted read-write (white-box: the user's own task in `scantor-workspaces`). */
