@@ -510,8 +510,8 @@ changed nor unbanned until the job has removed it.
 
 ### 4.7 `task-files`
 
-Paths are relative to the task folder, `/`-separated, without `..`, absolute paths, NUL or backslashes
-(422 `invalidPath`).
+Paths are relative to the task folder, `/`-separated, without `..`, absolute paths, NUL or backslashes, and
+not empty (422 `invalidPath`, also for a `writeTaskFiles` key); only `listTaskFiles` takes `""` for the task root.
 
 | Operation | operationId | Scope | MCP | Request | Response |
 |---|---|---|---|---|---|

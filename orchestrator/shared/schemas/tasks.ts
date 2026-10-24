@@ -148,9 +148,10 @@ export const readTaskFileQuery = z.strictObject({
 
 export const fileContent = z.union([z.string(), z.strictObject({ base64: z.base64() })])
 
+// The keys are checked by the path rules (an empty path is 422 invalidPath like every other invalid path), not here.
 export const writeTaskFilesBody = z.strictObject({
   files: z
-    .record(taskPath().min(1), fileContent)
+    .record(taskPath(), fileContent)
     .refine((files) => Object.keys(files).length >= 1, 'at least one file is required')
     .refine((files) => Object.keys(files).length <= MAX_WRITE_FILES, `at most ${MAX_WRITE_FILES} files per request`),
 })

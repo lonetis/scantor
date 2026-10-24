@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { taskPathProblem } from '../../../server/services/tasks/files'
+import { writeTaskFilesBody } from '#shared/schemas/tasks'
+import { taskPathProblem, writeTaskFiles } from '../../../server/services/tasks/files'
+import type { TaskDoc } from '../../../server/types/documents'
 import { readRepoFile } from '../../helpers/repo'
 
 // The path pre-check of the file routes against the shared corpus (docs/editor.md §9.5, security.md WS-3). The
@@ -22,5 +24,14 @@ describe('taskPathProblem', () => {
   it('allows the task root only where an operation addresses it', () => {
     expect(taskPathProblem('', true)).toBeNull()
     expect(taskPathProblem('')).not.toBeNull()
+  })
+})
+
+describe('writeTaskFiles', () => {
+  it('answers an empty file path with 422 invalidPath, before any helper runs', async () => {
+    // The body schema leaves the keys to the path rules, so the empty path is not a validation failure.
+    const body = writeTaskFilesBody.parse({ files: { '': 'x', 'main.py': 'print(1)\n' } })
+    const task = { _id: 't1', userId: 'u1', name: 'echo' } as TaskDoc
+    await expect(writeTaskFiles(task, body.files)).rejects.toMatchObject({ code: 'invalidPath', statusCode: 422, details: { path: '' } })
   })
 })
