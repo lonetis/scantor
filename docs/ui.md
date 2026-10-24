@@ -570,8 +570,9 @@ Actions: "Copy as JSON", "Query similar" (opens the query tab with `{"error.type
   (code, OOM badge), runtime version, last seen, started. Row action "Logs" (aria "Show worker logs") →
   `WorkerLogsModal`: `getWorkerLogs?wait=20&tailBytes=65536` shows a `LogView` with "Collected <time>",
   `truncated`, and "Refresh". The table loads when the tab opens and again from the start on every filter
-  change, also for a terminal scan. It polls only while the scan is not terminal (§9); a terminal scan's
-  table is read again when its tab opens again.
+  change, also for a terminal scan. It polls while the scan is not terminal or the scan still counts active
+  or pending workers (a finished scan's workers drain and stop after it ended) (§9), and is read once more
+  when that ends; a terminal scan's table is read again when its tab opens again.
 - `InflightTable` from `listInflightAnalyses`: analysis id (opens the slideover), seq, attempt, round,
   running for (live duration), worker, node, progress; "updated <time>" caption.
 
@@ -838,7 +839,7 @@ per consumer; stops on unmount.
 |---|---|---|
 | Scan (`getScan`) | 3 s | `creating`, `running`; 10 s `paused`; 15 s for 3 min after `completedAt` (final recount); then stop |
 | In-flight (`listInflightAnalyses`) | 3 s | workers tab visible, scan `running` |
-| Workers (`listScanWorkers`) | 5 s | workers tab visible, scan not terminal |
+| Workers (`listScanWorkers`) | 5 s | workers tab visible, scan not terminal or with active or pending workers |
 | Events (`listScanEvents`) | 10 s | events tab visible, first page only |
 | Results table | 10 s | auto-refresh on, scan `running` |
 | Retry-failed / user purge job (`getJob`) | 2 s | job `queued`/`running` |

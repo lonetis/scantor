@@ -101,6 +101,27 @@ describe('useWorkers', () => {
     scope.stop()
   })
 
+  it('reads the list once more when the workers stop changing, since the last poll may predate their stop', async () => {
+    const { visible, isLive, scope, workers } = setup(true)
+    visible.value = true
+    await settle()
+    expect(requests).toHaveLength(1)
+    isLive.value = false
+    await settle()
+    expect(requests).toHaveLength(2)
+    expect(requests.at(-1)).toEqual({ path: '/api/scans/scan-1/workers', state: ['running'], cursor: null })
+    expect(workers.items.value).toEqual([{ id: '/api/scans/scan-1/workers:running' }])
+    expect(pollEnabled()).toBe(false)
+    // Not while the tab is hidden: reopening it re-reads the list anyway.
+    isLive.value = true
+    visible.value = false
+    await settle()
+    isLive.value = false
+    await settle()
+    expect(requests).toHaveLength(2)
+    scope.stop()
+  })
+
   it('reads another scan from the start when the tab opens after the scan changed', async () => {
     const { scanId, visible, scope, workers } = setup(false)
     visible.value = true

@@ -52,7 +52,9 @@ const NON_TERMINAL_WORKER_STATES: WorkerState[] = ['pending', 'assigned', 'pulli
 const workerStateFilter = ref<WorkerState[]>([...NON_TERMINAL_WORKER_STATES])
 const workerStateItems = WORKER_STATES.map((state) => ({ label: state, value: state }))
 const workersVisible = computed(() => tab.value === 'workers' && scan.value !== null)
-const workers = useWorkers(scanId, { state: workerStateFilter, enabled: workersVisible, live: () => !terminal.value })
+// A finished scan's workers drain and stop after it ended: the list follows them until none is active or pending.
+const workersLive = computed(() => !terminal.value || (scan.value !== null && scan.value.workers.active + scan.value.workers.pending > 0))
+const workers = useWorkers(scanId, { state: workerStateFilter, enabled: workersVisible, live: workersLive })
 const { inflight, refresh: refreshInflight } = useInflight(scanId, () => workersVisible.value && running.value)
 const logsWorker = shallowRef<ScanWorker | null>(null)
 const logsOpen = ref(false)
