@@ -310,46 +310,34 @@ test.describe('reachability', () => {
     },
   )
 
-  // product bug: mongo-express 1.0.2 with ME_CONFIG_OPTIONS_READONLY=true still creates databases and collections
-  test.fail(
-    'mongo-express runs read-only',
-    {
-      tag: ['@TOOLS-004'],
-      annotation: {
-        type: 'issue',
-        description:
-          'POST / (addDatabase) and POST /db/<db>/ (addCollection) succeed on mongo-express 1.0.2 although ME_CONFIG_OPTIONS_READONLY=true: its readOnly option only hides write buttons and blocks deletes, and it connects as the MongoDB root user',
-      },
-    },
-    async ({ env, adminApi, docker: inner }) => {
-      const stack = stackEnv()
-      expect(
-        envMap(JSON.parse((await docker(['inspect', '--format', '{{json .Config.Env}}', CONTAINERS.mongoExpress])).stdout) as string[])
-          .ME_CONFIG_OPTIONS_READONLY,
-      ).toBe('true')
-      const adminId = ok(await adminApi.getAccount(), 'getAccount').id
-      const now = Math.floor(Date.now() / 1000)
-      const cookie = stackKeys().toolsCookie({ iss: 'scantor', aud: 'tools', sub: adminId, role: 'admin', iat: now, exp: now + 600, jti: randomUUID() })
-      const auth = `Basic ${Buffer.from(`${stack.SCANTOR_MONGO_EXPRESS_USER ?? 'admin'}:${stack.SCANTOR_MONGO_EXPRESS_PASSWORD}`).toString('base64')}`
-      const database = `scantortest${randomBytes(4).toString('hex')}`
-      const bare = await playwrightRequest.newContext({ extraHTTPHeaders: {} })
-      try {
-        const page = await bare.get(`https://mongo-express.${env.domain}/`, { headers: { Cookie: `scantor_tools=${cookie}`, Authorization: auth } })
-        expect(page.status()).toBe(200)
-        // mongo-express's own "Create Database" form; a read-only instance must not create anything.
-        await bare.post(`https://mongo-express.${env.domain}/`, {
-          headers: { Cookie: `scantor_tools=${cookie}`, Authorization: auth },
-          form: { database },
-          maxRedirects: 0,
-        })
-        const names = await inner.mongosh('print(JSON.stringify(db.getMongo().getDBNames()))', { as: 'root' })
-        expect(JSON.parse(names) as string[]).not.toContain(database)
-      } finally {
-        await bare.dispose()
-        await inner.mongosh(`db.getSiblingDB('${database}').dropDatabase()`, { as: 'root' })
-      }
-    },
-  )
+  test('mongo-express runs read-only', { tag: ['@TOOLS-004'] }, async ({ env, adminApi, docker: inner }) => {
+    const stack = stackEnv()
+    expect(
+      envMap(JSON.parse((await docker(['inspect', '--format', '{{json .Config.Env}}', CONTAINERS.mongoExpress])).stdout) as string[])
+        .ME_CONFIG_OPTIONS_READONLY,
+    ).toBe('true')
+    const adminId = ok(await adminApi.getAccount(), 'getAccount').id
+    const now = Math.floor(Date.now() / 1000)
+    const cookie = stackKeys().toolsCookie({ iss: 'scantor', aud: 'tools', sub: adminId, role: 'admin', iat: now, exp: now + 600, jti: randomUUID() })
+    const auth = `Basic ${Buffer.from(`${stack.SCANTOR_MONGO_EXPRESS_USER ?? 'admin'}:${stack.SCANTOR_MONGO_EXPRESS_PASSWORD}`).toString('base64')}`
+    const database = `scantortest${randomBytes(4).toString('hex')}`
+    const bare = await playwrightRequest.newContext({ extraHTTPHeaders: {} })
+    try {
+      const page = await bare.get(`https://mongo-express.${env.domain}/`, { headers: { Cookie: `scantor_tools=${cookie}`, Authorization: auth } })
+      expect(page.status()).toBe(200)
+      // mongo-express's own "Create Database" form; a read-only instance must not create anything.
+      await bare.post(`https://mongo-express.${env.domain}/`, {
+        headers: { Cookie: `scantor_tools=${cookie}`, Authorization: auth },
+        form: { database },
+        maxRedirects: 0,
+      })
+      const names = await inner.mongosh('print(JSON.stringify(db.getMongo().getDBNames()))', { as: 'root' })
+      expect(JSON.parse(names) as string[]).not.toContain(database)
+    } finally {
+      await bare.dispose()
+      await inner.mongosh(`db.getSiblingDB('${database}').dropDatabase()`, { as: 'root' })
+    }
+  })
 })
 
 test.describe('egress deny list', () => {

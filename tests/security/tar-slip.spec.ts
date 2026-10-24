@@ -246,28 +246,16 @@ test.describe('file routes', () => {
     expect(await escapedEntries(user.id, ['x', 'etc', 'passwd'])).toEqual([])
   })
 
-  // product bug: an empty file path in writeTaskFiles answers 400 validationFailed instead of 422 invalidPath
-  test.fail(
-    'an empty file path in writeTaskFiles answers 422 invalidPath like every other invalid path',
-    {
-      tag: ['@WS-007'],
-      annotation: {
-        type: 'issue',
-        description:
-          'PUT /api/tasks/{task}/files {"files": {"": "x"}} answers 400 validationFailed (zod record key, path "files.") instead of 422 invalidPath with details.path; readTaskFile and deleteTaskFile answer 422 invalidPath for the same path',
-      },
-    },
-    async ({ api, tasks }) => {
-      const task = unique('paths-empty')
-      tasks.track(task)
-      const before = await baseline(api, task)
-      const write = await api.call('writeTaskFiles', { path: { task }, body: { files: { '': 'x' } } })
-      expect(await workspaceHash(api, task)).toBe(before)
-      expect(write.status, JSON.stringify(write.body)).toBe(422)
-      expect(errorCode(write)).toBe('invalidPath')
-      expect(errorDetails(write).path).toBe('')
-    },
-  )
+  test('an empty file path in writeTaskFiles answers 422 invalidPath like every other invalid path', { tag: ['@WS-007'] }, async ({ api, tasks }) => {
+    const task = unique('paths-empty')
+    tasks.track(task)
+    const before = await baseline(api, task)
+    const write = await api.call('writeTaskFiles', { path: { task }, body: { files: { '': 'x' } } })
+    expect(await workspaceHash(api, task)).toBe(before)
+    expect(write.status, JSON.stringify(write.body)).toBe(422)
+    expect(errorCode(write)).toBe('invalidPath')
+    expect(errorDetails(write).path).toBe('')
+  })
 
   test('the valid paths of the corpus are written and read back', { tag: ['@WS-007'] }, async ({ api, tasks }) => {
     const task = unique('paths-ok')

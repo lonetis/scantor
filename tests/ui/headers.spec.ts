@@ -250,23 +250,12 @@ test.describe('dashboard security headers', () => {
     expect(missing).toEqual([])
   })
 
-  // product bug: static assets lack Strict-Transport-Security
-  test.fail(
-    'static assets send HSTS on https as well',
-    {
-      tag: ['@UI-SEC-001'],
-      annotation: {
-        type: 'issue',
-        description: 'Nitro serves /_nuxt/* before the security-headers middleware and the routeRules headers omit Strict-Transport-Security',
-      },
-    },
-    ({ traffic, env }) => {
-      const origin = new URL(env.publicUrl).origin
-      const assets = traffic.flatMap((t) => t.responses.filter((r) => new URL(r.url).origin === origin && ['script', 'stylesheet'].includes(r.type)))
-      expect(assets.length).toBeGreaterThan(0)
-      expect(assets.filter((r) => r.headers['strict-transport-security'] !== 'max-age=31536000').map((r) => r.url)).toEqual([])
-    },
-  )
+  test('static assets send HSTS on https as well', { tag: ['@UI-SEC-001'] }, ({ traffic, env }) => {
+    const origin = new URL(env.publicUrl).origin
+    const assets = traffic.flatMap((t) => t.responses.filter((r) => new URL(r.url).origin === origin && ['script', 'stylesheet'].includes(r.type)))
+    expect(assets.length).toBeGreaterThan(0)
+    expect(assets.filter((r) => r.headers['strict-transport-security'] !== 'max-age=31536000').map((r) => r.url)).toEqual([])
+  })
 
   test('/login, /setup and /oauth/consent are never framed or cached', { tag: ['@UI-SEC-002'] }, async ({ traffic, env }) => {
     expectComplete(traffic)

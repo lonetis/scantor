@@ -101,23 +101,15 @@ test.describe('createUpload', () => {
     expect(after.filter((upload) => !before.has(upload.id))).toEqual([])
   })
 
-  // product bug: a streamed upload over SCANTOR_MAX_UPLOAD_BYTES gets 502 instead of 413
-  test.fail(
-    'a streamed body without Content-Length above the cap is 413 without storing anything',
-    {
-      tag: ['@UPL-003'],
-      annotation: { type: 'issue', description: 'createUpload destroys the request socket at the cap, so Traefik answers 502 instead of 413' },
-    },
-    async ({ api, user }) => {
-      const name = `${unique('streamed')}.txt`
-      const before = new Set((await listAllUploads(api)).map((upload) => upload.id))
-      const response = await streamUpload(user.apiKey, MAX_UPLOAD_BYTES + 1024 * 1024, name)
-      const after = await listAllUploads(api)
-      expect(after.filter((upload) => upload.name === name || !before.has(upload.id))).toEqual([])
-      expect(response).toMatchObject({ status: 413 })
-      expect(JSON.parse((response as { body: string }).body)).toMatchObject({ error: { code: 'payloadTooLarge', details: { limit: MAX_UPLOAD_BYTES } } })
-    },
-  )
+  test('a streamed body without Content-Length above the cap is 413 without storing anything', { tag: ['@UPL-003'] }, async ({ api, user }) => {
+    const name = `${unique('streamed')}.txt`
+    const before = new Set((await listAllUploads(api)).map((upload) => upload.id))
+    const response = await streamUpload(user.apiKey, MAX_UPLOAD_BYTES + 1024 * 1024, name)
+    const after = await listAllUploads(api)
+    expect(after.filter((upload) => upload.name === name || !before.has(upload.id))).toEqual([])
+    expect(response).toMatchObject({ status: 413 })
+    expect(JSON.parse((response as { body: string }).body)).toMatchObject({ error: { code: 'payloadTooLarge', details: { limit: MAX_UPLOAD_BYTES } } })
+  })
 })
 
 test.describe('listUploads and getUpload', () => {
