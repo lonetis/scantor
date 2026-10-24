@@ -30,8 +30,8 @@ test.describe('health', () => {
     expect(Array.isArray(health.alarms)).toBe(true)
     expect(health.version).toEqual(expect.any(String))
     expect(health.version.length).toBeGreaterThan(0)
-    // The overall status is a pure function of the components.
-    const allOk = Object.values(health.components).every((state) => state === 'ok')
+    // The overall status is a pure function of the components and the RabbitMQ alarms.
+    const allOk = Object.values(health.components).every((state) => state === 'ok') && health.alarms.length === 0
     expect(health.status).toBe(allOk ? 'ok' : 'degraded')
     // The test stack is healthy.
     expect(health.status).toBe('ok')

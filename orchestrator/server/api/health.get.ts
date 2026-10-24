@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'getHealth',
     summary: 'Get platform health',
     description:
-      'Public liveness and dependency check. Reports whether MongoDB, RabbitMQ, the S3 store and the registry answer, plus active RabbitMQ alarms. Answers 503 only when MongoDB is down; any other failed component makes the status "degraded". No credentials are needed or checked.',
+      'Public liveness and dependency check. Reports whether MongoDB, RabbitMQ, the S3 store and the registry answer, plus active RabbitMQ alarms. Answers 503 only when MongoDB is down; any other failed component or an active RabbitMQ alarm makes the status "degraded". No credentials are needed or checked.',
     'x-scantor-scope': 'public',
     'x-mcp': false,
     responses: {

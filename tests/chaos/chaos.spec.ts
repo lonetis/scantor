@@ -836,25 +836,13 @@ test.describe('platform components', () => {
     },
   )
 
-  // product bug: /api/health stays "ok" during a RabbitMQ memory alarm
-  test.fail(
-    'the health status is degraded during a RabbitMQ memory alarm',
-    {
-      tag: ['@PLAT-002', '@CHAOS-008'],
-      annotation: {
-        type: 'issue',
-        description:
-          'checkHealth (orchestrator/server/utils/health.ts) derives status only from the four components, so a memory alarm shows alarms: ["memory"] with status "ok" instead of "degraded"',
-      },
-    },
-    async () => {
-      const health = await withMemoryAlarm(() =>
-        waitFor('the memory alarm in /api/health', publicHealth, (h) => h.body.alarms.includes('memory'), { timeoutMs: 60_000 }),
-      )
-      expect(health.status).toBe(200)
-      expect(health.body.status).toBe('degraded')
-    },
-  )
+  test('the health status is degraded during a RabbitMQ memory alarm', { tag: ['@PLAT-002', '@CHAOS-008'] }, async () => {
+    const health = await withMemoryAlarm(() =>
+      waitFor('the memory alarm in /api/health', publicHealth, (h) => h.body.alarms.includes('memory'), { timeoutMs: 60_000 }),
+    )
+    expect(health.status).toBe(200)
+    expect(health.body.status).toBe('degraded')
+  })
 
   test(
     'while MongoDB is paused results wait in the ingest queue and /api/health answers 503; ingestion then resumes without loss',

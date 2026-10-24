@@ -47,7 +47,7 @@ Mechanisms: [api](../docs/api.md) §1.1, [auth](../docs/auth.md) §5.4.
 
 Mechanisms: [api](../docs/api.md) §4.1, §4.18, [deployment](../docs/deployment.md) §13.
 
-- **PLAT-001** [api] `GET /api/health` needs no credentials and returns `{status, version, components: {mongo, rabbitmq, s3, registry}, alarms[]}`; `status` is `ok` when every component is `ok`, otherwise `degraded`.
+- **PLAT-001** [api] `GET /api/health` needs no credentials and returns `{status, version, components: {mongo, rabbitmq, s3, registry}, alarms[]}`; `status` is `ok` when every component is `ok` and no RabbitMQ alarm is active, otherwise `degraded`.
 - **PLAT-002** [chaos] `/api/health` returns HTTP 503 only while MongoDB is down; with another component down it returns 200 `degraded`, and during a RabbitMQ memory alarm `alarms` contains `memory` and the status is `degraded`.
 - **PLAT-003** [api, cli] `GET /api/info` (401 without credentials) returns `version`, `publicUrl`, `editorUrl`, `mcpUrl` (null when MCP is disabled), `registryPublicHost`, `cliImage` (`<prefix>scantor:<tag>`), `features {passkeys, mcp, mcpOAuth, editor}`, `limits {maxWorkersPerScan, maxProcessesPerWorker, maxResultBytes, maxFileBytes, scanConfirmThreshold, waitMaxSeconds: 120}` and `user {id, role}`; `scantor whoami` and `scantor instance` print it.
 - **PLAT-004** [api] `cliImage` and the node join image use the orchestrator version as tag for a release `X.Y.Z` and `SCANTOR_IMAGE_TAG` otherwise.

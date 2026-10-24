@@ -6,7 +6,8 @@ import { s3Reachable } from './s3'
 import { scantorVersion } from './version'
 
 // Component health for `/api/health` (docs/api.md §4.1): each dependency `ok` or `down`, active RabbitMQ alarms,
-// overall `degraded` when anything is down. Results are cached briefly so frequent probes stay cheap.
+// overall `degraded` when anything is down or a broker alarm is active (docs/queue.md §10: publishers are blocked).
+// Results are cached briefly so frequent probes stay cheap.
 
 /** The registry HTTP API on the compose network (docs/architecture.md §4.4); /v2/ answers 401 with token auth. */
 export const REGISTRY_INTERNAL_URL = 'http://registry:5000'
@@ -33,6 +34,11 @@ async function rabbitmqStatus(): Promise<{ up: boolean; alarms: string[] }> {
   }
 }
 
+/** `ok` only when every component answers and RabbitMQ raises no memory or disk alarm. */
+export function overallStatus(components: Health['components'], alarms: readonly string[]): Health['status'] {
+  return Object.values(components).every((state) => state === 'ok') && alarms.length === 0 ? 'ok' : 'degraded'
+}
+
 export async function checkHealth(now = Date.now()): Promise<Health> {
   if (cached && now - cached.at < CACHE_MS) return cached.health
   const [mongo, rabbitmq, s3, registry] = await Promise.all([mongoReachable(), rabbitmqStatus(), s3Reachable(), registryReachable()])
@@ -43,7 +49,7 @@ export async function checkHealth(now = Date.now()): Promise<Health> {
     registry: registry ? 'ok' : 'down',
   } as const
   const health: Health = {
-    status: Object.values(components).every((state) => state === 'ok') ? 'ok' : 'degraded',
+    status: overallStatus(components, rabbitmq.alarms),
     version: scantorVersion,
     components,
     alarms: rabbitmq.alarms,
