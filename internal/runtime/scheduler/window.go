@@ -91,6 +91,7 @@ type window struct {
 	gen          int
 	credit       int  // items that may still enter before the ready count is read again
 	full         bool // the queue holds the scheduler's share: waiting for room
+	unreadable   bool // the last read of the ready count failed (logged once)
 }
 
 func newWindow(ctx context.Context, pub Publisher, depth QueueDepth, share int, exchange, key string, wait time.Duration, pollNow func(), log *slog.Logger, cp api.Checkpoint) *window {
@@ -153,31 +154,34 @@ func (w *window) waitShare(ctx context.Context) error {
 		wait := time.Duration(float64(depthWait) * (0.8 + 0.4*rand.Float64())) //nolint:gosec // jitter
 		room := w.share - ready - inFlight
 		w.mu.Lock()
+		if err == nil {
+			w.unreadable = false
+		}
 		switch {
 		case err == nil && room >= resume:
 			if w.full {
-				w.log.Info("the scan queue has room again", "ready", ready, "share", w.share)
+				w.log.Debug("the scan queue has room again", "ready", ready, "share", w.share)
 			}
 			w.credit, w.full = room, false
 			w.mu.Unlock()
 			return nil
 		case err == nil:
 			if !w.full {
-				w.log.Info("the scan queue holds the scheduler's share; waiting for room", "ready", ready, "inFlight", inFlight, "share", w.share)
+				w.log.Debug("the scan queue holds the scheduler's share; waiting for room", "ready", ready, "inFlight", inFlight, "share", w.share)
 			}
 			w.full = true
 		case amqpx.IsNotFound(err):
-			if !w.full {
-				w.log.Warn("the scan queue does not exist; polling state", "err", err)
-			}
+			w.log.Warn("the scan queue does not exist; polling state", "err", err)
 			w.full = true
 			wait = w.wait
 			if w.pollNow != nil {
 				w.pollNow()
 			}
 		default:
-			w.log.Warn("cannot read the scan queue's ready count; publishing up to the broker's limit", "err", err)
-			w.credit, w.full = WindowItems, false
+			if !w.unreadable {
+				w.log.Warn("cannot read the scan queue's ready count; publishing up to the broker's limit", "err", err)
+			}
+			w.credit, w.full, w.unreadable = WindowItems, false, true
 			w.mu.Unlock()
 			return nil
 		}
