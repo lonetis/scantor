@@ -1033,6 +1033,7 @@ Active states (count against node capacity and user `maxWorkers`, token valid): 
 | `queued` | `running` | claimed with a lease (`attempts += 1`) |
 | `running` | `succeeded` / `failed` | finished / non-retryable error or `attempts == maxAttempts` (`active: false`, `expiresAt` set) |
 | `running` | `queued` | the runner stopped, the lease expired or a retryable error (`notBefore` = backoff); the kind's `onRequeued` hook resets the subject |
+| `running` | `queued` | the handler deferred itself (`JobDeferredError`, for example the settle delay of `scanDelete`): `notBefore` = the time it waits for, the cursor stays, the attempt is given back (`attempts -= 1`) and `onRequeued` does not run, so a waiting job holds no concurrency slot |
 | `queued`, `running` | `cancelled` | subject deleted or cancelled |
 
 ### 6.9 Export state

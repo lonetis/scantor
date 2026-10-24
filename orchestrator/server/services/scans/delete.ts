@@ -1,7 +1,7 @@
 import type { JobDoc, ScanDoc } from '../../types/documents'
 import type { Config } from '../../utils/config'
 import { scanAmqpUser, scanQueueName } from '../../utils/amqp'
-import { cancelActiveJobs, FatalJobError, type JobContext, type JobKindDefinition } from '../../utils/jobs'
+import { cancelActiveJobs, FatalJobError, type JobContext, JobDeferredError, type JobKindDefinition } from '../../utils/jobs'
 import type { Logger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
 import { RABBITMQ_VHOST, useRabbitmqManagement } from '../../utils/rabbitmq-management'
@@ -18,7 +18,8 @@ import { notifyAssignmentsChanged } from '../nodes/assignments'
  *   files     delete the S3 prefix files/<scanId>/
  *   exports   delete the scan's exports (S3 objects and documents)
  *   events    delete the scan's events
- *   settle    wait 2 × SCANTOR_INGEST_FLUSH_INTERVAL + 10 s after the broker phase
+ *   settle    wait 2 × SCANTOR_INGEST_FLUSH_INTERVAL + 10 s after the broker phase; the job defers itself
+ *             (JobDeferredError) instead of sleeping, so the wait holds no job slot
  *   sweep     a final analyses.deleteMany({scanId}) for results ingested before the cache saw `deleting`
  *   finish    state `deleted`, purgeAfter = now + SCANTOR_TOMBSTONE_DAYS (a minimal tombstone)
  *
@@ -110,24 +111,6 @@ export function tombstoneUpdate(now: Date, tombstoneDays: number) {
   }
 }
 
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal.aborted) {
-      reject(signal.reason)
-      return
-    }
-    const timer = setTimeout(() => {
-      signal.removeEventListener('abort', onAbort)
-      resolve()
-    }, ms)
-    const onAbort = () => {
-      clearTimeout(timer)
-      reject(signal.reason)
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-  })
-}
-
 interface DeleteCursor {
   phase: DeletePhase
   afterSeq: number
@@ -177,8 +160,9 @@ async function runPhase(phase: DeletePhase, scan: ScanDoc, cursor: DeleteCursor,
       await events.deleteMany({ scanId: scan._id })
       return
     case 'settle': {
-      const remaining = (cursor.settleUntil ?? 0) - Date.now()
-      if (remaining > 0) await sleep(remaining, ctx.signal)
+      // The wait holds no job slot: the job comes back once the settle delay is over (the cursor is saved at 'settle').
+      const until = cursor.settleUntil ?? 0
+      if (until > Date.now()) throw new JobDeferredError(new Date(until), 'the scan-delete settle delay')
       return
     }
     case 'sweep':

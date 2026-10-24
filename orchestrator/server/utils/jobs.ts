@@ -31,7 +31,8 @@ import { useCollections } from './mongo'
  * second active job of the same kind and subject is refused by the partial unique index and the existing one is
  * returned (`created: false`). The runner claims queued jobs FIFO per kind with a 30 s lease renewed every 10 s,
  * retries failed attempts with exponential backoff (`notBefore`), requeues jobs whose lease expired, and enforces
- * per-kind concurrency. Handlers must be idempotent: a job may restart from its last saved cursor.
+ * per-kind concurrency. A handler that has to wait (a settle delay) throws JobDeferredError instead of sleeping, so the
+ * waiting job holds no concurrency slot. Handlers must be idempotent: a job may restart from its last saved cursor.
  */
 
 export const JOB_LEASE_MS = 30_000
@@ -80,6 +81,21 @@ export class FatalJobError extends Error {
   ) {
     super(message)
     this.name = 'FatalJobError'
+  }
+}
+
+/**
+ * Thrown by a handler that has to wait until `until` (for example a settle delay): the runner puts the job back to
+ * `queued` with `notBefore = until`, keeps its saved cursor and does not count the attempt, so a waiting job holds no
+ * concurrency slot. The handler saves the cursor it resumes from before it throws; onRequeued is not called.
+ */
+export class JobDeferredError extends Error {
+  constructor(
+    readonly until: Date,
+    readonly reason: string,
+  ) {
+    super(`deferred until ${until.toISOString()}: ${reason}`)
+    this.name = 'JobDeferredError'
   }
 }
 

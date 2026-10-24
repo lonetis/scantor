@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JobDoc } from '../../../server/types/documents'
 import type { Config } from '../../../server/utils/config'
-import { cancelActiveJobs, createJob, FatalJobError, type JobKindDefinition, JOB_LEASE_MS } from '../../../server/utils/jobs'
+import { cancelActiveJobs, createJob, FatalJobError, JobDeferredError, type JobKindDefinition, JOB_LEASE_MS } from '../../../server/utils/jobs'
 import { backoffDelay, JobsRunner } from '../../../server/services/jobs/runner'
 import { type Logger, useLogger } from '../../../server/utils/logger'
 import { FakeCollection } from '../../helpers/fake-collection'
@@ -205,6 +205,42 @@ describe('JobsRunner', () => {
     await vi.waitFor(() => expect(job(created._id).state).toBe('succeeded'))
     expect(job(created._id).attempts).toBe(2)
     expect(calls).toBe(2)
+  })
+
+  it('defers a job without its slot or an attempt, keeps its cursor and runs it again when it is due', async () => {
+    const calls: string[] = []
+    const requeued: string[] = []
+    const instance = runner([
+      [
+        'scanDelete',
+        {
+          component: 'reconciler',
+          concurrency: 1,
+          async handler(current, ctx) {
+            calls.push(`${current.subject.id}:${String(current.cursor.phase ?? 'start')}`)
+            if (current.subject.id === 'waits' && current.cursor.phase !== 'settle') {
+              await ctx.saveCursor({ phase: 'settle' })
+              throw new JobDeferredError(new Date(now().getTime() + 1000), 'a settle delay')
+            }
+          },
+          async onRequeued(current) {
+            requeued.push(current._id)
+          },
+        },
+      ],
+    ])
+    const waiting = await create('scanDelete', 'waits')
+    const other = await create('scanDelete', 'other')
+    instance.start()
+    // The only slot is free again while the first job waits: the second one runs meanwhile.
+    await vi.waitFor(() => expect(job(other._id).state).toBe('succeeded'))
+    expect(job(waiting._id)).toMatchObject({ state: 'queued', attempts: 0, lease: null, cursor: { phase: 'settle' } })
+    expect(job(waiting._id).notBefore.getTime()).toBeGreaterThan(Date.now() + 500)
+    offset += 1000
+    await vi.waitFor(() => expect(job(waiting._id).state).toBe('succeeded'))
+    expect(job(waiting._id).attempts).toBe(1)
+    expect(calls).toEqual(['waits:start', 'other:start', 'waits:settle'])
+    expect(requeued).toEqual([])
   })
 
   it('fails at once on FatalJobError and after the last attempt, calling onFailed once', async () => {

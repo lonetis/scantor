@@ -11,14 +11,16 @@ import {
   type JobContext,
   type JobKindDefinition,
   jobEvents,
+  JobDeferredError,
   LeaseLostError,
 } from '../../utils/jobs'
 import type { Logger } from '../../utils/logger'
 
 // The jobs runner of one component (docs/architecture.md §4.1 "jobs runner", docs/data-model.md §6.8). It claims
 // queued jobs of its kinds with a lease, renews leases while handlers run, persists cursors through the handler
-// context, retries with exponential backoff, enforces per-kind (and optional per-user) concurrency, and requeues
-// jobs whose lease expired because their runner died. All writes are conditional on the lease owner. Whenever a
+// context, retries with exponential backoff, enforces per-kind (and optional per-user) concurrency, requeues jobs
+// whose lease expired because their runner died, and puts a job that defers itself (JobDeferredError) back to
+// `queued` until its time comes, so waiting holds no slot. All writes are conditional on the lease owner. Whenever a
 // running job goes back to `queued` (stop, lease expiry, retryable failure), the kind's onRequeued hook resets the
 // subject (a building revision becomes queued again, docs/data-model.md §6.4).
 
@@ -219,6 +221,8 @@ export class JobsRunner {
       } catch (error) {
         if (abort.signal.aborted && abort.signal.reason instanceof LeaseLostError) {
           log.info('job interrupted: its lease was lost or it was cancelled')
+        } else if (error instanceof JobDeferredError && !abort.signal.aborted) {
+          await this.defer(job, error, log)
         } else {
           await this.fail(job, definition, error, log)
         }
@@ -228,6 +232,16 @@ export class JobsRunner {
       }
     })()
     this.running.set(job._id, { job, definition, abort, done })
+  }
+
+  /** Puts a job that deferred itself back to `queued` until `until`; the claim's attempt is given back. */
+  private async defer(job: JobDoc, deferral: JobDeferredError, log: Logger): Promise<void> {
+    const now = this.now()
+    const result = await this.options.jobs.updateOne(
+      { _id: job._id, state: 'running', 'lease.owner': this.owner },
+      { $set: { state: 'queued', lease: null, notBefore: deferral.until, attempts: Math.max(0, job.attempts - 1), updatedAt: now } },
+    )
+    if (result.matchedCount > 0) log.info('job deferred', { until: deferral.until.toISOString(), reason: deferral.reason })
   }
 
   private async fail(job: JobDoc, definition: JobKindDefinition, error: unknown, log: Logger): Promise<void> {

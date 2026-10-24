@@ -22,7 +22,7 @@ import { analysesCompleted } from '../../../server/services/metrics/catalogue'
 import type { JobDoc, ScanDoc } from '../../../server/types/documents'
 import { closeAmqp, ensureGlobalTopology, scanAmqpUser, scanQueueName, useAmqp } from '../../../server/utils/amqp'
 import { type Config, parseConfig, setConfigForTesting } from '../../../server/utils/config'
-import type { JobContext } from '../../../server/utils/jobs'
+import { type JobContext, JobDeferredError } from '../../../server/utils/jobs'
 import { useKeys } from '../../../server/utils/keys'
 import { useLogger } from '../../../server/utils/logger'
 import { closeMongo, connectMongo, ensureIndexes, useCollections, useMongo } from '../../../server/utils/mongo'
@@ -690,11 +690,21 @@ describe.skipIf(!enabled)('scans against MongoDB, RabbitMQ and RustFS', () => {
     expect(deleting.state).toBe('deleting')
     expect((await deleteScan(deleting)).job._id).toBe(job._id)
     const stored = await jobs.findOne({ _id: job._id })
-    const run = scanDeleteJobKind.handler(stored!, jobContext(stored!))
+    const saved: SavedJobState = { cursor: {}, progress: { done: 0, total: null } }
+    // The settle phase defers the job (it holds no slot while it waits) with its cursor saved at `settle`.
+    const deferral = await scanDeleteJobKind.handler(stored!, jobContext(stored!, saved)).then(
+      () => null,
+      (error: unknown) => error,
+    )
+    expect(deferral).toBeInstanceOf(JobDeferredError)
+    expect(saved.cursor).toMatchObject({ phase: 'settle' })
+    const until = (deferral as JobDeferredError).until.getTime()
+    expect(until).toBeGreaterThan(Date.now())
     // a result ingested before the ingestor's cache saw `deleting`; the final sweep removes it
-    await new Promise((resolve) => setTimeout(resolve, 1500))
     await analyses.insertOne(analysisDoc(scan._id, 9, 'succeeded'))
-    await run
+    await new Promise((resolve) => setTimeout(resolve, until - Date.now() + 50))
+    const resumed = { ...stored!, cursor: saved.cursor }
+    await scanDeleteJobKind.handler(resumed, jobContext(resumed, saved))
 
     expect(await analyses.countDocuments({ scanId: scan._id })).toBe(0)
     expect(await workers.countDocuments({ scanId: scan._id })).toBe(0)
