@@ -284,10 +284,17 @@ export class ThrowawayOrchestrator {
     readonly container: string,
     readonly env: Record<string, string>,
     /** the address the runner connects to (`http://<ip>:3000`, or the published port) */
-    readonly baseUrl: string,
+    private address: string,
+    /** whether `address` is the container's IP on the stack network (it can change on a restart) */
+    private readonly addressedByIp: boolean,
     readonly infra: ThrowawayInfra | null,
     private ownsInfra: boolean,
   ) {}
+
+  /** The address the runner connects to; read it again after `restart()`. */
+  get baseUrl(): string {
+    return this.address
+  }
 
   get publicUrl(): string {
     return this.env.SCANTOR_PUBLIC_URL!
@@ -337,13 +344,13 @@ export class ThrowawayOrchestrator {
       const result = await docker(args, { allowFailure: true })
       if (result.exitCode === 0) {
         // Without a network (no infrastructure) the process cannot get past boot step 1 and has no address.
-        const reachable = Boolean(infra || options.publish)
+        const addressedByIp = Boolean(infra) && !options.publish
         const baseUrl = options.publish
           ? `http://127.0.0.1:${port}`
-          : reachable
+          : addressedByIp
             ? `http://${await containerIp(name)}:${DASHBOARD_PORT}`
             : 'http://unreachable.invalid'
-        return new ThrowawayOrchestrator(options.name, name, environment, baseUrl, infra, ownsInfra)
+        return new ThrowawayOrchestrator(options.name, name, environment, baseUrl, addressedByIp, infra, ownsInfra)
       }
       await removeContainers([name])
       // A randomly chosen host port can be taken by another test; choose another one.
@@ -398,9 +405,14 @@ export class ThrowawayOrchestrator {
     return this.infra.mongosh(script, this.env.SCANTOR_MONGO_DB!)
   }
 
-  /** `docker restart` (same container, same environment). */
+  /**
+   * `docker restart` (same container, same environment). The restarted container can get another address on the
+   * stack network, and its old one can go to another test's container meanwhile, so the address is read again:
+   * contexts and clients made before the restart keep the old one, so make new ones.
+   */
   async restart(): Promise<void> {
     await docker(['restart', '--time', '10', this.container])
+    if (this.addressedByIp) this.address = `http://${await containerIp(this.container)}:${DASHBOARD_PORT}`
   }
 
   /** The container's output (stdout and stderr). */
