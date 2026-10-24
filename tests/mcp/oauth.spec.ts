@@ -162,20 +162,18 @@ test.describe('MCP OAuth clients', () => {
     expect(client.redirect_uris).toEqual(allowed)
   })
 
-  // product bug: https loopback redirect URIs are rejected at registration
-  test.fail(
-    'dynamic registration accepts https loopback redirect URIs',
-    {
-      tag: ['@MCP-010'],
-      annotation: { type: 'issue', description: 'better-auth refuses https loopback redirect URIs for native and web clients (invalid_redirect_uri)' },
-    },
-    async ({ anonApi }) => {
-      for (const uri of ['https://localhost:8443/cb', 'https://127.0.0.1:8443/cb']) {
-        const response = await register(anonApi.request, [uri])
-        expect(response.status(), `${uri}: ${await response.text()}`).toBe(201)
-      }
-    },
-  )
+  // Loopback redirects use http (RFC 8252 §8.3); better-auth refuses https loopback for every client type, and the
+  // policy refuses it first with its own error (docs/mcp.md §3.4).
+  test('dynamic registration rejects https loopback redirect URIs with the policy error', { tag: ['@MCP-010'] }, async ({ anonApi }) => {
+    for (const uri of ['https://localhost:8443/cb', 'https://127.0.0.1:8443/cb']) {
+      const response = await register(anonApi.request, [uri])
+      expect(response.status(), uri).toBe(400)
+      expect(await response.json(), uri).toMatchObject({
+        error: 'invalid_redirect_uri',
+        error_description: expect.stringMatching(/^redirect URIs must be http loopback/),
+      })
+    }
+  })
 
   test('authorization enforces the redirect policy again and never redirects to a foreign URI', { tag: ['@MCP-010'] }, async ({ env, user }) => {
     const client = await workerOAuthClient()

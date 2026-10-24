@@ -161,14 +161,19 @@ call of that client gets 401 (§3.6).
 
 ### 3.4 Redirect URI policy
 
-`isAllowedMcpRedirect(uri)` (`orchestrator/server/utils/auth.ts`) accepts a redirect URI iff it parses as an
+`isAllowedMcpRedirect(uri)` (`orchestrator/server/utils/auth-policy.ts`) accepts a redirect URI iff it parses as an
 absolute URL without fragment or userinfo, and one of these holds:
 
 | # | Rule | Examples |
 |---|---|---|
-| 1 | scheme `http` or `https` and host `localhost`, `127.0.0.1` or `[::1]`, any port and path (RFC 8252 loopback) | Claude Code, MCP Inspector, VS Code loopback callbacks |
+| 1 | scheme `http` and host `localhost`, `127.0.0.1` or `[::1]`, any port and path (RFC 8252 §7.3 loopback) | Claude Code, MCP Inspector, VS Code loopback callbacks |
 | 2 | scheme `https` and origin (scheme, host, port) listed in `SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS` | web-hosted connectors added by the operator |
 | 3 | private-use scheme (RFC 8252 §7.1): any scheme except `http`, `https`, `javascript`, `data`, `file`, `vbscript`, `blob`, `about`, `ftp`, `ws`, `wss` | `cursor://…` |
+
+An `https` URL on a loopback host is refused by every rule, even when its origin is listed: loopback redirects
+use `http` (RFC 8252 §8.3: the request never leaves the device), and better-auth's oauth-provider refuses https
+loopback redirect URIs for every client type (a web client must not use a loopback host, a native client must
+use `http` on loopback). The policy refuses them itself, so the registration error is scantor's.
 
 Enforcement happens twice:
 

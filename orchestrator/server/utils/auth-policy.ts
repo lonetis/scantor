@@ -145,8 +145,10 @@ export function resolveMcpConfig(config: Pick<Config, 'publicUrl' | 'mcpEnabled'
 const FORBIDDEN_PRIVATE_SCHEMES = new Set(['http:', 'https:', 'javascript:', 'data:', 'file:', 'vbscript:', 'blob:', 'about:', 'ftp:', 'ws:', 'wss:'])
 
 /**
- * The MCP redirect URI policy (docs/mcp.md §3.4): an absolute URL without fragment or userinfo that is (1) an
- * http(s) loopback URL, (2) an https URL of an operator-listed origin, or (3) a private-use scheme.
+ * The MCP redirect URI policy (docs/mcp.md §3.4): an absolute URL without fragment or userinfo that is (1) an http
+ * loopback URL, (2) an https URL of an operator-listed origin, or (3) a private-use scheme. An https loopback URL is
+ * refused even when listed: loopback redirects use http (RFC 8252 §7.3, §8.3), and better-auth's oauth-provider refuses
+ * https loopback redirect URIs for every client type, so the policy rejects them with its own error first.
  */
 export function isAllowedMcpRedirect(uri: string, allowedOrigins: readonly string[]): boolean {
   let url: URL
@@ -158,7 +160,7 @@ export function isAllowedMcpRedirect(uri: string, allowedOrigins: readonly strin
   if (url.hash || uri.includes('#') || url.username || url.password) return false
   if (url.protocol === 'http:' || url.protocol === 'https:') {
     const host = url.hostname
-    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return url.protocol === 'http:'
     return url.protocol === 'https:' && allowedOrigins.includes(url.origin)
   }
   if (!/^[a-z][a-z0-9+.-]*:$/.test(url.protocol)) return false

@@ -96,7 +96,7 @@ function buildAuth(): AuthInstance {
       if (list.some((uri) => typeof uri !== 'string' || !isAllowedMcpRedirect(uri, config.mcpAllowedRedirectOrigins))) {
         throw new APIError('BAD_REQUEST', {
           error: 'invalid_redirect_uri',
-          error_description: 'redirect URIs must be loopback, an allowed https origin or a private-use scheme',
+          error_description: 'redirect URIs must be http loopback, an allowed https origin or a private-use scheme',
         })
       }
       return

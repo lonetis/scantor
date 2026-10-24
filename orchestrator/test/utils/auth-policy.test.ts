@@ -55,11 +55,11 @@ describe('resolveMcpConfig', () => {
 })
 
 describe('isAllowedMcpRedirect', () => {
-  const allowed = ['https://connectors.example.com']
+  const allowed = ['https://connectors.example.com', 'https://localhost:8443']
   it.each([
     'http://localhost:53682/callback',
     'http://127.0.0.1/cb',
-    'https://[::1]:9999/x',
+    'http://[::1]:9999/x',
     'https://connectors.example.com/oauth/callback',
     'cursor://anysphere.cursor-retrieval/oauth',
     'vscode://callback',
@@ -70,6 +70,10 @@ describe('isAllowedMcpRedirect', () => {
 
   it.each([
     'https://evil.example.com/cb',
+    // loopback redirects use http (RFC 8252 §8.3); better-auth refuses https loopback for every client type
+    'https://localhost:8443/cb',
+    'https://127.0.0.1:8443/cb',
+    'https://[::1]:9999/x',
     'http://connectors.example.com/cb',
     'https://connectors.example.com.evil.com/cb',
     'http://localhost:3000/cb#frag',
