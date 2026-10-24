@@ -1,5 +1,6 @@
 import { type H3Event, setResponseHeader } from 'h3'
 import type { ChangeStream, Collection, Document } from 'mongodb'
+import { shutdownSignal } from './boot'
 import { useConfig } from './config'
 import { apiError } from './errors'
 import { useLogger } from './logger'
@@ -8,7 +9,8 @@ import { useLogger } from './logger'
 // request until it settles or `wait` seconds elapse, then return the current representation. `Scantor-Wait:
 // settled|timeout` tells which. A client disconnect aborts the wait; each user holds at most
 // SCANTOR_MAX_CONCURRENT_WAITS waits (429). The document is watched with a change stream, polling every second when
-// a change stream cannot be opened.
+// a change stream cannot be opened. When the orchestrator begins to stop, waits answer at once with the current state
+// (`timeout`), so the shutdown does not wait for them.
 
 const POLL_MS = 1000
 const activeWaits = new Map<string, number>()
@@ -61,6 +63,9 @@ export async function loadWithWait<T>(event: H3Event, options: WaitOptions<T>): 
     disconnected = true
     wake?.()
   })
+  const stopping = shutdownSignal()
+  const onStopping = () => wake?.()
+  stopping.addEventListener('abort', onStopping, { once: true })
   try {
     if (options.watch) {
       try {
@@ -76,7 +81,7 @@ export async function loadWithWait<T>(event: H3Event, options: WaitOptions<T>): 
         log.debug('change stream unavailable; polling', { err: error })
       }
     }
-    while (!disconnected) {
+    while (!disconnected && !stopping.aborted) {
       const remaining = deadline - Date.now()
       if (remaining <= 0) break
       await new Promise<void>((resolve) => {
@@ -98,6 +103,7 @@ export async function loadWithWait<T>(event: H3Event, options: WaitOptions<T>): 
     setResponseHeader(event, 'Scantor-Wait', 'timeout')
     return value
   } finally {
+    stopping.removeEventListener('abort', onStopping)
     const count = (activeWaits.get(options.userId) ?? 1) - 1
     if (count <= 0) activeWaits.delete(options.userId)
     else activeWaits.set(options.userId, count)

@@ -15,7 +15,7 @@ import type { Logger } from './logger'
  *
  * Until every boot step has finished, `/api/*` answers 503 `unavailable` (except `/api/health`), and the process
  * exits with code 1 when a boot step fails (docs/architecture.md §4.1: "exits non-zero on any failure before
- * step 7").
+ * step 7"). Once booted, the API keeps answering while the process stops (Nitro drains the open requests).
  *
  * Boot step order ranges (docs/architecture.md §4.1):
  *   100–199  step 1  configuration and startup guard                        (foundation: 100)
@@ -36,7 +36,10 @@ import type { Logger } from './logger'
  *
  * Component tasks are long-running loops (ingestor consumers, reconciler loops, jobs runners). `start` should
  * return once the task is running (it must not block forever); `stop` must end it and release leases. They are
- * started in registration order and stopped in reverse order on Nitro `close`.
+ * started in registration order and stopped in reverse order as soon as the shutdown begins (the first SIGTERM or
+ * SIGINT, server/plugins/99.start.ts), while Nitro still drains open HTTP requests; the shutdown signal (the tasks'
+ * `signal`, shutdownSignal()) aborts at that moment, so long-polls answer at once. A shutdown during boot runs no
+ * further boot step, starts no further component task and stops those already started.
  */
 
 export interface BootContext {
@@ -56,7 +59,7 @@ export interface BootStep {
 export interface ComponentTaskContext {
   config: Config
   log: Logger
-  /** aborted when the process stops */
+  /** aborted when the shutdown begins (shutdownSignal()) */
   signal: AbortSignal
 }
 
@@ -78,17 +81,42 @@ export class BootAbortError extends Error {
   }
 }
 
+/** The shutdown began while booting: boot ended without starting the remaining components (not a failure). */
+export class BootStoppedError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super('the orchestrator is stopping; boot ended before every component started', options)
+    this.name = 'BootStoppedError'
+  }
+}
+
 interface BootRegistry {
   phase: BootPhase
+  /** every boot step finished and the components started (stays true while they stop) */
+  booted: boolean
   steps: BootStep[]
   tasks: ComponentTask[]
   started: ComponentTask[]
+  /** the component task start in progress, which a stop waits for */
+  starting: Promise<void> | null
+  /** the stop in progress or done (stopComponents is idempotent) */
+  stopping: Promise<void> | null
+  /** aborted when the shutdown begins */
   abort: AbortController
   error: Error | null
 }
 
 function emptyRegistry(): BootRegistry {
-  return { phase: 'registering', steps: [], tasks: [], started: [], abort: new AbortController(), error: null }
+  return {
+    phase: 'registering',
+    booted: false,
+    steps: [],
+    tasks: [],
+    started: [],
+    starting: null,
+    stopping: null,
+    abort: new AbortController(),
+    error: null,
+  }
 }
 
 // Kept on globalThis so that Nitro dev reloads of this module do not split the registry.
@@ -128,9 +156,17 @@ export function bootPhase(): BootPhase {
   return registry().phase
 }
 
-/** True once every boot step has finished and the components have been started. */
+/**
+ * True once every boot step has finished and the components have been started, and still while the process stops:
+ * handlers only record intent, so the requests Nitro drains are served normally.
+ */
 export function isBootComplete(): boolean {
-  return registry().phase === 'ready'
+  return registry().booted
+}
+
+/** Aborted when the shutdown begins (stopComponents): long-polls and waits answer at once from then on. */
+export function shutdownSignal(): AbortSignal {
+  return registry().abort.signal
 }
 
 /** The registered boot steps in execution order (stable for equal `order`). */
@@ -146,14 +182,21 @@ export interface RunBootOptions {
 
 /**
  * Runs every boot step in order, then starts the component tasks of the enabled components (step 7).
- * Rejects with the first failing step's error; the caller exits the process.
+ * Rejects with the first failing step's error; the caller exits the process. Rejects with BootStoppedError when the
+ * shutdown began meanwhile (also when a step failed because of it): then no further step runs, no further component
+ * task starts, and the phase stays `stopping`/`stopped`.
  */
 export async function runBoot(options: RunBootOptions): Promise<void> {
   const state = registry()
   if (state.phase !== 'registering') throw new Error(`boot already ${state.phase}`)
   state.phase = 'booting'
+  const { signal } = state.abort
+  const stopped = () => {
+    if (signal.aborted) throw new BootStoppedError()
+  }
   try {
     for (const step of orderedBootSteps()) {
+      stopped()
       const started = Date.now()
       const log = options.log.child({ bootStep: step.name })
       await step.run({ log, get config() { return options.config() } })
@@ -162,13 +205,26 @@ export async function runBoot(options: RunBootOptions): Promise<void> {
     const config = options.config()
     for (const task of state.tasks) {
       if (!config.components.includes(task.component)) continue
+      stopped()
       const log = options.log.child({ component: task.component, task: task.name })
-      await task.start({ config, log, signal: state.abort.signal })
-      state.started.push(task)
+      // A stop that begins meanwhile waits for this start, and the task is in `started` by the time it continues.
+      const starting = (async () => {
+        await task.start({ config, log, signal })
+        state.started.push(task)
+      })()
+      state.starting = starting.catch(() => undefined)
+      try {
+        await starting
+      } finally {
+        state.starting = null
+      }
       log.info('component task started')
     }
+    stopped()
+    state.booted = true
     state.phase = 'ready'
   } catch (error) {
+    if (signal.aborted) throw error instanceof BootStoppedError ? error : new BootStoppedError({ cause: error })
     state.phase = 'failed'
     state.error = error as Error
     throw error
@@ -185,7 +241,8 @@ export interface RetryOptions {
 
 /**
  * Runs `fn` until it succeeds or `timeoutMs` has passed, then rethrows the last error. Boot steps use it for
- * dependencies that may still be starting (S3, RabbitMQ, the Docker daemon); each failure is logged.
+ * dependencies that may still be starting (S3, RabbitMQ, the Docker daemon); each failure is logged. Once the shutdown
+ * began it rethrows at once instead of retrying.
  */
 export async function retryUntil<T>(what: string, fn: () => Promise<T>, options: RetryOptions): Promise<T> {
   const deadline = Date.now() + (options.timeoutMs ?? 60_000)
@@ -194,7 +251,7 @@ export async function retryUntil<T>(what: string, fn: () => Promise<T>, options:
     try {
       return await fn()
     } catch (error) {
-      if (Date.now() + delay > deadline) throw error
+      if (Date.now() + delay > deadline || shutdownSignal().aborted) throw error
       options.log.warn(`${what} failed; retrying`, { attempt, retryInMs: delay, err: error })
       await new Promise((resolve) => setTimeout(resolve, delay))
       delay = Math.min(delay * 2, 5000)
@@ -202,19 +259,24 @@ export async function retryUntil<T>(what: string, fn: () => Promise<T>, options:
   }
 }
 
-/** Stops started component tasks in reverse order (Nitro `close`). Errors are logged, not thrown. */
-export async function stopComponents(log: Logger): Promise<void> {
+/**
+ * Stops the started component tasks in reverse order (shutdown signal, Nitro `close`); a task that is starting right
+ * now is stopped once its start finished. Idempotent: every call returns the same stop. Errors are logged, not thrown.
+ */
+export function stopComponents(log: Logger): Promise<void> {
   const state = registry()
-  if (state.phase === 'stopping' || state.phase === 'stopped') return
-  state.phase = 'stopping'
-  state.abort.abort()
-  for (const task of [...state.started].reverse()) {
-    try {
-      await task.stop()
-    } catch (error) {
-      log.error('stopping component task failed', { task: task.name, err: error })
+  state.stopping ??= (async () => {
+    state.phase = 'stopping'
+    state.abort.abort()
+    await state.starting
+    for (let task = state.started.pop(); task; task = state.started.pop()) {
+      try {
+        await task.stop()
+      } catch (error) {
+        log.error('stopping component task failed', { task: task.name, err: error })
+      }
     }
-  }
-  state.started = []
-  state.phase = 'stopped'
+    state.phase = 'stopped'
+  })()
+  return state.stopping
 }

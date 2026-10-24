@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import type { ChangeStream } from 'mongodb'
 import { ACTIVE_WORKER_STATES, type WorkerState } from '#shared/utils/enums'
 import type { NodeDoc, RevisionDoc, ScanDoc, WorkerDoc } from '../../types/documents'
+import { shutdownSignal } from '../../utils/boot'
 import type { Config } from '../../utils/config'
 import { type Logger, useLogger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
@@ -298,17 +299,23 @@ export interface WaitForAssignmentsOptions {
   signal: AbortSignal
 }
 
-/** Holds a long-poll until the node's revision exceeds `rev` or the wait elapses; returns the node document. */
+/**
+ * Holds a long-poll until the node's revision exceeds `rev`, the wait elapses or the orchestrator begins to stop (so
+ * the shutdown does not wait for the long-polls); returns the node document.
+ */
 export async function waitForAssignments(nodeId: string, options: WaitForAssignmentsOptions): Promise<NodeDoc | null> {
   const { nodes } = useCollections()
   const deadline = Date.now() + options.waitMs
+  const signal = AbortSignal.any([options.signal, shutdownSignal()])
+  // Once the shutdown began, answer without subscribing: the waiters and their change stream are being closed.
+  if (signal.aborted) return nodes.findOne({ _id: nodeId })
   // Subscribe before reading, so a bump between the read and the wait still ends the wait.
   const subscription = useWaiters().subscribe(nodeId)
   try {
     for (;;) {
       const node = await nodes.findOne({ _id: nodeId })
-      if (!node || node.assignmentsRev > options.rev || Date.now() >= deadline || options.signal.aborted) return node
-      await subscription.next(deadline, options.signal)
+      if (!node || node.assignmentsRev > options.rev || Date.now() >= deadline || signal.aborted) return node
+      await subscription.next(deadline, signal)
     }
   } finally {
     subscription.close()

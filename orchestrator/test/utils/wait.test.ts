@@ -1,7 +1,9 @@
 import { EventEmitter } from 'node:events'
 import type { H3Event } from 'h3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { resetBootRegistry, stopComponents } from '../../server/utils/boot'
 import { type Config, parseConfig, setConfigForTesting } from '../../server/utils/config'
+import { useLogger } from '../../server/utils/logger'
 import { loadWithWait } from '../../server/utils/wait'
 
 // Long-polling with `wait` (docs/api.md §1.9), using the 1 s polling fallback (no change stream).
@@ -31,6 +33,7 @@ beforeEach(() => {
 
 afterEach(() => {
   setConfigForTesting(null)
+  resetBootRegistry()
 })
 
 describe('loadWithWait', () => {
@@ -81,5 +84,26 @@ describe('loadWithWait', () => {
     setTimeout(() => res.emit('close'), 50)
     expect(await pending).toBe('running')
     expect(Date.now() - started).toBeLessThan(2000)
+  })
+
+  it('answers at once with the current state when the orchestrator begins to stop', async () => {
+    const { event, res } = fakeEvent()
+    let loads = 0
+    const started = Date.now()
+    const pending = loadWithWait(event, { waitSeconds: 60, userId: 'u', load: async () => `running ${++loads}`, settled: () => false })
+    setTimeout(() => void stopComponents(useLogger('test')), 50)
+    // The state is read once more after the shutdown woke the wait.
+    expect(await pending).toBe('running 2')
+    expect(res.headers['scantor-wait']).toBe('timeout')
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  it('does not wait at all once the shutdown began', async () => {
+    await stopComponents(useLogger('test'))
+    const { event, res } = fakeEvent()
+    const started = Date.now()
+    expect(await loadWithWait(event, { waitSeconds: 60, userId: 'u', load: async () => 'running', settled: () => false })).toBe('running')
+    expect(res.headers['scantor-wait']).toBe('timeout')
+    expect(Date.now() - started).toBeLessThan(500)
   })
 })

@@ -179,6 +179,7 @@ model, api) wins and the other doc is fixed.
 - Nitro serves public assets (`/_nuxt/*`) before any server middleware: headers every response needs belong in the `request` hook (`server/plugins/security-headers.ts`), not in middleware or `routeRules`.
 - Import ajv as `ajv/dist/2020.js`: ajv has no exports map, and the production build fails with `ERR_MODULE_NOT_FOUND` while `nuxt dev` works.
 - MCP tool calls reach the REST routes through the private loopback listener (`server/utils/loopback.ts`) with single-use capabilities; never route them to port 3000 or `localFetch`.
+- Components stop at SIGTERM, while Nitro still drains the open requests (`99.start.ts`): a request that waits (long-poll, `wait`) must also end on `shutdownSignal()` (`server/utils/boot.ts`), or it holds the drain inside the 30 s stop grace; a loop that judges silence (node offline detection) must not run once the signal aborted.
 - The task pipeline prunes the host's whole BuildKit cache to `SCANTOR_BUILD_CACHE_MAX_BYTES`; the dev compose sets 0 and a native CLI prunes only when it is set. Never set it on a shared dev machine.
 - The dev built-in node allows only `SCANTOR_BUILTIN_NODE_MAX_WORKERS` workers (a scheduler counts), and placement reserves `cpus × processes`; parallel scans wait with `workersPending`.
 - Hint counters only increase (progress can briefly exceed 100 % after a cancel); the recount is authoritative. Do not "fix" the hints.

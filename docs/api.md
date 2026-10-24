@@ -225,9 +225,11 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
 `wait` is an integer number of seconds (0–120, default 0) on the operations below. The handler returns
 immediately when the resource is already settled; otherwise it holds the request until the resource
 settles or `wait` elapses, then returns the current representation with the normal status code. The
-response header `Scantor-Wait: settled|timeout` tells which. A client disconnect aborts the wait. Each user
-may hold at most `SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests`). Implementations watch the
-document with a change stream (fallback: 1 s polling).
+response header `Scantor-Wait: settled|timeout` tells which. A client disconnect aborts the wait. When the
+orchestrator begins to stop, every wait returns the current representation at once with `timeout`, so the
+shutdown does not wait for it ([architecture](architecture.md) §4.1). Each user may hold at most
+`SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests`). Implementations watch the document with a
+change stream (fallback: 1 s polling).
 
 | Operation | Settled when |
 |---|---|
@@ -895,8 +897,8 @@ X-Scantor-Version: 1.4.0
 ```
 
 Returns immediately when `nodes.assignmentsRev > rev`, otherwise after `wait` seconds (≤ 60) with the
-current set. The response always contains the complete desired set; any managed container not listed must
-be stopped (grace `drainGraceMs` + 5 s) and removed.
+current set, or at once when the orchestrator begins to stop. The response always contains the complete
+desired set; any managed container not listed must be stopped (grace `drainGraceMs` + 5 s) and removed.
 
 ```json
 {
