@@ -98,7 +98,7 @@ test-index --check`); never edit it by hand.
 | `mcp/smoke.spec.ts` | MCP plumbing; MCP transport | 5 |
 | `mcp/tools.spec.ts` | MCP tool catalogue; MCP tool calls | 11 |
 
-### e2e (180 tests)
+### e2e (181 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -108,7 +108,7 @@ test-index --check`); never edit it by hand.
 | `e2e/debug.spec.ts` | dev debug | 4 |
 | `e2e/examples.spec.ts` | example tasks; connectors and base images | 24 |
 | `e2e/files.spec.ts` | file references; file limits; storage quota | 4 |
-| `e2e/lifecycle.spec.ts` | recounts and delete; pause, resume and scale; retry-failed; progress; broker topology and completion | 13 |
+| `e2e/lifecycle.spec.ts` | recounts and delete; pause, resume and scale; retry-failed; progress; broker topology and completion | 14 |
 | `e2e/limits.spec.ts` | result size; analysis config size | 2 |
 | `e2e/placement.spec.ts` | desired workers; pending reasons; capacity; user worker cap; node choice; placement events | 9 |
 | `e2e/privileged.spec.ts` | publishing; running privileged revisions; test runs | 3 |
@@ -120,14 +120,14 @@ test-index --check`); never edit it by hand.
 | `e2e/templates.spec.ts` | template single; template list; template range; template repeat; template tranco; template crux; template cidr; wrapped templates; resolution on resume; test runs and template data; data sources | 17 |
 | `e2e/workers.spec.ts` | crash loops and memory; drain and stop; process slots; image pulls | 11 |
 
-### ui (239 tests)
+### ui (238 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
 | `ui/a11y.spec.ts` | dashboard accessibility | 18 |
 | `ui/access.spec.ts` | CLI & MCP access: API keys; CLI & MCP access: downloads and MCP; CLI & MCP access: authorized apps; CLI & MCP access: revoking a real authorized app | 9 |
 | `ui/account.spec.ts` | account page of the tenant; account changes | 6 |
-| `ui/admin-nodes.spec.ts` | nodes table; adding a node; node actions; node page | 11 |
+| `ui/admin-nodes.spec.ts` | nodes table; adding a node; node actions; node page | 10 |
 | `ui/admin-tools.spec.ts` | infrastructure tools; API links, health and jobs | 8 |
 | `ui/admin-users.spec.ts` | users table; creating and editing users; banning and deleting users | 6 |
 | `ui/auth.spec.ts` | sign-in page; signed-in visits to /login; session loss; admin user menu | 16 |
@@ -242,7 +242,7 @@ test-index --check`); never edit it by hand.
 | CRED-005 | PATCH /api/credentials/{id} updates name, host, username or token (a new token updates last4), and … | api/credentials.spec.ts › update and delete › updates name, host, username and token; a new token updates last4<br>api/credentials.spec.ts › update and delete › an empty update and invalid fields return 400<br>api/credentials.spec.ts › update and delete › delete returns 204 and removes the credential<br>api/credentials.spec.ts › update and delete › another user’s credential is 404 for update and delete |
 | AUTHZ-001 | Every owner-scope operation returns 401 unauthorized to an anonymous request. | authz/matrix.spec.ts › authorization matrix › authz/requests.ts covers every operation of the document<br>authz/matrix.spec.ts › authorization matrix › every owner-scope operation answers 401 to anonymous callers<br>authz/matrix.spec.ts › authorization matrix › machine credentials are never user principals on owner and admin operations |
 | AUTHZ-002 | Every owner-scope operation, read or mutation, that user B calls with user A's ids (task, revision, … | authz/matrix.spec.ts › authorization matrix › authz/requests.ts covers every operation of the document<br>authz/matrix.spec.ts › authorization matrix › A reads and acts on its own resources with its session and its key<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › B’s reads of A’s resources answer 404<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › B’s mutations of A’s resources answer 404<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › B’s destructive operations on copies of A’s resources answer 404 and leave them intact<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › A’s representations are unchanged after all of B’s attempts |
-| AUTHZ-003 | An admin (session or default key) can read and act on other users' resources by id, and list … | authz/matrix.spec.ts › authorization matrix › an admin reads every resource of A by id, with a session and a default key<br>authz/matrix.spec.ts › authorization matrix › an admin acts on A’s resources by id<br>authz/matrix.spec.ts › authorization matrix › list operations return every user’s items to an admin<br>authz/matrix.spec.ts › authorization matrix › upload and credential lists return every user’s items to an admin |
+| AUTHZ-003 | An admin (session or default key) can read and act on other users' resources by id, and list … | authz/matrix.spec.ts › authorization matrix › an admin reads every resource of A by id, with a session and a default key<br>authz/matrix.spec.ts › authorization matrix › an admin acts on A’s resources by id<br>authz/matrix.spec.ts › authorization matrix › list operations return every user’s items to an admin<br>authz/matrix.spec.ts › authorization matrix › upload and credential lists stay caller-scoped for an admin, who still reads A’s upload by id |
 | AUTHZ-004 | A non-admin passing ?userId=<another user> to a list operation (tasks, scans, jobs) gets 403 … | authz/matrix.spec.ts › authorization matrix › a userId filter is admin-only except for the caller’s own id |
 | AUTHZ-005 | No list response B receives (tasks, scans, revisions, test runs, uploads, exports, jobs, … | authz/matrix.spec.ts › authorization matrix › no list B receives contains any of A’s ids |
 | AUTHZ-006 | Task names and revision references (alpha, alpha@1, alpha@latest) resolve only among the caller's … | authz/matrix.spec.ts › authorization matrix › task names and revision references resolve only among the caller’s tasks |
@@ -390,15 +390,15 @@ test-index --check`); never edit it by hand.
 | SCAN-029 | Scaling beyond node capacity leaves the extra workers pending with the condition workersPending and … | e2e/lifecycle.spec.ts › pause, resume and scale › scaling beyond node capacity leaves the extra workers pending with insufficientCapacity |
 | SCAN-030 | POST /api/scans/{id}/cancel from creating, running or paused sets cancelled and completedAt; the … | e2e/lifecycle.spec.ts › recounts and delete › cancel removes the user, then the queue and the workers; running, paused and terminal scans are recounted on their cadences<br>chaos/chaos.spec.ts › the remote node remote-1 › cancelling a scan on remote-1 closes its worker connections, removes the broker objects and keeps the counts stable |
 | SCAN-031 | Cancelling a scan during an active retry-failed cancels the scanRetryFailed job and returns … | e2e/lifecycle.spec.ts › retry-failed › cancelling during an active retry cancels its job and restores the scheduling state |
-| SCAN-032 | POST /api/scans/{id}/retry-failed returns 202 {scan, job} (kind scanRetryFailed); the scan moves to … | e2e/lifecycle.spec.ts › retry-failed › retry-failed reruns lost analyses that kept their config; a paused scan keeps its delayed retries<br>e2e/lifecycle.spec.ts › retry-failed › retry-failed of a cancelled scan records the never-run analyses as cancelled and reruns only the failed ones |
-| SCAN-033 | retry-failed on a cancelled scan first records the never-run seqs as cancelled analyses of round 1, … | e2e/lifecycle.spec.ts › retry-failed › retry-failed of a cancelled scan records the never-run analyses as cancelled and reruns only the failed ones |
+| SCAN-032 | POST /api/scans/{id}/retry-failed returns 202 {scan, job} (kind scanRetryFailed); the scan moves to … | e2e/lifecycle.spec.ts › retry-failed › retry-failed reruns lost analyses that kept their config; a paused scan keeps its delayed retries<br>e2e/lifecycle.spec.ts › retry-failed › a retry round started right after the round before completes as soon as its last result is ingested<br>e2e/lifecycle.spec.ts › retry-failed › retry-failed of a cancelled scan records the never-run analyses as cancelled and reruns only the failed ones |
+| SCAN-033 | retry-failed on a cancelled scan first lets round 1 settle (an analysis still running at the cancel … | e2e/lifecycle.spec.ts › retry-failed › retry-failed of a cancelled scan records the never-run analyses as cancelled and reruns only the failed ones |
 | SCAN-034 | retry-failed returns 409 nothingToRetry when no failed or lost analysis has a config, and 409 … | api/scans.spec.ts › transitions › delete accepts a terminal scan and is repeatable while deleting; a deleting scan refuses every other transition<br>api/scans.spec.ts › transitions › retry-failed needs finished scheduling, no active retry and something to retry<br>e2e/lifecycle.spec.ts › recounts and delete › deleting a scan purges its data and leaves a tombstone that refuses every transition; a late result is dropped<br>e2e/lifecycle.spec.ts › pause, resume and scale › pause drains the workers but keeps the queue and user; resume continues the scheduler with epoch + 1 |
 | SCAN-035 | POST /api/scans/{id}/restart {name?, settings?: {workers?, processes?}} returns 201 with a new scan … | api/scans.spec.ts › start validation › template estimates need confirmation above the threshold and are refused above the maximum; a restart needs no confirmation<br>e2e/lifecycle.spec.ts › recounts and delete › restart clones the scan with its effective configs, secrets included, and the overrides |
 | SCAN-036 | DELETE /api/scans/{id} on a completed, failed or cancelled scan returns 202 {scan, job} with the … | api/scans.spec.ts › transitions › delete accepts a terminal scan and is repeatable while deleting; a deleting scan refuses every other transition<br>e2e/lifecycle.spec.ts › recounts and delete › deleting a scan purges its data and leaves a tombstone that refuses every transition; a late result is dropped |
 | SCAN-037 | When the scanDelete job finishes, the scan is a tombstone (deleted, purgeAfter = now + … | e2e/lifecycle.spec.ts › recounts and delete › deleting a scan purges its data and leaves a tombstone that refuses every transition; a late result is dropped |
 | SCAN-038 | When enough attempts in the breaker window fail (SCANTOR_BREAKER_MIN_ATTEMPTS, … | e2e/breaker.spec.ts › circuit breaker › a scan whose attempts all fail is paused with failureRate and breakerTripped; scans start --wait exits 1 |
 | SCAN-039 | Resuming a breaker-paused scan clears breakerTripped (a scan.conditionCleared event) and starts a … | e2e/breaker.spec.ts › circuit breaker › resuming a breaker-paused scan clears breakerTripped and starts a fresh failure window |
-| SCAN-040 | A scan completes only when scheduling is done or failed and the recounted terminal analyses reach … | e2e/lifecycle.spec.ts › broker topology and completion › a scan gets its queue and RabbitMQ user before it runs and loses them, user first, when it completes<br>e2e/lifecycle.spec.ts › broker topology and completion › a scan whose schedule fails ends failed with schedulingFailed once its published analyses are final |
+| SCAN-040 | A scan completes only when scheduling is done or failed and the recounted terminal analyses reach … | e2e/backpressure.spec.ts › backpressure › a 20 000-analysis scan completes through a queue of at most 500 ready messages with exact counts<br>e2e/lifecycle.spec.ts › retry-failed › a retry round started right after the round before completes as soon as its last result is ingested<br>e2e/lifecycle.spec.ts › broker topology and completion › a scan gets its queue and RabbitMQ user before it runs and loses them, user first, when it completes<br>e2e/lifecycle.spec.ts › broker topology and completion › a scan whose schedule fails ends failed with schedulingFailed once its published analyses are final |
 | SCAN-041 | Counters are recounted: running scans every 60 s, paused scans while they changed since the last … | e2e/lifecycle.spec.ts › recounts and delete › cancel removes the user, then the queue and the workers; running, paused and terminal scans are recounted on their cadences<br>chaos/chaos.spec.ts › the remote node remote-1 › cancelling a scan on remote-1 closes its worker connections, removes the broker objects and keeps the counts stable |
 | SCAN-042 | Live hint counters (stats.succeeded, failed, retrying, ratePerMin) rise as results arrive and never … | api/scans.spec.ts › reads › live hint counters only rise until the recount |
 | PLACE-001 | A running scan wants one scheduler while scheduling is pending or running plus settings.workers … | e2e/placement.spec.ts › desired workers › a running scan wants one scheduler while scheduling is unfinished plus settings.workers runners |
@@ -650,7 +650,7 @@ test-index --check`); never edit it by hand.
 | UI-NAV-015 | A failed API call shows a red toast titled after its error code (for example "Not possible in the … | ui/navigation.spec.ts › Scans badge › a running scan of the user shows in the badge, its page title and inline query errors; the badge clears after it ends<br>ui/navigation.spec.ts › errors and toasts › a failed API call shows a red toast titled after its error code; forms show errors inline |
 | UI-NAV-016 | A 5xx error toast offers "Copy request id", which copies the X-Request-Id and shows "Copied". | ui/navigation.spec.ts › errors and toasts › a 5xx toast offers "Copy request id", which copies the X-Request-Id |
 | UI-NAV-017 | Any 401 from the API on a protected page, such as after the session was revoked from another … | ui/auth.spec.ts › signed-in visits to /login › a 401 from the API on a protected page navigates to /login with the current path |
-| UI-NAV-018 | When an admin bans a signed-in user, the ban deletes their sessions ([auth](../docs/auth.md) §5.7), … | ui/auth.spec.ts › session loss › a user banned while signed in is signed out on the next API call<br>ui/auth.spec.ts › session loss › a user banned while signed in lands on /login?banned=1 with "Your account is banned" |
+| UI-NAV-018 | When an admin bans a signed-in user, the ban deletes their sessions ([auth](../docs/auth.md) §5.7), … | ui/auth.spec.ts › session loss › a user banned while signed in is signed out on the next API call<br>ui/auth.spec.ts › session loss › a user whose session outlives the ban gets 403 banned, is signed out and lands on /login?banned=1 with "Your account is banned" |
 | UI-NAV-019 | Without any response from the server, the UI shows a single toast "Cannot reach the orchestrator" … | ui/navigation.spec.ts › errors and toasts › an unreachable orchestrator shows one toast at most every 10 s, and background polls never toast |
 | UI-NAV-020 | After 3 consecutive failures of a poll, the banner "Live updates paused, retrying…" (role=status, … | ui/navigation.spec.ts › polling › three failed polls show "Live updates paused, retrying…" until the next successful poll |
 | UI-NAV-021 | Polls pause while the tab is hidden and refetch when it becomes visible, keep one request in … | ui/navigation.spec.ts › polling › polls pause while hidden, refetch when visible, keep one request in flight and back off after failures |
@@ -800,7 +800,7 @@ test-index --check`); never edit it by hand.
 | UI-ADMIN-002 | "Add node" (name, pool, labels, worker limit) reveals "Token of node <name>" … | ui/admin-nodes.spec.ts › adding a node › "Add node" reveals the token once with copy buttons, join commands and the checklist |
 | UI-ADMIN-003 | A duplicate node name shows "A node with this name already exists.", and an invalid name or label … | ui/admin-nodes.spec.ts › adding a node › a duplicate name is reported; invalid names and labels are blocked before any request |
 | UI-ADMIN-004 | "Node actions for <name>" offer Edit (with a "Cordoned" switch; only changed fields are saved, … | ui/admin-nodes.spec.ts › node actions › Edit saves only changed fields and cordons; "Show join command" uses the token placeholder |
-| UI-ADMIN-005 | "Rotate token" reveals a new token, "Revoke token" shows "Token of <name> revoked" and the revoked … | ui/admin-nodes.spec.ts › node actions › rotate reveals a new token, revoke marks the node revoked and delete needs the name<br>ui/admin-nodes.spec.ts › node actions › rotate, revoke and delete are disabled for the built-in node<br>ui/admin-nodes.spec.ts › node actions › the built-in node explains why its token actions are disabled |
+| UI-ADMIN-005 | "Rotate token" reveals a new token, "Revoke token" shows "Token of <name> revoked" and the revoked … | ui/admin-nodes.spec.ts › node actions › rotate reveals a new token, revoke marks the node revoked and delete needs the name<br>ui/admin-nodes.spec.ts › node actions › rotate, revoke and delete are disabled for the built-in node, and its menu says why |
 | UI-ADMIN-006 | The node page shows the node's info, lease, labels, workers (with "Active only") and events, and … | ui/admin-nodes.spec.ts › node page › an unjoined node shows its info, labels, an empty lease, workers and events<br>ui/admin-nodes.spec.ts › node page › the built-in node shows its reported info and lease, and "Active only" switches the worker filter<br>ui/admin-nodes.spec.ts › node page › an unknown node shows "Node not found" |
 | UI-ADMIN-007 | The users table searches by name or email and shows name (with "(you)"), email, role, status … | ui/admin-users.spec.ts › users table › searches by name or email and shows role, status, privileged flag, worker limit, usage and creation |
 | UI-ADMIN-008 | "New user" creates a user with email, name, password, role, "Can run privileged tasks" and worker … | ui/admin-users.spec.ts › creating and editing users › "New user" creates a user with every field and reports a duplicate email |
@@ -914,6 +914,7 @@ None.
 - `orchestrator/test/services/helpers/runner.test.ts`
 - `orchestrator/test/services/inflight.test.ts`
 - `orchestrator/test/services/ingestor/build-document.test.ts`
+- `orchestrator/test/services/ingestor/completion-trigger.test.ts`
 - `orchestrator/test/services/ingestor/identity.test.ts`
 - `orchestrator/test/services/ingestor/ingestor.integration.test.ts`
 - `orchestrator/test/services/ingestor/windows.test.ts`
@@ -965,6 +966,7 @@ None.
 - `orchestrator/test/services/scans/broker.integration.test.ts`
 - `orchestrator/test/services/scans/completion.test.ts`
 - `orchestrator/test/services/scans/publisher.test.ts`
+- `orchestrator/test/services/scans/retry-settle.test.ts`
 - `orchestrator/test/services/scans/state-machine.test.ts`
 - `orchestrator/test/services/tasks/delete.test.ts`
 - `orchestrator/test/services/tasks/files.test.ts`
@@ -990,6 +992,7 @@ None.
 - `orchestrator/test/ui/clipboard.test.ts`
 - `orchestrator/test/ui/consent.test.ts`
 - `orchestrator/test/ui/cursor-list.test.ts`
+- `orchestrator/test/ui/dialog-focus.test.ts`
 - `orchestrator/test/ui/errors.test.ts`
 - `orchestrator/test/ui/follow-scroll.test.ts`
 - `orchestrator/test/ui/format.test.ts`
@@ -1011,6 +1014,7 @@ None.
 - `orchestrator/test/utils/authz.test.ts`
 - `orchestrator/test/utils/body-limits.test.ts`
 - `orchestrator/test/utils/boot.test.ts`
+- `orchestrator/test/utils/byte-cap.test.ts`
 - `orchestrator/test/utils/client-ip.test.ts`
 - `orchestrator/test/utils/config.test.ts`
 - `orchestrator/test/utils/env-values.test.ts`
