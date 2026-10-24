@@ -1102,7 +1102,8 @@ Scheduler response:
     "resultsExchange": "scantor.results",
     "routingKey": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
     "heartbeatSeconds": 30,
-    "consumerTimeoutMs": 1500000
+    "consumerTimeoutMs": 1500000,
+    "maxLength": 100000
   },
   "uploads": { "mode": "presigned", "maxFileBytes": 1073741824, "maxFilesPerAnalysis": 100, "timeoutMs": 900000 },
   "limits": {
@@ -1146,6 +1147,7 @@ scheduler, `scan.settings.processes` is always 1: it runs at most one connector 
 |---|---|
 | `revision.entry` | the revision's normalised manifest `entry` (the manifest value, or the language default from `schemas/languages.json`, for example `"main.py"` or `"/task/task"`); the runtime substitutes it for `{entry}` in `SCANTOR_CONNECTOR_CMD` and never reads `/task/scantor.yaml` |
 | `amqp.consumerTimeoutMs` | the `x-consumer-timeout` the scan queue was declared with (`settings.timeoutMs + SCANTOR_UPLOAD_TIMEOUT + 300000`), so the runtime computes its holding budget without duplicating the formula ([runtime](runtime.md) §8.10) |
+| `amqp.maxLength` | the `x-max-length` of scan queues (`SCANTOR_SCAN_QUEUE_MAX_READY`); the scheduler keeps at most half of it in the queue, so retries fit into the rest ([runtime](runtime.md) §11.4) |
 | `limits.maxProcessesPerWorker` | `SCANTOR_MAX_PROCESSES_PER_WORKER`; the runtime clamps `processes` to it |
 | `limits.minFreeTmpBytes` | `SCANTOR_WORKER_MIN_FREE_TMP_BYTES`; below this free space under `/tmp/scantor` the runtime stops consuming and reports itself unhealthy |
 | `uploads.timeoutMs` | `SCANTOR_UPLOAD_TIMEOUT` (presigned URL expiry and PUT timeout) |

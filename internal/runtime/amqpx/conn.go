@@ -1,7 +1,8 @@
 // Package amqpx is the runtime's AMQP layer on amqp091-go v1.16.0 (docs/runtime.md §6): one connection
 // per worker with reconnects (the library's recovery stays disabled), connection-blocked tracking, the
 // shared confirm publisher with mandatory publishes and return correlation, and the slot consumers
-// (one channel each, prefetch 1). The runtime never declares, binds or rejects anything.
+// (one channel each, prefetch 1). The runtime never declares, binds or rejects anything; a passive declare only
+// reads the depth of the scan queue (Queue).
 package amqpx
 
 import (

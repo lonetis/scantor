@@ -68,6 +68,8 @@ type BootstrapAMQP struct {
 	RoutingKey        string `json:"routingKey"`
 	HeartbeatSeconds  int    `json:"heartbeatSeconds"`
 	ConsumerTimeoutMs int64  `json:"consumerTimeoutMs"`
+	// MaxLength is the queue's x-max-length; the scheduler keeps at most half of it in the queue.
+	MaxLength int64 `json:"maxLength"`
 }
 
 // Upload modes of a bootstrap.

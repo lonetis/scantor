@@ -57,7 +57,10 @@ type Config struct {
 	// Boot is the worker's bootstrap (role scheduler).
 	Boot      *api.Bootstrap
 	Publisher Publisher
-	API       API
+	// Depth reads the scan queue's ready count for the scheduler's share of the queue (amqp.maxLength);
+	// nil leaves only the broker's limit.
+	Depth QueueDepth
+	API   API
 	// Spawner starts the connector of a custom schedule.
 	Spawner Spawner
 	// Env is the template environment: data sources and uploads from bootstrap, the data-source HTTP
@@ -133,7 +136,7 @@ func New(cfg Config) *Scheduler {
 		cp, stored = b.Scheduler.Checkpoint, b.Scheduler.Resolved
 	}
 	wait := time.Duration(b.Intervals.BackpressureWaitMs) * time.Millisecond
-	s.win = newWindow(s.pubCtx, cfg.Publisher, b.AMQP.AnalysesExchange, b.AMQP.RoutingKey, wait, cfg.PollNow, cfg.Logger, cp)
+	s.win = newWindow(s.pubCtx, cfg.Publisher, cfg.Depth, shareOf(b.AMQP.MaxLength), b.AMQP.AnalysesExchange, b.AMQP.RoutingKey, wait, cfg.PollNow, cfg.Logger, cp)
 	s.res = NewResolutions(cfg.Env, stored, s.record)
 	s.res.Now = func() api.Time { return api.NewTime(cfg.Now()) }
 	return s

@@ -18,11 +18,29 @@ import (
 const (
 	WindowItems = 512
 	WindowBytes = 8 << 20
+	// depthWait is the pause between reads of the scan queue's ready count while the queue holds the
+	// scheduler's share, ± 20 %.
+	depthWait = 250 * time.Millisecond
 )
 
 // Publisher sends analysis messages through the shared confirm publisher (amqpx.Publisher).
 type Publisher interface {
 	Send(ctx context.Context, pub amqpx.Publication) amqpx.Confirmation
+}
+
+// QueueDepth reads the ready count of the scan queue (amqpx.Queue).
+type QueueDepth interface {
+	ReadyCount(ctx context.Context) (int, error)
+}
+
+// shareOf returns the ready messages the scheduler keeps in a scan queue with x-max-length maxLength: half of
+// it, so that retries, which count toward the limit while they are delayed, fit into the other half
+// (docs/runtime.md §11.4). 0 disables the share; only the broker's limit applies then.
+func shareOf(maxLength int64) int {
+	if maxLength <= 0 {
+		return 0
+	}
+	return int(max(maxLength/2, 1))
 }
 
 type entryState int
@@ -42,11 +60,16 @@ type entry struct {
 }
 
 // window holds the published items until their confirms and tracks the contiguous confirmed prefix
-// (docs/runtime.md §11.4, §11.5). Nacked items put the window into backpressure: after
-// backpressureWaitMs ± 20 % only the nacked seqs are republished, in seq order, and no new item enters
-// while any seq is nacked. Returned items (no queue bound) are handled the same way after a state poll.
+// (docs/runtime.md §11.4, §11.5). New items enter only while the scan queue's ready messages plus the items
+// in flight stay within the scheduler's share of the queue (half of x-max-length); once the share is used up,
+// the window reads the ready count again every depthWait ± 20 % and opens when a fifth of the share is free.
+// Nacked items put the window into backpressure: after backpressureWaitMs ± 20 % only the nacked seqs are
+// republished, in seq order, and no new item enters while any seq is nacked. Returned items (no queue bound)
+// are handled the same way after a state poll.
 type window struct {
 	pub      Publisher
+	depth    QueueDepth
+	share    int // ready plus in-flight messages the scheduler keeps in the queue; 0: no share
 	exchange string
 	key      string
 	wait     time.Duration
@@ -66,11 +89,16 @@ type window struct {
 	backpressure bool
 	looping      bool
 	gen          int
+	credit       int  // items that may still enter before the ready count is read again
+	full         bool // the queue holds the scheduler's share: waiting for room
 }
 
-func newWindow(ctx context.Context, pub Publisher, exchange, key string, wait time.Duration, pollNow func(), log *slog.Logger, cp api.Checkpoint) *window {
+func newWindow(ctx context.Context, pub Publisher, depth QueueDepth, share int, exchange, key string, wait time.Duration, pollNow func(), log *slog.Logger, cp api.Checkpoint) *window {
+	if depth == nil {
+		share = 0
+	}
 	return &window{
-		pub: pub, exchange: exchange, key: key, wait: wait, pollNow: pollNow, log: log, ctx: ctx,
+		pub: pub, depth: depth, share: share, exchange: exchange, key: key, wait: wait, pollNow: pollNow, log: log, ctx: ctx,
 		changed: make(chan struct{}), pending: map[int64]*entry{}, beyond: map[int64]string{},
 		confirmed: cp.Confirmed, tailHash: cp.TailHash, published: cp.Confirmed,
 	}
@@ -81,19 +109,81 @@ func (w *window) signalLocked() {
 	w.changed = make(chan struct{})
 }
 
-// waitRoom waits until a new item may enter: fewer than 512 items and 8 MiB in flight and nothing nacked
-// or returned.
+// waitRoom waits until a new item may enter: fewer than 512 items and 8 MiB in flight, nothing nacked or
+// returned, and room within the scheduler's share of the queue.
 func (w *window) waitRoom(ctx context.Context) error {
 	for {
 		w.mu.Lock()
 		room := len(w.pending) < WindowItems && w.bytes < WindowBytes && w.held == 0
+		measure := room && w.share > 0 && w.credit <= 0
 		changed := w.changed
 		w.mu.Unlock()
-		if room {
+		switch {
+		case measure:
+			if err := w.waitShare(ctx); err != nil {
+				return err
+			}
+		case room:
+			return nil
+		default:
+			select {
+			case <-changed:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+	}
+}
+
+// waitShare reads the queue's ready count until the scheduler's share has room for at least a fifth of it, and
+// grants that room as credit. A missing queue (cancelled or terminal scan) makes it poll state and keep
+// waiting; any other failure to read the count grants one window, so the broker's limit alone applies.
+func (w *window) waitShare(ctx context.Context) error {
+	resume := max(w.share/5, 1)
+	for {
+		// Items in flight before the read: an item confirmed while the broker counted may be in neither number.
+		// Nothing enters the window meanwhile, so this count also covers every item the count may miss.
+		w.mu.Lock()
+		inFlight := len(w.pending)
+		w.mu.Unlock()
+		ready, err := w.depth.ReadyCount(ctx)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		wait := time.Duration(float64(depthWait) * (0.8 + 0.4*rand.Float64())) //nolint:gosec // jitter
+		room := w.share - ready - inFlight
+		w.mu.Lock()
+		switch {
+		case err == nil && room >= resume:
+			if w.full {
+				w.log.Info("the scan queue has room again", "ready", ready, "share", w.share)
+			}
+			w.credit, w.full = room, false
+			w.mu.Unlock()
+			return nil
+		case err == nil:
+			if !w.full {
+				w.log.Info("the scan queue holds the scheduler's share; waiting for room", "ready", ready, "inFlight", inFlight, "share", w.share)
+			}
+			w.full = true
+		case amqpx.IsNotFound(err):
+			if !w.full {
+				w.log.Warn("the scan queue does not exist; polling state", "err", err)
+			}
+			w.full = true
+			wait = w.wait
+			if w.pollNow != nil {
+				w.pollNow()
+			}
+		default:
+			w.log.Warn("cannot read the scan queue's ready count; publishing up to the broker's limit", "err", err)
+			w.credit, w.full = WindowItems, false
+			w.mu.Unlock()
 			return nil
 		}
+		w.mu.Unlock()
 		select {
-		case <-changed:
+		case <-time.After(wait):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
@@ -125,6 +215,7 @@ func (w *window) add(seq int64, hash string, body []byte) {
 	e := &entry{seq: seq, hash: hash, body: body, gen: w.gen}
 	w.pending[seq] = e
 	w.bytes += len(body)
+	w.credit--
 	w.published = max(w.published, seq+1)
 	w.mu.Unlock()
 	w.send(e)
@@ -266,6 +357,7 @@ func (w *window) reset() {
 	w.beyond = map[int64]string{}
 	w.bytes, w.held = 0, 0
 	w.backpressure = false
+	w.credit, w.full = 0, false
 	w.signalLocked()
 }
 
@@ -280,5 +372,5 @@ func (w *window) checkpoint() api.Checkpoint {
 func (w *window) progress() api.SchedulerProgress {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return api.SchedulerProgress{Published: w.published, Confirmed: w.confirmed, Nacked: int64(w.held), Backpressure: w.backpressure}
+	return api.SchedulerProgress{Published: w.published, Confirmed: w.confirmed, Nacked: int64(w.held), Backpressure: w.backpressure || w.full}
 }

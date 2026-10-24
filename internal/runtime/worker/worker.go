@@ -521,7 +521,7 @@ func (w *worker) runScheduler(ctx context.Context, publisher *amqpx.Publisher, a
 		return ExitFatal
 	}
 	w.sched = scheduler.New(scheduler.Config{
-		Boot: b, Publisher: publisher, API: w.api, Spawner: w.launcher(), Env: env, Now: w.api.Clock().Now,
+		Boot: b, Publisher: publisher, Depth: amqpx.Queue{Conn: w.conn, Name: b.AMQP.Queue}, API: w.api, Spawner: w.launcher(), Env: env, Now: w.api.Clock().Now,
 		PollNow: func() { w.poller.PollNow() }, WorkRoot: w.cfg.WorkRoot, Logger: w.log,
 	})
 	// The scheduler handles signals as a drain from its start-up on (the watch loop).

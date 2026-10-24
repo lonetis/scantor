@@ -45,6 +45,7 @@ export type BootstrapConfig = Pick<
   | 'maxProcessesPerWorker'
   | 'workerMinFreeTmpBytes'
   | 'workerDrainGraceMs'
+  | 'scanQueueMaxReady'
   | 'trancoUrl'
   | 'cruxUrl'
 >
@@ -125,6 +126,8 @@ export function buildBootstrap(parts: BootstrapParts) {
       routingKey: scan._id,
       heartbeatSeconds: AMQP_HEARTBEAT_SECONDS,
       consumerTimeoutMs: settings.timeoutMs + config.uploadTimeoutMs + CONSUMER_TIMEOUT_MARGIN_MS,
+      // The x-max-length of scan queues (../reconciler/topology.ts); the scheduler keeps half of it.
+      maxLength: config.scanQueueMaxReady,
     },
     uploads: { mode: 'presigned' as const, maxFileBytes: config.maxFileBytes, maxFilesPerAnalysis: config.maxFilesPerAnalysis, timeoutMs: config.uploadTimeoutMs },
     limits: {

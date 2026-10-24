@@ -1087,7 +1087,7 @@ All limits are enforced at the earliest point listed. Values come from the named
 | error stack | 16 KiB; message 4 KiB; details 4 KiB | runtime |
 | attempts kept | 10 | ingestor (`$slice: -10`) |
 | analyses per scan | `SCANTOR_MAX_ANALYSES_PER_SCAN` | API (estimate), runtime (schedule `validation`) |
-| ready messages per scan queue | `SCANTOR_SCAN_QUEUE_MAX_READY` | broker (`x-max-length`, reject-publish) |
+| messages per scan queue (ready and delayed) | `SCANTOR_SCAN_QUEUE_MAX_READY` | broker (`x-max-length`, reject-publish); the scheduler fills at most half of it, leaving the rest to retries ([runtime](runtime.md) §11.4) |
 | delivery limit | `SCANTOR_DELIVERY_LIMIT` | broker |
 | file size / files per analysis | `SCANTOR_MAX_FILE_BYTES` / `SCANTOR_MAX_FILES_PER_ANALYSIS` | runtime, presign |
 | storage per user | `SCANTOR_USER_STORAGE_QUOTA_BYTES` (0 = unlimited) | presign |

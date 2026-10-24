@@ -585,3 +585,100 @@ func TestSchedulerBackpressureWithRabbitMQ(t *testing.T) {
 		return len(seen) == items
 	})
 }
+
+// TestSchedulerShareWithRabbitMQ gives the scheduler amqp.maxLength: it keeps at most half of the queue's
+// x-max-length in the queue (docs/runtime.md §11.4), reading the ready count with a passive declare as the
+// scan user, so it never runs into the broker's limit and retries keep their room.
+func TestSchedulerShareWithRabbitMQ(t *testing.T) {
+	const items, maxLength = 600, 20
+	r := broker(t)
+	s := r.scan(t, amqp.Table{"x-max-length": int64(maxLength)})
+	srv := fakeapi.New()
+	defer srv.Close()
+	boot := runnerBootstrap(s)
+	boot.Worker.Role, boot.Worker.Epoch = api.RoleScheduler, 1
+	boot.Scan.ScanConfig = json.RawMessage(fmt.Sprintf(`{"start":0,"end":%d}`, items))
+	boot.Scan.Settings.Processes = 1
+	boot.Revision.Schedule = api.Schedule{Kind: "template", Template: "range"}
+	boot.AMQP.MaxLength = maxLength
+	boot.Scheduler = &api.BootstrapScheduler{Resolved: map[string]api.Resolution{}, Uploads: map[string]api.UploadSource{}}
+	srv.Snapshot(func(f *fakeapi.Server) { f.Bootstrap = boot })
+	exit, log := startWorker(t, srv, boot.Worker.ID)
+
+	// Runners: consume slowly once the scheduler waits; the peak of ready messages is sampled meanwhile.
+	ch, err := s.admin.Channel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ch.Qos(5, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	probe, err := s.admin.Channel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[float64]bool{}
+	var mu sync.Mutex
+	var peak atomic.Int64
+	stopSampling := make(chan struct{})
+	defer close(stopSampling)
+	go func() {
+		for {
+			select {
+			case <-stopSampling:
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
+			if q, err := probe.QueueDeclarePassive(s.queue(), true, false, false, false, nil); err == nil && int64(q.Messages) > peak.Load() {
+				peak.Store(int64(q.Messages))
+			}
+		}
+	}()
+	go func() {
+		time.Sleep(time.Second)
+		deliveries, err := ch.Consume(s.queue(), "", false, false, false, false, nil)
+		if err != nil {
+			return
+		}
+		for d := range deliveries {
+			var m map[string]any
+			_ = json.Unmarshal(d.Body, &m)
+			mu.Lock()
+			seen[m["seq"].(float64)] = true
+			mu.Unlock()
+			time.Sleep(2 * time.Millisecond)
+			_ = d.Ack(false)
+		}
+	}()
+	select {
+	case code := <-exit:
+		if code != ExitOK {
+			t.Fatalf("exit %d\n%s", code, log.String())
+		}
+	case <-time.After(90 * time.Second):
+		t.Fatalf("the scheduler did not finish\n%s", log.String())
+	}
+	var backpressure bool
+	srv.Snapshot(func(f *fakeapi.Server) {
+		if len(f.Dones) != 1 || f.Dones[0].Outcome != api.OutcomeDone || f.Dones[0].Confirmed != items {
+			t.Fatalf("done %+v", f.Dones)
+		}
+		for _, st := range f.States {
+			if st.Scheduler != nil && st.Scheduler.Nacked > 0 {
+				t.Fatalf("the broker refused publishes of the scheduler: %+v", st.Scheduler)
+			}
+			backpressure = backpressure || (st.Scheduler != nil && st.Scheduler.Backpressure)
+		}
+	})
+	if !backpressure {
+		t.Fatal("no state poll reported backpressure although the share is 10 messages")
+	}
+	if p := peak.Load(); p > maxLength/2 {
+		t.Fatalf("%d ready messages; the scheduler's share is %d", p, maxLength/2)
+	}
+	waitFor(t, "every seq consumed", 30*time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(seen) == items
+	})
+}

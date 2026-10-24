@@ -133,6 +133,10 @@ Argument semantics (verified on RabbitMQ 4.4.0):
   publishers' unconfirmed windows (512 items per scheduler, [runtime](runtime.md) §11.4), so the bound is
   approximate. This is the scheduler's backpressure (§10); a runner whose retry republish is refused holds
   the delivery instead ([runtime](runtime.md) §8.11).
+- **Ready count**: a passive `queue.declare` (allowed without configure permission) reports only the **ready**
+  messages of a quorum queue: delayed and unacknowledged ones are missing (verified on 4.4.0: 0 with six delayed
+  messages, 9 with nine ready and one unacknowledged). The scheduler reads its share of the queue this way
+  ([runtime](runtime.md) §11.4).
 - **Requeue**: `basic.nack(requeue=true)` returns a delivery to the **head** of a quorum queue, so the next
   delivery of the channel is usually the same message (verified on 4.4: eight nack-requeues of one message at
   delivery limit 5 redelivered it eight times, with `redelivered` set and without dead-lettering).
@@ -723,8 +727,8 @@ A late result for a `lost` analysis still applies (the guards allow `lost → su
 
 | Guard | Mechanism | Effect |
 |---|---|---|
-| scan queue size | `x-max-length = SCANTOR_SCAN_QUEUE_MAX_READY` with `x-overflow: reject-publish` | the scheduler's publishes are nacked when the queue is full; it waits 2 s ± jitter and republishes only the nacked seqs ([runtime](runtime.md) §11.4). The scheduler never runs ahead of the runners by more than the limit plus its window: quorum queues accept publishes already in flight to the leader, so the queue can exceed the limit by up to the unconfirmed windows of its publishers (§3.3; verified on 4.4 by `internal/runtime/worker` `TestSchedulerBackpressureWithRabbitMQ`). |
-| retries never lost | runners publish retries with `x-opt-delivery-time ≥ server now + 1 s`; a full queue nacks them too (§3.3), so a refused retry is backpressure: the runner holds the delivery, republishes until the retry is due, then runs the next attempt on the held delivery, and gives the delivery back (`basic.nack(requeue=true)`, uncounted) only when its holding budget cannot cover another attempt ([runtime](runtime.md) §8.11) | a full queue cannot turn a retry into a lost or failed analysis, and it does not make the runner unhealthy |
+| scan queue size | `x-max-length = SCANTOR_SCAN_QUEUE_MAX_READY` with `x-overflow: reject-publish`; the scheduler keeps at most half of it (`amqp.maxLength / 2`, ready messages plus its unconfirmed publishes) | the scheduler reads the ready count and waits while its share is used up ([runtime](runtime.md) §11.4), so the other half stays free for retries, which count toward the limit while they are delayed (verified on 4.4 by `internal/runtime/worker` `TestSchedulerShareWithRabbitMQ`). Publishes that the full queue still refuses (more retries delayed than half the limit, a queue filled by retry-failed) are nacked; the scheduler then waits 2 s ± jitter and republishes only the nacked seqs. Quorum queues accept publishes already in flight to the leader, so the queue can exceed the limit by up to the unconfirmed windows of its publishers (§3.3; verified on 4.4 by `TestSchedulerBackpressureWithRabbitMQ`). |
+| retries never lost | runners publish retries with `x-opt-delivery-time ≥ server now + 1 s` into the half of the queue the scheduler leaves free; a full queue nacks them too (§3.3), so a refused retry is backpressure: the runner holds the delivery, republishes until the retry is due, then runs the next attempt on the held delivery, and gives the delivery back (`basic.nack(requeue=true)`, uncounted) only when its holding budget cannot cover another attempt ([runtime](runtime.md) §8.11) | a full queue cannot turn a retry into a lost or failed analysis, and it does not make the runner unhealthy |
 | retry-failed | same nack-and-wait loop (§8) | large retry-failed jobs respect the same bound |
 | analyses per scan | `SCANTOR_MAX_ANALYSES_PER_SCAN` (start-time estimate, runtime enforcement) | bounds per-scan broker and database volume |
 | message size | broker `max_message_size` 4 MiB; runtime caps result messages at 2 MiB, results at `SCANTOR_MAX_RESULT_BYTES`, configs at `SCANTOR_MAX_ANALYSIS_CONFIG_BYTES` | large data goes to S3 as files |

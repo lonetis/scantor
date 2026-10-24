@@ -1,7 +1,8 @@
 // Package fakebroker is an in-memory AMQP broker for the runtime's unit tests: one scan queue with
 // prefetch-1 slot channels, delayed delivery (x-opt-delivery-time), redelivery flags, consumer
 // cancellation by the broker, connection loss and blocking, an optional x-max-length with reject-publish,
-// and a scripted outcome for every publish. It implements runner.Broker and the scheduler's publisher.
+// and a scripted outcome for every publish. It implements runner.Broker and the scheduler's publisher and
+// queue depth.
 package fakebroker
 
 import (
@@ -33,18 +34,20 @@ type message struct {
 
 // Broker is the fake. The zero value is not usable; call New.
 type Broker struct {
-	mu        sync.Mutex
-	queue     []*message
-	channels  map[*Channel]bool
-	published []Published
-	connected bool
-	blocked   bool
-	changed   chan struct{}
-	nextTag   uint64
-	missing   bool // the queue does not exist (consume fails with NOT_FOUND)
-	wake      chan struct{}
-	maxLength int  // x-max-length with x-overflow reject-publish; 0 means unlimited
-	rejecting bool // the queue went over maxLength and refuses publishes
+	mu         sync.Mutex
+	queue      []*message
+	channels   map[*Channel]bool
+	published  []Published
+	connected  bool
+	blocked    bool
+	changed    chan struct{}
+	nextTag    uint64
+	missing    bool // the queue does not exist (consume fails with NOT_FOUND)
+	wake       chan struct{}
+	maxLength  int   // x-max-length with x-overflow reject-publish; 0 means unlimited
+	rejecting  bool  // the queue went over maxLength and refuses publishes
+	depthErr   error // the error of every ReadyCount while set
+	depthReads int
 
 	// Outcome decides the outcome of a publish; nil confirms everything. It runs without the lock.
 	Outcome func(pub amqpx.Publication) amqpx.Outcome
@@ -116,6 +119,47 @@ func (b *Broker) Ready() (ready, delayed int) {
 		}
 	}
 	return ready, delayed
+}
+
+// ReadyCount implements the scheduler's QueueDepth like a passive queue.declare: the ready messages, without
+// delayed and unacknowledged ones. A missing queue fails with ErrNotFound; it waits for a connection.
+func (b *Broker) ReadyCount(ctx context.Context) (int, error) {
+	for {
+		b.mu.Lock()
+		connected, missing, changed, err := b.connected, b.missing, b.changed, b.depthErr
+		b.mu.Unlock()
+		switch {
+		case missing:
+			return 0, ErrNotFound
+		case err != nil:
+			return 0, err
+		case connected:
+			b.mu.Lock()
+			b.depthReads++
+			b.mu.Unlock()
+			ready, _ := b.Ready()
+			return ready, nil
+		}
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		}
+	}
+}
+
+// DepthReads returns how often ReadyCount answered.
+func (b *Broker) DepthReads() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.depthReads
+}
+
+// SetDepthErr makes ReadyCount fail with err (nil restores it).
+func (b *Broker) SetDepthErr(err error) {
+	b.mu.Lock()
+	b.depthErr = err
+	b.mu.Unlock()
 }
 
 // Published returns every publish so far.

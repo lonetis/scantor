@@ -25,6 +25,7 @@ const config: BootstrapConfig = {
   maxProcessesPerWorker: 64,
   workerMinFreeTmpBytes: 1_073_741_824,
   workerDrainGraceMs: 30_000,
+  scanQueueMaxReady: 100_000,
   trancoUrl: 'https://tranco-list.eu',
   cruxUrl: 'https://raw.githubusercontent.com/zakird/crux-top-lists/main',
 }
@@ -80,6 +81,7 @@ describe('buildBootstrap', () => {
         routingKey: SCAN_ID,
         heartbeatSeconds: 30,
         consumerTimeoutMs: 1_500_000,
+        maxLength: 100_000,
       },
       uploads: { mode: 'presigned', maxFileBytes: 1073741824, maxFilesPerAnalysis: 100, timeoutMs: 900000 },
       limits: {

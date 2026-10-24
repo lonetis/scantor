@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -136,7 +137,7 @@ func newHarness(t *testing.T, boot *api.Bootstrap) *harness {
 	t.Helper()
 	h := &harness{t: t, b: fakebroker.New(), api: &fakeAPI{}, spawn: &spawner{}}
 	h.s = New(Config{
-		Boot: boot, Publisher: h.b, API: h.api, Spawner: h.spawn, Env: templates.Env{TmpDir: t.TempDir()},
+		Boot: boot, Publisher: h.b, Depth: h.b, API: h.api, Spawner: h.spawn, Env: templates.Env{TmpDir: t.TempDir()},
 		Now: time.Now, PollNow: func() { h.polls.Add(1) }, WorkRoot: t.TempDir(),
 	})
 	return h
@@ -279,6 +280,123 @@ func TestBackpressureRepublishesNackedSeqs(t *testing.T) {
 	}
 	if a := h.api.snapshot(); a.done[0].Confirmed != 40 {
 		t.Fatalf("done %+v", a.done[0])
+	}
+}
+
+// start runs the scheduler in the background; the channel receives Run's result.
+func (h *harness) start() <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- h.s.Run(context.Background()) }()
+	return done
+}
+
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// The scheduler keeps at most half of x-max-length in the queue (ready plus in flight), so retries, which count
+// toward the limit while they are delayed, fit into the other half (docs/runtime.md §11.4). It waits for room
+// without running into the broker's limit, and reopens once a fifth of its share is free.
+func TestShareKeepsHalfTheQueueFree(t *testing.T) {
+	boot := schedBoot(api.Schedule{Kind: "template", Template: "range"}, `{"start":0,"end":30}`)
+	boot.AMQP.MaxLength = 20 // share 10, reopens with room for 2
+	h := newHarness(t, boot)
+	h.b.SetMaxLength(20)
+	done := h.start()
+	published := func() int64 { _, p := h.s.State(); return p.Published }
+	waitUntil(t, "the share used up", func() bool { _, p := h.s.State(); return p.Published == 10 && p.Backpressure })
+	reads := h.b.DepthReads()
+	waitUntil(t, "the ready count read again", func() bool { return h.b.DepthReads() > reads+1 })
+	if n := published(); n != 10 {
+		t.Fatalf("%d items published into a share of 10", n)
+	}
+	if err := drainQueue(h.b, 1); err != nil {
+		t.Fatal(err)
+	}
+	reads = h.b.DepthReads()
+	waitUntil(t, "two more reads", func() bool { return h.b.DepthReads() > reads+1 })
+	if n := published(); n != 10 {
+		t.Fatalf("published %d with room for 1; the share reopens with room for 2", n)
+	}
+	if err := drainQueue(h.b, 1); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, "two more items", func() bool { return published() == 12 })
+	// Runners drain the rest.
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			case <-time.After(5 * time.Millisecond):
+			}
+			if ready, _ := h.b.Ready(); ready > 10 {
+				t.Errorf("%d ready messages; the share is 10", ready)
+			}
+			_ = drainQueue(h.b, 2)
+		}
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the scheduler did not finish")
+	}
+	for _, p := range h.b.Published() {
+		if p.Outcome != amqpx.Confirmed {
+			t.Fatalf("the broker refused a publish (%s): the share must keep the queue below its limit", p.Outcome)
+		}
+	}
+	if a := h.api.snapshot(); len(a.done) != 1 || a.done[0].Confirmed != 30 {
+		t.Fatalf("done %+v", a.done)
+	}
+	if _, p := h.s.State(); p.Backpressure {
+		t.Fatal("backpressure still reported after the end")
+	}
+}
+
+// A missing scan queue keeps the scheduler waiting and makes it poll state; it publishes once the queue exists.
+func TestShareWaitsForTheQueue(t *testing.T) {
+	boot := schedBoot(api.Schedule{Kind: "template", Template: "range"}, `{"start":0,"end":5}`)
+	boot.AMQP.MaxLength = 100
+	h := newHarness(t, boot)
+	h.b.SetMissing(true)
+	done := h.start()
+	waitUntil(t, "a state poll", func() bool { return h.polls.Load() > 0 })
+	if _, p := h.s.State(); p.Published != 0 || !p.Backpressure {
+		t.Fatalf("progress %+v while the queue is missing", p)
+	}
+	h.b.SetMissing(false)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if a := h.api.snapshot(); len(a.done) != 1 || a.done[0].Confirmed != 5 {
+		t.Fatalf("done %+v", a.done)
+	}
+}
+
+// When the ready count cannot be read, the scheduler publishes up to the broker's limit (one window at a time).
+func TestShareFallsBackToTheBrokerLimit(t *testing.T) {
+	boot := schedBoot(api.Schedule{Kind: "template", Template: "range"}, `{"start":0,"end":20}`)
+	boot.AMQP.MaxLength = 4
+	h := newHarness(t, boot)
+	h.b.SetDepthErr(errors.New("channel_max reached"))
+	if err := h.run(); err != nil {
+		t.Fatal(err)
+	}
+	if a := h.api.snapshot(); len(a.done) != 1 || a.done[0].Confirmed != 20 {
+		t.Fatalf("done %+v", a.done)
 	}
 }
 

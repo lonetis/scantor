@@ -585,7 +585,8 @@
       "resultsExchange": "scantor.results",
       "routingKey": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
       "heartbeatSeconds": 30,
-      "consumerTimeoutMs": 1500000
+      "consumerTimeoutMs": 1500000,
+      "maxLength": 100000
     },
     "uploads": {
       "mode": "presigned",

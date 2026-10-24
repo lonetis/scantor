@@ -198,7 +198,7 @@ Bootstrap fields used (exact shapes in [api](api.md) §8.1):
 | `scan.taskConfig`, `scan.scanConfig` | passed to every `schedule`/`run` call, secrets in clear text |
 | `scan.settings.{processes, timeoutMs, maxAttempts, backoff, maxAnalysesPerProcess}` | pool size, timeouts, retry policy, recycling |
 | `revision.{entry, protocolVersion, schedule}` | `{entry}`, logging of the negotiated version (§7.2), native vs connector schedule |
-| `amqp.{url, vhost, username, password, queue, analysesExchange, resultsExchange, routingKey, heartbeatSeconds, consumerTimeoutMs}` | connection, consume, publish, holding budget |
+| `amqp.{url, vhost, username, password, queue, analysesExchange, resultsExchange, routingKey, heartbeatSeconds, consumerTimeoutMs, maxLength}` | connection, consume, publish, holding budget, the scheduler's share of the queue |
 | `uploads.{mode, maxFileBytes, maxFilesPerAnalysis, timeoutMs}` | file limits, PUT timeouts (`mode` is `presigned`) |
 | `limits.*` (including `maxProcessesPerWorker` and `minFreeTmpBytes`) | §17 |
 | `intervals.*` | §17 |
@@ -329,8 +329,9 @@ amqp091-go v1.16.0 (no built-in recovery; the runtime implements reconnects).
   heartbeatSeconds, Properties: {connection_name: "scantor-runtime/<role>/<workerId>"}, TLSClientConfig})`.
 - Watchers: `NotifyClose` (connection), `NotifyBlocked` (connection), per channel `NotifyClose`,
   `NotifyCancel`, and on the publisher `NotifyPublish` (confirms) and `NotifyReturn`.
-- The runtime never declares exchanges or queues and never binds. A missing queue shows up as a 404
-  `NOT_FOUND` channel error on `basic.consume` (§6.6).
+- The runtime never declares exchanges or queues and never binds; the scheduler's passive `queue.declare`
+  only reads the ready count (§11.4). A missing queue shows up as a 404 `NOT_FOUND` channel error on
+  `basic.consume` (§6.6).
 
 ### 6.2 Slot channels (runners)
 
@@ -724,7 +725,9 @@ The **holding budget** of a delivery is `consumerTimeoutMs − (now − delivere
 
 A full scan queue nacks the retry republish of the retry plan (§8.9) although it is future-dated
 ([queue](queue.md) §3.3), and it accepts publishes again only once it is down to 80 % of its limit. The
-attempt event is already confirmed at that point. A refused retry is backpressure: the analysis must neither be
+scheduler leaves half of the queue to retries (§11.4), so this happens when more retries are delayed at once
+than that half holds, or when a retry-failed round ([queue](queue.md) §8) or the scheduler of an older runtime
+filled the queue. The attempt event is already confirmed at that point. A refused retry is backpressure: the analysis must neither be
 lost nor fail, and the worker stays healthy (it is not a transient platform failure, §12, and raises no
 `workerErrors`). The slot keeps the delivery and:
 
@@ -939,12 +942,25 @@ For each item at position `seq`:
 3. Publish to `analysesExchange` with routing key `<scanId>` (§6.3).
 
 The window holds at most 512 unconfirmed or nacked items and at most 8 MiB of bodies; when full, the scheduler
-stops pulling items. Confirm outcomes per seq:
+stops pulling items.
+
+**Share of the queue.** The scheduler keeps at most `share = amqp.maxLength / 2` messages in the scan queue:
+its ready messages plus its own items in flight. Retries count toward `x-max-length` while they are delayed,
+and a full queue refuses them ([queue](queue.md) §3.3), so the other half is left to them (§8.11). Items enter
+against a credit. When the credit is used up, the scheduler reads the ready count with a passive
+`queue.declare` on a channel of its own (allowed for the scan user; a quorum queue counts neither delayed nor
+unacknowledged messages there), counting the items in flight before the read, and takes `share − ready −
+inFlight` as new credit once that is at least `share / 5`. Until then it reports `backpressure: true` and
+reads again every 250 ms ± 20 %. A missing queue makes it poll state and read again after
+`intervals.backpressureWaitMs`; any other failure to read grants one window (512 items), so only the broker's
+limit applies. Without `amqp.maxLength` (0) there is no share.
+
+Confirm outcomes per seq:
 
 | Outcome | Meaning | Action |
 |---|---|---|
 | confirmed | the item is in the queue | mark confirmed; advance the prefix (§11.5); drop the body |
-| nacked | the scan queue is full (`x-max-length`, `x-overflow=reject-publish`): **backpressure** | mark nacked; enter backpressure: wait `intervals.backpressureWaitMs` ± 20 % (uniform), then republish **only the nacked seqs** in seq order; repeat until confirmed. No new items are pulled while any seq is nacked. |
+| nacked | the scan queue is full (`x-max-length`, `x-overflow=reject-publish`), for example because more retries are delayed than the other half holds: **backpressure** | mark nacked; enter backpressure: wait `intervals.backpressureWaitMs` ± 20 % (uniform), then republish **only the nacked seqs** in seq order; repeat until confirmed. No new items are pulled while any seq is nacked. |
 | returned | no queue bound: the scan was cancelled or became terminal | stop publishing; poll state; exit 0 on `stop`/`drain` |
 | unconfirmed | channel or connection lost | republish after reconnect (duplicates are harmless) |
 
@@ -1307,6 +1323,7 @@ the orchestrator's bootstrap response.
 | checkpoint | every 5 s or 1000 confirmed items | `intervals.checkpointMs`, `intervals.checkpointItems` |
 | backpressure wait | 2 s ± 20 % | `intervals.backpressureWaitMs` |
 | scheduler window | 512 items / 8 MiB | – |
+| scheduler share of the scan queue | half of `x-max-length` (ready plus in flight), reopens with room for a fifth of it; ready count read every 250 ms ± 20 % while waiting | `amqp.maxLength` |
 | scheduler restarts | `SCANTOR_SCHEDULER_MAX_RESTARTS` (enforced by the orchestrator) | – |
 | data-source requests | 10 min timeout, 3 tries | – |
 | AMQP heartbeat | 30 s | `amqp.heartbeatSeconds` |
@@ -1337,7 +1354,8 @@ Made in this document (item 7 in part and items 14–16 implement lead rulings):
 
 1. **Bootstrap fields for the runtime**: `revision.entry` (the runtime must substitute `{entry}` in
    `SCANTOR_CONNECTOR_CMD` and cannot rely on `/task/scantor.yaml` being copied into the image),
-   `amqp.consumerTimeoutMs` (one formula, owned by the orchestrator), `limits.maxProcessesPerWorker` and
+   `amqp.consumerTimeoutMs` (one formula, owned by the orchestrator), `amqp.maxLength` (the queue's
+   `x-max-length`, for the scheduler's share, §11.4), `limits.maxProcessesPerWorker` and
    `limits.minFreeTmpBytes` (variable `SCANTOR_WORKER_MIN_FREE_TMP_BYTES`) are adopted in [api](api.md) §8.1.
    `scheduler.restarts` (the scan's `scheduling.restarts`), which the `schedule` ctx `attempt` needs
    ([protocol](protocol.md) §5.1), is also adopted in [api](api.md) §8.1.
@@ -1380,6 +1398,12 @@ Made in this document (item 7 in part and items 14–16 implement lead rulings):
     next attempt once it is due keeps slots productive, so slots that hold refused retries cannot starve the
     queue that would make room for them; giving the delivery back is the fallback when the holding budget
     cannot cover another attempt.
+18. **The scheduler leaves half of the scan queue to retries** (§11.4): delayed retries count toward
+    `x-max-length`, so a scheduler that filled the queue to its limit would make the broker refuse every retry
+    until the queue is down to 80 %, which for `SCANTOR_SCAN_QUEUE_MAX_READY` 100 000 means 20 000 consumed
+    analyses. The scheduler reads the ready count (a passive declare, cheap and exact) instead of relying on
+    nacks; the broker's limit and §8.11 remain for the rest. A separate retry queue or retries republished by
+    the orchestrator would need new topology, permissions and consumers.
 
 ## 19. Future extensions
 
