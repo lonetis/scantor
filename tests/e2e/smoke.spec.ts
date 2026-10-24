@@ -2,10 +2,14 @@ import type { Scan } from '#shared/types/scans'
 import { ok } from '../helpers/api-client'
 import { scantor } from '../helpers/cli'
 import { copyTask, exampleTaskDir, removeDir } from '../helpers/tasks'
-import { expect, test, unique } from '../fixtures'
+import { extendExamplesCli } from '../helpers/e2e-examples-cli-fixtures'
+import { expect, test as base, unique } from '../fixtures'
 
 // Smoke test of the e2e plumbing: the runner's scantor CLI pushes a task to the stack (build, push to the registry)
 // and a real scan runs on the built-in node.
+
+// Sessions that survive concurrent runs on one stack (helpers/e2e-examples-cli-fixtures.ts).
+const test = extendExamplesCli(base)
 
 test.describe('CLI scan', () => {
   test('a pushed task runs to completion from the CLI', { tag: ['@CLI-004'] }, async ({ user, api, tasks, scans }) => {
