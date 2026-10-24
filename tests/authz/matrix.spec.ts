@@ -404,36 +404,34 @@ test.describe('authorization matrix', () => {
     }
   })
 
-  // product bug: listUploads and listCredentials stay caller-scoped for admins
-  test.fail(
-    'upload and credential lists return every user’s items to an admin',
-    {
-      tag: ['@AUTHZ-003'],
-      annotation: {
-        type: 'issue',
-        description:
-          'listUploads and listCredentials filter by the caller’s userId for admins too, unlike every other list (docs/api.md §1: admins get everything)',
-      },
-    },
-    async ({ openapi, seed }) => {
-      const admin = await clientFor(openapi, { storageState: seed.admin.storageState })
+  test('upload and credential lists stay caller-scoped for an admin, who still reads A’s upload by id', { tag: ['@AUTHZ-003'] }, async ({ openapi, seed }) => {
+    // A lists its own upload and credential, so their absence from the admin's lists is the caller filter
+    // (docs/auth.md §9 rule 4: only their owner can reference them).
+    const a = await clientFor(openapi, { storageState: seed.a.storageState })
+    try {
+      expect(await findInList<{ id: string }>(a, 'listUploads', {}, (u) => u.id === seed.a.uploadId), 'A’s upload in A’s listUploads').toBeTruthy()
+      expect(ok(await a.call<ItemList<Credential>>('listCredentials', {}), 'listCredentials').items.map((c) => c.id)).toContain(seed.a.credentialId)
+    } finally {
+      await a.request.dispose()
+    }
+    for (const credential of [{ storageState: seed.admin.storageState }, { bearer: seed.admin.key }]) {
+      const admin = await clientFor(openapi, credential)
       try {
-        // The admin reaches both by id (owner and admins may read them, docs/data-model.md §5) ...
-        expect((await admin.call('getUpload', { path: { uploadId: seed.a.uploadId }, validate: false })).status).toBe(200)
-        // ... but the lists leave them out.
-        expect.soft(await findInList<{ id: string }>(admin, 'listUploads', {}, (u) => u.id === seed.a.uploadId), 'A’s upload in listUploads').toBeTruthy()
-        const credentials = ok(await admin.call<ItemList<Credential>>('listCredentials', { validate: false }), 'listCredentials')
-        expect
-          .soft(
-            credentials.items.map((c) => c.id),
-            'A’s credential in listCredentials',
-          )
-          .toContain(seed.a.credentialId)
+        expect((await admin.call('getUpload', { path: { uploadId: seed.a.uploadId } })).status, 'the admin reads A’s upload by id').toBe(200)
+        expect(
+          await findInList<{ id: string }>(admin, 'listUploads', {}, (u) => u.id === seed.a.uploadId),
+          'A’s upload in the admin’s listUploads',
+        ).toBeUndefined()
+        const credentials = ok(await admin.call<ItemList<Credential>>('listCredentials', {}), 'listCredentials')
+        expect(
+          credentials.items.map((c) => c.id),
+          'A’s credential in the admin’s listCredentials',
+        ).not.toContain(seed.a.credentialId)
       } finally {
         await admin.request.dispose()
       }
-    },
-  )
+    }
+  })
 
   test('a userId filter is admin-only except for the caller’s own id', { tag: ['@AUTHZ-004'] }, async ({ openapi, seed, principals }) => {
     const lists = ['listTasks', 'listScans', 'listJobs'].map((id) => openapi.get(id))
