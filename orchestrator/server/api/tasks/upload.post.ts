@@ -50,6 +50,7 @@ import { toApiTask } from '../../services/tasks/mappers'
 import { loadTask } from '../../services/tasks/store'
 import { assertTaskUploadContentType, uploadTask } from '../../services/tasks/upload'
 import { requireUser } from '../../utils/authz'
+import { closeConnectionWhenTooLarge } from '../../utils/byte-cap'
 import { useCollections } from '../../utils/mongo'
 import { loadWithWait } from '../../utils/wait'
 import { validateQuery } from '../../utils/zod'
@@ -59,7 +60,9 @@ export default defineEventHandler(async (event) => {
   const query = validateQuery(event, uploadTaskQuery)
   assertTaskUploadContentType(getRequestHeader(event, 'content-type'))
   const limit = typeof event.context.bodyLimit === 'number' ? event.context.bodyLimit : Number.POSITIVE_INFINITY
-  const outcome = await uploadTask(principal, { body: event.node.req, maxBytes: limit, publish: query.publish, force: query.force, message: query.message })
+  const outcome = await closeConnectionWhenTooLarge(event.node.res, () =>
+    uploadTask(principal, { body: event.node.req, maxBytes: limit, publish: query.publish, force: query.force, message: query.message }),
+  )
   let revision = outcome.revision
   if (revision) {
     const published = revision
