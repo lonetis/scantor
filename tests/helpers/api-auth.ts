@@ -394,10 +394,14 @@ export async function insertDelayedUserPurge(userId: string): Promise<string> {
   return id
 }
 
-/** Lets the runner claim a job inserted by {@link insertDelayedUserPurge} right away. */
+/**
+ * Lets the runner claim a job inserted by {@link insertDelayedUserPurge} next. userPurge runs one job at a time in
+ * `notBefore` order, and the purges of every other worker's users and tenants queue up behind each other (a user with
+ * scans takes the scan-delete settle delay), so the job goes to the front of that queue instead of behind it.
+ */
 export async function releaseJob(jobId: string): Promise<void> {
   const out = await mongoRoot(
-    `print(db.jobs.updateOne({_id: ${js(jobId)}, state: 'queued'}, {$set: {notBefore: new Date(), updatedAt: new Date()}}).matchedCount)`,
+    `print(db.jobs.updateOne({_id: ${js(jobId)}, state: 'queued'}, {$set: {notBefore: new Date(0), updatedAt: new Date()}}).matchedCount)`,
   )
   expect(out, `queued job ${jobId}`).toBe('1')
 }
