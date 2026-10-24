@@ -800,7 +800,9 @@ because ofetch cannot replace the error it throws from a hook. `useApiFetch` is 
 - Converts the envelope `{error: {code, message, details}}` into `ApiError {status, code, message,
   details, requestId}` (request id from `X-Request-Id`).
 - `401` on any route except `/login`/`/setup`: hard navigation to `/login?redirect=<current path>`.
-- `403 banned`: sign out and show "Your account is banned" on the login page.
+- `403 banned`: sign out and show "Your account is banned" on the login page (`/login?banned=1`). A ban
+  deletes the user's sessions first ([auth](auth.md) §5.7), so a browser that was signed in usually sees
+  the 401 above; the login page then shows the ban on the next sign-in.
 - Other errors: a toast unless the request opted out (`toast: false`, used by forms and the query console
   that show errors inline). Toast: `color: 'error'`, `icon: 'i-lucide-circle-alert'`, title from
   `errorTitle(code)` (`app/utils/errors.ts`; for example `invalidState` "Not possible in the current
