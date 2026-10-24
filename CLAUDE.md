@@ -183,6 +183,7 @@ model, api) wins and the other doc is fixed.
 - The task pipeline prunes the host's whole BuildKit cache to `SCANTOR_BUILD_CACHE_MAX_BYTES`; the dev compose sets 0 and a native CLI prunes only when it is set. Never set it on a shared dev machine.
 - The dev built-in node allows only `SCANTOR_BUILTIN_NODE_MAX_WORKERS` workers (a scheduler counts), and placement reserves `cpus × processes`; parallel scans wait with `workersPending`.
 - Hint counters only increase (progress can briefly exceed 100 % after a cancel); the recount is authoritative. Do not "fix" the hints.
+- A scan queue's `x-max-length` counts delayed messages, and a full queue refuses future-dated publishes too (RabbitMQ 4.4): the scheduler keeps at most half of the queue so retries fit, and a runner holds a refused retry ([docs/runtime.md](docs/runtime.md) §11.4, §8.11). Do not let another publisher fill a scan queue to its limit.
 - API `wait` is integer seconds (`?wait=60`); MCP clamps it to 50.
 - Orchestrator integration tests share one RabbitMQ and the broker test sweeps unknown `scan-*` users, so the files run serially.
 - Docker Desktop: containers cannot reach ports published on the VM's loopback even with `--network host` (some Go integration tests run only on Linux/CI); macOS AirPlay also holds port 5000, so check the registry at `127.0.0.1:5000`.
