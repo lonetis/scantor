@@ -539,7 +539,7 @@ Tabs (`?tab=`): `overview` (default), `results`, `query`, `workers`, `events`, `
 
 | Section | Content |
 |---|---|
-| Header | analysis id (copy), status badge, attempt/round, worker and node (links), timings (scheduled, started, finished, duration) |
+| Header | analysis id (copy), status badge, attempt/round, worker and node as id chips (copy; admins get a link to the node), timings (scheduled, started, finished, duration) |
 | Config | JsonView of the analysis config (secrets already masked by the API) |
 | Result | JsonView; objects at `description.fileRefPaths` render as `FileChip` (name, size, content type, SHA-256 tooltip, "Download <name>" button → `getFileDownload` → `window.location.assign(url)`; for `inline` images a preview `<img>` with the presigned URL) |
 | Error | type badge, phase, retryable, message, `details` JsonView, `stack` in a collapsible mono block |
@@ -580,10 +580,11 @@ Actions: "Copy as JSON", "Query similar" (opens the query tab with `{"error.type
 - Events: `EventTimeline` (`UTimeline`) from `listScanEvents` (type filter by prefix `scan.`/`worker.`,
   `Load more`): time, level icon/color, type, message, `data` JsonView on expand.
 - Exports: `listExports?scanId=` table (format, state badge, rows, size, created, expires) with
-  "Download" (`download.url`, navigation) and delete (two-step). `ExportModal`: format (`jsonl`/`csv`),
-  status quick filter or JSON filter, `fields` (comma-separated dot paths, CSV default columns hint) →
-  `exportScan` (no `wait`) → the row polls `getExport` every 2 s until `ready`/`failed`, then a toast with a
-  "Download" action. The UI always uses background exports (never `exportScanInline`).
+  "Download" (`download.url`, navigation) and delete (`ConfirmModal` "Delete export?"). `ExportModal`:
+  format (`jsonl`/`csv`), status quick filter or JSON filter, `fields` (comma-separated dot paths, CSV
+  default columns hint) → `exportScan` (no `wait`) → the row polls `getExport` every 2 s until
+  `ready`/`failed`, then a toast with a "Download" action. The UI always uses background exports (never
+  `exportScanInline`).
 
 ### 5.14 Templates catalog (`/templates`)
 
