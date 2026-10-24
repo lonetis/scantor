@@ -96,7 +96,8 @@ async function createTenant(adminApi: ApiClient, openapi: OpenApiIndex, prefix: 
   const session = await signedInContext(user.email, user.password)
   try {
     await mkdir(env.paths.auth, { recursive: true })
-    const storageState = join(env.paths.auth, `${stateName}.json`)
+    // The pid keeps concurrent `just test-exec` runs, whose workers share indexes, from overwriting each other's states.
+    const storageState = join(env.paths.auth, `${stateName}-${process.pid}.json`)
     await session.storageState({ path: storageState })
     const key = ok(await new ApiClient(session, openapi).createApiKey('tests'), 'createApiKey')
     return { ...user, storageState, apiKey: key.key }

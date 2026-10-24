@@ -30,6 +30,8 @@ export interface CreateUserOptions {
 export function newApiContext(options: { storageState?: string; headers?: Record<string, string> } = {}): Promise<APIRequestContext> {
   return request.newContext({
     baseURL: env.publicUrl,
+    // Long-polls (`wait` up to 120 s, getScan?wait=50) and slow jobs outlive Playwright's 30 s default.
+    timeout: 150_000,
     extraHTTPHeaders: { Origin: env.publicUrl, ...options.headers },
     storageState: options.storageState,
   })
