@@ -17,7 +17,7 @@ import { LineSplitter, platformError, type PipelineEvent } from '../pipeline/eve
 import { discardTmpSnapshot, snapshotToTmp, type StoredSnapshot } from '../pipeline/snapshot'
 import { useBuildSlots } from '../pipeline/slots'
 import { MAX_EVENT_LINE_BYTES, runTaskBuild, type TaskBuildOutcome } from '../pipeline/task-build'
-import { injectionArchive, type InjectionUpload, localSpec, OUT_DIR, testRunContainerName, testRunContainerSpec } from './container'
+import { injectionArchive, type InjectionUpload, localSpec, OUT_DIR, removeContainer, runTestRunContainer, testRunContainerName, testRunContainerSpec } from './container'
 import { REQUEST_SECRET_KEY, openRequest } from './create'
 import { analysisFromResult, configIssueMessage, type LocalEvent, parseLocalEvent } from './events'
 import { cancellationFor, openTestRunChannel, publishTestRunEvent, releaseCancellation } from './live'
@@ -104,14 +104,6 @@ async function imageExists(docker: Docker, ref: string): Promise<boolean> {
   } catch (error) {
     if ((error as { statusCode?: number }).statusCode === 404) return false
     throw error
-  }
-}
-
-async function removeContainer(docker: Docker, name: string): Promise<void> {
-  try {
-    await docker.getContainer(name).remove({ force: true, v: true })
-  } catch (error) {
-    if ((error as { statusCode?: number }).statusCode !== 404) throw error
   }
 }
 
@@ -307,13 +299,6 @@ class TestRunExecution {
     uploads: InjectionUpload[],
     remainingMs: number,
   ): Promise<void> {
-    const name = testRunContainerName(this.id)
-    await removeContainer(this.docker, name)
-    const container = await this.docker.createContainer(
-      testRunContainerSpec({ testRunId: this.id, userId: this.doc.userId, image, resources, capAdd: this.ctx.config.workerCapAdd }),
-    )
-    await container.putArchive(injectionArchive(runtimeBinary(), spec, uploads), { path: '/' })
-    const stream = (await container.attach({ stream: true, stdout: true, stderr: true })) as NodeJS.ReadableStream
     const lines = new LineSplitter(MAX_EVENT_LINE_BYTES, (length) => this.ctx.log.warn('dropped an oversized local-mode event', { bytes: length }))
     let stderrTail = ''
     const stderr = new Writable({
@@ -328,31 +313,18 @@ class TestRunExecution {
       if (!event) return
       chain = chain.then(() => this.onLocalEvent(event)).catch((error: unknown) => this.ctx.log.error('handling a local-mode event failed', { err: error }))
     })
-    const streamEnded = new Promise<void>((resolve) => {
-      stream.once('end', resolve)
-      stream.once('close', resolve)
-      stream.once('error', () => resolve())
+    // Rejects when the run is cancelled before the container started; a started container is killed and drained below.
+    const { container, exitCode, killed, outputEnded } = await runTestRunContainer({
+      docker: this.docker,
+      create: testRunContainerSpec({ testRunId: this.id, userId: this.doc.userId, image, resources, capAdd: this.ctx.config.workerCapAdd }),
+      archive: () => injectionArchive(runtimeBinary(), spec, uploads),
+      stdout: lines,
+      stderr,
+      killAfterMs: remainingMs + KILL_GRACE_MS,
+      signal: this.signal,
+      log: this.ctx.log,
     })
-    this.docker.modem.demuxStream(stream, lines, stderr)
-    await container.start()
-
-    let killed: 'timeout' | 'abort' | null = null
-    const kill = (reason: 'timeout' | 'abort') => {
-      if (killed) return
-      killed = reason
-      container.kill().catch((error: unknown) => this.ctx.log.debug('killing the test-run container failed', { err: error }))
-    }
-    const timer = setTimeout(() => kill('timeout'), remainingMs + KILL_GRACE_MS)
-    const onAbort = () => kill('abort')
-    this.signal.addEventListener('abort', onAbort, { once: true })
-    let exitCode: number
-    try {
-      exitCode = ((await container.wait()) as { StatusCode: number }).StatusCode
-    } finally {
-      clearTimeout(timer)
-      this.signal.removeEventListener('abort', onAbort)
-    }
-    await Promise.race([streamEnded, new Promise((resolve) => setTimeout(resolve, 5000))])
+    await Promise.race([outputEnded, new Promise((resolve) => setTimeout(resolve, 5000))])
     lines.end()
     await chain
     this.checkAborted()

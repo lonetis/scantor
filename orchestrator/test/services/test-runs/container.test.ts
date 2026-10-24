@@ -1,14 +1,15 @@
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Readable } from 'node:stream'
+import { PassThrough, Readable, Writable } from 'node:stream'
+import type Docker from 'dockerode'
 import { extract } from 'tar-stream'
 import { describe, expect, it } from 'vitest'
-import { injectionArchive, localSpec, testRunContainerSpec } from '../../../server/services/test-runs/container'
+import { injectionArchive, localSpec, runTestRunContainer, testRunContainerSpec } from '../../../server/services/test-runs/container'
 import { formatSseEvent } from '../../../server/services/test-runs/stream'
 
-// The test-run container (docs/tasks.md §11.2), its local-mode spec (§11.3, docs/runtime.md §15.1) and the injection
-// tar (docs/runtime.md §3.1).
+// The test-run container (docs/tasks.md §11.2), its local-mode spec (§11.3, docs/runtime.md §15.1), the injection
+// tar (docs/runtime.md §3.1) and its run from creation to exit, cancellable at every step (§11.1 step 5).
 
 describe('testRunContainerSpec', () => {
   it('uses scantor-egress, the worker hardening profile, PidsLimit 4096 and the manifest resources', () => {
@@ -108,6 +109,171 @@ describe('injectionArchive', () => {
     ])
     expect(entries.find((entry) => entry.name === 'scantor/in/spec.json')?.content).toBe('{"v":1}')
     expect(entries.find((entry) => entry.name === 'scantor/in/uploads/u1')?.content).toBe('a\nb')
+  })
+
+  it('closes the upload being copied when the archive is destroyed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'scantor-injection-'))
+    const binary = join(dir, 'scantor')
+    writeFileSync(binary, 'ELF')
+    const endless = new Readable({ read() { this.push(Buffer.alloc(16 * 1024, 0x61)) } })
+    const archive = injectionArchive(binary, { v: 1 }, [{ id: 'u1', bytes: 1024 ** 3, open: async () => endless }])
+    let bytes = 0
+    await new Promise<void>((resolve) => {
+      archive.on('data', (chunk: Buffer) => {
+        bytes += chunk.length
+        if (bytes > 256 * 1024) resolve()
+      })
+    })
+    archive.destroy()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(endless.destroyed).toBe(true)
+  })
+})
+
+/** A Docker client whose container steps can be held (until `release`) to cancel inside them. */
+function fakeDocker(holdAt?: 'create' | 'putArchive' | 'attach' | 'start' | 'wait') {
+  const calls: string[] = []
+  const state = { exists: false, running: false }
+  let reach!: () => void
+  const reached = new Promise<void>((resolve) => (reach = resolve))
+  let release!: () => void
+  const released = new Promise<void>((resolve) => (release = resolve))
+  let exit!: (code: number) => void
+  const exited = new Promise<number>((resolve) => (exit = resolve))
+  const step = async (name: string) => {
+    calls.push(name)
+    if (name === holdAt) {
+      reach()
+      await released
+    }
+  }
+  const notFound = () => Object.assign(new Error('no such container'), { statusCode: 404 })
+  const container = {
+    async putArchive(archive: Readable, options: { abortSignal?: AbortSignal }) {
+      calls.push('putArchive')
+      if (holdAt !== 'putArchive') return archive.resume()
+      reach()
+      // docker-modem aborts the upload request with the signal.
+      await new Promise((_resolve, reject) => options.abortSignal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+    },
+    async attach() {
+      await step('attach')
+      return new PassThrough()
+    },
+    async start() {
+      await step('start')
+      state.running = true
+    },
+    async kill() {
+      calls.push('kill')
+      if (!state.running) throw Object.assign(new Error('container is not running'), { statusCode: 409 })
+      state.running = false
+      exit(137)
+    },
+    async wait() {
+      calls.push('wait')
+      if (holdAt === 'wait') reach()
+      return { StatusCode: await exited }
+    },
+  }
+  const docker = {
+    getContainer: () => ({
+      async remove() {
+        calls.push('remove')
+        if (!state.exists) throw notFound()
+        state.exists = false
+        state.running = false
+      },
+    }),
+    async createContainer() {
+      await step('create')
+      state.exists = true
+      return container
+    },
+    modem: { demuxStream: () => {} },
+  }
+  return { docker: docker as unknown as Docker, calls, state, reached, release, exit }
+}
+
+describe('runTestRunContainer', () => {
+  const sink = () => new Writable({ write: (_chunk, _encoding, callback) => callback() })
+  const options = (docker: Docker, signal: AbortSignal, overrides: { archive?: () => Readable; killAfterMs?: number } = {}) => ({
+    docker,
+    create: { name: 'scantor-t-1', Image: 'draft' },
+    archive: overrides.archive ?? (() => Readable.from([Buffer.from('tar')])),
+    stdout: sink(),
+    stderr: sink(),
+    killAfterMs: overrides.killAfterMs ?? 60_000,
+    signal,
+    log: { debug: () => {} },
+  })
+
+  it('replaces a leftover, injects, attaches, starts and returns the exit code', async () => {
+    const fake = fakeDocker('wait')
+    const run = runTestRunContainer(options(fake.docker, new AbortController().signal))
+    await fake.reached
+    fake.exit(0)
+    await expect(run).resolves.toMatchObject({ exitCode: 0, killed: null })
+    expect(fake.calls).toEqual(['remove', 'create', 'putArchive', 'attach', 'start', 'wait'])
+  })
+
+  it.each(['create', 'attach'] as const)('a cancel during %s removes the container before it ever starts', async (holdAt) => {
+    const fake = fakeDocker(holdAt)
+    const controller = new AbortController()
+    const run = runTestRunContainer(options(fake.docker, controller.signal))
+    await fake.reached
+    controller.abort(new Error('test run cancelled'))
+    fake.release()
+    await expect(run).rejects.toThrow('test run cancelled')
+    expect(fake.calls).not.toContain('start')
+    expect(fake.state.exists).toBe(false)
+  })
+
+  it('a cancel during the injection aborts the upload and removes the container', async () => {
+    const fake = fakeDocker('putArchive')
+    const controller = new AbortController()
+    const archive = new Readable({ read() {} })
+    const run = runTestRunContainer(options(fake.docker, controller.signal, { archive: () => archive }))
+    await fake.reached
+    controller.abort(new Error('test run cancelled'))
+    await expect(run).rejects.toThrow()
+    expect(archive.destroyed).toBe(true)
+    expect(fake.calls).not.toContain('start')
+    expect(fake.state.exists).toBe(false)
+  })
+
+  it('a cancel during the start kills the container once it runs', async () => {
+    const fake = fakeDocker('start')
+    const controller = new AbortController()
+    const run = runTestRunContainer(options(fake.docker, controller.signal))
+    await fake.reached
+    controller.abort(new Error('test run cancelled'))
+    fake.release()
+    await expect(run).resolves.toMatchObject({ exitCode: 137, killed: 'abort' })
+    expect(fake.calls.slice(fake.calls.indexOf('start'))).toEqual(['start', 'kill', 'wait'])
+    expect(fake.state.running).toBe(false)
+  })
+
+  it('a cancel while it runs kills it', async () => {
+    const fake = fakeDocker('wait')
+    const controller = new AbortController()
+    const run = runTestRunContainer(options(fake.docker, controller.signal))
+    await fake.reached
+    controller.abort(new Error('test run cancelled'))
+    await expect(run).resolves.toMatchObject({ exitCode: 137, killed: 'abort' })
+  })
+
+  it('kills a container that outlives killAfterMs', async () => {
+    const fake = fakeDocker()
+    await expect(runTestRunContainer(options(fake.docker, new AbortController().signal, { killAfterMs: 10 }))).resolves.toMatchObject({ exitCode: 137, killed: 'timeout' })
+  })
+
+  it('creates nothing for a run cancelled before', async () => {
+    const fake = fakeDocker()
+    const controller = new AbortController()
+    controller.abort(new Error('test run cancelled'))
+    await expect(runTestRunContainer(options(fake.docker, controller.signal))).rejects.toThrow('test run cancelled')
+    expect(fake.calls).toEqual([])
   })
 })
 
