@@ -580,14 +580,18 @@ test-exec *args:
     fi
     tty=""
     if [ -t 0 ] && [ -t 1 ]; then tty="-t"; fi
-    # Playwright empties its output directory when a run starts, so concurrent runs against the kept-alive stack
-    # each get their own unless --output is given.
+    # Playwright empties its output directory when a run starts and replaces the HTML report and results.json when it
+    # ends, so concurrent runs against the kept-alive stack would delete each other's traces and reports: each run
+    # writes them under its own name, and --output replaces only the output directory.
+    run="exec-$(date +%Y%m%d-%H%M%S)-$$"
     args=("$@")
     case " $* " in
       *" --output"*) ;;
-      *) args+=("--output=test-results/exec-$(date +%Y%m%d-%H%M%S)-$$") ;;
+      *) args+=("--output=test-results/$run") ;;
     esac
-    docker exec -i $tty scantor-test-runner scantor-test-playwright "${args[@]}"
+    docker exec -i $tty \
+      -e "PLAYWRIGHT_HTML_OUTPUT_DIR=playwright-report/$run" -e "PLAYWRIGHT_JSON_OUTPUT_FILE=test-results/$run/results.json" \
+      scantor-test-runner scantor-test-playwright "${args[@]}"
 
 # Stop the test runner: its teardown removes the inner stack (the cache volumes stay)
 [group('tests')]
