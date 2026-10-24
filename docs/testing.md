@@ -400,6 +400,7 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
 | `SCANTOR_SCAN_CONFIRM_THRESHOLD` | `1000` | confirmation flow testable with small scans |
 | `SCANTOR_BREAKER_MIN_ATTEMPTS` | `20` | breaker trips within a small scan |
 | `SCANTOR_SCAN_STALL_AFTER` | `30s` | stall detection testable |
+| `SCANTOR_USER_STORAGE_QUOTA_BYTES` | `512MiB` | the storage quota is testable with one large file (at most `SCANTOR_MAX_FILE_BYTES`); every tenant has it, and no other spec stores more than a few KiB of files |
 | `SCANTOR_BUILTIN_NODE_MAX_WORKERS` | `16` | parallel e2e scans fit on the built-in node (the prod compose file maps it onto the daemon's `SCANTOR_NODE_MAX_WORKERS`, [deployment](deployment.md) §4.2) |
 | `SCANTOR_EDITOR_IDLE_TIMEOUT` | `3m` | idle stop testable |
 | `SCANTOR_NODE_MIN_FREE_DISK` | `1GiB` | placement keeps working on a small CI disk or a nearly full laptop |

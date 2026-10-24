@@ -154,13 +154,9 @@ function storageQuotaBytes(): number {
 }
 
 test.describe('storage quota', () => {
-  // The quota is an instance setting (SCANTOR_USER_STORAGE_QUOTA_BYTES) that applies to every user; the shared test
-  // stack runs without one (stack.env), and no test may change it for the other tenants. The test runs once the stack
-  // sets a quota of at most one file's size (SCANTOR_MAX_FILE_BYTES); the fixture-free conditions are evaluated before
-  // the fresh user is created.
-  test.skip(() => storageQuotaBytes() === 0, 'SCANTOR_USER_STORAGE_QUOTA_BYTES is 0 (unlimited) on this stack')
-  test.skip(() => storageQuotaBytes() > 1024 ** 3, 'the quota is larger than one file may be (SCANTOR_MAX_FILE_BYTES)')
-
+  // The quota is an instance setting (SCANTOR_USER_STORAGE_QUOTA_BYTES) that applies to every user, so no test may
+  // change it for the other tenants: the test stack sets one for all of them (tests/docker/stack.env), far above what
+  // other specs store, and this test uses a fresh user whose usage starts at zero.
   test(
     'an upload above the owner storage quota fails the analysis; retry-failed runs it again once storage is free',
     { tag: ['@RT-017'] },
@@ -168,6 +164,9 @@ test.describe('storage quota', () => {
       // Builds a task of the fresh user and waits for the measured storage usage to refresh.
       test.setTimeout(360_000)
       const quota = storageQuotaBytes()
+      // Two files of 60 % of the quota: the quota must be set, and such a file must stay below SCANTOR_MAX_FILE_BYTES.
+      expect(quota, 'SCANTOR_USER_STORAGE_QUOTA_BYTES of the test stack (0 = unlimited)').toBeGreaterThan(0)
+      expect(Math.ceil(quota * 0.6), 'a file of 60 % of the quota against SCANTOR_MAX_FILE_BYTES (1 GiB)').toBeLessThanOrEqual(1024 ** 3)
       // A fresh user starts without stored files; its tasks are purged with it.
       const dir = await writeGeneratedTask('probe')
       const name = unique('probe-quota')
