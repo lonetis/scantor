@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { request as httpsRequest } from 'node:https'
@@ -10,7 +11,7 @@ import type { UploadedTask } from './tasks'
 import { ApiClient, ApiError, ok, type ApiResponse, type CallOptions } from './api-client'
 import { rawItem, removeResultsetTask, writeResultsetTask } from './api-results-task'
 import { docker, innerDocker, stackEnv } from './docker'
-import { env } from './env'
+import { childEnv, env } from './env'
 import type { OpenApiIndex } from './openapi'
 import { SMALL_SETTINGS, startScan, TERMINAL_STATES, type StartScanBody } from './scans'
 import { packTask } from './tasks'
@@ -277,6 +278,63 @@ export async function settledTestRun(api: ApiClient, testRunId: string, timeoutM
 export async function testRunContainers(testRunId: string): Promise<string[]> {
   const { stdout } = await docker(['ps', '-aq', '--filter', `name=^scantor-t-${testRunId}$`])
   return stdout.split('\n').filter(Boolean)
+}
+
+/** The Docker state (`created`, `running`, `exited`, …) of `scantor-t-<testRunId>`, or null without such a container. */
+export async function testRunContainerState(testRunId: string): Promise<string | null> {
+  const { exitCode, stdout } = await docker(['inspect', '--format', '{{.State.Status}}', `scantor-t-${testRunId}`], { allowFailure: true })
+  return exitCode === 0 ? stdout.trim() : null
+}
+
+export interface ContainerCreation {
+  /** resolves with the container id once Docker reports the `create` event of the container */
+  created: Promise<string>
+  /** stops watching (also after the event) */
+  stop(): void
+}
+
+/**
+ * Watches the inner Docker's event stream for the creation of the container named `name`, so a test can act in the
+ * gap between a container's creation and its start. The stream starts with the call; `created` rejects when the
+ * watch ends (stop, `timeoutMs` or a failing `docker events`) without the event.
+ */
+export function watchContainerCreation(name: string, timeoutMs: number): ContainerCreation {
+  const child = spawn(
+    'docker',
+    [
+      'events',
+      '--filter',
+      'type=container',
+      '--filter',
+      'event=create',
+      '--filter',
+      `container=${name}`,
+      '--format',
+      '{{.Actor.ID}} {{.Actor.Attributes.name}}',
+    ],
+    { env: childEnv(), stdio: ['ignore', 'pipe', 'pipe'] },
+  )
+  const timer = setTimeout(() => child.kill(), timeoutMs)
+  let stderr = ''
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')))
+  const created = new Promise<string>((resolve, reject) => {
+    let buffered = ''
+    child.stdout.on('data', (chunk: Buffer) => {
+      buffered += chunk.toString('utf8')
+      for (const line of buffered.split('\n').slice(0, -1)) {
+        const [id, containerName] = line.trim().split(' ')
+        if (id && containerName === name) {
+          resolve(id)
+          child.kill()
+        }
+      }
+      buffered = buffered.slice(buffered.lastIndexOf('\n') + 1)
+    })
+    child.once('error', (error) => reject(error))
+    child.once('close', (code) => reject(new Error(`docker events for ${name} ended (${code}) without its create event: ${stderr.trim()}`)))
+  })
+  created.catch(() => undefined).finally(() => clearTimeout(timer))
+  return { created, stop: () => child.kill() }
 }
 
 /**

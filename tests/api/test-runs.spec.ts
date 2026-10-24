@@ -11,10 +11,12 @@ import {
   readTestRunStream,
   settledTestRun,
   sha256,
+  testRunContainerState,
   testRunContainers,
   testRunJob,
   uploadResultsetWorkspace,
   waitUntilAnalysisRuns,
+  watchContainerCreation,
 } from '../helpers/api-results'
 import { expect, test as fixturesTest, unique } from '../fixtures'
 import { apiResultsTest } from '../helpers/api-results-fixtures'
@@ -55,6 +57,21 @@ async function startTestRun(api: ApiClient, task: string, body: Record<string, u
   return response.body
 }
 
+/** Rejects once the run settled before `until` resolved (polled every second); never resolves otherwise. */
+async function failIfSettled(api: ApiClient, testRunId: string, until: Promise<unknown>): Promise<never> {
+  let done = false
+  until.then(
+    () => (done = true),
+    () => (done = true),
+  )
+  while (!done) {
+    const run = ok(await api.call<TestRun>('getTestRun', { path: { testRunId }, query: { analyses: false } }), 'getTestRun')
+    if (!['queued', 'building', 'running'].includes(run.state)) throw new Error(`test run ${testRunId} is ${run.state}: ${JSON.stringify(run.errors)}`)
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+  }
+  return new Promise<never>(() => undefined)
+}
+
 test.describe('creating and running test runs', () => {
   test(
     'a test run of an unpublished workspace builds a draft image and completes whatever the outcomes',
@@ -64,7 +81,9 @@ test.describe('creating and running test runs', () => {
       expect(task.revisionCount).toBe(0)
 
       const created = await startTestRun(api, task.name, { scanConfig: { items: ['ok', 'fatal:on purpose'] } })
-      expect(created).toMatchObject({ taskId: task.id, taskName: task.name, state: 'queued', draftImage: null, packSha256: null, errors: [] })
+      // The run is created queued; the response reloads it, so an idle stack's job may already have started the build.
+      expect(created).toMatchObject({ taskId: task.id, taskName: task.name, errors: [] })
+      expect(['queued', 'building']).toContain(created.state)
 
       const { events } = await readTestRunStream(api, created.id)
       const states = events.filter((event) => event.event === 'state').map((event) => (event.data as TestRunStreamEvents['state']).state)
@@ -338,7 +357,7 @@ test.describe('cancelling test runs', () => {
   test('a queued or building run is cancelled at once and never starts a container', { tag: ['@TRUN-008'] }, async ({ api, tasks }) => {
     const task = await uploadResultsetWorkspace(api, tasks)
     const created = await startTestRun(api, task.name, { scanConfig: { items: ['never'] }, taskConfig: { sleep_seconds: 600 } })
-    expect(created.state).toBe('queued')
+    expect(['queued', 'building']).toContain(created.state)
 
     // The draft build takes seconds, so the run is still queued or building when the cancel arrives.
     const cancelled = await api.call<TestRun>('cancelTestRun', { path: { testRunId: created.id } })
@@ -354,21 +373,13 @@ test.describe('cancelling test runs', () => {
     expect(await testRunContainers(created.id)).toEqual([])
   })
 
-  // product bug: a test run cancelled while its container is being started keeps running
-  test.fail(
+  test(
     'a run cancelled while its container is being started is stopped as well',
-    {
-      tag: ['@TRUN-008'],
-      annotation: {
-        type: 'issue',
-        description:
-          'TestRunExecution.runContainer attaches its abort listener only after container.start(); a cancel during createContainer, putArchive or start is never seen, so the container runs until it exits',
-      },
-    },
+    { tag: ['@TRUN-008'] },
     async ({ api, tasks }) => {
       const task = await uploadResultsetWorkspace(api, tasks)
-      // An upload referenced by the scan config is copied into the container before it starts (putArchive); a large one
-      // keeps the gap between the state `running` and the container start open for seconds.
+      // An upload referenced by the scan config is copied into the container with the runtime between its creation and
+      // its start (putArchive); a large one keeps that gap open long enough to cancel inside it.
       const content = Buffer.alloc(STARTUP_UPLOAD_BYTES, 0x61)
       Buffer.from(`${unique('startup')}\n`).copy(content)
       const upload = ok(
@@ -376,19 +387,28 @@ test.describe('cancelling test runs', () => {
         'createUpload',
       )
       try {
-        const created = await startTestRun(api, task.name, { scanConfig: { items: ['late'], upload: upload.id }, taskConfig: { sleep_seconds: 30 } })
-        const deadline = Date.now() + 150_000
-        for (;;) {
-          const run = ok(await api.call<TestRun>('getTestRun', { path: { testRunId: created.id }, query: { analyses: false } }), 'getTestRun')
-          if (run.state === 'running') break
-          if (run.state !== 'queued' && run.state !== 'building') throw new Error(`test run ${created.id} is ${run.state}: ${JSON.stringify(run.errors)}`)
-          if (Date.now() > deadline) throw new Error(`test run ${created.id} is still ${run.state}`)
-          await new Promise((resolve) => setTimeout(resolve, 100))
+        // The cancel must arrive while Docker still reports the container `created` (not yet started); an attempt that
+        // was too late cannot tell anything and is repeated with a new run.
+        let cancelledId: string | null = null
+        for (let attempt = 1; attempt <= 3 && !cancelledId; attempt++) {
+          const created = await startTestRun(api, task.name, { scanConfig: { items: ['late'], upload: upload.id }, taskConfig: { sleep_seconds: 30 } })
+          const watch = watchContainerCreation(`scantor-t-${created.id}`, 150_000)
+          try {
+            await Promise.race([watch.created, failIfSettled(api, created.id, watch.created)])
+          } finally {
+            watch.stop()
+          }
+          const cancelled = ok(await api.call<TestRun>('cancelTestRun', { path: { testRunId: created.id } }), 'cancelTestRun')
+          expect(cancelled.state).toBe('cancelled')
+          // null: the cancel already removed the container, which only the fixed cancellation does in time.
+          const state = await testRunContainerState(created.id)
+          if (state === 'created' || state === null) cancelledId = created.id
         }
-        const cancelled = ok(await api.call<TestRun>('cancelTestRun', { path: { testRunId: created.id } }), 'cancelTestRun')
-        expect(cancelled.state).toBe('cancelled')
+        // Not an expected failure: without a cancel inside the gap the case was not exercised.
+        test.skip(!cancelledId, 'no cancel of three attempts arrived before the container started')
+        const testRunId = cancelledId!
         // Removed well before the 30 s analysis could end by itself.
-        await expect.poll(() => testRunContainers(created.id), { timeout: 15_000, intervals: [500] }).toEqual([])
+        await expect.poll(() => testRunContainers(testRunId), { timeout: 15_000, intervals: [500] }).toEqual([])
       } finally {
         const deleted = await api.call('deleteUpload', { path: { uploadId: upload.id } })
         expect([204, 404]).toContain(deleted.status)
