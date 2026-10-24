@@ -1281,8 +1281,8 @@ docker exec scantor-registry registry garbage-collect --delete-untagged /etc/dis
 docker compose -f docker-compose.prod.yml start orchestrator
 ```
 
-A build interrupted by the stop is retried after restart (job lease expiry, [data model](data-model.md)
-§6.4).
+A build interrupted by the stop goes back to `queued` (the stopping orchestrator requeues its job) and is
+rebuilt from its snapshot after the restart ([data model](data-model.md) §6.4).
 
 ### 14.2 Docker prune
 

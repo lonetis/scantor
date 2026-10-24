@@ -18,13 +18,16 @@ import type { Logger } from '../../utils/logger'
 // The jobs runner of one component (docs/architecture.md §4.1 "jobs runner", docs/data-model.md §6.8). It claims
 // queued jobs of its kinds with a lease, renews leases while handlers run, persists cursors through the handler
 // context, retries with exponential backoff, enforces per-kind (and optional per-user) concurrency, and requeues
-// jobs whose lease expired because their runner died. All writes are conditional on the lease owner.
+// jobs whose lease expired because their runner died. All writes are conditional on the lease owner. Whenever a
+// running job goes back to `queued` (stop, lease expiry, retryable failure), the kind's onRequeued hook resets the
+// subject (a building revision becomes queued again, docs/data-model.md §6.4).
 
 const POLL_MS = 1000
 const DEFAULT_BACKOFF = { initialMs: 5000, maxMs: 300_000 }
 
 interface RunningJob {
   job: JobDoc
+  definition: JobKindDefinition
   abort: AbortController
   done: Promise<void>
 }
@@ -84,13 +87,27 @@ export class JobsRunner {
     for (const entry of pending) entry.abort.abort(new Error('orchestrator is stopping'))
     await Promise.race([Promise.allSettled(pending.map((entry) => entry.done)), new Promise((resolve) => setTimeout(resolve, graceMs))])
     for (const entry of pending) {
-      await this.options.jobs
-        .updateOne(
+      try {
+        const result = await this.options.jobs.updateOne(
           { _id: entry.job._id, state: 'running', 'lease.owner': this.owner },
           { $set: { state: 'queued', lease: null, notBefore: this.now(), updatedAt: this.now() } },
         )
-        .catch((error: unknown) => this.options.log.warn('requeueing job on stop failed', { jobId: entry.job._id, err: error }))
+        if (result.modifiedCount > 0) await this.requeued(entry.job, entry.definition)
+      } catch (error) {
+        this.options.log.warn('requeueing job on stop failed', { jobId: entry.job._id, err: error })
+      }
     }
+  }
+
+  /** Runs the kind's onRequeued hook after this runner put a running job back to `queued`; errors are logged. */
+  private async requeued(job: JobDoc, definition: JobKindDefinition | undefined): Promise<void> {
+    if (!definition?.onRequeued) return
+    const log = this.options.log.child({ jobId: job._id, jobKind: job.kind, userId: job.userId ?? undefined })
+    await definition.onRequeued(job, { log, config: this.options.config }).catch((error: unknown) => log.error('job onRequeued hook failed', { err: error }))
+  }
+
+  private definitionOf(kind: JobKind): JobKindDefinition | undefined {
+    return this.options.kinds.find(([candidate]) => candidate === kind)?.[1]
   }
 
   /** Number of handlers currently running (for tests and metrics). */
@@ -210,7 +227,7 @@ export class JobsRunner {
         if (!this.stopped) void this.tick()
       }
     })()
-    this.running.set(job._id, { job, abort, done })
+    this.running.set(job._id, { job, definition, abort, done })
   }
 
   private async fail(job: JobDoc, definition: JobKindDefinition, error: unknown, log: Logger): Promise<void> {
@@ -224,10 +241,11 @@ export class JobsRunner {
     if (!fatal && job.attempts < job.maxAttempts) {
       const delay = backoffDelay(job.attempts, definition.backoff)
       log.warn('job attempt failed; retrying', { attempt: job.attempts, retryInMs: delay, err: error })
-      await this.options.jobs.updateOne(
+      const result = await this.options.jobs.updateOne(
         { _id: job._id, state: 'running', 'lease.owner': this.owner },
         { $set: { state: 'queued', lease: null, error: failure, notBefore: new Date(now.getTime() + delay), updatedAt: now } },
       )
+      if (result.modifiedCount > 0) await this.requeued(job, definition)
       return
     }
     log.error('job failed', { attempt: job.attempts, err: error })
@@ -262,13 +280,10 @@ export class JobsRunner {
     }
     const kinds = this.options.kinds.map(([kind]) => kind)
     try {
-      const expired = await this.options.jobs
-        .find({ state: 'running', kind: { $in: kinds }, 'lease.expiresAt': { $lt: now } })
-        .project<Pick<JobDoc, '_id' | 'attempts' | 'maxAttempts' | 'kind'>>({ _id: 1, attempts: 1, maxAttempts: 1, kind: 1 })
-        .toArray()
+      const expired = await this.options.jobs.find({ state: 'running', kind: { $in: kinds }, 'lease.expiresAt': { $lt: now } }).toArray()
       for (const job of expired) {
         const exhausted = job.attempts >= job.maxAttempts
-        await this.options.jobs.updateOne(
+        const result = await this.options.jobs.updateOne(
           { _id: job._id, state: 'running', 'lease.expiresAt': { $lt: now } },
           exhausted
             ? {
@@ -284,7 +299,9 @@ export class JobsRunner {
               }
             : { $set: { state: 'queued', lease: null, notBefore: now, updatedAt: now } },
         )
+        if (result.modifiedCount === 0) continue
         this.options.log.warn(exhausted ? 'job failed after lease expiry' : 'requeued job after lease expiry', { jobId: job._id, jobKind: job.kind })
+        if (!exhausted) await this.requeued(job, this.definitionOf(job.kind))
       }
     } catch (error) {
       this.options.log.warn('sweeping expired job leases failed', { err: error })

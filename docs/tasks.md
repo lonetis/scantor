@@ -1256,7 +1256,8 @@ the `registryGc` lock is held, set `cursor.phase = "waitRegistry"`, wait 10 s an
 write `push\n` to the gate. The job's `cursor.phase` values are therefore `build` (from the start until
 the gate event), `push`, `waitRegistry` and `finalize` (set on the `result` event, while the revision is
 updated); registry GC never runs while a push is in flight, and builds wait for GC only at their push
-phase. A job restarted after a lease expiry starts from scratch ([data model](data-model.md) §4.12).
+phase. A job requeued by a stopping orchestrator or after a lease expiry puts the revision back to
+`queued` and starts from scratch ([data model](data-model.md) §4.12, §6.4).
 
 The digest is taken from the push stream's final aux message `{"Tag", "Digest", "Size"}` when the daemon
 sends one, else from its final status line `<tag>: digest: <digest> size: <n>` (Docker 29 with the

@@ -1089,21 +1089,9 @@ test.describe('an orchestrator restart during a scan and a build', () => {
     expect(job!.attempts).toBeGreaterThanOrEqual(2)
   })
 
-  // product bug: an interrupted revision stays "building" instead of going back to "queued"
-  test.fail(
-    'the interrupted revision goes back to queued until its build runs again',
-    {
-      tag: ['@REV-011'],
-      annotation: {
-        type: 'issue',
-        description:
-          'the jobs runner requeues the revisionBuild job (stop() and the lease-expiry sweep in orchestrator/server/services/jobs/runner.ts) but nothing resets the revision, so it stays "building" (docs/data-model.md §6.4: building → queued)',
-      },
-    },
-    async () => {
-      expect(restart!.whileStopped.revision).toBe('queued')
-    },
-  )
+  test('the interrupted revision goes back to queued until its build runs again', { tag: ['@REV-011'] }, async () => {
+    expect(restart!.whileStopped.revision).toBe('queued')
+  })
 })
 
 test.describe('logs', () => {

@@ -24,6 +24,7 @@ import { useCollections } from './mongo'
  *       // ctx.signal is aborted when the lease is lost, the job is cancelled or the process stops
  *     },
  *     async onFailed(job, error, ctx) { … },  // optional: final failure (attempts exhausted or FatalJobError)
+ *     async onRequeued(job, ctx) { … },       // optional: a running job went back to queued (stop, lease expiry, retry)
  *   })
  *
  * Creating a job (API handlers): `await createJob({ kind, userId, subject, params })` inserts it `queued`; a
@@ -64,6 +65,11 @@ export interface JobKindDefinition {
   handler(job: JobDoc, ctx: JobContext): Promise<void>
   /** called once when the job ends `failed` */
   onFailed?(job: JobDoc, error: { code: string; message: string }, ctx: { log: Logger; config: Config }): Promise<void>
+  /**
+   * called after a running job went back to `queued` without finishing: its runner stopped, its lease expired (the
+   * runner died) or a retryable attempt failed. Resets the subject's own state machine (docs/data-model.md §6.4).
+   */
+  onRequeued?(job: JobDoc, ctx: { log: Logger; config: Config }): Promise<void>
 }
 
 /** A failure that must not be retried: the job ends `failed` at once. */

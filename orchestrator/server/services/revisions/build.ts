@@ -19,7 +19,9 @@ import { finishBuildLog, startBuildLog } from './build-log'
 // --push-gate 3 --expect-name <task> [--allow-privileged] --events ndjson`, stores the NDJSON events as the build
 // log, answers the push gate after the registry-GC handshake (docs/deployment.md §14.1) and records the result on the
 // revision. Content failures (exit 2) fail the revision; platform failures (exit 3, a crashed pipeline) are retried
-// by the job and fail the revision when the attempts are exhausted. A restarted job builds from scratch.
+// by the job and fail the revision when the attempts are exhausted. A job that goes back to `queued` without finishing
+// (the orchestrator stopped, its runner died, a retry) puts a `building` revision back to `queued` (onRequeued,
+// docs/data-model.md §6.4); the next attempt builds from scratch from the stored snapshot.
 
 const REVISION_WAIT_MS = 10_000
 const REGISTRY_WAIT_MS = 10_000
@@ -157,6 +159,22 @@ async function finalizeRevision(revision: RevisionDoc, state: 'ready' | 'failed'
   })
 }
 
+/**
+ * The revision's job went back to `queued` without finishing: a `building` revision is `queued` again until the next
+ * attempt claims the job, in the revision and in the task's latestRevision mirror (docs/data-model.md §6.4).
+ */
+export async function requeueRevision(revisionId: string, log: Logger): Promise<void> {
+  const { revisions, tasks } = useCollections()
+  const now = new Date()
+  const revision = await revisions.findOneAndUpdate({ _id: revisionId, state: 'building' }, { $set: { state: 'queued', updatedAt: now } }, { returnDocument: 'after' })
+  if (!revision) return
+  await tasks.updateOne(
+    { _id: revision.taskId, 'latestRevision.id': revision._id, 'latestRevision.state': 'building' },
+    { $set: { 'latestRevision.state': 'queued', updatedAt: now } },
+  )
+  log.info('revision queued again until its build runs', { revisionId: revision._id, taskId: revision.taskId, number: revision.number })
+}
+
 /** Fails a revision that has not finished (task deleted, job attempts exhausted). */
 export async function failRevision(revisionId: string, errors: BuildErrorDoc[], log: Logger): Promise<void> {
   const revision = await useCollections().revisions.findOne({ _id: revisionId })
@@ -224,10 +242,8 @@ async function buildRevision(job: JobDoc, ctx: JobContext): Promise<void> {
     return
   }
   if (verdict.state === 'retry' && job.attempts < job.maxAttempts) {
-    await revisions.updateOne(
-      { _id: revision._id, state: 'building' },
-      { $set: { state: 'queued', errors: verdict.errors, updatedAt: new Date() } },
-    )
+    // The runner schedules the retry; its onRequeued hook puts the revision back to `queued`.
+    await revisions.updateOne({ _id: revision._id, state: 'building' }, { $set: { errors: verdict.errors, updatedAt: new Date() } })
     throw new Error(verdict.errors[0]?.message ?? 'the task pipeline failed')
   }
   await finalizeRevision(revision, 'failed', fields, verdict.errors, ctx.log)
@@ -244,5 +260,8 @@ export const revisionBuildJobKind: JobKindDefinition = {
     const revision = await useCollections().revisions.findOne({ _id: revisionId })
     const errors = revision?.errors.length ? revision.errors : [platformError(error.message)]
     await failRevision(revisionId, errors, log)
+  },
+  async onRequeued(job, { log }) {
+    await requeueRevision(String(job.params.revisionId ?? job.subject.id), log)
   },
 }

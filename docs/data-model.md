@@ -981,7 +981,7 @@ ones. Results with `round` greater than `scan.round` are rejected as invalid.
 | `queued` | `building` | job claimed | jobs runner |
 | `building` | `ready` | push succeeded, digest recorded | jobs runner |
 | `queued`, `building` | `failed` | pipeline error, timeout, task deleted, job attempts exhausted | jobs runner |
-| `building` | `queued` | job lease expired (orchestrator crash); rebuild from the snapshot | jobs runner |
+| `building` | `queued` | job back to `queued` without finishing: the orchestrator stopped (the runner requeues its jobs), the job lease expired (orchestrator crash) or a retryable pipeline failure; the kind's `onRequeued` hook resets the revision (and `tasks.latestRevision.state`); rebuild from the snapshot | jobs runner |
 
 ### 6.5 Test-run state
 
@@ -1032,7 +1032,7 @@ Active states (count against node capacity and user `maxWorkers`, token valid): 
 | – | `queued` | created by an API handler (`active: true`) |
 | `queued` | `running` | claimed with a lease (`attempts += 1`) |
 | `running` | `succeeded` / `failed` | finished / non-retryable error or `attempts == maxAttempts` (`active: false`, `expiresAt` set) |
-| `running` | `queued` | lease expired or retryable error (`notBefore` = backoff) |
+| `running` | `queued` | the runner stopped, the lease expired or a retryable error (`notBefore` = backoff); the kind's `onRequeued` hook resets the subject |
 | `queued`, `running` | `cancelled` | subject deleted or cancelled |
 
 ### 6.9 Export state

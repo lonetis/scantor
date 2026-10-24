@@ -322,6 +322,84 @@ describe('JobsRunner', () => {
     expect(job(created._id)).toMatchObject({ state: 'queued', lease: null, active: true })
   })
 
+  it('calls onRequeued whenever a running job goes back to queued: stop, lease expiry and a retry', async () => {
+    const requeued: string[] = []
+    const onRequeued = async (claimed: JobDoc) => void requeued.push(claimed.subject.id)
+    const waitForAbort: JobKindDefinition['handler'] = (_claimed, ctx) => new Promise<void>((resolve) => ctx.signal.addEventListener('abort', () => resolve()))
+
+    // The runner stops while the handler runs.
+    const stopping = runner([['scanDelete', { component: 'reconciler', concurrency: 1, handler: waitForAbort, onRequeued }]])
+    const stopped = await create('scanDelete', 'stopped')
+    stopping.start()
+    await vi.waitFor(() => expect(job(stopped._id).state).toBe('running'))
+    await stopping.stop(100)
+    expect(job(stopped._id).state).toBe('queued')
+    expect(requeued).toEqual(['stopped'])
+
+    // Its runner died: the lease expired.
+    const orphan = await create('taskDelete', 'orphan', 'u1', 3)
+    await jobs.updateOne(
+      { _id: orphan._id },
+      { $set: { state: 'running', attempts: 1, lease: { owner: 'dead-runner', expiresAt: new Date(Date.now() - JOB_LEASE_MS) } } },
+    )
+    const sweeping = runner([['taskDelete', { component: 'reconciler', concurrency: 0, async handler() {}, onRequeued }]])
+    sweeping.start()
+    await vi.waitFor(() => expect(requeued).toEqual(['stopped', 'orphan']))
+    expect(job(orphan._id).state).toBe('queued')
+    await sweeping.stop(100)
+
+    // A retryable attempt failed; the final success requeues nothing.
+    let calls = 0
+    const retrying = runner([
+      [
+        'export',
+        {
+          component: 'reconciler',
+          concurrency: 1,
+          backoff: { initialMs: 0, maxMs: 0 },
+          async handler() {
+            calls++
+            if (calls === 1) throw new Error('transient')
+          },
+          onRequeued,
+        },
+      ],
+    ])
+    const flaky = await create('export', 'flaky')
+    retrying.start()
+    await vi.waitFor(() => expect(job(flaky._id).state).toBe('succeeded'))
+    expect(requeued).toEqual(['stopped', 'orphan', 'flaky'])
+  })
+
+  it('does not call onRequeued for a job that succeeded, failed or was cancelled', async () => {
+    const requeued: string[] = []
+    const onRequeued = async (claimed: JobDoc) => void requeued.push(claimed.subject.id)
+    const instance = runner([
+      [
+        'scanDelete',
+        {
+          component: 'reconciler',
+          concurrency: 3,
+          maxAttempts: 1,
+          async handler(claimed, ctx) {
+            if (claimed.subject.id === 'fails') throw new Error('always')
+            if (claimed.subject.id === 'cancelled') await new Promise<void>((resolve) => ctx.signal.addEventListener('abort', () => resolve()))
+          },
+          onRequeued,
+        },
+      ],
+    ])
+    const succeeds = await create('scanDelete', 'succeeds')
+    const fails = await create('scanDelete', 'fails', 'u1', 1)
+    const cancelled = await create('scanDelete', 'cancelled')
+    instance.start()
+    await vi.waitFor(() => expect([job(succeeds._id).state, job(fails._id).state, job(cancelled._id).state]).toEqual(['succeeded', 'failed', 'running']))
+    await cancelActiveJobs('scanDelete', 'cancelled', jobs.asCollection())
+    await instance.stop(100)
+    expect(job(cancelled._id).state).toBe('cancelled')
+    expect(requeued).toEqual([])
+  })
+
   it('only claims its own kinds', async () => {
     const other = await create('taskDelete', 't1')
     const instance = runner([['scanDelete', { component: 'reconciler', concurrency: 1, async handler() {} }]])
