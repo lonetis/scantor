@@ -1,7 +1,7 @@
 import { defineNitroPlugin } from 'nitropack/runtime'
 import { closeAssignmentWaiters } from '../services/nodes/assignments'
 import { upsertBuiltinNode } from '../services/nodes/builtin'
-import { detectOfflineNodes } from '../services/nodes/offline'
+import { detectOfflineNodes, OfflineDetector } from '../services/nodes/offline'
 import { plaintextPublicEndpoints } from '../services/nodes/transport'
 import { writeRegistryAuthFiles } from '../services/registry/files'
 import { RegistryGcLoop } from '../services/registry/gc'
@@ -14,9 +14,11 @@ import { useCollections } from '../utils/mongo'
 //   boot 610  jwks.json + http-secret into the scantor-registry-auth volume
 //   boot 620  built-in node upsert (tokenHash of the derived built-in node token)
 //   boot 625  warning about plaintext public endpoints that remote nodes would refuse (docs/nodes.md §11)
-//   reconciler  node offline detection (workers → lost; placement replaces them), every 10 s under `reconciler`
+//   reconciler  node offline detection (workers → lost; placement replaces them), every 10 s under `reconciler`; silence
+//               counts only after the detector's grace (OfflineDetector: lock acquired, late tick, MongoDB outage) and
+//               never once the shutdown began
 //   reconciler  registry garbage collection every SCANTOR_REGISTRY_GC_INTERVAL under `registryGc`
-//   api         assignment long-poll waiters (closed on stop)
+//   api         assignment long-poll waiters (the long-polls answer when the shutdown begins; the change stream closes on stop)
 
 const OFFLINE_TICK_MS = 10_000
 
@@ -57,26 +59,34 @@ export default defineNitroPlugin(() => {
 
   let offlineTimer: NodeJS.Timeout | null = null
   let offlineLock: LeaseLock | null = null
-  let offlineTick: Promise<unknown> | null = null
+  let offlineDetector: OfflineDetector | null = null
   registerComponentTask({
     component: 'reconciler',
     name: 'node-offline-detection',
-    start({ config, log }) {
-      offlineLock = new LeaseLock(useCollections().locks, 'reconciler', { logger: log })
+    start({ config, log, signal }) {
+      const detector = new OfflineDetector({
+        offlineAfterMs: config.nodeOfflineAfterMs,
+        tickMs: OFFLINE_TICK_MS,
+        detect: () => detectOfflineNodes(config.nodeOfflineAfterMs, log),
+        log,
+      })
+      offlineDetector = detector
+      offlineLock = new LeaseLock(useCollections().locks, 'reconciler', {
+        logger: log,
+        onAcquired: () => detector.acquired(),
+        onLost: () => detector.lost(),
+      })
       offlineLock.start()
       offlineTimer = setInterval(() => {
-        if (!offlineLock?.held || offlineTick) return
-        offlineTick = detectOfflineNodes(config.nodeOfflineAfterMs, log)
-          .catch((error: unknown) => log.error('node offline detection failed', { err: error }))
-          .finally(() => {
-            offlineTick = null
-          })
+        // The signal aborts when the shutdown begins: from then on this process may receive no status.
+        if (offlineLock?.held && !signal.aborted) detector.tick()
       }, OFFLINE_TICK_MS)
     },
     async stop() {
       if (offlineTimer) clearInterval(offlineTimer)
       offlineTimer = null
-      await offlineTick
+      await offlineDetector?.stop()
+      offlineDetector = null
       await offlineLock?.stop()
       offlineLock = null
     },

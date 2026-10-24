@@ -218,6 +218,21 @@ the foundation; domain plugins `20`–`89` add their own, for example the regist
 node and the transport warning of step 6 in `60.nodes.ts`, and the editor reaper's first sweep in
 `70.editor.ts`) and run in order by `server/plugins/99.start.ts`.
 
+Orchestrator shutdown (SIGTERM, SIGINT; compose `stop_grace_period: 30s`):
+
+1. At the signal the components stop, in reverse start order: loops end, jobs runners requeue their
+   running jobs (an interrupted build goes back to `queued`, [data model](data-model.md) §6.4), the
+   ingestor stops consuming, the editor listener closes. The shutdown signal aborts first, so node offline
+   detection ends at once, and API waits ([api](api.md) §1.9) and node assignments long-polls answer at
+   once with the current state. A signal during boot runs no further boot step and starts no component.
+2. Meanwhile Nitro's graceful shutdown stops accepting connections and drains the open requests, which
+   are served normally (the API stays available until the process exits).
+3. On Nitro `close` the AMQP and MongoDB clients close and the process exits 0.
+
+Nodes and runtimes keep working while the orchestrator is away ([nodes](nodes.md) §7.4, [runtime](runtime.md)).
+After the restart, offline detection first waits for its grace, so no node goes offline because its
+backed-off daemon has not reported yet.
+
 ### 4.2 The `scantor` binary
 
 One static Go binary (`CGO_ENABLED=0`, module `github.com/lonetis/scantor`, `cmd/scantor`). It is shipped in
@@ -875,7 +890,9 @@ All lifecycle routes only change intent in MongoDB (plus a job where noted); the
 5. **Offline**: no status for `SCANTOR_NODE_OFFLINE_AFTER` → node `offline`, its non-terminal workers
    `lost` (their tokens stop validating immediately), events and conditions raised, replacements placed
    elsewhere (new worker ids; a new scheduler gets `epoch+1`). Messages held by lost workers return to the
-   queue when their AMQP connections die; duplicate executions are deduplicated by the ingestor.
+   queue when their AMQP connections die; duplicate executions are deduplicated by the ingestor. Silence
+   counts only while the orchestrator could receive statuses: after its start, a lock failover, a paused
+   process or a MongoDB outage the detection waits for a grace first ([nodes](nodes.md) §7.4).
 6. **Return**: the next hello/status sets `online`; the desired set no longer contains the lost workers,
    so the daemon drains and removes their containers.
 7. **Rotate / revoke** (`POST|DELETE /api/nodes/{id}/token`): rotation replaces the hash (the old daemon

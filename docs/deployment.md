@@ -129,7 +129,7 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
 | command | image default `node .output/server/index.mjs` (prod). Dev: `npm install … && npx nuxt dev --host 0.0.0.0 --port 3000` |
 | depends_on | `mongo`, `rabbitmq` and `rustfs` with `condition: service_healthy`. Not `registry`: the registry waits for the orchestrator (§4.5). |
 | healthcheck | `wget -qO- http://127.0.0.1:3000/api/health` every 10 s, timeout 5 s, 6 retries, `start_period` 60 s (dev 180 s). `/api/health` is 503 only when MongoDB is down. |
-| other | `container_name: scantor-orchestrator`, `mem_limit: ${SCANTOR_ORCHESTRATOR_MEMORY_LIMIT}`, `stop_grace_period: 30s` (job leases, AMQP close) |
+| other | `container_name: scantor-orchestrator`, `mem_limit: ${SCANTOR_ORCHESTRATOR_MEMORY_LIMIT}`, `stop_grace_period: 30s` (components stop at the signal and requeue their jobs, waits and long-polls answer at once, Nitro drains the open requests, then the AMQP and MongoDB clients close; [architecture](architecture.md) §4.1) |
 | networks | `scantor`, `scantor-sandbox` (the service name `orchestrator` is its DNS alias on both) |
 | ports | 3000 and 3001 (§1) |
 | volumes | `/var/run/docker.sock` (builds, helpers, editors, test runs, registry GC exec); `scantor-editor-sockets:/run/scantor/editor-sockets`; `scantor-registry-auth:/run/scantor/registry-auth`. **Never `scantor-workspaces`.** |
@@ -1151,7 +1151,9 @@ docker compose -f docker-compose.prod.yml up -d
 - Data model migrations run at orchestrator boot under the `migrations` lock
   ([data model](data-model.md) §1).
 - Running workers keep running. The built-in node daemon restarts and adopts them, while their injected
-  runtime stays the old one until they are recreated.
+  runtime stays the old one until they are recreated. The orchestrator restart marks no node offline:
+  after its start, offline detection waits until every daemon had the time to report again
+  ([nodes](nodes.md) §7.4).
 - Update the master first, then remote nodes. The orchestrator accepts daemons and runtimes of its own
   and the previous minor version (426 otherwise), so skipping a minor version requires updating nodes
   promptly.

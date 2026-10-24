@@ -953,6 +953,9 @@ test.describe('an orchestrator restart during a scan and a build', () => {
     total: number
     taskName: string
     revisionId: string
+    /** when the stop began and when the restarted orchestrator answered through Traefik again */
+    stoppedAt: number
+    readyAt: number
     /** read from MongoDB while the orchestrator is stopped */
     whileStopped: { revision: string; job: string; scan: string; succeeded: number }
     booting: {
@@ -1005,6 +1008,7 @@ test.describe('an orchestrator restart during a scan and a build', () => {
     const auth = { Authorization: `Bearer ${user.apiKey}` }
     let whileStopped: Restart['whileStopped'] | undefined
     let booting: Restart['booting'] | undefined
+    const stoppedAt = Date.now()
     try {
       await stopOrchestrator()
       const id = JSON.stringify(revisionId)
@@ -1043,7 +1047,7 @@ test.describe('an orchestrator restart during a scan and a build', () => {
       await startOrchestrator()
     }
     await waitForOrchestrator(user.apiKey)
-    restart = { scanId: scan.id, total, taskName, revisionId, whileStopped: whileStopped!, booting: booting! }
+    restart = { scanId: scan.id, total, taskName, revisionId, stoppedAt, readyAt: Date.now(), whileStopped: whileStopped!, booting: booting! }
   })
 
   test.afterAll(async ({ keyApi }) => {
@@ -1051,9 +1055,9 @@ test.describe('an orchestrator restart during a scan and a build', () => {
     if (created.taskName) await deleteTaskSoon(keyApi, created.taskName)
   })
 
-  test('a scan running across the restart completes with exact counts', { tag: ['@CHAOS-002'] }, async ({ api, scans }) => {
-    test.setTimeout(360_000)
-    const { scanId, total, whileStopped } = restart!
+  test('a scan running across the restart completes with exact counts and no node goes offline', { tag: ['@CHAOS-002'] }, async ({ api, adminApi, scans }) => {
+    test.setTimeout(450_000)
+    const { scanId, total, stoppedAt, readyAt, whileStopped } = restart!
     // The scan was still running when the orchestrator had stopped.
     expect(whileStopped.scan).toBe('running')
     expect(whileStopped.succeeded).toBeLessThan(total)
@@ -1061,6 +1065,17 @@ test.describe('an orchestrator restart during a scan and a build', () => {
     expect(done.scheduling).toMatchObject({ state: 'done', confirmed: total })
     expect(await scans.counts(scanId)).toEqual({ succeeded: total })
     expectOnePerSeq(await analysesOf(api, scanId), total)
+
+    // The node daemons kept working while the orchestrator was away: the stop ended offline detection before Nitro
+    // drained the open requests, and after the boot the detection waits for its grace (docs/nodes.md §7.4:
+    // max(SCANTOR_NODE_OFFLINE_AFTER, 60 s), 60 s on this stack) while the backed-off daemons report again. Two
+    // detection ticks past the grace, no node has gone offline and no worker of the scan was lost.
+    await holdFor(readyAt + 60_000 + 20_000 - Date.now())
+    for (const node of [await builtinNode(adminApi), readRemoteNode()]) {
+      const offline = (await nodeEvents(adminApi, node.id)).filter((e) => e.type === 'node.offline' && Date.parse(e.at) >= stoppedAt)
+      expect(offline, `node.offline events of ${node.id} since the stop`).toEqual([])
+    }
+    expect((await scanWorkers(api, scanId)).filter((w) => w.state === 'lost').map((w) => `${w.role} ${w.id}`)).toEqual([])
   })
 
   test('while the orchestrator boots every /api route answers 503 except health and the docs', { tag: ['@API-010'] }, async () => {

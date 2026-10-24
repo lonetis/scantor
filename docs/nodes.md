@@ -599,6 +599,20 @@ once, and the reconciler places replacements elsewhere (new worker ids; a new sc
 `epoch + 1`). Messages held by the lost workers return to the queue when their AMQP connections die, and
 duplicate executions are deduplicated by the ingestor.
 
+Silence counts only while the orchestrator could receive the statuses. The detection (every 10 s under
+the `reconciler` lock) runs only once it has watched for a grace of `SCANTOR_NODE_OFFLINE_AFTER`, or
+60 s when the window is shorter: the longest a live node may need to reach a restarted orchestrator, that
+is the longest retry delay of its backed-off daemon (30 s + 20 % jitter, §5.2) plus the time until
+Traefik routes to the orchestrator again (its next health check, [deployment](deployment.md) §4.1),
+with a margin. The watch starts when the orchestrator acquires the lock (its start, a failover) and
+starts again after the lock was lost, after a tick that came more than two intervals late (the process
+did not run, for example `docker pause`), and after a detection pass that failed or was still running at
+the next tick (MongoDB, which records the statuses, was unavailable). So an orchestrator restart or outage
+gives every node a full window, and the time to reach the orchestrator again, before it can go offline. When the
+orchestrator stops, its components stop at the signal, before Nitro drains the open requests: the
+detection ends at once, and the assignments long-polls answer at once instead of holding the drain for
+`SCANTOR_NODE_ASSIGNMENTS_WAIT` ([architecture](architecture.md) §4.1).
+
 **Partition heals**: the next status of the same instance re-acquires the lease (same `instanceId`) and
 sets `online`. The desired set no longer contains the lost workers, so the daemon drains and removes
 them. If those runtimes reach the orchestrator before that, they get 401 and stop on their own.
@@ -956,6 +970,10 @@ lead review:
 14. **`SCANTOR_NODE_MAX_WORKERS=0`** means "number of CPUs". The master maps
     `SCANTOR_BUILTIN_NODE_MAX_WORKERS` and `SCANTOR_BUILTIN_NODE_DIND` onto the daemon variables
     ([deployment](deployment.md)).
+15. **Offline detection waits for a grace after every interruption** (§7.4): max(offline window, 60 s)
+    after the lock is acquired, a late tick or a MongoDB outage, so orchestrator restarts and outages never
+    mark live nodes offline. The daemon's backoff ceiling is not lowered instead, because the grace covers
+    every daemon version in the window, reverse proxies included, and needs no protocol change.
 
 ## 15. Backbone change requests (written here as if applied)
 
