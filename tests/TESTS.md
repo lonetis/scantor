@@ -625,7 +625,7 @@ test-index --check`); never edit it by hand.
 | OPS-006 | Traefik redirects http:// permanently to https://, serves the operator's default certificate (the … | security/traefik.spec.ts › Traefik › http:// redirects permanently to https:// on every host<br>security/traefik.spec.ts › Traefik › the test CA's wildcard certificate is served for every host and the SNI TCP router<br>security/traefik.spec.ts › Traefik › the Traefik dashboard API is reachable only with an admin's tools cookie |
 | OPS-007 | Traefik routes each host to its target: scantor. to the orchestrator, editor. to the editor … | security/traefik.spec.ts › Traefik › routing › the apex host reaches the orchestrator<br>security/traefik.spec.ts › Traefik › routing › the editor host reaches the editor listener, not the API<br>security/traefik.spec.ts › Traefik › routing › the registry host reaches the registry with token auth<br>security/traefik.spec.ts › Traefik › routing › the s3 host reaches the object store with the Host header preserved<br>security/traefik.spec.ts › Traefik › routing › the traefik host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the rabbitmq host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the mongo-express host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the rustfs host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the amqp host is a TLS TCP router to RabbitMQ |
 | CHAOS-001 | Killing one runner of a scan while analyses are in flight still ends the scan completed with … | chaos/chaos.spec.ts › faults of one scan › killing a runner while analyses are in flight still completes the scan with one document per seq |
-| CHAOS-002 | Restarting the orchestrator during a running scan, also while results are being ingested, ends the … | chaos/chaos.spec.ts › an orchestrator restart during a scan and a build › a scan running across the restart completes with exact counts |
+| CHAOS-002 | Restarting the orchestrator during a running scan, also while results are being ingested, ends the … | chaos/chaos.spec.ts › an orchestrator restart during a scan and a build › a scan running across the restart completes with exact counts and no node goes offline |
 | CHAOS-003 | Restarting RabbitMQ while retries are delayed keeps the quorum queues, delayed messages and users; … | chaos/chaos.spec.ts › platform components › restarting RabbitMQ while retries are delayed keeps the queue, the retries and the user; /api/health is 200 degraded meanwhile |
 | CHAOS-004 | Pausing a scan while retries are delayed, waiting 30 s and resuming loses no analysis, and the … | chaos/chaos.spec.ts › faults of one scan › pausing while retries are delayed, waiting 30 s and resuming loses no analysis |
 | CHAOS-005 | A scan cancelled and deleted right after a backlog of results built up (the orchestrator paused for … | chaos/chaos.spec.ts › platform components › a scan cancelled and deleted right after a result backlog built up stays a tombstone without analyses |
@@ -930,10 +930,12 @@ None.
 - `orchestrator/test/services/mcp/truncate.test.ts`
 - `orchestrator/test/services/mcp/untrusted.test.ts`
 - `orchestrator/test/services/metrics/registry.test.ts`
+- `orchestrator/test/services/nodes/assignments-shutdown.test.ts`
 - `orchestrator/test/services/nodes/assignments.test.ts`
 - `orchestrator/test/services/nodes/join.test.ts`
 - `orchestrator/test/services/nodes/lease.test.ts`
 - `orchestrator/test/services/nodes/node-api.integration.test.ts`
+- `orchestrator/test/services/nodes/offline.test.ts`
 - `orchestrator/test/services/nodes/schemas.test.ts`
 - `orchestrator/test/services/nodes/status.test.ts`
 - `orchestrator/test/services/nodes/transport.test.ts`
