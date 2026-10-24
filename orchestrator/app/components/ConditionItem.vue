@@ -73,7 +73,7 @@ const alarms = computed(() => (Array.isArray(details.value.alarms) ? details.val
       <p class="text-xs text-muted">{{ plural(num(details.count) ?? 0, 'worker') }} pending</p>
       <table class="text-xs" aria-label="Pending reasons">
         <tbody>
-          <tr v-for="entry in pendingReasons" :key="entry.reason">
+          <tr v-for="entry in pendingReasons" :key="entry.reason" :data-row-id="entry.reason">
             <td class="pe-3 text-muted">{{ entry.label }}</td>
             <td class="font-mono tabular-nums">{{ entry.count }}</td>
           </tr>

@@ -28,6 +28,8 @@ const outputItems = [
 ]
 const output = ref<'json' | 'table'>('json')
 const flat = computed(() => isFlatItems(items.value))
+const resultsTable = useTemplateRef('resultsTable')
+useTableRowIds(resultsTable, queryRowId)
 const tableColumns = computed<TableColumn<Record<string, unknown>>[]>(() => {
   const keys = new Set<string>()
   for (const item of items.value) for (const key of Object.keys(item)) keys.add(key)
@@ -171,6 +173,7 @@ watch(() => route.query.filter, async (raw) => {
       />
       <UTable
         v-if="output === 'table' && flat"
+        ref="resultsTable"
         :data="items"
         :columns="tableColumns"
         aria-label="Query results"

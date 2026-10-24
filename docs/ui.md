@@ -899,14 +899,18 @@ of the contract:
 3. Non-interactive regions that tests assert on carry `data-testid`: `scan-progress`, `scan-stats`,
    `scan-health`, `condition-<type>`, `build-log`, `build-errors`, `test-run-log`, `analysis-slideover`,
    `secret-reveal`, `unpublished-badge`. Table rows carry `data-row-id="<id>"` (analyses:
-   `data-row-id="<seq>"`); `UTable` cannot set row attributes, so `useTableRowIds` writes the attribute
-   onto each rendered row.
+   `data-row-id="<seq>"`, schema tables: the property path, query results: `seq`, `id` or `_id`, pending
+   reasons: the reason); `UTable` cannot set row attributes, so `useTableRowIds` writes the attribute onto
+   each rendered row.
 4. Status badges always contain the state text (color is never the only signal). Pulsing indicators use
    `motion-safe:`.
 5. Modals and slideovers have a title (`UModal`/`USlideover` `title` or an `aria-labelledby` heading),
    trap focus and return focus on close; `ConfirmModal`'s destructive button names the action ("Delete
    scan"), never just "OK".
-6. Tables have an `aria-label`; sortable headers expose `aria-sort`.
+6. Tables have an `aria-label`, and it is the accessible name of the `<table>` element. `UTable` puts
+   the attribute on its wrapper `<div>`, so `useTableRowIds` labels the `<table>` with `aria-labelledby`
+   pointing at that wrapper (the label is not repeated, so `[aria-label="<label>"]` still matches one
+   element). Sortable headers expose `aria-sort`.
 7. No native `confirm()`/`prompt()`/`alert()`.
 
 ## 12. Icons

@@ -63,6 +63,18 @@ export function isFlatItems(items: readonly Record<string, unknown>[]): boolean 
   return items.length > 0 && items.every((item) => Object.values(item).every((value) => value === null || typeof value !== 'object'))
 }
 
+/**
+ * `data-row-id` of a query result row (docs/ui.md §11 rule 3): the analysis `seq`, else an `id` or a scalar `_id`
+ * (aggregate groups), else the row's position.
+ */
+export function queryRowId(row: Record<string, unknown>, index: number): string | number {
+  for (const key of ['seq', 'id', '_id']) {
+    const value = row[key]
+    if (typeof value === 'number' || (typeof value === 'string' && value !== '')) return value
+  }
+  return index
+}
+
 function isQueryInputs(value: unknown): value is QueryInputs {
   const candidate = value as Partial<QueryInputs> | null
   return typeof candidate === 'object' && candidate !== null

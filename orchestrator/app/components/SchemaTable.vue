@@ -12,6 +12,8 @@ const props = withDefaults(defineProps<{
 
 const raw = ref(false)
 const rows = computed<SchemaRow[]>(() => (props.schema === null || props.schema === undefined ? [] : flattenSchema(props.schema)))
+const table = useTemplateRef('table')
+useTableRowIds(table, (row: SchemaRow) => row.path)
 
 const BADGE_COLORS = { secret: 'warning', upload: 'info', file: 'info', deprecated: 'warning', readOnly: 'neutral' } as const
 
@@ -42,6 +44,7 @@ const columns: TableColumn<SchemaRow>[] = [
     <JsonView v-if="raw" :value="schema ?? {}" :collapsed-depth="4" />
     <UTable
       v-else
+      ref="table"
       :data="rows"
       :columns="columns"
       :aria-label="label"
