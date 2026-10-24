@@ -162,6 +162,18 @@ if [ -f /sys/fs/cgroup/cgroup.controllers ]; then
   fi
 fi
 
+# ── Phase 1a: no IPv6 on new interfaces ─────────────────────────────────────────────────────────────
+# The inner dockerd adds a bridge per network and a veth per container to this network namespace. With IPv6
+# on, each gets a link-local address, and Chromium reports every address change as net::ERR_NETWORK_CHANGED,
+# which aborts the browser's requests in flight. The stack is IPv4 only; lo and eth0 keep their settings, and
+# inner containers have network namespaces of their own.
+if [ -d /proc/sys/net/ipv6 ]; then
+  log "Phase 1a: IPv6 off for the interfaces created from now on"
+  if ! echo 1 > /proc/sys/net/ipv6/conf/default/disable_ipv6; then
+    err "warning: could not disable IPv6 for new interfaces; browser requests may fail with net::ERR_NETWORK_CHANGED"
+  fi
+fi
+
 # ── Phase 2: DNS ────────────────────────────────────────────────────────────────────────────────────
 # dnsmasq answers *.<domain> with the docker0 address for this container (127.0.0.1) and for every inner
 # container (172.17.0.1, the inner dockerd's DNS); everything else goes to the resolver Docker gave

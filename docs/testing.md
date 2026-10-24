@@ -431,6 +431,7 @@ failures and normal exits all tear down. Playwright and the keep-alive wait run 
 |---|---|---|
 | 0. trap | `trap cleanup EXIT`; `cleanup` = phase 9 | – |
 | 1. cgroup v2 nesting | move processes into `/sys/fs/cgroup/init`, enable all controllers in `cgroup.subtree_control` (official dind trick, retried) | warn and continue |
+| 1a. IPv6 on new interfaces | `net.ipv6.conf.default.disable_ipv6=1` (only when the kernel has IPv6): the bridges and veths the inner dockerd adds to the runner's network namespace get no link-local addresses, whose appearance Chromium reports as `net::ERR_NETWORK_CHANGED` (§9); `lo` and `eth0` keep their settings, inner containers have network namespaces of their own | warn and continue |
 | 2. DNS | save upstream nameservers to `/etc/resolv.conf.upstream`; dnsmasq with `listen-address=127.0.0.1,172.17.0.1`, `bind-dynamic`, `address=/scantor.localhost/172.17.0.1`, `resolv-file=/etc/resolv.conf.upstream` (never together with `no-resolv`), `filter-AAAA`, `no-poll`; point `/etc/resolv.conf` at 127.0.0.1; verify `getent hosts scantor.localhost` and an upstream name | exit 1 |
 | 3. CA and certificates | create the throwaway CA (P-256, 30 days) and the wildcard certificate in `/run/scantor-test/ca/` and `/run/scantor-test/traefik/dynamic/` (with `tls.yml`); install trust: system store (`update-ca-certificates`), NSS (`certutil`, Chromium), Node (`NODE_EXTRA_CA_CERTS`). Before dockerd, because Go loads the system roots once per process and the inner dockerd needs the CA for the registry token realm | exit 1 |
 | 4. dockerd | remove stale pid/socket files; start `dockerd` with `daemon.json`; wait ≤ 30 s for `docker info` | exit 1 with the dockerd log tail |
@@ -815,7 +816,10 @@ Flake avoidance (agentor's pitfalls):
    helpers throw with diagnostic state (scan conditions, worker states) on timeout.
 4. Counts come from `aggregateAnalyses`, not from `stats` hints.
 5. Every API context sends `Origin`; storage states are created through the API (no UI login in setup).
-6. Navigation retries only on `net::ERR_NETWORK_CHANGED` (DinD netlink race).
+6. The DinD netlink race: every container the inner dockerd creates adds interfaces to the runner's network
+   namespace, and Chromium aborts its requests in flight with `net::ERR_NETWORK_CHANGED` when an address
+   appears. Phase 1a keeps IPv6 link-local addresses off those interfaces; navigation still retries, and only
+   on that error (`gotoWithRetry`).
 7. Passkey tests run on the HTTPS origin with the CA trusted by Chromium; conditional mediation is
    skipped under webdriver by the app itself.
 8. `shm_size: 2gb`; videos at 1920×1080; traces and screenshots retained on failure.
