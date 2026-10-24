@@ -902,7 +902,8 @@ regenerates the index in the same commit ([development](development.md) §13).
   `traefik`) differ between `docker-compose.dev.yml` and `docker-compose.prod.yml`, or when a compose rule
   of [security](security.md) is broken: Traefik `exposedbydefault=false`, the compose-project constraint
   and `api.insecure=false`; admin GUIs and MongoDB published only on `SCANTOR_ADMIN_BIND_ADDRESS`; the
-  MongoDB TCP router only with `SCANTOR_EXPOSE_MONGO`; mongo-express read-only; `mongod --noscripting`;
+  MongoDB TCP router only with `SCANTOR_EXPOSE_MONGO`; mongo-express read-only; `mongod --noscripting` and
+  `--slowOpSampleRate 0`;
   memory limits on the orchestrator, mongo and rabbitmq; the orchestrator never mounts
   `scantor-workspaces`; no variable default anywhere (every `docker-compose.*.yml` and
   `tests/docker/stack.tests.yml`) except the image prefix fallback; the orchestrator and Traefik get

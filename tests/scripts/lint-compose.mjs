@@ -4,7 +4,8 @@
 //   - the infrastructure services are identical in docker-compose.dev.yml and docker-compose.prod.yml;
 //   - the compose rules of docs/security.md hold: Traefik with exposedbydefault=false, the compose-project constraint and
 //     api.insecure=false; admin GUIs and MongoDB published only on SCANTOR_ADMIN_BIND_ADDRESS; the MongoDB TCP router
-//     only with SCANTOR_EXPOSE_MONGO; mongo-express read-only; mongod --noscripting; memory limits on the orchestrator,
+//     only with SCANTOR_EXPOSE_MONGO; mongo-express read-only; mongod --noscripting and --slowOpSampleRate 0 (slow
+//     operations are logged with their documents, session tokens included); memory limits on the orchestrator,
 //     mongo and rabbitmq; the orchestrator never mounts scantor-workspaces; the orchestrator and Traefik get
 //     `env_file: .env`;
 //   - no compose file (including the test runner's and the test stack override) gives a variable a default, except the
@@ -62,6 +63,9 @@ function serviceRules(name, compose) {
     problems.push(`${name}: mongo-express must set ME_CONFIG_OPTIONS_READONLY=\${SCANTOR_MONGO_EXPRESS_READONLY}`)
   }
   if (!asList(services.mongo?.command).map(String).includes('--noscripting')) problems.push(`${name}: mongod must run with --noscripting`)
+  const mongoCommand = asList(services.mongo?.command).map(String)
+  const sampleRate = mongoCommand.indexOf('--slowOpSampleRate')
+  if (sampleRate < 0 || mongoCommand[sampleRate + 1] !== '0') problems.push(`${name}: mongod must run with --slowOpSampleRate 0`)
   for (const service of ['orchestrator', 'mongo', 'rabbitmq']) {
     if (services[service] && !services[service].mem_limit) problems.push(`${name}: ${service} has no mem_limit`)
   }

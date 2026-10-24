@@ -87,7 +87,7 @@ services:
 
   mongo:
     image: mongo:9.0
-    command: ["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--bind_ip_all"]
+    command: ["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--slowOpSampleRate", "0", "--bind_ip_all"]
     entrypoint:
       - bash
       - -c

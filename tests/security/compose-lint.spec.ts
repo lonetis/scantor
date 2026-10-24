@@ -90,6 +90,11 @@ const RULES: RuleCase[] = [
     breakRule: (copy) => copy.replace(PROD, '"--noscripting", ', ''),
     problem: `${PROD}: mongod must run with --noscripting`,
   },
+  {
+    title: 'mongod logs slow operations',
+    breakRule: (copy) => copy.replace(PROD, '"--slowOpSampleRate", "0", ', ''),
+    problem: `${PROD}: mongod must run with --slowOpSampleRate 0`,
+  },
   ...(['orchestrator', 'mongo', 'rabbitmq'] as const).map<RuleCase>((service) => ({
     title: `the ${service} service has no memory limit`,
     breakRule: (copy) => editService(copy, PROD, service, (path, doc) => doc.deleteIn([...path, 'mem_limit'])),

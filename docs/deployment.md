@@ -161,7 +161,7 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 
 | Aspect | Value |
 |---|---|
-| command | `["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--bind_ip_all"]` |
+| command | `["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--slowOpSampleRate", "0", "--bind_ip_all"]` |
 | entrypoint | a bash wrapper that writes a fresh random keyFile (`openssl rand -base64 756`, mode 400, owner `mongodb`) and then `exec docker-entrypoint.sh "$@"`. A single-member replica set needs a keyFile with `--auth` but never compares it with anything. |
 | healthcheck | `mongosh` as root: `try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}).ok }`. This initiates the replica set on first start and reports health. Interval 5 s, timeout 10 s, 12 retries, `start_period` 30 s, `start_interval` 2 s. |
 | other | `container_name: scantor-mongo`, `mem_limit: ${SCANTOR_MONGO_MEMORY_LIMIT}`. The member host `mongo:27017` is stored in the replica-set config, so **never rename the service**. |
@@ -175,6 +175,12 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
   as `SCANTOR_MONGO_USER`, which is the root user, because it must create `scantor_query` and the
   analytics user.
 - `--noscripting` disables `$where`, `$function` and `$accumulator` server-wide ([api](api.md) §5.2).
+- `--slowOpSampleRate 0` keeps slow operations out of the MongoDB log ([security](security.md) MC-11): a slow-operation
+  line carries the whole command, for example the session token of a better-auth session insert or lookup, and the
+  Community server cannot redact it. To diagnose slow queries, enable the profiler for a while with
+  `db.setProfilingLevel(1, { slowms: 100, sampleRate: 1 })`: it writes to `system.profile`, but the sample rate also
+  applies to the log, so the log carries those commands again until `db.setProfilingLevel(0, { sampleRate: 0 })` or a
+  restart of the container.
 - While `SCANTOR_EXPOSE_MONGO=true` or `SCANTOR_MONGO_EXPRESS_READONLY=true` (the shipped value), the
   orchestrator also ensures a read-only analytics user `SCANTOR_MONGO_ANALYTICS_USER` /
   `SCANTOR_MONGO_ANALYTICS_PASSWORD` (role `read` on `SCANTOR_MONGO_DB`) at boot. The MongoDB TCP router
@@ -427,7 +433,7 @@ services:
 
   mongo:
     image: mongo:9.0
-    command: ["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--bind_ip_all"]
+    command: ["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--slowOpSampleRate", "0", "--bind_ip_all"]
     entrypoint:
       - bash
       - -c
