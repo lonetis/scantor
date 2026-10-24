@@ -12,33 +12,14 @@ const props = withDefaults(defineProps<{
 }>(), { text: undefined, lines: undefined, errorPattern: null, maxHeightClass: 'max-h-96', testid: undefined, emptyText: 'No output.' })
 
 const container = useTemplateRef<HTMLElement>('container')
-const follow = ref(true)
 const wrap = ref(true)
-const BOTTOM_TOLERANCE_PX = 24
 
 const displayLines = computed(() => {
   if (props.lines) return props.lines.flatMap((line) => (line === '' ? [''] : toLogLines(line)))
   return toLogLines(props.text ?? '')
 })
 
-watch(() => displayLines.value.length, async () => {
-  if (!follow.value) return
-  await nextTick()
-  const element = container.value
-  if (element) element.scrollTop = element.scrollHeight
-}, { immediate: true, flush: 'post' })
-
-// Scrolling up pauses following; scrolling back to the bottom resumes it.
-function onScroll(): void {
-  const element = container.value
-  if (!element) return
-  follow.value = element.scrollHeight - element.scrollTop - element.clientHeight <= BOTTOM_TOLERANCE_PX
-}
-
-function toggleFollow(): void {
-  follow.value = !follow.value
-  if (follow.value && container.value) container.value.scrollTop = container.value.scrollHeight
-}
+const { follow, onScroll, toggleFollow } = useFollowScroll(container, () => displayLines.value.length)
 </script>
 
 <template>

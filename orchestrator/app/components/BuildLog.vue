@@ -9,9 +9,8 @@ const props = withDefaults(defineProps<{
 
 const PHASE_ORDER = ['pack', 'static', 'build', 'describe', 'check', 'push', 'platform']
 const container = useTemplateRef<HTMLElement>('container')
-const follow = ref(true)
+const { follow, onScroll, toggleFollow } = useFollowScroll(container, () => props.lines.length)
 const collapsed = ref<Set<string>>(new Set())
-const BOTTOM_TOLERANCE_PX = 24
 
 interface PhaseGroup {
   phase: string
@@ -49,23 +48,6 @@ function toggle(phase: string): void {
   collapsed.value = next
 }
 
-watch(() => props.lines.length, async () => {
-  if (!follow.value) return
-  await nextTick()
-  const element = container.value
-  if (element) element.scrollTop = element.scrollHeight
-}, { flush: 'post' })
-
-function onScroll(): void {
-  const element = container.value
-  if (!element) return
-  follow.value = element.scrollHeight - element.scrollTop - element.clientHeight <= BOTTOM_TOLERANCE_PX
-}
-
-function toggleFollow(): void {
-  follow.value = !follow.value
-  if (follow.value && container.value) container.value.scrollTop = container.value.scrollHeight
-}
 </script>
 
 <template>

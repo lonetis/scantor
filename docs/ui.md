@@ -388,7 +388,8 @@ Tabs (`?tab=`):
 - **Build log** (`BuildLog`): incremental `getRevisionBuildLog?afterLine=<n>&limit=1000` every 1 s while
   the revision is `queued` or `building` and until `complete`; lines grouped by `phase` (`pack`, `static`,
   `build`, `describe`, `check`, `push`) with collapsible phase headers, `error` lines tinted, auto-scroll
-  while at the bottom (toggle aria "Follow log").
+  while at the bottom (toggle aria "Follow log"), also when the log mounts with its lines already loaded
+  (`useFollowScroll`, shared with `LogView`).
 - **Describe** (`DescribeView`, ready revisions): `UTabs` "Task config", "Scan config", "Analysis
   config", "Result"; each shows a `SchemaTable` (property path, type, required, default, constraints,
   description, badges `secret` (`writeOnly`), `upload`, `file`) with a "Raw JSON" toggle; below: settings
@@ -779,6 +780,7 @@ field, on the nearest rendered ancestor, or as a form-level alert when no field 
 | `useBuildLog(taskId, revision)` | incremental build-log reader (`afterLine`) |
 | `useSchemaForm(schema)` | subset detection, validator cache (`@cfworker/json-schema`), error mapping |
 | `useUiPrefs()` | versioned localStorage store (§14) |
+| `useFollowScroll(container, lineCount)` | "Follow log" of `LogView` and `BuildLog`: scrolls to the end on mount and on new lines while following, pauses when scrolled up |
 | `useCopy()` | `writeClipboard` (`utils/clipboard.ts`: the Clipboard API, then an `execCommand('copy')` fallback whose result is checked) + toast "Copied", or "Copy failed" when both refuse (VueUse's `useClipboard` never reports a refusal) |
 
 ## 8. Central fetch wrapper and errors
