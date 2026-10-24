@@ -640,7 +640,7 @@ orchestrator credential, revoked node 401).
 | `templates.spec.ts` | templates catalog: cards, schema tables, estimates (`cidr` gives "8 analyses (exact)") |
 | `scans.spec.ts` | new scan form (estimate, confirmation above the threshold, privileged warning), detail controls per state (retry-failed counts failed and lost analyses), scale and restart modals; the privileged badge on tasks, revisions and scans, and `canRunPrivileged` in the admin user list ([security](security.md) PRIV-5) |
 | `scan-results.spec.ts` | results filters, projection, load more, analysis slideover (attempts, logs, file chips), query console (rejected query shows the path), exports; `hostile-output` results, logs, errors and file names render inert as text (no element injected, no script run, ANSI stripped, data links only for `http(s):` with `rel="noopener noreferrer"`, [security](security.md) HDR-5) |
-| `scan-health.spec.ts` | conditions rendering (`crashLoop` from `crashy`, `workersPending` from an impossible node selector, `breakerTripped` with resume) |
+| `scan-health.spec.ts` | conditions rendering (`crashLoop` from a task whose connector is OOM-killed at import, before its handshake (`crashy` `exit` ends the connector after its handshake, which the runtime records as a `crash` analysis error and respawns), `workersPending` from an impossible node selector, `breakerTripped` with resume) |
 | `admin-nodes.spec.ts` | add node shows the token once with join commands, rotate and revoke, built-in node restrictions, node detail |
 | `admin-users.spec.ts` | create, edit, ban (the "cancel all their scans" box is pre-checked), unban, delete with job progress, self-protection |
 | `account.spec.ts` / `access.spec.ts` / `credentials.spec.ts` | profile, password, sessions (on `freshUser`); API key shown once with export, alias and API-key MCP snippets, OAuth MCP command, OAuth app revoke; credentials CRUD |
@@ -658,7 +658,7 @@ orchestrator credential, revoked node 401).
 | `scheduler.spec.ts` | native and custom schedules, checkpoint and resume with epoch + 1, schedule limits, scheduler restarts and `schedulingFailed` |
 | `retries.spec.ts` | `taskError` retried with backoff then succeeds, `Fatal` fails without retry, `Retry` delay honoured, timeout, attempts history (≤ 10) |
 | `files.spec.ts` | `ctx.files.put` → FileRefs in nested results, presigned download with forced headers, quota |
-| `workers.spec.ts` | worker containers: crash loops (`crashy`), OOM, drain and removal, image pull failures, process recycling |
+| `workers.spec.ts` | worker containers: crash loops (a task whose module exits at import inside workers), OOM (`crashy` `memory`), drain and removal, image pull failures, process recycling |
 | `placement.spec.ts` | desired workers, capacity reservations, the user worker cap, `workersPending` reasons, `worker.placed`/`worker.pending` events |
 | `lifecycle.spec.ts` | pause/resume, scale workers and processes live (`processes.applied`), cancel (the scan's RabbitMQ user and queue are gone afterwards), retry-failed (new round, exact counts; failed analyses and `lost` ones with a config are reset, `cancelled` ones are not), restart clone, delete → tombstone |
 | `breaker.spec.ts` | 100 %-failing scan auto-pauses with `breakerTripped`; resume clears it |
