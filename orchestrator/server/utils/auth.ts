@@ -274,7 +274,7 @@ export async function deleteUndecryptableJwks(log: Logger = useLogger('auth')): 
 export interface AuthTableMeta {
   modelName: string
   fields: Record<string, { fieldName?: string; unique?: boolean; index?: boolean; required?: boolean }>
-  indexes?: { fields: string[]; unique?: boolean }[]
+  indexes?: { fields: readonly [string, ...string[]]; unique?: boolean }[]
 }
 
 /** A better-auth index: always named, because the MongoDB adapter creates table-level indexes under these names. */
@@ -302,7 +302,8 @@ export function authIndexesFrom(tables: Record<string, AuthTableMeta>): { collec
       specs.push({ key: { [column(name)]: 1 }, options })
     }
     for (const index of table.indexes ?? []) {
-      const columns = index.fields.map(column)
+      const [first, ...rest] = index.fields
+      const columns: [string, ...string[]] = [column(first), ...rest.map(column)]
       const unique = index.unique === true
       const options = { name: getDatabaseIndexName(table.modelName, { fields: columns, unique }), ...(unique ? { unique: true } : {}) }
       specs.push({ key: Object.fromEntries(columns.map((name) => [name, 1 as const])), options })
