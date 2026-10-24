@@ -10,1375 +10,831 @@ test-index --check`); never edit it by hand.
 
 ## Playwright projects
 
-### api (2 tests)
+### api (248 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
+| `api/account.spec.ts` | account; credential invariant | 4 |
+| `api/analyses.spec.ts` | analyses of a finished scan | 9 |
+| `api/api-keys.spec.ts` | API keys; API key credentials | 7 |
+| `api/catalog.spec.ts` | languages and scaffolds; templates; guides | 8 |
+| `api/credentials.spec.ts` | create; list; update and delete | 11 |
+| `api/editor.spec.ts` | idle stop; editor sessions; editor state; the editor key; inside the editor | 8 |
+| `api/errors.spec.ts` | request ids; error envelope; deny by default; request validation; body caps; path ids; query values; pagination; listeners | 15 |
+| `api/exports.spec.ts` | exports of a finished scan; exports of scans of their own | 7 |
+| `api/files.spec.ts` | analysis files | 1 |
+| `api/git.spec.ts` | import; pull; revisions of imported tasks | 19 |
+| `api/health.spec.ts` | health; setup status | 4 |
+| `api/info.spec.ts` | instance info; admin tools in the instance info; OpenAPI document | 9 |
+| `api/jobs.spec.ts` | jobs of the tenant; jobs without a user | 3 |
+| `api/metrics.spec.ts` | GET /api/metrics | 4 |
+| `api/node-api.spec.ts` | hello; instance lease; assignments; removing a node; node detail | 11 |
+| `api/nodes.spec.ts` | listing nodes; creating nodes; join instructions; updating nodes; node tokens; the built-in node | 11 |
+| `api/registry-token.spec.ts` | token flows; granted access; errors; grant lifetime | 7 |
+| `api/revisions.spec.ts` | publish; ready and failed revisions; list and get | 9 |
+| `api/runtime-api.spec.ts` | bootstrap; uploads; redelivery status; error reports; worker scope; scheduler routes | 8 |
+| `api/scans.spec.ts` | start validation; reads; transitions | 20 |
 | `api/smoke.spec.ts` | API plumbing | 2 |
+| `api/task-files.spec.ts` | list; read; write; delete; archive normalisation | 9 |
+| `api/tasks.spec.ts` | create; list and get; workspace status; delete; upload | 20 |
+| `api/test-runs.spec.ts` | creating and running test runs; reading test runs; cancelling test runs | 12 |
+| `api/tools.spec.ts` | createToolsSession; forwardAuth; tool hosts through Traefik | 8 |
+| `api/uploads.spec.ts` | createUpload; listUploads and getUpload; deleteUpload and scan references; uploads referenced by scans | 8 |
+| `api/users.spec.ts` | users | 9 |
+| `api/wait.spec.ts` | wait on long-running operations; waits on scans, jobs and exports | 5 |
 
-### mcp (2 tests)
+### authz-setup (1 test)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
-| `mcp/smoke.spec.ts` | MCP plumbing | 2 |
+| `authz/seed.setup.ts` | – | 1 |
 
-### e2e (1 test)
+### authz-teardown (1 test)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
+| `authz/seed.teardown.ts` | – | 1 |
+
+### authz (39 tests)
+
+| Spec | Describe blocks | Tests |
+|---|---|---|
+| `authz/matrix.spec.ts` | authorization matrix | 29 |
+| `authz/openapi-lint.spec.ts` | OpenAPI lint | 10 |
+
+### security (176 tests)
+
+| Spec | Describe blocks | Tests |
+|---|---|---|
+| `security/auth-endpoints.spec.ts` | better-auth endpoints; credential binding; sessions | 8 |
+| `security/banned.spec.ts` | banned users | 3 |
+| `security/compose-lint.spec.ts` | lint-compose | 26 |
+| `security/cross-scan.spec.ts` | per-scan RabbitMQ users; result ingestion trust; event visibility; malformed analysis messages | 9 |
+| `security/csrf.spec.ts` | CSRF; CORS | 5 |
+| `security/dockerfile-policy.spec.ts` | Dockerfile policy | 5 |
+| `security/downloads.spec.ts` | downloads | 4 |
+| `security/editor-isolation.spec.ts` | the editor container; editor sessions and cookies; editor listener; editor origin traffic | 6 |
+| `security/env-example.spec.ts` | lint-env | 34 |
+| `security/hostile-labels.spec.ts` | hostile labels | 3 |
+| `security/insecure-secrets.spec.ts` | startup guard; SCANTOR_SECRET change; secrets derived from SCANTOR_SECRET | 13 |
+| `security/query-injection.spec.ts` | query injection | 4 |
+| `security/rate-limits.spec.ts` | auth rate limits | 3 |
+| `security/sandbox.spec.ts` | worker containers; reachability; egress deny list; short-lived containers; worker logs; node daemon boundaries | 15 |
+| `security/secrets-masking.spec.ts` | secret masking | 5 |
+| `security/setup-token.spec.ts` | setup token; setup on the shared stack; passkey-first admin; first admin from the environment; passkey availability | 12 |
+| `security/tar-slip.spec.ts` | upload archives; file routes | 9 |
+| `security/traefik.spec.ts` | Traefik | 12 |
+
+### mcp (46 tests)
+
+| Spec | Describe blocks | Tests |
+|---|---|---|
+| `mcp/agent-loop.spec.ts` | MCP agent loop | 1 |
+| `mcp/apikey.spec.ts` | MCP with API keys | 5 |
+| `mcp/drift.spec.ts` | MCP documentation drift | 3 |
+| `mcp/guides.spec.ts` | MCP instructions and guides | 3 |
+| `mcp/limits.spec.ts` | MCP response cap | 2 |
+| `mcp/oauth.spec.ts` | MCP OAuth discovery; MCP OAuth clients; MCP OAuth authorization; MCP OAuth revocation | 16 |
+| `mcp/smoke.spec.ts` | MCP plumbing; MCP transport | 5 |
+| `mcp/tools.spec.ts` | MCP tool catalogue; MCP tool calls | 11 |
+
+### e2e (180 tests)
+
+| Spec | Describe blocks | Tests |
+|---|---|---|
+| `e2e/backpressure.spec.ts` | backpressure | 2 |
+| `e2e/breaker.spec.ts` | circuit breaker | 2 |
+| `e2e/cli.spec.ts` | scans and results; platform commands; task pipeline commands; templates estimate; node daemon command; local development loop; configuration and containers; task, revision and node commands | 35 |
+| `e2e/debug.spec.ts` | dev debug | 4 |
+| `e2e/examples.spec.ts` | example tasks; connectors and base images | 24 |
+| `e2e/files.spec.ts` | file references; file limits; storage quota | 4 |
+| `e2e/lifecycle.spec.ts` | recounts and delete; pause, resume and scale; retry-failed; progress; broker topology and completion | 13 |
+| `e2e/limits.spec.ts` | result size; analysis config size | 2 |
+| `e2e/placement.spec.ts` | desired workers; pending reasons; capacity; user worker cap; node choice; placement events | 9 |
+| `e2e/privileged.spec.ts` | publishing; running privileged revisions; test runs | 3 |
+| `e2e/remote-node.spec.ts` | remote node | 2 |
+| `e2e/retries.spec.ts` | retry policy; outcomes; attempt history | 11 |
+| `e2e/scaffold-matrix.spec.ts` | scaffold matrix: python; scaffold matrix: typescript; scaffold matrix: javascript; scaffold matrix: go | 33 |
+| `e2e/scheduler.spec.ts` | native and connector schedules; end of scheduling; checkpoint and resume; schedule errors | 7 |
 | `e2e/smoke.spec.ts` | CLI scan | 1 |
+| `e2e/templates.spec.ts` | template single; template list; template range; template repeat; template tranco; template crux; template cidr; wrapped templates; resolution on resume; test runs and template data; data sources | 17 |
+| `e2e/workers.spec.ts` | crash loops and memory; drain and stop; process slots; image pulls | 11 |
 
-### ui (1 test)
+### ui (239 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
+| `ui/a11y.spec.ts` | dashboard accessibility | 18 |
+| `ui/access.spec.ts` | CLI & MCP access: API keys; CLI & MCP access: downloads and MCP; CLI & MCP access: authorized apps; CLI & MCP access: revoking a real authorized app | 9 |
+| `ui/account.spec.ts` | account page of the tenant; account changes | 6 |
+| `ui/admin-nodes.spec.ts` | nodes table; adding a node; node actions; node page | 11 |
+| `ui/admin-tools.spec.ts` | infrastructure tools; API links, health and jobs | 8 |
+| `ui/admin-users.spec.ts` | users table; creating and editing users; banning and deleting users | 6 |
+| `ui/auth.spec.ts` | sign-in page; signed-in visits to /login; session loss; admin user menu | 16 |
+| `ui/consent.spec.ts` | OAuth sign-in on the way to consent; OAuth consent page without a registered client; OAuth consent page with a registered client | 11 |
+| `ui/credentials.spec.ts` | git credentials page | 3 |
+| `ui/editor.spec.ts` | editor of a fresh user; editor page states; editor disabled | 6 |
+| `ui/headers.spec.ts` | dashboard security headers | 9 |
+| `ui/navigation.spec.ts` | sidebar of a user; sidebar of an admin; Scans badge; errors and toasts; polling; copy buttons, ids, times, sizes and confirmations; UI preferences | 34 |
+| `ui/overview.spec.ts` | overview of a fresh user; overview of the tenant; overview of an admin | 4 |
+| `ui/passkeys.spec.ts` | passkeys | 2 |
+| `ui/revisions.spec.ts` | revision page | 7 |
+| `ui/scan-health.spec.ts` | scan health; crash loops of a user with a worker limit | 6 |
+| `ui/scan-results.spec.ts` | results of a finished scan; results of a running scan; results for admins; hostile task output | 19 |
+| `ui/scans.spec.ts` | scans list; scans list for admins; new scan form; privileged revisions; scan detail | 20 |
+| `ui/schema-form.spec.ts` | schema forms | 7 |
+| `ui/setup.spec.ts` | setup page | 4 |
 | `ui/smoke.spec.ts` | UI plumbing | 1 |
+| `ui/tasks.spec.ts` | tasks list; new-task wizard; git import; upload; task page | 22 |
+| `ui/templates.spec.ts` | templates catalog | 3 |
+| `ui/test-run.spec.ts` | test runs | 7 |
+
+### chaos (21 tests)
+
+| Spec | Describe blocks | Tests |
+|---|---|---|
+| `chaos/chaos.spec.ts` | faults of one scan; the remote node remote-1; platform components; an orchestrator restart during a scan and a build; logs | 21 |
 
 ## Feature coverage
 
 | Feature | Behaviour | Tests |
 |---|---|---|
-| API-001 | Every /api response carries an X-Request-Id header: a valid incoming value (1–128 characters of … | **uncovered** |
-| API-002 | Errors use the envelope {error: {code, message, details?}} with Content-Type: application/json and … | **uncovered** |
-| API-003 | Deny by default: an /api path that matches no operation returns 404 notFound (also /api//users; one … | **uncovered** |
-| API-004 | An unknown key in a JSON body or in the query string returns 400 validationFailed with … | **uncovered** |
-| API-005 | A non-empty body whose Content-Type is not application/json returns 415 unsupportedMediaType, … | **uncovered** |
-| API-006 | A JSON body larger than SCANTOR_MAX_REQUEST_BYTES (declared Content-Length or actual size) returns … | **uncovered** |
-| API-007 | A malformed path id (a non-uuid id, a bad analysis id, ../, or a URL-encoded {"$ne": null}) returns … | **uncovered** |
-| API-008 | Query values are strict: booleans accept only true/false and integers must be decimal, so ?wait=60s … | **uncovered** |
-| API-009 | Cursor pagination: limit defaults to 50 and allows at most 200 (201 returns 400); following … | **uncovered** |
-| API-010 | While the orchestrator boots, every /api route except /api/health, /api/docs and … | **uncovered** |
-| API-011 | The dashboard listener answers 421 Misdirected Request (text/plain) to any request whose Host is … | **uncovered** |
-| API-012 | The wait query parameter accepts 0–120 seconds (121 returns 400). Without wait or with wait=0 there … | **uncovered** |
-| API-013 | More than SCANTOR_MAX_CONCURRENT_WAITS concurrent waits of one user return 429 tooManyRequests with … | **uncovered** |
-| OAS-001 | GET /api/docs/openapi.json is public and a valid OpenAPI 3.1 document that lists only operations … | **uncovered** |
-| OAS-002 | The OpenAPI lint passes: every operation has one tag, a summary, a description, a unique camelCase … | **uncovered** |
-| OAS-003 | Each operation's scope matches its route prefix: node for /api/node/* and /api/registry/token, … | **uncovered** |
-| OAS-004 | Route-meta values survive Nitro's extraction: the descriptions of startScan, listTasks, … | **uncovered** |
-| OAS-005 | GET /api/docs serves the Scalar UI with its docs-specific CSP (which allows … | **uncovered** |
-| PLAT-001 | GET /api/health needs no credentials and returns {status, version, components: {mongo, rabbitmq, … | api/smoke.spec.ts › API plumbing › health reports every component ok |
-| PLAT-002 | /api/health returns HTTP 503 only while MongoDB is down; with another component down it returns 200 … | **uncovered** |
-| PLAT-003 | GET /api/info (401 without credentials) returns version, publicUrl, editorUrl, mcpUrl (null when … | **uncovered** |
-| PLAT-004 | cliImage and the node join image use the orchestrator version as tag for a release X.Y.Z and … | **uncovered** |
-| PLAT-005 | InstanceInfo.adminTools appears only for callers with effective admin power (absent for users and … | **uncovered** |
-| PLAT-006 | GET /api/info never contains secret values: no tokens, passwords, SCANTOR_SECRET or registry … | **uncovered** |
-| PLAT-007 | GET /api/metrics returns 401 without credentials, 403 adminRequired for non-admins and 400 for any … | **uncovered** |
-| PLAT-008 | scantor_http_requests_total labels each request with its route pattern, never the raw path. | **uncovered** |
-| SETUP-001 | GET /api/setup/status needs no credentials and returns {needsSetup, passkeysEnabled, mcpUrl}; … | **uncovered** |
-| SETUP-002 | A zero-user orchestrator without SCANTOR_ADMIN_* logs the setup link [setup] no users exist; open … | **uncovered** |
-| SETUP-003 | createSetupAdmin without a token or with a wrong X-Scantor-Setup-Token returns 401 … | **uncovered** |
-| SETUP-004 | Once any user exists, every /api/setup/* request except GET status returns 409 setupCompleted for … | **uncovered** |
-| SETUP-005 | createSetupAdmin validates its body: a valid email (stored lowercased), a name of 1–100 characters … | **uncovered** |
-| SETUP-006 | createSetupPasskeyToken returns 201 {token: "spk_…", expiresIn: 300}; the token is single use, a … | **uncovered** |
-| SETUP-007 | With both SCANTOR_ADMIN_EMAIL and SCANTOR_ADMIN_PASSWORD set and no users, the first admin is … | **uncovered** |
-| AUTH-001 | A default API key in x-api-key or Authorization: Bearer sk_scantor_… authenticates REST calls as … | api/smoke.spec.ts › API plumbing › the session, the API key and the admin act as their own principals |
-| AUTH-002 | An explicit credential decides alone: an invalid or expired API key sent together with a valid … | **uncovered** |
-| AUTH-003 | A Bearer value that is not an sk_scantor_ key, such as an MCP OAuth access token (eyJ…), returns … | **uncovered** |
-| AUTH-004 | A request to /api/auth/* that carries an API key (x-api-key or Bearer sk_scantor_…, default or … | **uncovered** |
-| AUTH-005 | A cookie-authenticated POST, PUT, PATCH or DELETE without an Origin header or with a foreign Origin … | **uncovered** |
-| AUTH-006 | No dashboard route sends Access-Control-Allow-Origin with credentials; only /.well-known/*, … | **uncovered** |
-| AUTH-007 | Credentials are bound to their route prefix: a node, worker or setup token on a user route returns … | **uncovered** |
-| AUTH-008 | better-auth's disabled paths return 404: /sign-up/email, /token, /api-key/*, /admin/*, … | **uncovered** |
-| AUTH-009 | On https the session cookie is __Secure-scantor.session_token: host-only (no Domain), Path=/, … | **uncovered** |
-| AUTH-010 | On a throwaway orchestrator with SCANTOR_TRUST_PROXY=false, the 11th /sign-in/email from one client … | **uncovered** |
-| AUTH-011 | Further per-IP auth rate limits return 429 above their budgets per minute: … | **uncovered** |
-| AUTH-012 | The client IP ignores an incoming x-scantor-client-ip header; with SCANTOR_TRUST_PROXY=true it is … | **uncovered** |
-| AUTH-013 | An internal MCP capability (x-scantor-internal-auth: sic_…) sent from outside the orchestrator … | **uncovered** |
-| AUTH-014 | Passkeys are disabled when SCANTOR_PUBLIC_URL is plain http on a non-localhost host or an IP … | **uncovered** |
-| AUTH-015 | Registering a passkey with a session older than 24 h returns 403 sessionRequired, and … | **uncovered** |
-| AUTH-016 | A banned user is rejected with 403 banned on every user principal: session, API key and MCP. | **uncovered** |
-| AUTH-017 | Banning a user who holds a session, a default key, an editor key, an MCP OAuth token, MCP over an … | **uncovered** |
-| AUTH-018 | Role changes and bans take effect on every principal of the user within 30 s. | **uncovered** |
-| AUTH-019 | Signing out also clears the admin tools cookie (Set-Cookie: scantor_tools=; … | **uncovered** |
-| ACCT-001 | GET /api/account returns {id, email, name, role, canRunPrivileged, maxWorkers, credentials: … | **uncovered** |
-| ACCT-002 | PATCH /api/account {name} updates the display name (trimmed, 1–100 characters) and returns the … | **uncovered** |
-| ACCT-003 | POST /api/account/password {newPassword} returns 204 and sets a password only when the user has … | **uncovered** |
-| ACCT-004 | DELETE /api/account/password returns 204 when the user has at least one passkey and 409 … | **uncovered** |
-| ACCT-005 | Deleting the last passkey of a user without a password through POST … | **uncovered** |
-| ACCT-006 | GET /api/account/oauth-apps lists the caller's authorized MCP OAuth clients as {clientId, name, … | **uncovered** |
-| ACCT-007 | DELETE /api/account/oauth-apps/{clientId} returns 204 and deletes the client's consent, access … | **uncovered** |
-| ACCT-008 | POST /api/account/api-keys {name, expiresInDays?} (session only) returns 201 {apiKey, key}; key … | **uncovered** |
-| ACCT-009 | A new default key expires 90 days (±1 minute) after creation, or after expiresInDays; expiresInDays … | **uncovered** |
-| ACCT-010 | GET /api/account/api-keys lists only the caller's keys (admins included), newest first, with id, … | **uncovered** |
-| ACCT-011 | DELETE /api/account/api-keys/{keyId} returns 204 and the deleted key gets 401 afterwards; another … | **uncovered** |
-| ACCT-012 | An expired API key gets 401 and is deleted. | **uncovered** |
-| USER-001 | GET /api/users (admin) returns Page<User> newest first; ?q filters by a case-insensitive substring … | **uncovered** |
-| USER-002 | POST /api/users {email, name, password?, role?, canRunPrivileged?, maxWorkers?} returns 201; the … | **uncovered** |
-| USER-003 | A user created with a password can sign in with it; a user created without one cannot sign in until … | **uncovered** |
-| USER-004 | GET /api/users/{userId} returns the user; an unknown or malformed id returns 404. | **uncovered** |
-| USER-005 | PATCH /api/users/{userId} updates name, email, role, canRunPrivileged and maxWorkers; an empty body … | **uncovered** |
-| USER-006 | PUT /api/users/{userId}/password {password} (8–128 characters) returns 204 and revokes the target's … | **uncovered** |
-| USER-007 | POST /api/users/{userId}/ban {reason?} returns the user with banned: true and banReason, and … | **uncovered** |
-| USER-008 | A ban with cancelScans: true cancels every non-terminal scan of the user; without it those scans … | **uncovered** |
-| USER-009 | POST /api/users/{userId}/unban clears only the ban flag: deleted keys, sessions and OAuth grants … | **uncovered** |
-| USER-010 | DELETE /api/users/{userId} returns 202 with a userPurge job and locks the user out at once (banned, … | **uncovered** |
-| USER-011 | While a userPurge job for a user is active, updateUser, setUserPassword, banUser and unbanUser … | **uncovered** |
-| USER-012 | canRunPrivileged, maxWorkers and role cannot be changed through better-auth's own update-user … | **uncovered** |
-| CRED-001 | POST /api/credentials {kind: "gitToken", name, host, username?, token} returns 201 {id, kind, name, … | **uncovered** |
-| CRED-002 | The host is normalised to lowercase host[:port] with a default :443 dropped; a host with a scheme, … | **uncovered** |
-| CRED-003 | A second credential with the same name for the same user returns 409 alreadyExists, also when … | **uncovered** |
-| CRED-004 | GET /api/credentials returns {items} sorted by name, without a cursor, holding only the caller's … | **uncovered** |
-| CRED-005 | PATCH /api/credentials/{id} updates name, host, username or token (a new token updates last4), and … | **uncovered** |
-| AUTHZ-001 | Every owner-scope operation returns 401 unauthorized to an anonymous request. | **uncovered** |
-| AUTHZ-002 | Every owner-scope operation, read or mutation, that user B calls with user A's ids (task, revision, … | **uncovered** |
-| AUTHZ-003 | An admin (session or default key) can read and act on other users' resources by id, and list … | **uncovered** |
-| AUTHZ-004 | A non-admin passing ?userId=<another user> to a list operation (tasks, scans, jobs) gets 403 … | **uncovered** |
-| AUTHZ-005 | No list response B receives (tasks, scans, revisions, test runs, uploads, exports, jobs, … | **uncovered** |
-| AUTHZ-006 | Task names and revision references (alpha, alpha@1, alpha@latest) resolve only among the caller's … | **uncovered** |
-| AUTHZ-007 | A create that references another user's document returns 404, also for admins acting on their own … | **uncovered** |
-| AUTHZ-008 | Every admin-scope operation (users, nodes, metrics, tools session) returns 401 to anonymous callers … | **uncovered** |
-| AUTHZ-009 | Every x-session-only operation (createApiKey, setAccountPassword, removeAccountPassword, … | **uncovered** |
-| AUTHZ-010 | An admin's editor API key carries no admin power: 403 adminRequired on admin operations, 403 … | **uncovered** |
-| AUTHZ-011 | Public operations (getHealth, getSetupStatus, /api/docs, openapi.json) answer the same to every … | **uncovered** |
-| AUTHZ-012 | Node-scope operations reject anonymous callers, sessions, API keys and worker tokens with 401; node … | **uncovered** |
-| AUTHZ-013 | Worker-scope operations reject anonymous callers, users, API keys and node tokens with 401; a … | **uncovered** |
-| AUTHZ-014 | toolsForwardAuth succeeds only with an admin's scantor_tools cookie; a session, an API key, an … | **uncovered** |
-| AUTHZ-015 | The MCP half of the matrix: B's read/write OAuth session lists exactly the read and write tools, … | **uncovered** |
-| AUTHZ-016 | Security events (user null, for example security.ingestRejected) and node events are visible only … | **uncovered** |
-| TASK-001 | POST /api/tasks {name, language, template?, description?} scaffolds the workspace (template single … | **uncovered** |
-| TASK-002 | A task name must be a slug of 1–64 characters: reserved names (upload, import-git, new, latest), … | **uncovered** |
-| TASK-003 | createTask returns 400 validationFailed for an unknown language and for an unknown template (path … | **uncovered** |
-| TASK-004 | Creating a task with a name the caller already uses returns 409 alreadyExists; two users can each … | **uncovered** |
-| TASK-005 | GET /api/tasks lists the caller's tasks newest first; ?q matches name or description … | **uncovered** |
-| TASK-006 | GET /api/tasks/{task} accepts an id or a name and returns the task with workspace {packSha256, … | **uncovered** |
-| TASK-007 | workspace.dirty becomes true when a file is edited after a publish and false again once that … | **uncovered** |
-| TASK-008 | GET /api/tasks/{task}/workspace computes the hash fresh, returns {packSha256, fileCount, bytes, … | **uncovered** |
-| TASK-009 | GET /api/tasks/{task}/workspace/archive streams application/gzip as attachment <task>.tar.gz; the … | **uncovered** |
-| TASK-010 | DELETE /api/tasks/{task} returns 202 with a taskDelete job and the task disappears at once (GET … | **uncovered** |
-| TASK-011 | Deleting a task that a creating, running, paused or deleting scan uses returns 409 taskInUse with … | **uncovered** |
-| TASK-012 | While a task is being deleted its name cannot be reused (createTask and uploadTask return 409 … | **uncovered** |
-| TASK-013 | POST /api/tasks/upload (a .tar.gz body) creates the task named by its manifest when it does not … | **uncovered** |
-| TASK-014 | uploadTask?publish=false only replaces the workspace and returns revision: null; ?message sets the … | **uncovered** |
-| TASK-015 | uploadTask returns 415 for a Content-Type other than application/gzip or application/x-gzip, and … | **uncovered** |
-| TASK-016 | An archive without a valid scantor.yaml or with an unknown language returns 422 manifestInvalid … | **uncovered** |
-| TASK-017 | Uploading to a task whose workspace has unpublished edits returns 409 workspaceDirty with details … | **uncovered** |
-| TASK-018 | An upload never conflicts when the workspace hash equals the uploaded hash, the latest revision's … | **uncovered** |
-| TASK-019 | Uploading content identical to an existing queued, building or ready revision returns that revision … | **uncovered** |
-| WS-001 | GET /api/tasks/{task}/files returns {entries: [{path, type, size, mode}], truncated}, recursive by … | **uncovered** |
-| WS-002 | With ?revision=<N\|latest\|id>, listing and reading files use the immutable revision snapshot; later … | **uncovered** |
-| WS-003 | GET /api/tasks/{task}/files/content?path returns {path, size, sha256, encoding, content, truncated} … | **uncovered** |
-| WS-004 | PUT /api/tasks/{task}/files {files: {path: text \| {base64}}} writes 1–200 files atomically, … | **uncovered** |
-| WS-005 | writeTaskFiles returns 400 validationFailed for an empty files map, more than 200 files or invalid … | **uncovered** |
-| WS-006 | DELETE /api/tasks/{task}/files?path removes a file, a directory only with recursive=true, and … | **uncovered** |
-| WS-007 | Every case of tests/corpora/paths sent through writeTaskFiles, deleteTaskFile and readTaskFile … | **uncovered** |
-| WS-008 | Every case of tests/corpora/tar-slip uploaded with uploadTask (../x, /abs, a/../../x, backslash, … | **uncovered** |
-| WS-009 | Archive caps are enforced while streaming: a gzip bomb is stopped, more than SCANTOR_TASK_MAX_FILES … | **uncovered** |
-| WS-010 | Extracted archives are normalised: tar owners are ignored, file modes become 0644 or 0755 and … | **uncovered** |
-| WS-011 | A write never passes through a pre-existing workspace symlink that points outside the task folder: … | **uncovered** |
-| WS-012 | Workspace helper containers (scantor-h-*) run as 1000:1000 with only the user's volume subpath … | **uncovered** |
-| GIT-001 | POST /api/tasks/import-git {url} for a repository with one manifest returns 201 {imported: [task], … | **uncovered** |
-| GIT-002 | For a repository with several valid manifests and no select, the import returns 200 {imported: [], … | **uncovered** |
-| GIT-003 | A select entry naming a path without a candidate, or two selected folders with the same task name, … | **uncovered** |
-| GIT-004 | Importing a task whose name the caller already uses returns 409 alreadyExists, and that candidate … | **uncovered** |
-| GIT-005 | A repository or path without scantor.yaml (no scantor.yaml was found), or with an invalid manifest … | **uncovered** |
-| GIT-006 | URLs other than https://, URLs with userinfo, a leading -, ext:: and file:// return 400 … | **uncovered** |
-| GIT-007 | A failed clone or fetch returns 422 gitFailed with details.message and credentials redacted; an … | **uncovered** |
-| GIT-008 | A private repository behind Basic auth imports with the caller's credentialId, which sets the … | **uncovered** |
-| GIT-009 | POST /api/tasks/{task}/git/pull returns {task, previousCommit, commit, changed}: changed: false for … | **uncovered** |
-| GIT-010 | A pull returns 409 gitDiverged when the workspace changed since the last import or pull, and when … | **uncovered** |
-| GIT-011 | A pull of a task that was not imported from git returns 409 invalidState, and a pulled manifest … | **uncovered** |
-| GIT-012 | A revision published from unmodified imported content has source.kind: "git" with {url, ref, path, … | **uncovered** |
-| PIPE-001 | scantor task pack is deterministic: the same tree gives the same packSha256 (sha256 of the … | **uncovered** |
-| PIPE-002 | Packing keeps relative in-tree symlinks as symlinks; absolute or escaping symlinks (whose target is … | **uncovered** |
-| PIPE-003 | Manifest rules M1–M10 produce static errors in file scantor.yaml with the line: duplicate keys, … | **uncovered** |
-| PIPE-004 | A task needs the regular files scantor.yaml (scantor.yml is not accepted) and Dockerfile at its … | **uncovered** |
-| PIPE-005 | Dockerfile warnings never fail the build: W1 (CMD is ignored; the runtime is the entrypoint, also … | **uncovered** |
-| PIPE-006 | The build pulls the base image when it is absent, records baseImage {ref, digest} and … | **uncovered** |
-| PIPE-007 | The check phase runs the base image's type checker (basedpyright, tsc --noEmit, go vet); each … | **uncovered** |
-| PIPE-008 | Describe and check containers (scantor-b-*) run the built image with network none, the worker … | **uncovered** |
-| PIPE-009 | A published image is pushed by digest as tasks/<taskId>:<revisionId> with the orchestrator's … | **uncovered** |
-| PIPE-010 | Pipeline events are NDJSON {v: 1, seq, at, phase, type, stream, level, text} with consecutive seq … | **uncovered** |
-| PIPE-011 | scantor task build, check-static, pack and scantor validate exit 0 on success, 2 when the task … | **uncovered** |
-| REV-001 | POST /api/tasks/{task}/revisions {message?} snapshots the workspace synchronously and returns 201 … | **uncovered** |
-| REV-002 | Publishing content whose pack hash matches a queued, building or ready revision returns that … | **uncovered** |
-| REV-003 | A ready revision has image {repository: "tasks/<taskId>", tag, digest, bytes, platform}, a … | **uncovered** |
-| REV-004 | A failed revision has state failed, image: null, errors [{phase, file, line, column?, message}] … | **uncovered** |
-| REV-005 | GET /api/tasks/{task}/revisions returns Page<RevisionSummary> (id, number, ref, state, source kind … | **uncovered** |
-| REV-006 | GET /api/tasks/{task}/revisions/{revision} accepts a number, latest (the highest ready revision) or … | **uncovered** |
-| REV-007 | GET …/revisions/{revision}/logs?afterLine&limit (default 1000, at most 5000; 5001 returns 400) … | **uncovered** |
-| REV-008 | GET …/revisions/{revision}/source answers 302 to a presigned snapshot download served as an … | **uncovered** |
-| REV-009 | Described schemas keep the property order of the source, for example the power scan config lists … | **uncovered** |
-| REV-010 | Publishing a manifest with defaults.privileged: true as a user without canRunPrivileged fails the … | **uncovered** |
-| REV-011 | A revision whose build was interrupted by an orchestrator restart goes back to queued and is … | **uncovered** |
-| TRUN-001 | POST /api/tasks/{task}/test-runs {taskConfig?, scanConfig?, analysisConfig?, limit?, maxAttempts?, … | **uncovered** |
-| TRUN-002 | testTask?wait returns the settled run with analyses[], summary {analyses, succeeded, failed}, … | **uncovered** |
-| TRUN-003 | Test-run inputs are bounded: limit 1–50 (default 5), maxAttempts 1–5 (default 1) and timeoutMs … | **uncovered** |
-| TRUN-004 | A config that the described schema rejects causes no HTTP error: the run ends failed with one … | **uncovered** |
-| TRUN-005 | With analysisConfig the test run skips schedule and calls run exactly once (seq 0). | **uncovered** |
-| TRUN-006 | GET /api/tasks/{task}/test-runs lists the task's runs newest first without analyses; GET … | **uncovered** |
-| TRUN-007 | GET /api/test-runs/{id}/stream is text/event-stream with the events state, log {seq, stream, text, … | **uncovered** |
-| TRUN-008 | POST /api/test-runs/{id}/cancel moves a queued, building or running run to cancelled and removes … | **uncovered** |
-| TRUN-009 | GET /api/test-runs/{id}/files/{fileId} returns a FileDownload (302 with ?redirect=true) whose … | **uncovered** |
-| TRUN-010 | A test run of a privileged task runs unprivileged and needs no canRunPrivileged. | **uncovered** |
-| TRUN-011 | The test-run container scantor-t-<id> runs on scantor-egress with the worker hardening profile, … | **uncovered** |
-| TRUN-012 | A test run that references a list upload and the tranco and crux templates gets the upload's lines … | **uncovered** |
-| UPL-001 | POST /api/uploads with a raw text/plain or application/octet-stream body, ?name (default … | **uncovered** |
-| UPL-002 | Uploading content identical to one of the caller's uploads returns 200 with that upload; another … | **uncovered** |
-| UPL-003 | createUpload returns 415 for any other Content-Type, and 413 payloadTooLarge without storing … | **uncovered** |
-| UPL-004 | GET /api/uploads pages through the caller's own uploads (admins included), and GET … | **uncovered** |
-| UPL-005 | DELETE /api/uploads/{id} returns 204 and deletes the stored object; while a scan that is not … | **uncovered** |
-| UPL-006 | Starting a scan that references an upload sets the upload's lastUsedAt. | **uncovered** |
-| CAT-001 | GET /api/languages returns {items: [{language, title, base, baseImage, entry, extensions}]} for … | **uncovered** |
-| CAT-002 | GET /api/templates, scantor templates list and MCP list_templates return the templates single, … | **uncovered** |
-| CAT-003 | GET /api/templates/{template} returns one template; an unknown or badly formed name returns 404. | **uncovered** |
-| CAT-004 | POST /api/templates/{template}/estimate {scanConfig} returns {expectedTotal, exact, … | **uncovered** |
-| CAT-005 | estimateTemplate returns 422 configInvalid with details.issues (JSON pointers under /scanConfig) … | **uncovered** |
-| CAT-006 | GET /api/scaffolds returns {items: [{language, templates}]} in which every language lists every … | **uncovered** |
-| CAT-007 | GET /api/guides/authoring/{language} returns text/markdown for every language of … | **uncovered** |
-| CAT-008 | GET /api/guides/{guide} returns text/markdown for templates, manifest, errors-and-retries, cli, mcp … | **uncovered** |
-| CAT-009 | scantor templates estimate <t> --config <json\|@file\|-> applies the defaults and validates: exit 0 … | **uncovered** |
-| TPL-001 | Template single yields exactly one analysis whose config is {} filled with defaults, with an exact … | **uncovered** |
-| TPL-002 | Template list combines the inline items with the lines of an uploaded list, trimming whitespace and … | **uncovered** |
-| TPL-003 | Template range follows Python range semantics (end exclusive, negative steps count down; defaults … | **uncovered** |
-| TPL-004 | Template repeat yields {iteration} for 0…times − 1 (times ≥ 1, default 1) with an exact estimate of … | **uncovered** |
-| TPL-005 | Template tranco resolves latest, a date or a list id, downloads the list and yields {domain, rank} … | **uncovered** |
-| TPL-006 | Template crux with month latest uses the newest of the current UTC month and the 3 before it that … | **uncovered** |
-| TPL-007 | Template cidr clears host bits, merges overlapping and adjacent ranges and yields {ip, prefix, … | **uncovered** |
-| TPL-008 | Template data comes from SCANTOR_TRANCO_URL and SCANTOR_CRUX_URL, fetched by the scheduler (or the … | **uncovered** |
-| TPL-009 | A custom schedule that wraps a template proxy (as power wraps range) receives the template's items … | **uncovered** |
-| TPL-010 | Before the first item is published, the scheduler records the template resolution under … | **uncovered** |
-| TPL-011 | A scheduler resumed after a pause reuses the stored resolution instead of resolving again: … | **uncovered** |
-| SCAN-001 | POST /api/scans {revision, name?, taskConfig?, scanConfig?, settings?, confirm?} returns 201 with … | **uncovered** |
-| SCAN-002 | The revision reference accepts <task>@<N>, <task>@latest, a bare <task> (latest), a revision id or … | **uncovered** |
-| SCAN-003 | startScan returns 409 revisionNotReady with details.state for a queued, building or failed … | **uncovered** |
-| SCAN-004 | taskConfig and scanConfig are validated against the revision's schemas with defaults applied: … | **uncovered** |
-| SCAN-005 | A taskConfig or scanConfig larger than SCANTOR_MAX_SCAN_CONFIG_BYTES returns 400 validationFailed. | **uncovered** |
-| SCAN-006 | Settings outside the static bounds return 400 validationFailed in startScan, scaleScan and … | **uncovered** |
-| SCAN-007 | Partial nested settings merge over the revision defaults: nodeSelector {pool} without labels, or … | **uncovered** |
-| SCAN-008 | Upload ids at the revision's upload paths must exist and belong to the scan owner (otherwise 404), … | **uncovered** |
-| SCAN-009 | For template schedules, an estimate above SCANTOR_MAX_ANALYSES_PER_SCAN returns 422 scanTooLarge … | **uncovered** |
-| SCAN-010 | The validation order is fixed: a not-ready revision with an invalid config returns 409 rather than … | **uncovered** |
-| SCAN-011 | A scan with a custom schedule has stats.expectedTotal: null, and progress.total and percent stay … | **uncovered** |
-| SCAN-012 | For a privileged revision whose owner lacks canRunPrivileged, startScan, restartScan, resumeScan … | **uncovered** |
-| SCAN-013 | With canRunPrivileged, a privileged scan on nodes without Docker-in-Docker (the test nodes) keeps … | **uncovered** |
-| SCAN-014 | GET /api/scans returns Page<ScanSummary> (id, userId, name, task, revision {id, number, ref}, … | **uncovered** |
-| SCAN-015 | GET /api/scans/{id} returns the scan with progress {scheduled, terminal, total, percent, … | **uncovered** |
-| SCAN-016 | progress.total equals stats.expectedTotal when known, percent rises toward 100 and etaSeconds is a … | **uncovered** |
-| SCAN-017 | getScan?wait returns at once with Scantor-Wait: settled for a scan that is not creating or running, … | **uncovered** |
-| SCAN-018 | GET /api/scans/{id}/conditions returns {items} with the scan's current conditions, such as … | **uncovered** |
-| SCAN-019 | GET /api/scans/{id}/events returns Page<Event> newest first; ?type takes an exact type … | **uncovered** |
-| SCAN-020 | GET /api/scans/{id}/workers?state returns Page<Worker> with role (scheduler or runner), state, node … | **uncovered** |
-| SCAN-021 | GET /api/scans/{id}/inflight returns {items: [{analysisId, seq, round, attempt, startedAt, … | **uncovered** |
-| SCAN-022 | GET /api/scans/{id}/workers/{workerId}/logs?wait&tailBytes (1024–262144, default 65536) fetches a … | **uncovered** |
-| SCAN-023 | POST /api/scans/{id}/pause on a running scan sets paused with stateReason {code: "user"} and … | **uncovered** |
-| SCAN-024 | Forbidden transitions return 409 invalidState with details {state, allowed} and repeating the … | **uncovered** |
-| SCAN-025 | POST /api/scans/{id}/resume on a paused scan sets running and places new workers; an unfinished … | **uncovered** |
-| SCAN-026 | resumeScan, restartScan and retryFailedAnalyses return 409 revisionUnavailable when the scan's … | **uncovered** |
-| SCAN-027 | POST /api/scans/{id}/scale {workers?, processes?} works in creating, running and paused, updates … | **uncovered** |
-| SCAN-028 | Scaling applies live: more workers add runner containers, fewer workers drain the least busy … | **uncovered** |
-| SCAN-029 | Scaling beyond node capacity leaves the extra workers pending with the condition workersPending and … | **uncovered** |
-| SCAN-030 | POST /api/scans/{id}/cancel from creating, running or paused sets cancelled and completedAt; the … | **uncovered** |
-| SCAN-031 | Cancelling a scan during an active retry-failed cancels the scanRetryFailed job and returns … | **uncovered** |
-| SCAN-032 | POST /api/scans/{id}/retry-failed returns 202 {scan, job} (kind scanRetryFailed); the scan moves to … | **uncovered** |
-| SCAN-033 | retry-failed on a cancelled scan first records the never-run seqs as cancelled analyses of round 1, … | **uncovered** |
-| SCAN-034 | retry-failed returns 409 nothingToRetry when no failed or lost analysis has a config, and 409 … | **uncovered** |
-| SCAN-035 | POST /api/scans/{id}/restart {name?, settings?: {workers?, processes?}} returns 201 with a new scan … | **uncovered** |
-| SCAN-036 | DELETE /api/scans/{id} on a completed, failed or cancelled scan returns 202 {scan, job} with the … | **uncovered** |
-| SCAN-037 | When the scanDelete job finishes, the scan is a tombstone (deleted, purgeAfter = now + … | **uncovered** |
-| SCAN-038 | When enough attempts in the breaker window fail (SCANTOR_BREAKER_MIN_ATTEMPTS, … | **uncovered** |
-| SCAN-039 | Resuming a breaker-paused scan clears breakerTripped (a scan.conditionCleared event) and starts a … | **uncovered** |
-| SCAN-040 | A scan completes only when scheduling is done or failed and the recounted terminal analyses reach … | **uncovered** |
-| SCAN-041 | Counters are recounted: running scans every 60 s, paused scans while they changed since the last … | **uncovered** |
-| SCAN-042 | Live hint counters (stats.succeeded, failed, retrying, ratePerMin) rise as results arrive and never … | **uncovered** |
-| PLACE-001 | A running scan wants one scheduler while scheduling is pending or running plus settings.workers … | **uncovered** |
-| PLACE-002 | An unplaceable worker stays pending and the scan carries the condition workersPending {count, … | **uncovered** |
-| PLACE-003 | Placement reserves per worker one slot, processes × cpus CPUs and processes × memoryMiB + 256 MiB … | **uncovered** |
-| PLACE-004 | A user's non-zero maxWorkers caps their active workers across all scans: workers beyond it stay … | **uncovered** |
-| PLACE-005 | settings.nodeSelector {pool, labels} places workers only on nodes of that pool whose labels include … | **uncovered** |
-| PLACE-006 | The scheduler worker goes to the built-in node whenever it is a candidate, and a placed worker … | **uncovered** |
-| PLACE-007 | Placement writes a worker.placed event per placement and a worker.pending event only when a … | **uncovered** |
-| RES-001 | GET /api/scans/{id}/analyses returns Page<Analysis> sorted by seq ascending with ?status as a comma … | **uncovered** |
-| RES-002 | listAnalyses?fields=<dot paths> returns only those paths plus id and seq; an unknown root field, a … | **uncovered** |
-| RES-003 | GET /api/analyses/{scanId-seq} returns the analysis with round, attempt, attempts (at most 10), … | **uncovered** |
-| RES-004 | POST /api/scans/{id}/analyses/query {filter, projection?, sort?, limit?, afterSeq?} returns {items, … | **uncovered** |
-| RES-005 | Sort keys must be dot paths with values 1 or −1 (others return 400 validationFailed); more than 8 … | **uncovered** |
-| RES-006 | POST /api/scans/{id}/analyses/aggregate {pipeline, limit?} (at most 100 stages) returns {items, … | **uncovered** |
-| RES-007 | An aggregation result over limit or SCANTOR_QUERY_MAX_DOCS is cut with truncated: true. | **uncovered** |
-| RES-008 | A query that runs longer than SCANTOR_QUERY_MAX_TIME returns 504 queryTimeout. | **uncovered** |
-| RES-009 | More than SCANTOR_USER_MAX_CONCURRENT_QUERIES concurrent queries, aggregations or inline exports of … | **uncovered** |
-| RES-010 | GET /api/scans/{id}/export?format=jsonl\|csv&status&filter&fields&afterSeq streams … | **uncovered** |
-| RES-011 | An inline export that matches more than SCANTOR_EXPORT_INLINE_MAX analyses returns 409 … | **uncovered** |
-| RES-012 | A CSV export (inline or background) starts with a header row (default columns id, seq, status, … | **uncovered** |
-| RES-013 | JSONL export rows are whole masked analysis representations, or the fields projection when it is … | **uncovered** |
-| RES-014 | POST /api/scans/{id}/exports {format, filter?, fields?, afterSeq?}?wait returns 201 with an export … | **uncovered** |
-| RES-015 | Exporting a deleting or deleted scan, inline or in the background, returns 409 invalidState. | **uncovered** |
-| RES-016 | GET /api/exports?scanId pages through exports newest first and GET /api/exports/{id}?wait holds … | **uncovered** |
-| RES-017 | GET /api/analyses/{id}/files/{fileId} returns FileDownload {url, expiresAt, name, size, sha256, … | **uncovered** |
-| RES-018 | File downloads of png, jpeg, gif and webp are served inline with their image type; html, svg and … | **uncovered** |
-| RES-019 | Downloads are presigned GETs on SCANTOR_S3_PUBLIC_URL, created per request and valid 10 minutes, … | **uncovered** |
-| JOB-001 | GET /api/jobs?kind&state returns Page<Job> (id, kind, subject, state, progress, attempts, error, … | **uncovered** |
-| JOB-002 | GET /api/jobs/{id}?wait holds until the job is succeeded, failed or cancelled; another user's job, … | **uncovered** |
-| ING-001 | Orchestrator boot ensures the vhost scantor, the topic exchanges scantor.analyses, scantor.results … | **uncovered** |
-| ING-002 | A creating scan gets the quorum queue scantor.scan.<id> (delivery limit SCANTOR_DELIVERY_LIMIT, … | **uncovered** |
-| ING-003 | When a scan becomes completed, failed, cancelled or deleting, its user scan-<id> is deleted first … | **uncovered** |
-| ING-004 | The scan user's password is derived from SCANTOR_SECRET and the scan id and never stored, so a … | **uncovered** |
-| ING-005 | A scan user can consume only its own queue and publish only to scantor.analyses or scantor.results … | **uncovered** |
-| ING-006 | The per-scan user is limited to 2 × (workers + 1) connections and that many × (processes + 2) … | **uncovered** |
-| ING-007 | The ingestor takes a result's scan only from the broker-validated user_id: a message without … | **uncovered** |
-| ING-008 | A result for a round above the scan's round is dropped, and results for unknown, deleting or … | **uncovered** |
-| ING-009 | An authenticated result that fails its schema becomes a failed analysis of type platform, phase … | **uncovered** |
-| ING-010 | Results are applied as guarded upserts: a later success beats a failure of the same round, … | **uncovered** |
-| ING-011 | An attempt event sets the analysis to retrying and appends an attempts[] entry (at most 10 are … | **uncovered** |
-| ING-012 | An analysis whose delivery limit is reached because every worker processing it died is recorded as … | **uncovered** |
-| SCHED-001 | A template schedule without wrapping runs natively in the scheduler without a connector process, … | **uncovered** |
-| SCHED-002 | schedulerCheckpoint stores {epoch, confirmed, tailHash} only when confirmed increases; an older … | **uncovered** |
-| SCHED-003 | After a pause and resume, or after the scheduler is lost, a new scheduler with epoch + 1 … | **uncovered** |
-| SCHED-004 | A custom schedule that yields different items on resume (the nondeterministic fixture, scheduler … | **uncovered** |
-| SCHED-005 | When the scan queue reaches SCANTOR_SCAN_QUEUE_MAX_READY, publishes are refused and the scheduler … | **uncovered** |
-| SCHED-006 | When the stream ends and every item is confirmed, scheduling.state becomes done and the scheduler … | **uncovered** |
-| SCHED-007 | Schedule limits fail scheduling with a non-retryable validation error in phase schedule, such as … | **uncovered** |
-| SCHED-008 | A retryable error in schedule increments scheduling.restarts and raises the condition … | **uncovered** |
-| SCHED-009 | A Fatal or validation error in schedule fails scheduling at once without a restart (condition … | **uncovered** |
-| SCHED-010 | Scheduler calls with an old epoch return 409 staleEpoch with details.currentEpoch; a stale … | **uncovered** |
-| NODE-001 | GET /api/nodes?state&pool (admin) returns {items} with the built-in node first and the others by … | **uncovered** |
-| NODE-002 | POST /api/nodes {name, pool?, labels?, maxWorkers?} returns 201 {node, token, join} with the node … | **uncovered** |
-| NODE-003 | Node names must be slugs: builtin returns 400 validationFailed and a duplicate name 409 … | **uncovered** |
-| NODE-004 | join.dockerRun is exactly docker run -d --name scantor-node --restart unless-stopped -v … | **uncovered** |
-| NODE-005 | GET /api/nodes/{id}/join returns the join instructions with the token replaced by … | **uncovered** |
-| NODE-006 | PATCH /api/nodes/{id} updates name, pool, labels, maxWorkers (null removes it) and cordoned; an … | **uncovered** |
-| NODE-007 | DELETE /api/nodes/{id} returns 204: the node is removed, its workers become lost and are replaced … | **uncovered** |
-| NODE-008 | POST /api/nodes/{id}/token returns {node, token, join} with a new token: the old token gets 401 on … | **uncovered** |
-| NODE-009 | DELETE /api/nodes/{id}/token sets the node revoked: its workers become lost at once (their worker … | **uncovered** |
-| NODE-010 | Rotating, revoking or deleting the built-in node returns 409 builtInNode, and scantor nodes exits 2 … | **uncovered** |
-| NODE-011 | GET /api/nodes/{id}/workers?state pages through the workers placed on the node, each with scan {id, … | **uncovered** |
-| NODE-012 | The built-in node builtin (builtIn: true, endpoint profile internal, pool shared) exists and is … | **uncovered** |
-| NODE-013 | A cordoned node gets no new workers while its running workers stay; a scan that only that node … | **uncovered** |
-| NODE-014 | Running the dockerRun join snippet on a Docker host brings a pending node online with its reported … | **uncovered** |
-| NODE-015 | POST /api/node/hello sets the node online, stores its info (hostname, os, arch, kernel, Docker … | **uncovered** |
-| NODE-016 | Hello with an unknown or revoked node token returns 401, and hello from a daemon version outside … | **uncovered** |
-| NODE-017 | A second daemon using the same node token on a different Docker engine gets 409 … | **uncovered** |
-| NODE-018 | GET /api/node/assignments?rev&wait returns at once when the node's assignments revision is newer … | **uncovered** |
-| NODE-019 | An assignment references the task image by digest at the node's registry host (localhost:<port> on … | **uncovered** |
-| NODE-020 | Node status entries for workers not assigned to the calling node are ignored, and posting worker … | **uncovered** |
-| NODE-021 | A running worker container scantor-w-<workerId> matches the hardening profile: the runtime as … | **uncovered** |
-| NODE-022 | Workers on the built-in node join scantor-sandbox; workers on a remote node join scantor-workers … | **uncovered** |
-| NODE-023 | A worker's environment is exactly the assignment's environment plus SCANTOR_CA_CERT (and … | **uncovered** |
-| NODE-024 | The daemon only touches containers it can attribute to itself: a name conflict with a foreign … | **uncovered** |
-| NODE-025 | On SIGTERM the daemon exits 0 and its workers keep running; the restarted daemon adopts the … | **uncovered** |
-| NODE-026 | A worker container that exits non-zero restarts in place (same container id) with a growing … | **uncovered** |
-| NODE-027 | When a connector process exceeds the container's memory, it is killed first, the worker keeps … | **uncovered** |
-| NODE-028 | A worker that leaves the desired set (scale-in, pause, scheduling done, scan terminal) is stopped … | **uncovered** |
-| NODE-029 | scantor node healthcheck exits 0 while the daemon's status file is younger than three status … | **uncovered** |
-| NODE-030 | scantor node exits 2 at start on invalid configuration (both SCANTOR_NODE_BUILTIN=true and … | **uncovered** |
-| NODE-031 | After its token is rejected (rotated, revoked or node deleted), the daemon logs orchestrator … | **uncovered** |
-| NODE-032 | Task images are pulled by digest with a per-pull registry credential carrying the node token; the … | **uncovered** |
-| NODE-033 | A failed image pull puts the worker in state error with code imagePullFailed and raises the scan … | **uncovered** |
-| NODE-034 | The daemon runs a one-shot egress helper scantor-netpol-<nodeId> (host network, NET_ADMIN and … | **uncovered** |
-| NODE-035 | A scan with nodeSelector.pool = "remote" runs end to end on remote-1 over the public endpoint … | **uncovered** |
-| REG-001 | GET /api/registry/token?service=scantor-registry&scope=repository:tasks/<id>:pull with Basic … | **uncovered** |
-| REG-002 | POST /api/registry/token with the form grant_type=password, username=node, password=snt_… and scope … | **uncovered** |
-| REG-003 | The granted access is the requested access intersected with what is allowed: a node gets pull only … | **uncovered** |
-| REG-004 | The orchestrator credential gets pull, push and delete on tasks/* and registry:catalog:* (sub … | **uncovered** |
-| REG-005 | Token errors use the registry format {errors: [{code, message}]}: 401 UNAUTHORIZED for an invalid … | **uncovered** |
-| REG-006 | A node's pull grant for a task disappears from the next token once its worker is lost, the node is … | **uncovered** |
-| RT-001 | The first GET /api/runtime/bootstrap moves the worker to running (the scheduler also moves … | **uncovered** |
-| RT-002 | Bootstrap returns action stop when the scan is no longer running. | **uncovered** |
-| RT-003 | runtimePresignUploads builds the keys files/<scanId>/<seq>/<executionId>/<fileId>/<safeName> from … | **uncovered** |
-| RT-004 | runtimeAnalysesStatus accepts at most 1000 seqs and answers only for the token's scan. | **uncovered** |
-| RT-005 | runtimeReportError returns 202 and raises the scan condition workerErrors and a worker.error event. | **uncovered** |
-| RT-006 | Connector processes never see SCANTOR_WORKER_TOKEN, SCANTOR_URL, SCANTOR_CA_CERT or … | **uncovered** |
-| RT-007 | Each runner process consumes the scan queue with prefetch 1, so the queue's consumer count equals … | **uncovered** |
-| RT-008 | Deleting the user scan-<id> closes every worker connection of the scan, remote nodes included; the … | **uncovered** |
-| RT-009 | A connector process is recycled after settings.maxAnalysesPerProcess analyses and after a timeout, … | **uncovered** |
-| RT-010 | Malformed analysis messages published as the scan user (wrong scan id, an analysisId that is not … | **uncovered** |
-| RT-011 | A run that exceeds settings.timeoutMs has its connector process group killed, child processes … | **uncovered** |
-| RT-012 | A connector process that ends during a run gives type crash, retryable, with details {exitCode, … | **uncovered** |
-| RT-013 | Outcomes are classified per language: Fatal fails after 1 attempt, not retryable; Retry is … | **uncovered** |
-| RT-014 | A result that is not a JSON object, or whose size exceeds SCANTOR_MAX_RESULT_BYTES, fails as … | **uncovered** |
-| RT-015 | ctx.files.put returns a FileRef {id, name, size, sha256, contentType} (null content type becomes … | **uncovered** |
-| RT-016 | Files are uploaded only after a successful run, so failed attempts store none; every registered … | **uncovered** |
-| RT-017 | When the per-user storage quota SCANTOR_USER_STORAGE_QUOTA_BYTES is exceeded, the analysis fails … | **uncovered** |
-| RT-018 | A retryable failure with attempts left shows the analysis retrying with attempt n and an attempts[] … | **uncovered** |
-| RT-019 | Without jitter and with a backoff of 2 s × 2, attempts start 2 s, 4 s and 8 s apart; Retry(delay) … | **uncovered** |
-| RT-020 | When attempts are exhausted, the analysis is failed with attempt == maxAttempts, keeping the error … | **uncovered** |
-| RT-021 | An analysis's logTail holds the connector's stdout and stderr plus ctx.log lines rendered as … | **uncovered** |
-| RT-022 | Worker logs (from getWorkerLogs) are JSON lines with scanId, workerId, nodeId and role, with … | **uncovered** |
-| RT-023 | Error fields are bounded: message at most 4 KiB, stack at most 16 KiB with the middle cut (…[<n> … | **uncovered** |
-| RT-024 | On drain (pause or scale-in) a worker stops taking work, lets in-flight analyses finish within the … | **uncovered** |
-| CONN-001 | A task image started without the runtime (no readable fd 3 and writable fd 4) prints scantor: this … | **uncovered** |
-| CONN-002 | User output on stdout and stderr never corrupts the protocol: a printed JSON line that looks like a … | **uncovered** |
-| CONN-003 | An exception while the task module loads fails the revision at describe with the message and stack … | **uncovered** |
-| CONN-004 | ctx.log(level, message, fields) lines appear in the analysis log tail and in local-mode events as … | **uncovered** |
-| CONN-005 | Python tasks define a module-level scantor.Task(...) with configs derived from scantor.Config; run … | **uncovered** |
-| CONN-006 | TypeScript and JavaScript tasks export default defineTask({...}) with config() roots and secret() … | **uncovered** |
-| CONN-007 | Go tasks call scantor.Serve(schedule, run) or ServeRun(run), including uninstantiated template … | **uncovered** |
-| CONN-008 | The base images implement the ENV contract (SCANTOR_LANGUAGE, SCANTOR_CONNECTOR_CMD, … | **uncovered** |
-| CONN-009 | Every base image ships the system CA bundle, so HTTPS from tasks and from the runtime (data … | **uncovered** |
-| CONN-010 | Describe exports normalised schemas ($schema draft 2020-12, no $id, object roots, no defaults on … | **uncovered** |
-| CONN-011 | Describe fails the revision (phase describe) for an open config root, a default that violates its … | **uncovered** |
-| CONN-012 | An unwrapped template proxy (schedule=tranco.schedule, cidr.Schedule) is described as {kind: … | **uncovered** |
-| CONN-013 | A scan config with properties on a task without schedule (template single) is a definition error. | **uncovered** |
-| DEV-001 | scantor init [dir] --language <l> [--template <t>\|custom] [--name] [--description] writes a … | **uncovered** |
-| DEV-002 | A scaffold contains scantor.yaml with the schema modeline (valid against … | **uncovered** |
-| DEV-003 | For every language of schemas/languages.json × every template plus custom, scantor init, then … | **uncovered** |
-| DEV-004 | scantor validate [dir] runs pack, static checks, build, describe and the type check on local … | **uncovered** |
-| DEV-005 | Under SCANTOR_DEV_MODE=remote (the editor), scantor validate and scantor dev debug exit 3 with a … | **uncovered** |
-| DEV-006 | scantor dev run [dir] builds, describes, validates and fills the configs (an invalid config exits … | **uncovered** |
-| DEV-007 | Local dev run uses SCANTOR_TRANCO_URL and SCANTOR_CRUX_URL when set, and a config that references … | **uncovered** |
-| DEV-008 | scantor dev run -o json prints the local-mode NDJSON events unchanged: start, resolved, scheduled, … | **uncovered** |
-| DEV-009 | Local-mode exit codes, the highest applicable winning: 3 for a total timeout, an interrupt or a … | **uncovered** |
-| DEV-010 | In local mode --analysis-config skips schedule and runs once with seq 0, --limit caps the items … | **uncovered** |
-| DEV-011 | Files of a local run are copied to .scantor/out/<timestamp>/files/<seq>/<fileId>/<name> in the task … | **uncovered** |
-| DEV-012 | On a total timeout or an interrupt, local mode kills the connector processes; in-flight analyses … | **uncovered** |
-| DEV-013 | scantor dev run --remote (or SCANTOR_DEV_MODE=remote) syncs the folder with … | **uncovered** |
-| DEV-014 | scantor dev debug runs one connector process under the base image's debugger (debugpy, the Node … | **uncovered** |
-| DEV-015 | scantor push [dir] packs locally and uploads; the manifest name selects or creates the task, it … | **uncovered** |
-| CLI-001 | Exit codes: 0 success; 1 when analyses failed (dev run, and scans start --wait, scans get --wait … | **uncovered** |
-| CLI-002 | The CLI takes credentials only from SCANTOR_URL and SCANTOR_TOKEN; a token that does not start with … | **uncovered** |
-| CLI-003 | Run containerised (the scantor.sh shim pattern), the CLI rewrites a localhost, 127.0.0.1 or ::1 … | **uncovered** |
-| CLI-004 | scantor push <dir> --wait uploads a task folder and builds a ready revision, and scantor scans … | e2e/smoke.spec.ts › CLI scan › a pushed task runs to completion from the CLI |
-| CLI-005 | scantor scans start [revision] takes --task-config, --scan-config and --settings as JSON, @file or … | **uncovered** |
-| CLI-006 | scantor scans watch <scan> prints progress until the scan completes, fails, is cancelled or is … | **uncovered** |
-| CLI-007 | scantor scans … | **uncovered** |
-| CLI-008 | scantor tasks files ls\|cat\|put\|rm work on the platform workspace: a binary put/cat round trip keeps … | **uncovered** |
-| CLI-009 | scantor revisions get\|list\|logs [--follow]\|publish work on revisions. | **uncovered** |
-| CLI-010 | scantor nodes create\|list\|get\|update\|delete\|join\|token rotate\|token revoke\|workers\|events manage … | **uncovered** |
-| CLI-011 | scantor uploads create with a list-template scan, scantor analyses query\|aggregate, scantor export … | **uncovered** |
-| EDIT-001 | POST /api/editor/session {open?} returns 201 {url, expiresAt, editor} with a one-time URL … | **uncovered** |
-| EDIT-002 | createEditorSession returns 404 when open names a task the caller does not own, 400 when open is … | **uncovered** |
-| EDIT-003 | GET /api/editor returns {state, startedAt, lastActivityAt, idleTimeoutMs, error}: stopped for a … | **uncovered** |
-| EDIT-004 | DELETE /api/editor returns 204, removes the editor container and deletes the editor API key; it is … | **uncovered** |
-| EDIT-005 | Every editor start mints a new editor API key (at most one per user, listed with configId=editor, … | **uncovered** |
-| EDIT-006 | An idle editor stops after SCANTOR_EDITOR_IDLE_TIMEOUT, and while it starts its origin serves a 503 … | **uncovered** |
-| EDIT-007 | Inside the editor, SCANTOR_URL points at the orchestrator, SCANTOR_TOKEN is the editor key, … | **uncovered** |
-| EDIT-008 | Editor routes always act on the caller's own editor, also for admins; a session code is single use, … | **uncovered** |
-| EDIT-009 | The editor listener answers 421 to any other host and serves only /_auth and the code-server proxy … | **uncovered** |
-| EDIT-010 | The scantor_editor cookie is host-only, HttpOnly, SameSite=Lax and Secure, lives 12 h and stops … | **uncovered** |
-| EDIT-011 | A WebSocket upgrade with a foreign Origin gets 403, and Set-Cookie headers from code-server never … | **uncovered** |
-| EDIT-012 | A code-server socket replaced by a symlink (to /var/run/docker.sock, through docker exec in the … | **uncovered** |
-| EDIT-013 | A master worker cannot connect to an editor container. | **uncovered** |
-| EDIT-014 | The editor container has no Docker socket and only its home, workspace and socket mounts, runs as … | **uncovered** |
-| EDIT-015 | Editor-origin responses carry Content-Security-Policy: frame-ancestors 'self' <dashboard origin>, … | **uncovered** |
-| TOOLS-001 | GET /api/tools/session?target=rabbitmq\|mongo-express\|rustfs\|traefik (admin session) answers 302 to … | **uncovered** |
-| TOOLS-002 | GET /api/tools/forward-auth answers 200 with X-Scantor-User for a valid admin tools cookie on a … | **uncovered** |
-| TOOLS-003 | Through Traefik, traefik., rabbitmq., mongo-express. and rustfs.<domain> are reachable only with an … | **uncovered** |
-| TOOLS-004 | RabbitMQ management accepts only the admin user, mongo-express runs read-only, and the bucket … | **uncovered** |
-| MCP-001 | tools/list equals the curated table of 29 tools (at most 30): names are snake_case(operationId) … | **uncovered** |
-| MCP-002 | A scantor:read grant sees only read tools (GET plus query_analyses and aggregate_analyses), and … | **uncovered** |
-| MCP-003 | wait on publish_revision, get_revision, test_task, get_test_run, get_scan, export_scan and … | **uncovered** |
-| MCP-004 | A non-2xx REST response becomes isError with {error: {httpStatus, code, message, details}} (plus … | **uncovered** |
-| MCP-005 | Target- and task-derived values are wrapped as {untrusted_data: …} (for example get_analysis … | **uncovered** |
-| MCP-006 | Tool results are capped at 256 KiB: the longest fitting prefix of the list is kept with _truncated … | **uncovered** |
-| MCP-007 | No MCP tool manages credentials or identity (API keys, OAuth apps, users, git credentials, editor … | **uncovered** |
-| MCP-008 | /mcp accepts only POST (GET and DELETE return 405), is stateless, answers OPTIONS with CORS * … | **uncovered** |
-| MCP-009 | POST /mcp without a credential gets 401 with WWW-Authenticate: Bearer … | **uncovered** |
-| MCP-010 | Dynamic client registration accepts loopback http(s) redirect URIs on any port, private-use schemes … | **uncovered** |
-| MCP-011 | A CIMD client_id whose metadata URL is not https or whose host resolves to a private address is … | **uncovered** |
-| MCP-012 | An MCP client connects through OAuth 2.1 (discovery, a registered client, consent as the signed-in … | mcp/smoke.spec.ts › MCP plumbing › the OAuth flow connects as the signed-in user |
-| MCP-013 | Consent decides the token's level: accepting without scope returns 400 invalid_request, … | **uncovered** |
-| MCP-014 | Every /mcp request re-checks the user and the consent: after revokeOAuthApp, a ban or the user's … | **uncovered** |
-| MCP-015 | API keys work on /mcp (Bearer or x-api-key): an admin's default key gets level admin, other default … | mcp/smoke.spec.ts › MCP plumbing › an API key lists the tools and calls one |
-| MCP-016 | The server instructions are present at initialize, at most 8 KiB, and every tool they name exists; … | **uncovered** |
-| MCP-017 | Every MCP tool name and scantor command mentioned in skills/ and docs/guide/*.md exists, and guide … | **uncovered** |
-| MCP-018 | An agent loop with tools only succeeds: create_task (python, range), read_task_file, … | **uncovered** |
-| MCP-019 | start_scan above the confirmation threshold returns 422 confirmationRequired, and the same call … | **uncovered** |
-| SEC-001 | Every case of tests/corpora/dockerfile-policy uploaded with uploadTask gives a failed revision … | **uncovered** |
-| SEC-002 | Image references in FROM, COPY --from and RUN --mount from= that point at the platform registry or … | **uncovered** |
-| SEC-003 | The exploit COPY --from=localhost:<port>/tasks/<victim task> is rejected with its file and line and … | **uncovered** |
-| SEC-004 | A task whose earlier build stage is FROM an external image with ONBUILD triggers fails the revision … | **uncovered** |
-| SEC-005 | A task with LABEL keys starting with traefik., com.docker.compose. or scantor. (any case), quoted, … | **uncovered** |
-| SEC-006 | Forbidden labels inherited from a base image pass the static check but fail the revision in phase … | **uncovered** |
-| SEC-007 | Every container scantor creates (worker, helper, build, test run, editor, egress helper) and every … | **uncovered** |
-| SEC-008 | Defence in depth: a pre-built image carrying traefik.* and com.docker.compose.project=scantor … | **uncovered** |
-| SEC-009 | A RUN step that connects to 169.254.169.254 fails during a build on a node that reports … | **uncovered** |
-| SEC-010 | Master workers (netprobe on the built-in node) cannot open TCP connections to MongoDB, the registry … | **uncovered** |
-| SEC-011 | Every rejected case of tests/corpora/query-injection sent through queryAnalyses, aggregateAnalyses … | **uncovered** |
-| SEC-012 | Scope-override attempts ({"scanId": {"$ne": null}} in a filter, $facet with $lookup, $unionWith) by … | **uncovered** |
-| SEC-013 | Connected directly to MongoDB as the read-only scantor_query user, a $where find fails … | **uncovered** |
-| SEC-014 | writeOnly fields (secret(), SecretStr, scantor.Secret) of schema-zoo show * in scans, test runs, … | **uncovered** |
-| SEC-015 | Filters, sorts, projection expressions and pipelines that reference a writeOnly path return 400 … | **uncovered** |
-| SEC-016 | TLS verification is always on: SCANTOR_CA_CERT is added to the system roots (never replacing them) … | **uncovered** |
-| SEC-017 | The object store bucket is private: an unsigned GET returns 403, and a CORS preflight from a … | **uncovered** |
-| SEC-018 | A throwaway orchestrator in public mode (a non-loopback SCANTOR_PUBLIC_URL or SCANTOR_EDITOR_URL, … | **uncovered** |
-| SEC-019 | With SCANTOR_ALLOW_INSECURE_DEFAULTS=true a public deployment with offenders starts with a warning … | **uncovered** |
-| SEC-020 | A SCANTOR_EDITOR_URL with the same origin as SCANTOR_PUBLIC_URL always makes the orchestrator exit … | **uncovered** |
-| SEC-021 | Invalid security-relevant settings abort startup: a URL with a path, query or credentials, an … | **uncovered** |
-| SEC-022 | After a SCANTOR_SECRET change on a throwaway orchestrator, boot recovers: MCP OAuth works again, … | **uncovered** |
-| SEC-023 | The key derivations from SCANTOR_SECRET match the shared vectors of … | **uncovered** |
-| SEC-024 | Logs never contain credentials: the orchestrator and node daemon log JSON lines with correlation … | **uncovered** |
-| OPS-001 | lint-compose fails when the infrastructure services (mongo, rabbitmq, rustfs, registry, … | **uncovered** |
-| OPS-002 | lint-compose enforces the compose rules: Traefik exposedbydefault=false, the compose-project … | **uncovered** |
-| OPS-003 | lint-env fails when a SCANTOR_* variable read by code, compose files, recipes or the test stack is … | **uncovered** |
-| OPS-004 | lint-env enforces the shipped secure defaults: loopback bind addresses, SCANTOR_NODE_DIND=disabled … | **uncovered** |
-| OPS-005 | lint-env fails when a non-configuration variable (SCANTOR_WORKER_TOKEN, SCANTOR_DIND, … | **uncovered** |
-| OPS-006 | Traefik redirects http:// permanently to https://, serves the operator's default certificate (the … | **uncovered** |
-| OPS-007 | Traefik routes each host to its target: scantor. to the orchestrator, editor. to the editor … | **uncovered** |
-| CHAOS-001 | Killing one runner of a scan while analyses are in flight still ends the scan completed with … | **uncovered** |
-| CHAOS-002 | Restarting the orchestrator during a running scan, also while results are being ingested, ends the … | **uncovered** |
-| CHAOS-003 | Restarting RabbitMQ while retries are delayed keeps the quorum queues, delayed messages and users; … | **uncovered** |
-| CHAOS-004 | Pausing a scan while retries are delayed, waiting 30 s and resuming loses no analysis, and the … | **uncovered** |
-| CHAOS-005 | A scan cancelled and deleted right after a backlog of results built up (the orchestrator paused for … | **uncovered** |
-| CHAOS-006 | A remote node disconnected longer than SCANTOR_NODE_OFFLINE_AFTER goes offline (node.offline); its … | **uncovered** |
-| CHAOS-007 | When a scan queue with delayed retries is deleted, the reconciler recreates it empty; after … | **uncovered** |
-| CHAOS-008 | During a RabbitMQ memory alarm, startScan returns 503 brokerAlarm, running scans show the condition … | **uncovered** |
-| CHAOS-009 | While MongoDB is paused, results accumulate in scantor.results.ingest and the runtimes keep … | **uncovered** |
-| UI-NAV-001 | The sidebar shows the Workspace (Overview, Tasks, Scans, Templates, Editor) and Access (CLI & MCP … | **uncovered** |
-| UI-NAV-002 | When features.editor is false, the Editor item and every "Open in editor" entry point (task navbar, … | **uncovered** |
-| UI-NAV-003 | "New scan" goes to /scans/new and "New task" to /tasks/new; in the collapsed sidebar they become … | **uncovered** |
-| UI-NAV-004 | The Scans badge counts the user's own creating, running or paused scans, shows 200+ when there are … | **uncovered** |
-| UI-NAV-005 | For admins, the Nodes badge shows the number of offline nodes in the error color and is hidden at 0. | **uncovered** |
-| UI-NAV-006 | The "API docs" footer link opens /api/docs in a new tab. | **uncovered** |
-| UI-NAV-007 | The sidebar collapses and expands ("Collapse sidebar", "Expand sidebar"; the collapsed logo is … | **uncovered** |
-| UI-NAV-008 | Below the lg breakpoint the sidebar is a drawer opened with "Open navigation" and closed with … | **uncovered** |
-| UI-NAV-009 | The user menu shows initials, name, email and an "admin" badge for admins, with Account, CLI & MCP … | **uncovered** |
-| UI-NAV-010 | Every page's title is <Page> · scantor, and detail pages use the task, scan, revision or node name … | **uncovered** |
-| UI-NAV-011 | The theme toggle offers "Use system theme", "Use light theme" and "Use dark theme" with … | **uncovered** |
-| UI-NAV-012 | A signed-out visit to a protected route redirects to /login?redirect=<path with query>, and after … | **uncovered** |
-| UI-NAV-013 | The redirect parameter is followed only for same-origin paths: //evil.example, /\evil, … | **uncovered** |
-| UI-NAV-014 | A non-admin opening /admin/nodes, /admin/nodes/:id, /admin/users or /admin/tools is sent to / with … | **uncovered** |
-| UI-NAV-015 | A failed API call shows a red toast titled after its error code (for example "Not possible in the … | **uncovered** |
-| UI-NAV-016 | A 5xx error toast offers "Copy request id", which copies the X-Request-Id and shows "Copied". | **uncovered** |
-| UI-NAV-017 | Any 401 from the API on a protected page, such as after the session was revoked from another … | **uncovered** |
-| UI-NAV-018 | When an admin bans a signed-in user, their next API call signs them out and lands on … | **uncovered** |
-| UI-NAV-019 | Without any response from the server, the UI shows a single toast "Cannot reach the orchestrator" … | **uncovered** |
-| UI-NAV-020 | After 3 consecutive failures of a poll, the banner "Live updates paused, retrying…" (role=status, … | **uncovered** |
-| UI-NAV-021 | Polls pause while the tab is hidden and refetch when it becomes visible, keep one request in … | **uncovered** |
-| UI-NAV-022 | Every polled page has a "Refresh" navbar button that refetches at once and shows a spinner while … | **uncovered** |
-| UI-NAV-023 | Every button on every page has an accessible name, icon-only buttons use the same text as … | **uncovered** |
-| UI-NAV-024 | Tables have an aria-label, rows carry data-row-id, and the documented data-testids exist … | **uncovered** |
-| UI-NAV-025 | Status badges always include the state text; modals and slideovers have titles, trap focus and … | **uncovered** |
-| UI-NAV-026 | The new-task wizard's stepper exposes the step position to screen readers. | **uncovered** |
-| UI-NAV-027 | Copy buttons copy to the clipboard and show "Copied" (a blocked clipboard shows "Copy failed"); id … | **uncovered** |
-| UI-NAV-028 | A type-to-confirm dialog keeps its action disabled until the exact text is typed, and Cancel or … | **uncovered** |
-| UI-NAV-029 | UI preferences live in one localStorage key scantor-ui; corrupted or unknown-version contents are … | **uncovered** |
-| UI-HOME-001 | A user without tasks and scans sees the empty state "No tasks yet" with "Create your first task", … | **uncovered** |
-| UI-HOME-002 | "Active scans" shows a card per creating, running or paused scan (name, revision, state, progress, … | **uncovered** |
-| UI-HOME-003 | "Needs attention" lists, without duplicates, active scans with conditions ("N conditions need … | **uncovered** |
-| UI-HOME-004 | "Recent scans" shows the last 10 scans and "Recent tasks" the last 5 tasks with language, latest … | **uncovered** |
-| UI-HOME-005 | For admins, "Platform health" shows the component states, RabbitMQ alarms, Nodes: N online · N … | **uncovered** |
-| UI-AUTH-001 | A user signs in on /login with email and password and lands on the redirect target; the email field … | ui/smoke.spec.ts › UI plumbing › a user signs in with email and password and lands on the overview |
-| UI-AUTH-002 | Wrong credentials show the inline alert "Invalid email or password" (data-testid=login-error) and … | **uncovered** |
-| UI-AUTH-003 | A banned user's sign-in shows "Your account is banned", and /login?banned=1 shows the same message … | **uncovered** |
-| UI-AUTH-004 | Opening /login with a valid session goes straight to the redirect target. | **uncovered** |
-| UI-AUTH-005 | With passkeys enabled, "Sign in with passkey" signs in with a virtual authenticator and lands on … | **uncovered** |
-| UI-AUTH-006 | /login reached from an OAuth authorization shows "Sign in to authorize an application to access … | **uncovered** |
-| UI-AUTH-007 | /setup?token=… stores the token in sessionStorage and removes it from the address bar and history … | **uncovered** |
-| UI-AUTH-008 | Without a token, /setup explains where the setup link is printed (docker compose logs orchestrator … | **uncovered** |
-| UI-AUTH-009 | Password setup takes name, email, password (8–128 characters) and confirmation ("The passwords do … | **uncovered** |
-| UI-AUTH-010 | With passkeys enabled, a "Password \| Passkey" choice appears, and passkey setup registers "Primary … | **uncovered** |
-| UI-AUTH-011 | A wrong setup token shows "The setup token is missing or wrong. Restarting the orchestrator prints … | **uncovered** |
-| UI-AUTH-012 | The consent page shows the client name (the metadata host for CIMD clients, otherwise "An … | **uncovered** |
-| UI-AUTH-013 | The access level offers "Read only", "Read and write" and, for admins only, "Admin" (never … | **uncovered** |
-| UI-AUTH-014 | "Approve" grants the requested non-scantor scopes plus the chosen level's scopes (so "Read only" … | **uncovered** |
-| UI-AUTH-015 | /oauth/consent without an authorization request shows "This page is only reachable from an … | **uncovered** |
-| UI-TASK-001 | The tasks list filters by "Search tasks" (debounced) and language, admins get an "Only mine" … | **uncovered** |
-| UI-TASK-002 | The tasks table shows the name with the "Unpublished changes" badge (data-testid=unpublished-badge) … | **uncovered** |
-| UI-TASK-003 | The tasks list shows "No tasks yet" only without filters ("No tasks." with filters), "Tasks could … | **uncovered** |
-| UI-TASK-004 | The new-task wizard starts with the sources "From a scaffold", "Import from git" and "Upload a … | **uncovered** |
-| UI-TASK-005 | The template step lists the scaffold's templates with title, description (code spans rendered as … | **uncovered** |
-| UI-TASK-006 | The name step validates the slug live and limits the description to 500 characters; "Create task" … | **uncovered** |
-| UI-TASK-007 | The git import form accepts only https URLs (http, ssh, userinfo, file:// and ext:: are rejected … | **uncovered** |
-| UI-TASK-008 | A git import of one task opens it; several manifests show a "Select tasks" checklist (existing … | **uncovered** |
-| UI-TASK-009 | Git import errors show inline: gitFailed with its message under "The import failed", … | **uncovered** |
-| UI-TASK-010 | The upload step accepts only .tar.gz and .tgz files ("Expected a .tar.gz or .tgz file"), shows the … | **uncovered** |
-| UI-TASK-011 | An upload that published a revision opens the revision page, otherwise the task page; … | **uncovered** |
-| UI-TASK-012 | The task header shows the name, language, source (git tasks git · <commit8>), privileged and … | **uncovered** |
-| UI-TASK-013 | The task navbar offers "Open in editor" (/editor?task=<name>), "Publish revision", "Start scan" … | **uncovered** |
-| UI-TASK-014 | ?created=1 shows the banner "Task <name> is ready" in full with "Open the editor", "Try a test run" … | **uncovered** |
-| UI-TASK-015 | The Overview, Files, Revisions and Test tabs sync with ?tab=, and an unknown value falls back to … | **uncovered** |
-| UI-TASK-016 | The Overview tab shows the description and cards for the workspace ("Check now" refreshes its … | **uncovered** |
-| UI-TASK-017 | The publish modal shows a fresh workspace status, notes when the workspace equals an existing … | **uncovered** |
-| UI-TASK-018 | "Pull from git" shows "Pulled <commit8>" or "Already up to date", and on gitDiverged asks … | **uncovered** |
-| UI-TASK-019 | "Delete task" requires typing the task name, then shows "Task <name> is being deleted" and opens … | **uncovered** |
-| UI-TASK-020 | An unknown task shows "Task not found", and the revision badge updates live while a new revision … | **uncovered** |
-| UI-TASK-021 | The Files tab shows the workspace tree with file, folder and symlink icons; a file shows its path, … | **uncovered** |
-| UI-TASK-022 | The Files tab's source select switches between "Workspace" and "Revision N" (synced with … | **uncovered** |
-| UI-TASK-023 | The Revisions tab filters by state and lists ref, state, source, pack hash, error count, created … | **uncovered** |
-| UI-TASK-024 | The revision page shows ref, state, privileged badge, message and times, "Start scan" for ready … | **uncovered** |
-| UI-TASK-025 | A failed revision shows its errors first (data-testid=build-errors), each with phase, … | **uncovered** |
-| UI-TASK-026 | The build log (data-testid=build-log) follows a running build, groups lines by phase with … | **uncovered** |
-| UI-TASK-027 | The revision facts show source, pack hash, git origin, base image, image digest, size and platform, … | **uncovered** |
-| UI-TASK-028 | A ready revision's describe section has Task config, Scan config, Analysis config and Result tabs … | **uncovered** |
-| UI-TRUN-001 | The Test tab offers "Schedule + run" (task and scan config forms, limit 1–50) and "One analysis" … | **uncovered** |
-| UI-TRUN-002 | The forms use the latest known schemas; without any, "No schemas known yet" appears and the forms … | **uncovered** |
-| UI-TRUN-003 | "Start test run" is disabled while a run is active, and start errors (for example an invalid limit) … | **uncovered** |
-| UI-TRUN-004 | A live run streams its state (queued → building → running → completed), the "draft image cached" … | **uncovered** |
-| UI-TRUN-005 | When the event stream fails, the panel polls the run every 2 s and still shows its results. | **uncovered** |
-| UI-TRUN-006 | "Cancel test run" cancels the active run, and the history shows it cancelled. | **uncovered** |
-| UI-TRUN-007 | An analysis row opens the slideover "Analysis <seq>" with status, attempt, duration, error and … | **uncovered** |
-| UI-TRUN-008 | The history lists earlier runs with state, x / y succeeded and pack hash, and a row loads that run. | **uncovered** |
-| UI-TRUN-009 | Unsent test-run inputs are restored per task after a reload, without the values of writeOnly fields. | **uncovered** |
-| UI-EDIT-001 | /editor starts the user's editor, shows "Editor is starting…", and then loads code-server from the … | **uncovered** |
-| UI-EDIT-002 | /editor?task=<name> opens that task's folder; an unknown task shows "Task “<name>” was not found" … | **uncovered** |
-| UI-EDIT-003 | The navbar shows the editor state and stops after N min idle, and "Open in new tab" opens a fresh … | **uncovered** |
-| UI-EDIT-004 | "Stop editor" asks for confirmation, shows "Editor stopped", removes the iframe and offers "Open … | **uncovered** |
-| UI-EDIT-005 | A failed start shows "The editor could not start" with the message and "Retry"; too many running … | **uncovered** |
-| UI-EDIT-006 | An editor stopped elsewhere disappears from the page, and an editor restarted elsewhere is loaded … | **uncovered** |
-| UI-SCAN-001 | The scans list filters by state (default "All states except deleted") and task, admins get "Only … | **uncovered** |
-| UI-SCAN-002 | The scans table shows name and id, revision, state with condition count, progress with … | **uncovered** |
-| UI-SCAN-003 | The row menu "Scan actions for <name>" offers Open, Pause, Resume, Cancel, Restart and Delete as … | **uncovered** |
-| UI-SCAN-004 | Without filters and scans the list shows "No scans yet" with "New scan", and "Load more" pages … | **uncovered** |
-| UI-SCAN-005 | The new-scan form picks a task and a revision ("latest ready revision" or @N) and shows the … | **uncovered** |
-| UI-SCAN-006 | For a privileged revision and a user without canRunPrivileged, the form shows "Privileged revision" … | **uncovered** |
-| UI-SCAN-007 | The task and scan config forms follow the revision's schemas in source order with "Edit as JSON", … | **uncovered** |
-| UI-SCAN-008 | "Runner workers" and "Processes per worker" are bounded by the instance limits and prefilled from … | **uncovered** |
-| UI-SCAN-009 | "Advanced settings" hold timeout, attempts, analyses per process, backoff, CPUs, memory, node pool … | **uncovered** |
-| UI-SCAN-010 | For template schedules the form estimates the scan ("≈ N analyses", "exactly N analyses"); custom … | **uncovered** |
-| UI-SCAN-011 | An estimate above the instance maximum disables "Start scan"; above the confirmation threshold the … | **uncovered** |
-| UI-SCAN-012 | "Start scan" starts the scan and opens its page; a configInvalid answer marks each issue on its … | **uncovered** |
-| UI-SCAN-013 | A client-side validation failure shows "Check the highlighted fields" and sends no request. | **uncovered** |
-| UI-SCAN-014 | An upload field offers the user's uploads (name · N lines · size) and "Upload a list for <field>", … | **uncovered** |
-| UI-SCAN-015 | The scan header shows name and id, state with its reason (paused · failure rate), round when above … | **uncovered** |
-| UI-SCAN-016 | An unknown scan, or another user's scan for a non-admin, shows "Scan not found" without revealing … | **uncovered** |
-| UI-SCAN-017 | The scan controls enable Pause, Resume, Scale, Cancel, "Retry failed analyses", Restart, "Export … | **uncovered** |
-| UI-SCAN-018 | Pause shows "Scan paused" and the workers drain away; Resume shows "Scan resumed" and runners … | **uncovered** |
-| UI-SCAN-019 | The scale dialog is bounded by the instance limits, shows the derived capacity line, and on submit … | **uncovered** |
-| UI-SCAN-020 | Cancel asks "Cancel scan <name>?", then shows "Scan cancelled" and the state cancelled. | **uncovered** |
-| UI-SCAN-021 | "Retry failed analyses" is enabled only for a finished scheduling with failed or lost analyses; … | **uncovered** |
-| UI-SCAN-022 | The restart dialog defaults the name to <name> (restart), starts the clone with the chosen workers … | **uncovered** |
-| UI-SCAN-023 | "Delete scan" requires typing the scan's name (or id), shows "Scan deletion started" and opens … | **uncovered** |
-| UI-SCAN-024 | The Overview, Results, Query, Workers, Events and Exports tabs sync with ?tab=, and ?analysis= … | **uncovered** |
-| UI-SCAN-025 | The scan page refreshes while the scan is active, keeps refreshing for a few minutes after it ends … | **uncovered** |
-| UI-SCAN-026 | The progress card (data-testid=scan-progress) shows the bar (indeterminate without a total), done / … | **uncovered** |
-| UI-SCAN-027 | The stats tiles (data-testid=scan-stats) for pending, retrying, succeeded, failed, lost and … | **uncovered** |
-| UI-SCAN-028 | The health card (data-testid=scan-health) shows "Healthy", or one item per condition … | **uncovered** |
-| UI-SCAN-029 | workersPending shows N workers pending with readable reasons (for example "No online node matches", … | **uncovered** |
-| UI-SCAN-030 | crashLoop (from crashy) shows the worker, a node link, the exit code, an "OOM killed" badge, the … | **uncovered** |
-| UI-SCAN-031 | breakerTripped shows X % of N attempts failed within D with a "Resume scan" button, which resumes … | **uncovered** |
-| UI-SCAN-032 | Other conditions render their details: schedulingFailed, workerErrors and schedulerRestarting with … | **uncovered** |
-| UI-SCAN-033 | The settings card shows the effective settings, the task and scan configs with * values rendered as … | **uncovered** |
-| UI-RES-001 | The results status filter syncs with ?status= and reloads the table from the start; "Go to seq" … | **uncovered** |
-| UI-RES-002 | The advanced filter takes a JSON filter (default {"status": "failed"}), disables "Apply filter" for … | **uncovered** |
-| UI-RES-003 | "Result columns" allows up to 4 result fields (default the first four of the result schema) and … | **uncovered** |
-| UI-RES-004 | The results table shows seq, status, attempt, round (when above 1), duration, error, the chosen … | **uncovered** |
-| UI-RES-005 | Results load 50 rows per page through "Load more" or scrolling, and stop at 5000 rows with "Showing … | **uncovered** |
-| UI-RES-006 | "Auto-refresh" appears only while the scan runs, is on by default and reloads the loaded rows. | **uncovered** |
-| UI-RES-007 | ?analysis=<seq> opens the drawer "Analysis <seq>" on load, closing removes the parameter, and an … | **uncovered** |
-| UI-RES-008 | The drawer summary shows the analysis id, status, attempt, round, worker, node (a link for admins), … | **uncovered** |
-| UI-RES-009 | The drawer shows the config with * secrets as locks (or "No config was stored for this analysis."), … | **uncovered** |
-| UI-RES-010 | The drawer's error section shows type, phase, retryability, attempt, message and details, and "Show … | **uncovered** |
-| UI-RES-011 | The attempts table lists attempts across rounds newest first with their errors, worker and node, … | **uncovered** |
-| UI-RES-012 | The drawer's log view shows the final log tail with "Wrap lines" and "Follow log", or "No output … | **uncovered** |
-| UI-RES-013 | A file chip shows name, size and type; "Download <name>" downloads through a presigned URL, and … | **uncovered** |
-| UI-RES-014 | The query console has Query (filter, projection, sort, limit, after seq) and Aggregate (pipeline, … | **uncovered** |
-| UI-RES-015 | Query output shows N items as JSON or, for flat items, as a table; "Load more" follows the cursor … | **uncovered** |
-| UI-RES-016 | Query errors stay inline: a rejected operator shows under its editor with (at <path>), timeouts and … | **uncovered** |
-| UI-RES-017 | The last 20 queries per scan are kept, "Recent queries" restores one, ?filter=<json> prefills the … | **uncovered** |
-| UI-RES-018 | The Workers tab shows N active · N pending · N desired and a table of workers (role, state, node, … | **uncovered** |
-| UI-RES-019 | "Show worker logs of <id>" opens "Logs of <role> <id>", requests a fresh tail ("Requesting the … | **uncovered** |
-| UI-RES-020 | The in-flight table lists running analyses with seq, attempt, round, a live "running for" timer, … | **uncovered** |
-| UI-RES-021 | The Events tab lists events newest first with level, type, time and message, filters all, scan or … | **uncovered** |
-| UI-RES-022 | The Exports tab lists format, state (with the error when failed), rows, size, selection, created … | **uncovered** |
-| UI-RES-023 | The export dialog takes JSON Lines or CSV, a status selection or a JSON filter, and fields (at most … | **uncovered** |
-| UI-FORM-001 | Object properties render as field groups in schema source order; nested objects from depth 2 are … | **uncovered** |
-| UI-FORM-002 | String fields use the input type of their format (uri, email, date, date-time), a textarea above … | **uncovered** |
-| UI-FORM-003 | writeOnly strings render as password inputs with "Show value of <field>" and a "secret" badge, are … | **uncovered** |
-| UI-FORM-004 | Enums and unions of titled constants render as a select with titles, required fields with at most 4 … | **uncovered** |
-| UI-FORM-005 | A discriminated union renders a select of the branch titles followed by the chosen branch's fields, … | **uncovered** |
-| UI-FORM-006 | Numbers take min, max and step from the schema and clearing removes the key; booleans are switches … | **uncovered** |
-| UI-FORM-007 | Arrays of enums render as a multi-select, arrays of primitives as rows with "Add item to <field>" … | **uncovered** |
-| UI-FORM-008 | Maps render as a key-value editor with "Add <field> entry", key validation ("Duplicate key", "Key … | **uncovered** |
-| UI-FORM-009 | Nullable fields have "Set <field> to null", fields with a default show it and offer "Reset … | **uncovered** |
-| UI-FORM-010 | Unsupported constructs (allOf, if/then/else, not, patternProperties, prefixItems, other unions) … | **uncovered** |
-| UI-FORM-011 | "Edit as JSON" switches the whole form to JSON and "Edit as form" back (blocked while the JSON is … | **uncovered** |
-| UI-FORM-012 | An untouched optional field is absent from the request, so the server applies its default, and … | **uncovered** |
-| UI-FORM-013 | The browser validates forms under the production CSP (no unsafe-eval) and shows errors such as "is … | **uncovered** |
-| UI-TPL-001 | /templates shows a card per template with title, name, description, a "pins inputs at scan start" … | **uncovered** |
-| UI-TPL-002 | A card's estimate form, prefilled with the example, shows "N analyses (exact)", "(estimate)" or … | **uncovered** |
-| UI-ADMIN-001 | The nodes table shows name (with a "built-in" pill), state and "cordoned" badges, pool and labels, … | **uncovered** |
-| UI-ADMIN-002 | "Add node" (name, pool, labels, worker limit) reveals "Token of node <name>" … | **uncovered** |
-| UI-ADMIN-003 | A duplicate node name shows "A node with this name already exists.", and an invalid name or label … | **uncovered** |
-| UI-ADMIN-004 | "Node actions for <name>" offer Edit (with a "Cordoned" switch; only changed fields are saved, … | **uncovered** |
-| UI-ADMIN-005 | "Rotate token" reveals a new token, "Revoke token" shows "Token of <name> revoked" and the revoked … | **uncovered** |
-| UI-ADMIN-006 | The node page shows the node's info, lease, labels, workers (with "Active only") and events, and … | **uncovered** |
-| UI-ADMIN-007 | The users table searches by name or email and shows name (with "(you)"), email, role, status … | **uncovered** |
-| UI-ADMIN-008 | "New user" creates a user with email, name, password, role, "Can run privileged tasks" and worker … | **uncovered** |
-| UI-ADMIN-009 | Editing a user sends only changed fields; on the admin's own row the role is locked ("You cannot … | **uncovered** |
-| UI-ADMIN-010 | "Set password" (with confirmation) notes that it signs the user out everywhere and shows "Password … | **uncovered** |
-| UI-ADMIN-011 | Ban takes an optional reason and "Also cancel all their scans" (checked by default); the row then … | **uncovered** |
-| UI-ADMIN-012 | Deleting a user requires typing their email, shows the purge job's progress on the row, and removes … | **uncovered** |
-| UI-ADMIN-013 | With Traefik, the admin tools page shows cards for RabbitMQ management, mongo-express, the RustFS … | **uncovered** |
-| UI-ADMIN-014 | The admin tools page links the API reference, the OpenAPI document and the metrics, and shows the … | **uncovered** |
-| UI-ACCT-001 | The account page has Profile, Password, Passkeys, Sessions and Editor sections that load and fail … | **uncovered** |
-| UI-ACCT-002 | The profile saves the name ("Saved") and changes the email ("Email changed"), and shows role, … | **uncovered** |
-| UI-ACCT-003 | Changing the password takes the current one, a new one and its confirmation, signs out other … | **uncovered** |
-| UI-ACCT-004 | A passkey-only account sets a password ("Password set"); "Remove password" appears only with a … | **uncovered** |
-| UI-ACCT-005 | The passkeys section lists passkeys (name or "Unnamed passkey", added time, synced or … | **uncovered** |
-| UI-ACCT-006 | The sessions section lists device, IP and sign-in time with "this browser" first, signs out a … | **uncovered** |
-| UI-ACCT-007 | The account's editor section shows the editor state, opens /editor, stops the editor after … | **uncovered** |
-| UI-ACCT-008 | CLI & MCP access lists default keys (name, prefix, created, expiry, last use, enabled) and the … | **uncovered** |
-| UI-ACCT-009 | A new key is revealed once (data-testid=secret-value) with the SCANTOR_URL/SCANTOR_TOKEN … | **uncovered** |
-| UI-ACCT-010 | CLI download links appear only for a release version, and dev builds show none. | **uncovered** |
-| UI-ACCT-011 | The MCP section shows the endpoint (data-testid=mcp-url) with "Copy MCP URL", the OAuth command and … | **uncovered** |
-| UI-ACCT-012 | Authorized apps list name, client id, URI (http(s) links only, rel="noopener noreferrer"), scopes … | **uncovered** |
-| UI-ACCT-013 | The git credentials page lists name, host, username, the token as ••••<last4>, last use and created … | **uncovered** |
-| UI-ACCT-014 | "New credential" takes name, host (host[:port] without scheme), username (default x-access-token) … | **uncovered** |
-| UI-ACCT-015 | A saved credential is offered in the git import form and makes the import of a private repository … | **uncovered** |
-| UI-SEC-001 | Every dashboard response, static assets included, and every /api response carries a CSP with … | **uncovered** |
-| UI-SEC-002 | /login, /setup and /oauth/consent send frame-ancestors 'none' and Cache-Control: no-store. | **uncovered** |
-| UI-SEC-003 | No page logs a CSP violation, and the production script-src never contains unsafe-eval. | **uncovered** |
-| UI-SEC-004 | Results, logs, error and event messages and file names of the hostile-output fixture render as … | **uncovered** |
-| UI-SEC-005 | The dashboard sends no request outside its own origin except to the S3 public origin (downloads, … | **uncovered** |
-| UI-SEC-006 | Browser storage never holds tokens, API keys, node tokens, passwords, writeOnly values or results, … | **uncovered** |
+| API-001 | Every /api response carries an X-Request-Id header: a valid incoming value (1–128 characters of … | api/errors.spec.ts › request ids › a valid incoming X-Request-Id is echoed and any other value is replaced by a uuid |
+| API-002 | Errors use the envelope {error: {code, message, details?}} with Content-Type: application/json and … | api/errors.spec.ts › error envelope › errors use the envelope with JSON and no-store<br>api/errors.spec.ts › error envelope › an unexpected failure is 500 internal with the request id and no internal message |
+| API-003 | Deny by default: an /api path that matches no operation returns 404 notFound (also /api//users; one … | api/errors.spec.ts › deny by default › a path without an operation is 404 and a wrong method is 405 with Allow<br>api/errors.spec.ts › deny by default › the orchestrator never routes an empty interior segment to an operation |
+| API-004 | An unknown key in a JSON body or in the query string returns 400 validationFailed with … | api/errors.spec.ts › request validation › unknown keys in a body or the query string are validationFailed |
+| API-005 | A non-empty body whose Content-Type is not application/json returns 415 unsupportedMediaType, … | api/errors.spec.ts › request validation › bodies must be JSON: 415 for other types, 400 for malformed JSON, an empty body is {} |
+| API-006 | A JSON body larger than SCANTOR_MAX_REQUEST_BYTES (declared Content-Length or actual size) returns … | api/errors.spec.ts › body caps › a JSON body above SCANTOR_MAX_REQUEST_BYTES is 413 by declared length<br>api/errors.spec.ts › body caps › a chunked JSON body without Content-Length is 413 by actual size<br>api/errors.spec.ts › body caps › machine routes have their own caps: 1 MiB for the runtime, 2 MiB for node status and logs |
+| API-007 | A malformed path id (a non-uuid id, a bad analysis id, ../, or a URL-encoded {"$ne": null}) returns … | api/errors.spec.ts › path ids › a malformed path id is 404 notFound on every owner operation<br>api/errors.spec.ts › path ids › a malformed path id is 404 notFound on every admin operation<br>authz/matrix.spec.ts › authorization matrix › a malformed path id answers 404 on every operation |
+| API-008 | Query values are strict: booleans accept only true/false and integers must be decimal, so ?wait=60s … | api/errors.spec.ts › query values › booleans accept only true/false and integers must be decimal |
+| API-009 | Cursor pagination: limit defaults to 50 and allows at most 200 (201 returns 400); following … | api/errors.spec.ts › pagination › cursor pages are newest first without overlap, limit defaults to 50 and allows 200 |
+| API-010 | While the orchestrator boots, every /api route except /api/health, /api/docs and … | chaos/chaos.spec.ts › an orchestrator restart during a scan and a build › while the orchestrator boots every /api route answers 503 except health and the docs |
+| API-011 | The dashboard listener answers 421 Misdirected Request (text/plain) to any request whose Host is … | api/errors.spec.ts › listeners › the dashboard listener answers 421 for the editor host |
+| API-012 | The wait query parameter accepts 0–120 seconds (121 returns 400). Without wait or with wait=0 there … | api/wait.spec.ts › wait on long-running operations › uploadTask, publishRevision and getRevision wait for the revision build<br>api/wait.spec.ts › wait on long-running operations › testTask, getTestRun and getJob wait for the test run and its job<br>api/wait.spec.ts › waits on scans, jobs and exports › getScan waits until the scan settles<br>api/wait.spec.ts › waits on scans, jobs and exports › exportScan and getExport wait for the export |
+| API-013 | More than SCANTOR_MAX_CONCURRENT_WAITS concurrent waits of one user return 429 tooManyRequests with … | api/wait.spec.ts › waits on scans, jobs and exports › more than SCANTOR_MAX_CONCURRENT_WAITS waits of one user are 429; a disconnect frees its slot |
+| OAS-001 | GET /api/docs/openapi.json is public and a valid OpenAPI 3.1 document that lists only operations … | api/info.spec.ts › OpenAPI document › the document is public, OpenAPI 3.1 and lists only operations |
+| OAS-002 | The OpenAPI lint passes: every operation has one tag, a summary, a description, a unique camelCase … | authz/openapi-lint.spec.ts › OpenAPI lint › every operation has exactly one tag, a summary and a description<br>authz/openapi-lint.spec.ts › OpenAPI lint › operationIds are unique, camelCase and verb-first<br>authz/openapi-lint.spec.ts › OpenAPI lint › every operation declares x-scantor-scope and x-mcp<br>authz/openapi-lint.spec.ts › OpenAPI lint › x-admin-only is set exactly when the scope is admin<br>authz/openapi-lint.spec.ts › OpenAPI lint › x-session-only appears only with scope owner or admin, on the documented operations<br>authz/openapi-lint.spec.ts › OpenAPI lint › x-destructive never appears on a DELETE and marks the documented operations<br>authz/openapi-lint.spec.ts › OpenAPI lint › at most 30 operations are MCP tools<br>authz/openapi-lint.spec.ts › OpenAPI lint › every request body has a schema<br>authz/openapi-lint.spec.ts › OpenAPI lint › no route file lacks OpenAPI metadata |
+| OAS-003 | Each operation's scope matches its route prefix: node for /api/node/* and /api/registry/token, … | authz/openapi-lint.spec.ts › OpenAPI lint › each operation's scope matches its route prefix |
+| OAS-004 | Route-meta values survive Nitro's extraction: the descriptions of startScan, listTasks, … | api/info.spec.ts › OpenAPI document › route-meta descriptions survive extraction into OpenAPI and the MCP tools<br>api/info.spec.ts › OpenAPI document › the queryAnalyses sort schema accepts 1 and -1 |
+| OAS-005 | GET /api/docs serves the Scalar UI with its docs-specific CSP (which allows … | ui/headers.spec.ts › dashboard security headers › /api/docs serves the Scalar UI with its own CSP and without console errors |
+| PLAT-001 | GET /api/health needs no credentials and returns {status, version, components: {mongo, rabbitmq, … | api/health.spec.ts › health › GET /api/health needs no credentials and reports every component<br>api/health.spec.ts › health › the health report ignores credentials and agrees with the instance version<br>api/smoke.spec.ts › API plumbing › health reports every component ok |
+| PLAT-002 | /api/health returns HTTP 503 only while MongoDB is down; with another component down it returns 200 … | chaos/chaos.spec.ts › platform components › restarting RabbitMQ while retries are delayed keeps the queue, the retries and the user; /api/health is 200 degraded meanwhile<br>chaos/chaos.spec.ts › platform components › during a RabbitMQ memory alarm startScan answers 503 and running scans show brokerAlarm until it clears<br>chaos/chaos.spec.ts › platform components › the health status is degraded during a RabbitMQ memory alarm<br>chaos/chaos.spec.ts › platform components › while MongoDB is paused results wait in the ingest queue and /api/health answers 503; ingestion then resumes without loss |
+| PLAT-003 | GET /api/info (401 without credentials) returns version, publicUrl, editorUrl, mcpUrl (null when … | api/info.spec.ts › instance info › GET /api/info needs credentials and describes the instance<br>api/info.spec.ts › instance info › scantor whoami and scantor instance print the account and the instance |
+| PLAT-004 | cliImage and the node join image use the orchestrator version as tag for a release X.Y.Z and … | api/info.spec.ts › instance info › the CLI image and the node join command use the image tag rule |
+| PLAT-005 | InstanceInfo.adminTools appears only for callers with effective admin power (absent for users and … | api/info.spec.ts › admin tools in the instance info › adminTools lists the Traefik tool URLs for an admin session<br>api/info.spec.ts › admin tools in the instance info › adminTools follows effective admin power: default key yes, editor key and users no |
+| PLAT-006 | GET /api/info never contains secret values: no tokens, passwords, SCANTOR_SECRET or registry … | api/info.spec.ts › admin tools in the instance info › the instance info never contains secret values |
+| PLAT-007 | GET /api/metrics returns 401 without credentials, 403 adminRequired for non-admins and 400 for any … | api/metrics.spec.ts › GET /api/metrics › is admin only and accepts no query parameters<br>api/metrics.spec.ts › GET /api/metrics › returns the Prometheus text exposition with every family of the catalogue<br>api/metrics.spec.ts › GET /api/metrics › the scan gauges follow a running scan |
+| PLAT-008 | scantor_http_requests_total labels each request with its route pattern, never the raw path. | api/metrics.spec.ts › GET /api/metrics › HTTP requests are counted by route pattern, never by raw path |
+| SETUP-001 | GET /api/setup/status needs no credentials and returns {needsSetup, passkeysEnabled, mcpUrl}; … | api/health.spec.ts › setup status › GET /api/setup/status is public and reports a completed setup<br>api/health.spec.ts › setup status › the setup mutations stay closed once a user exists |
+| SETUP-002 | A zero-user orchestrator without SCANTOR_ADMIN_* logs the setup link [setup] no users exist; open … | security/setup-token.spec.ts › setup token › a zero-user orchestrator logs a setup link whose token creates the first admin once<br>security/setup-token.spec.ts › setup token › every restart logs a new setup token and voids the previous one |
+| SETUP-003 | createSetupAdmin without a token or with a wrong X-Scantor-Setup-Token returns 401 … | security/setup-token.spec.ts › setup token › a zero-user orchestrator logs a setup link whose token creates the first admin once |
+| SETUP-004 | Once any user exists, every /api/setup/* request except GET status returns 409 setupCompleted for … | authz/matrix.spec.ts › authorization matrix › every setup request but the status answers 409 setupCompleted once a user exists<br>security/setup-token.spec.ts › setup token › a zero-user orchestrator logs a setup link whose token creates the first admin once<br>security/setup-token.spec.ts › setup on the shared stack › every setup mutation answers 409 setupCompleted to every principal |
+| SETUP-005 | createSetupAdmin validates its body: a valid email (stored lowercased), a name of 1–100 characters … | security/setup-token.spec.ts › setup token › a zero-user orchestrator logs a setup link whose token creates the first admin once |
+| SETUP-006 | createSetupPasskeyToken returns 201 {token: "spk_…", expiresIn: 300}; the token is single use, a … | security/setup-token.spec.ts › setup token › every restart logs a new setup token and voids the previous one<br>security/setup-token.spec.ts › passkey-first admin › a passkey setup token is single use, creates the admin with the default maxWorkers, and an aborted ceremony creates nobody |
+| SETUP-007 | With both SCANTOR_ADMIN_EMAIL and SCANTOR_ADMIN_PASSWORD set and no users, the first admin is … | security/setup-token.spec.ts › first admin from the environment › SCANTOR_ADMIN_EMAIL and SCANTOR_ADMIN_PASSWORD create the first admin at boot and are ignored once a user exists<br>security/setup-token.spec.ts › first admin from the environment › only SCANTOR_ADMIN_EMAIL aborts startup<br>security/setup-token.spec.ts › first admin from the environment › only SCANTOR_ADMIN_PASSWORD aborts startup |
+| AUTH-001 | A default API key in x-api-key or Authorization: Bearer sk_scantor_… authenticates REST calls as … | api/api-keys.spec.ts › API key credentials › a default key in x-api-key or Bearer acts as its owner<br>api/smoke.spec.ts › API plumbing › the session, the API key and the admin act as their own principals |
+| AUTH-002 | An explicit credential decides alone: an invalid or expired API key sent together with a valid … | api/api-keys.spec.ts › API key credentials › an invalid or expired key next to a valid session cookie is 401 |
+| AUTH-003 | A Bearer value that is not an sk_scantor_ key, such as an MCP OAuth access token (eyJ…), returns … | security/auth-endpoints.spec.ts › credential binding › a bearer value that is not an API key is 401 on every user route |
+| AUTH-004 | A request to /api/auth/* that carries an API key (x-api-key or Bearer sk_scantor_…, default or … | security/auth-endpoints.spec.ts › better-auth endpoints › API keys are rejected on /api/auth/* with the scantor envelope |
+| AUTH-005 | A cookie-authenticated POST, PUT, PATCH or DELETE without an Origin header or with a foreign Origin … | security/csrf.spec.ts › CSRF › cookie-authenticated mutations need the public origin<br>security/csrf.spec.ts › CSRF › better-auth refuses cookie-authenticated requests from foreign origins<br>security/csrf.spec.ts › CSRF › API keys and machine tokens need no Origin |
+| AUTH-006 | No dashboard route sends Access-Control-Allow-Origin with credentials; only /.well-known/*, … | security/csrf.spec.ts › CORS › no dashboard route answers cross-origin requests with credentials<br>security/csrf.spec.ts › CORS › only the credential-less discovery, JWKS, token, registration and MCP routes allow any origin |
+| AUTH-007 | Credentials are bound to their route prefix: a node, worker or setup token on a user route returns … | security/auth-endpoints.spec.ts › credential binding › credentials are bound to their route prefix |
+| AUTH-008 | better-auth endpoints outside the HTTP allowlist return 404: /sign-up/email, /token, /api-key/*, … | security/auth-endpoints.spec.ts › better-auth endpoints › every disabled better-auth path answers 404, also with a session<br>security/auth-endpoints.spec.ts › better-auth endpoints › no better-auth endpoint beyond the documented ones is reachable with a session |
+| AUTH-009 | On https the session cookie is __Secure-scantor.session_token: host-only (no Domain), Path=/, … | security/auth-endpoints.spec.ts › sessions › the session cookie is host-only and secure, the client IP is never taken from client headers, and sign-out clears the tools cookie |
+| AUTH-010 | On a throwaway orchestrator with SCANTOR_TRUST_PROXY=false, the 11th /sign-in/email from one client … | security/rate-limits.spec.ts › auth rate limits › without a trusted proxy the 11th sign-in within a minute is refused, whatever X-Forwarded-For says<br>security/rate-limits.spec.ts › auth rate limits › with a trusted proxy the rightmost X-Forwarded-For entry is the client |
+| AUTH-011 | Further per-IP auth rate limits return 429 above their budgets per minute: … | security/rate-limits.spec.ts › auth rate limits › passkey authentication, password and email changes and client registration have their own per-IP budgets |
+| AUTH-012 | The client IP ignores an incoming x-scantor-client-ip header; with SCANTOR_TRUST_PROXY=true it is … | security/auth-endpoints.spec.ts › sessions › the session cookie is host-only and secure, the client IP is never taken from client headers, and sign-out clears the tools cookie |
+| AUTH-013 | An internal MCP capability (x-scantor-internal-auth: sic_…) sent from outside the orchestrator … | security/auth-endpoints.spec.ts › credential binding › an internal MCP capability from outside the orchestrator is 401 |
+| AUTH-014 | Passkeys are disabled when SCANTOR_PUBLIC_URL is plain http on a non-localhost host or an IP … | security/setup-token.spec.ts › passkey availability › a plain-http public URL on another host disables passkeys everywhere<br>security/setup-token.spec.ts › passkey availability › an IP-literal public URL disables passkeys (http://127.0.0.1:3000)<br>security/setup-token.spec.ts › passkey availability › an IP-literal public URL disables passkeys (https://10.0.0.5)<br>security/setup-token.spec.ts › passkey availability › a SCANTOR_PASSKEY_RP_ID that is not a registrable suffix of the host aborts startup<br>security/setup-token.spec.ts › passkey availability › an http *.localhost public URL keeps passkeys enabled and MCP on API keys only |
+| AUTH-015 | Registering a passkey with a session older than 24 h returns 403 sessionRequired, and … | security/auth-endpoints.spec.ts › sessions › passkey registration needs a fresh session, and better-auth cannot set the admin fields |
+| AUTH-016 | A banned user is rejected with 403 banned on every user principal: session, API key and MCP. | security/banned.spec.ts › banned users › a banned user is rejected with 403 banned on sessions and API keys, and MCP refuses them |
+| AUTH-017 | Banning a user who holds a session, a default key, an editor key, an MCP OAuth token, MCP over an … | security/banned.spec.ts › banned users › banning revokes the session, both API keys, MCP over OAuth and over an API key and the tools cookie, and stops the editor |
+| AUTH-018 | Role changes and bans take effect on every principal of the user within 30 s. | api/users.spec.ts › users › role changes reach the session, the API key, MCP and the tools cookie within 30 s<br>security/banned.spec.ts › banned users › banning revokes the session, both API keys, MCP over OAuth and over an API key and the tools cookie, and stops the editor |
+| AUTH-019 | Signing out also clears the admin tools cookie (Set-Cookie: scantor_tools=; … | security/auth-endpoints.spec.ts › sessions › the session cookie is host-only and secure, the client IP is never taken from client headers, and sign-out clears the tools cookie |
+| ACCT-001 | GET /api/account returns {id, email, name, role, canRunPrivileged, maxWorkers, credentials: … | api/account.spec.ts › account › GET /api/account returns the caller with the credential summary |
+| ACCT-002 | PATCH /api/account {name} updates the display name (trimmed, 1–100 characters) and returns the … | api/account.spec.ts › account › PATCH /api/account updates only the trimmed display name |
+| ACCT-003 | POST /api/account/password {newPassword} returns 204 and sets a password only when the user has … | api/account.spec.ts › account › setting a password needs a session and is refused while one exists<br>api/account.spec.ts › credential invariant › password and passkeys can be removed only while the other credential remains |
+| ACCT-004 | DELETE /api/account/password returns 204 when the user has at least one passkey and 409 … | api/account.spec.ts › credential invariant › password and passkeys can be removed only while the other credential remains |
+| ACCT-005 | Deleting the last passkey of a user without a password through POST … | api/account.spec.ts › credential invariant › password and passkeys can be removed only while the other credential remains |
+| ACCT-006 | GET /api/account/oauth-apps lists the caller's authorized MCP OAuth clients as {clientId, name, … | mcp/oauth.spec.ts › MCP OAuth revocation › the authorized-apps list has the documented shape, and revoking a client never authorized is 404<br>mcp/oauth.spec.ts › MCP OAuth revocation › revoking an app lists it no longer and its next /mcp call gets 401 Access revoked |
+| ACCT-007 | DELETE /api/account/oauth-apps/{clientId} returns 204 and deletes the client's consent, access … | mcp/oauth.spec.ts › MCP OAuth revocation › the authorized-apps list has the documented shape, and revoking a client never authorized is 404<br>mcp/oauth.spec.ts › MCP OAuth revocation › revoking an app lists it no longer and its next /mcp call gets 401 Access revoked |
+| ACCT-008 | POST /api/account/api-keys {name, expiresInDays?} (session only) returns 201 {apiKey, key}; key … | api/api-keys.spec.ts › API keys › creating a key returns it once with its representation |
+| ACCT-009 | A new default key expires 90 days (±1 minute) after creation, or after expiresInDays; expiresInDays … | api/api-keys.spec.ts › API keys › a new key expires after 90 days or after expiresInDays |
+| ACCT-010 | GET /api/account/api-keys lists only the caller's keys (admins included), newest first, with id, … | api/api-keys.spec.ts › API keys › listing shows only the caller’s keys, newest first, filtered by configuration |
+| ACCT-011 | DELETE /api/account/api-keys/{keyId} returns 204 and the deleted key gets 401 afterwards; another … | api/api-keys.spec.ts › API keys › a deleted key stops working and other users cannot delete it |
+| ACCT-012 | An expired API key gets 401 and is deleted. | api/api-keys.spec.ts › API keys › an expired key gets 401 and is deleted |
+| USER-001 | GET /api/users (admin) returns Page<User> newest first; ?q filters by a case-insensitive substring … | api/users.spec.ts › users › listing is admin only, newest first, filtered by email or name and carries usage |
+| USER-002 | POST /api/users {email, name, password?, role?, canRunPrivileged?, maxWorkers?} returns 201; the … | api/users.spec.ts › users › creating a user lowercases the email, applies defaults and refuses duplicates |
+| USER-003 | A user created with a password can sign in with it; a user created without one cannot sign in until … | api/users.spec.ts › users › a password set by an admin enables sign-in, replaces the old one and revokes sessions<br>security/auth-endpoints.spec.ts › sessions › the session cookie is host-only and secure, the client IP is never taken from client headers, and sign-out clears the tools cookie |
+| USER-004 | GET /api/users/{userId} returns the user; an unknown or malformed id returns 404. | api/users.spec.ts › users › a user is read by id; unknown and malformed ids are 404 |
+| USER-005 | PATCH /api/users/{userId} updates name, email, role, canRunPrivileged and maxWorkers; an empty body … | api/users.spec.ts › users › updating a user changes profile and admin fields<br>api/users.spec.ts › users › an admin cannot demote, re-password, ban or delete themselves |
+| USER-006 | PUT /api/users/{userId}/password {password} (8–128 characters) returns 204 and revokes the target's … | api/users.spec.ts › users › an admin cannot demote, re-password, ban or delete themselves<br>api/users.spec.ts › users › a password set by an admin enables sign-in, replaces the old one and revokes sessions |
+| USER-007 | POST /api/users/{userId}/ban {reason?} returns the user with banned: true and banReason, and … | api/users.spec.ts › users › an admin cannot demote, re-password, ban or delete themselves<br>api/users.spec.ts › users › ban revokes access and unban clears only the flag<br>security/banned.spec.ts › banned users › banning revokes the session, both API keys, MCP over OAuth and over an API key and the tools cookie, and stops the editor |
+| USER-008 | A ban with cancelScans: true cancels every non-terminal scan of the user; without it those scans … | security/banned.spec.ts › banned users › a ban keeps the user’s scans running unless it cancels them |
+| USER-009 | POST /api/users/{userId}/unban clears only the ban flag: deleted keys, sessions and OAuth grants … | api/users.spec.ts › users › ban revokes access and unban clears only the flag |
+| USER-010 | DELETE /api/users/{userId} returns 202 with a userPurge job and locks the user out at once (banned, … | api/users.spec.ts › users › an admin cannot demote, re-password, ban or delete themselves<br>api/users.spec.ts › users › deleting a user locks them out at once, refuses changes during the purge and removes their data |
+| USER-011 | While a userPurge job for a user is active, updateUser, setUserPassword, banUser and unbanUser … | api/users.spec.ts › users › deleting a user locks them out at once, refuses changes during the purge and removes their data |
+| USER-012 | canRunPrivileged, maxWorkers and role cannot be changed through better-auth's own update-user … | security/auth-endpoints.spec.ts › sessions › passkey registration needs a fresh session, and better-auth cannot set the admin fields |
+| CRED-001 | POST /api/credentials {kind: "gitToken", name, host, username?, token} returns 201 {id, kind, name, … | api/credentials.spec.ts › create › returns the credential with the last 4 characters of the token and stores it encrypted<br>api/credentials.spec.ts › create › keeps an explicit username |
+| CRED-002 | The host is normalised to lowercase host[:port] with a default :443 dropped; a host with a scheme, … | api/credentials.spec.ts › create › normalises the host to lowercase host[:port] without the default port<br>api/credentials.spec.ts › create › rejects a host with a scheme, path, userinfo or whitespace<br>api/credentials.spec.ts › create › rejects a token containing CR or LF |
+| CRED-003 | A second credential with the same name for the same user returns 409 alreadyExists, also when … | api/credentials.spec.ts › create › a name is unique per user, also when renaming, while another user may reuse it |
+| CRED-004 | GET /api/credentials returns {items} sorted by name, without a cursor, holding only the caller's … | api/credentials.spec.ts › list › returns only the caller’s credentials sorted by name, without a cursor |
+| CRED-005 | PATCH /api/credentials/{id} updates name, host, username or token (a new token updates last4), and … | api/credentials.spec.ts › update and delete › updates name, host, username and token; a new token updates last4<br>api/credentials.spec.ts › update and delete › an empty update and invalid fields return 400<br>api/credentials.spec.ts › update and delete › delete returns 204 and removes the credential<br>api/credentials.spec.ts › update and delete › another user’s credential is 404 for update and delete |
+| AUTHZ-001 | Every owner-scope operation returns 401 unauthorized to an anonymous request. | authz/matrix.spec.ts › authorization matrix › authz/requests.ts covers every operation of the document<br>authz/matrix.spec.ts › authorization matrix › every owner-scope operation answers 401 to anonymous callers<br>authz/matrix.spec.ts › authorization matrix › machine credentials are never user principals on owner and admin operations |
+| AUTHZ-002 | Every owner-scope operation, read or mutation, that user B calls with user A's ids (task, revision, … | authz/matrix.spec.ts › authorization matrix › authz/requests.ts covers every operation of the document<br>authz/matrix.spec.ts › authorization matrix › A reads and acts on its own resources with its session and its key<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › B’s reads of A’s resources answer 404<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › B’s mutations of A’s resources answer 404<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › B’s destructive operations on copies of A’s resources answer 404 and leave them intact<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › A’s representations are unchanged after all of B’s attempts |
+| AUTHZ-003 | An admin (session or default key) can read and act on other users' resources by id, and list … | authz/matrix.spec.ts › authorization matrix › an admin reads every resource of A by id, with a session and a default key<br>authz/matrix.spec.ts › authorization matrix › an admin acts on A’s resources by id<br>authz/matrix.spec.ts › authorization matrix › list operations return every user’s items to an admin<br>authz/matrix.spec.ts › authorization matrix › upload and credential lists return every user’s items to an admin |
+| AUTHZ-004 | A non-admin passing ?userId=<another user> to a list operation (tasks, scans, jobs) gets 403 … | authz/matrix.spec.ts › authorization matrix › a userId filter is admin-only except for the caller’s own id |
+| AUTHZ-005 | No list response B receives (tasks, scans, revisions, test runs, uploads, exports, jobs, … | authz/matrix.spec.ts › authorization matrix › no list B receives contains any of A’s ids |
+| AUTHZ-006 | Task names and revision references (alpha, alpha@1, alpha@latest) resolve only among the caller's … | authz/matrix.spec.ts › authorization matrix › task names and revision references resolve only among the caller’s tasks |
+| AUTHZ-007 | A create that references another user's document returns 404, also for admins acting on their own … | authz/matrix.spec.ts › authorization matrix › a create that references another user’s document answers 404, also for admins |
+| AUTHZ-008 | Every admin-scope operation (users, nodes, metrics, tools session) returns 401 to anonymous callers … | authz/matrix.spec.ts › authorization matrix › machine credentials are never user principals on owner and admin operations<br>authz/matrix.spec.ts › authorization matrix › an admin performs every admin-scope operation<br>authz/matrix.spec.ts › authorization matrix › A as a plain user and as an admin with an editor key › every admin-scope operation answers 401 to anonymous callers and 403 adminRequired to non-admins |
+| AUTHZ-009 | Every x-session-only operation (createApiKey, setAccountPassword, removeAccountPassword, … | authz/matrix.spec.ts › authorization matrix › A reads and acts on its own resources with its session and its key<br>authz/matrix.spec.ts › authorization matrix › A as a plain user and as an admin with an editor key › session-only operations answer 403 sessionRequired to API keys and are no MCP tools |
+| AUTHZ-010 | An admin's editor API key carries no admin power: 403 adminRequired on admin operations, 403 … | authz/matrix.spec.ts › authorization matrix › A as a plain user and as an admin with an editor key › an admin’s editor key carries no admin power |
+| AUTHZ-011 | Public operations (getHealth, getSetupStatus, /api/docs, openapi.json) answer the same to every … | authz/matrix.spec.ts › authorization matrix › public operations answer the same to every principal |
+| AUTHZ-012 | Node-scope operations reject anonymous callers, sessions, API keys and worker tokens with 401; node … | authz/matrix.spec.ts › authorization matrix › node-scope operations reject every credential but a node token<br>authz/matrix.spec.ts › authorization matrix › a node token works for its own node and never for another node’s workers |
+| AUTHZ-013 | Worker-scope operations reject anonymous callers, users, API keys and node tokens with 401; a … | api/runtime-api.spec.ts › worker scope › worker routes accept only worker tokens of active workers in their role<br>authz/matrix.spec.ts › authorization matrix › worker-scope operations accept only an active worker’s token, and runners never use scheduler routes |
+| AUTHZ-014 | toolsForwardAuth succeeds only with an admin's scantor_tools cookie; a session, an API key, an … | authz/matrix.spec.ts › authorization matrix › forwardAuth succeeds only with an admin’s tools cookie |
+| AUTHZ-015 | The MCP half of the matrix: B's read/write OAuth session lists exactly the read and write tools, … | authz/matrix.spec.ts › authorization matrix › MCP › B’s read/write OAuth session lists the read and write tools, and every call with A’s ids is a 404<br>authz/matrix.spec.ts › authorization matrix › MCP › a read-only OAuth token sees no write tools, and a non-admin never gets list_nodes |
+| AUTHZ-016 | Security events (user null, for example security.ingestRejected) and node events are visible only … | security/cross-scan.spec.ts › result ingestion trust › unauthenticated or inconsistent results are dead-lettered without writing anything<br>security/cross-scan.spec.ts › event visibility › node events are admin only; owners see only the events of their own scans |
+| TASK-001 | POST /api/tasks {name, language, template?, description?} scaffolds the workspace (template single … | api/tasks.spec.ts › create › scaffolds the workspace from the single template by default<br>api/tasks.spec.ts › create › records an explicit template or custom as the source |
+| TASK-002 | A task name must be a slug of 1–64 characters: reserved names (upload, import-git, new, latest), … | api/tasks.spec.ts › create › rejects reserved, uuid-shaped and malformed names |
+| TASK-003 | createTask returns 400 validationFailed for an unknown language and for an unknown template (path … | api/tasks.spec.ts › create › rejects an unknown language or template<br>api/tasks.spec.ts › create › creates every language with every template and custom |
+| TASK-004 | Creating a task with a name the caller already uses returns 409 alreadyExists; two users can each … | api/tasks.spec.ts › create › a taken name is 409 alreadyExists, while another user may own the same name |
+| TASK-005 | GET /api/tasks lists the caller's tasks newest first; ?q matches name or description … | api/tasks.spec.ts › list and get › lists the caller’s tasks newest first, filtered by q and language<br>api/tasks.spec.ts › delete › a deleted task disappears at once, keeps its name until its job removed everything |
+| TASK-006 | GET /api/tasks/{task} accepts an id or a name and returns the task with workspace {packSha256, … | api/tasks.spec.ts › list and get › accepts an id or a name and reports the workspace and the revisions |
+| TASK-007 | workspace.dirty becomes true when a file is edited after a publish and false again once that … | api/tasks.spec.ts › workspace status › dirty turns true with an edit after a publish and false once that content is published |
+| TASK-008 | GET /api/tasks/{task}/workspace computes the hash fresh, returns {packSha256, fileCount, bytes, … | api/tasks.spec.ts › workspace status › getTaskWorkspace computes the hash fresh and refreshes the cached status |
+| TASK-009 | GET /api/tasks/{task}/workspace/archive streams application/gzip as attachment <task>.tar.gz; the … | api/tasks.spec.ts › workspace status › the workspace archive is the deterministic pack of the workspace |
+| TASK-010 | DELETE /api/tasks/{task} returns 202 with a taskDelete job and the task disappears at once (GET … | api/tasks.spec.ts › delete › a deleted task disappears at once, keeps its name until its job removed everything |
+| TASK-011 | Deleting a task that a creating, running, paused or deleting scan uses returns 409 taskInUse with … | api/tasks.spec.ts › delete › a task used by an active scan is 409 taskInUse |
+| TASK-012 | While a task is being deleted its name cannot be reused (createTask and uploadTask return 409 … | api/tasks.spec.ts › delete › a deleted task disappears at once, keeps its name until its job removed everything |
+| TASK-013 | POST /api/tasks/upload (a .tar.gz body) creates the task named by its manifest when it does not … | api/tasks.spec.ts › upload › creates the task named by the manifest and publishes the upload |
+| TASK-014 | uploadTask?publish=false only replaces the workspace and returns revision: null; ?message sets the … | api/tasks.spec.ts › upload › publish=false only replaces the workspace; message and wait apply to the published revision |
+| TASK-015 | uploadTask returns 415 for a Content-Type other than application/gzip or application/x-gzip, and … | api/tasks.spec.ts › upload › accepts only gzip media types and caps the body size |
+| TASK-016 | An archive without a valid scantor.yaml or with an unknown language returns 422 manifestInvalid … | api/tasks.spec.ts › upload › an archive without a valid manifest is 422 manifestInvalid |
+| TASK-017 | Uploading to a task whose workspace has unpublished edits returns 409 workspaceDirty with details … | api/tasks.spec.ts › upload › unpublished edits make an upload conflict until it is forced |
+| TASK-018 | An upload never conflicts when the workspace hash equals the uploaded hash, the latest revision's … | api/tasks.spec.ts › upload › uploads never conflict with synced, published or identical content |
+| TASK-019 | Uploading content identical to an existing queued, building or ready revision returns that revision … | api/tasks.spec.ts › upload › content identical to an existing revision returns that revision |
+| WS-001 | GET /api/tasks/{task}/files returns {entries: [{path, type, size, mode}], truncated}, recursive by … | api/task-files.spec.ts › list › lists recursively by default, one level with recursive=false and a subfolder with path<br>api/task-files.spec.ts › list › lists a symlink without following it, and reading one is invalidPath<br>api/task-files.spec.ts › list › returns at most 5000 entries and flags the truncation |
+| WS-002 | With ?revision=<N\|latest\|id>, listing and reading files use the immutable revision snapshot; later … | api/task-files.spec.ts › read › a revision snapshot stays what was published while the workspace changes |
+| WS-003 | GET /api/tasks/{task}/files/content?path returns {path, size, sha256, encoding, content, truncated} … | api/task-files.spec.ts › list › lists a symlink without following it, and reading one is invalidPath<br>api/task-files.spec.ts › read › returns text and base64 content with the sha256 of the whole file |
+| WS-004 | PUT /api/tasks/{task}/files {files: {path: text \| {base64}}} writes 1–200 files atomically, … | api/task-files.spec.ts › write › writes files atomically, creating parent folders |
+| WS-005 | writeTaskFiles returns 400 validationFailed for an empty files map, more than 200 files or invalid … | api/task-files.spec.ts › write › rejects an empty files map, more than 200 files and invalid base64 |
+| WS-006 | DELETE /api/tasks/{task}/files?path removes a file, a directory only with recursive=true, and … | api/task-files.spec.ts › delete › removes a file, and a non-empty folder only recursively |
+| WS-007 | Every case of tests/corpora/paths sent through writeTaskFiles, deleteTaskFile and readTaskFile … | security/tar-slip.spec.ts › file routes › every invalid path of the corpus is refused by writeTaskFiles, deleteTaskFile and readTaskFile<br>security/tar-slip.spec.ts › file routes › an empty file path in writeTaskFiles answers 422 invalidPath like every other invalid path<br>security/tar-slip.spec.ts › file routes › the valid paths of the corpus are written and read back<br>security/tar-slip.spec.ts › file routes › pre-existing symlinks in a task folder are listed, never followed |
+| WS-008 | Every case of tests/corpora/tar-slip uploaded with uploadTask (../x, /abs, a/../../x, backslash, … | security/tar-slip.spec.ts › upload archives › every hostile tar-slip case is rejected and leaves the workspace unchanged<br>security/tar-slip.spec.ts › upload archives › valid archives are normalised: ./ prefixes, modes, .git/ dropped and one top-level folder stripped |
+| WS-009 | Archive caps are enforced while streaming: a gzip bomb is stopped, more than SCANTOR_TASK_MAX_FILES … | security/tar-slip.spec.ts › upload archives › archive caps are enforced while streaming, each with 413 and details.limit<br>security/tar-slip.spec.ts › upload archives › SCANTOR_WORKSPACE_MAX_BYTES caps the whole workspace of a user |
+| WS-010 | Extracted archives are normalised: tar owners are ignored, file modes become 0644 or 0755 and … | api/task-files.spec.ts › archive normalisation › ignores owners, normalises modes, strips a single top folder and drops .git and .scantor |
+| WS-011 | A write never passes through a pre-existing workspace symlink that points outside the task folder: … | security/tar-slip.spec.ts › file routes › pre-existing symlinks in a task folder are listed, never followed<br>security/tar-slip.spec.ts › file routes › an upload through a staging folder replaced by a symlink to / writes only into the task folder |
+| WS-012 | Workspace helper containers (scantor-h-*) run as 1000:1000 with only the user's volume subpath … | security/sandbox.spec.ts › short-lived containers › workspace helpers run as 1000:1000 without network, read-only, with only the user’s volume, and are removed<br>security/sandbox.spec.ts › short-lived containers › git helpers use scantor-egress |
+| GIT-001 | POST /api/tasks/import-git {url} for a repository with one manifest returns 201 {imported: [task], … | api/git.spec.ts › import › a repository with one manifest imports it with its git source |
+| GIT-002 | For a repository with several valid manifests and no select, the import returns 200 {imported: [], … | api/git.spec.ts › import › several manifests return candidates until select names the folders to import |
+| GIT-003 | A select entry naming a path without a candidate, or two selected folders with the same task name, … | api/git.spec.ts › import › selecting a path without a candidate or two folders of one task name is a bad request |
+| GIT-004 | Importing a task whose name the caller already uses returns 409 alreadyExists, and that candidate … | api/git.spec.ts › import › several manifests return candidates until select names the folders to import<br>api/git.spec.ts › import › importing a name the caller already uses is 409 alreadyExists |
+| GIT-005 | A repository or path without scantor.yaml (no scantor.yaml was found), or with an invalid manifest … | api/git.spec.ts › import › a folder without a valid manifest is 422 manifestInvalid |
+| GIT-006 | URLs other than https://, URLs with userinfo, a leading -, ext:: and file:// return 400 … | api/git.spec.ts › import › URLs other than plain https are rejected at path url<br>api/git.spec.ts › import › an unresolvable host is 422 gitFailed<br>api/git.spec.ts › import › redirects are not followed |
+| GIT-007 | A failed clone or fetch returns 422 gitFailed with details.message and credentials redacted; an … | api/git.spec.ts › import › a failed fetch is 422 gitFailed with the credential redacted<br>api/git.spec.ts › import › a symlink in the selected folder is 422 invalidPath<br>api/git.spec.ts › import › a private repository imports with the caller’s credential, without .git or the token in the folder |
+| GIT-008 | A private repository behind Basic auth imports with the caller's credentialId, which sets the … | api/git.spec.ts › import › a private repository imports with the caller’s credential, without .git or the token in the folder<br>api/git.spec.ts › import › a credential for another host is a bad request and its token is never sent<br>api/git.spec.ts › import › another user’s credential is 404 |
+| GIT-009 | POST /api/tasks/{task}/git/pull returns {task, previousCommit, commit, changed}: changed: false for … | api/git.spec.ts › pull › reports an unchanged remote and fast-forwards a changed one without publishing<br>api/git.spec.ts › pull › a fixtures-server copy fast-forwards, then diverges until forced |
+| GIT-010 | A pull returns 409 gitDiverged when the workspace changed since the last import or pull, and when … | api/git.spec.ts › pull › a fixtures-server copy fast-forwards, then diverges until forced<br>api/git.spec.ts › pull › local changes since the import make a pull diverge until forced |
+| GIT-011 | A pull of a task that was not imported from git returns 409 invalidState, and a pulled manifest … | api/git.spec.ts › pull › a task not imported from git cannot be pulled<br>api/git.spec.ts › pull › a pulled manifest naming a different task is 422 manifestInvalid |
+| GIT-012 | A revision published from unmodified imported content has source.kind: "git" with {url, ref, path, … | api/git.spec.ts › revisions of imported tasks › record the git source, clean or dirty |
+| PIPE-001 | scantor task pack is deterministic: the same tree gives the same packSha256 (sha256 of the … | e2e/cli.spec.ts › task pipeline commands › task pack is deterministic and applies .dockerignore with the hard excludes |
+| PIPE-002 | Packing keeps relative in-tree symlinks as symlinks; absolute or escaping symlinks (whose target is … | e2e/cli.spec.ts › task pipeline commands › packing keeps in-tree symlinks and rejects every unsafe entry, path and cap |
+| PIPE-003 | Manifest rules M1–M10 produce static errors in file scantor.yaml with the line: duplicate keys, … | e2e/cli.spec.ts › task pipeline commands › the manifest rules M1–M10 report static errors with file and line |
+| PIPE-004 | A task needs the regular files scantor.yaml (scantor.yml is not accepted) and Dockerfile at its … | e2e/cli.spec.ts › task pipeline commands › the required files are checked and a valid manifest is normalised |
+| PIPE-005 | Dockerfile warnings never fail the build: W1 (CMD is ignored; the runtime is the entrypoint, also … | e2e/cli.spec.ts › task pipeline commands › Dockerfile warnings W1–W3 never fail the build |
+| PIPE-006 | The build pulls the base image when it is absent, records baseImage {ref, digest} and … | e2e/cli.spec.ts › task pipeline commands › the build pulls an absent base image anonymously and pins it by digest<br>e2e/examples.spec.ts › example tasks › published together: http-status, echo › http-status (typescript, crux) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: http-status, echo › echo (python, single) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › files (python, list) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › origins (python, tranco) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › power (javascript, range) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › reverse-dns (go, cidr) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › sleep (python, repeat) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › throws (python, range) builds, describes and scans |
+| PIPE-007 | The check phase runs the base image's type checker (basedpyright, tsc --noEmit, go vet); each … | e2e/cli.spec.ts › task pipeline commands › the check phase turns type-checker diagnostics into check errors |
+| PIPE-008 | Describe and check containers (scantor-b-*) run the built image with network none, the worker … | security/sandbox.spec.ts › short-lived containers › describe and check containers run without network, tokens or added capabilities, and are removed |
+| PIPE-009 | A published image is pushed by digest as tasks/<taskId>:<revisionId> with the orchestrator's … | e2e/examples.spec.ts › example tasks › published together: http-status, echo › http-status (typescript, crux) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: http-status, echo › echo (python, single) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › files (python, list) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › origins (python, tranco) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › power (javascript, range) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › reverse-dns (go, cidr) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › sleep (python, repeat) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › throws (python, range) builds, describes and scans |
+| PIPE-010 | Pipeline events are NDJSON {v: 1, seq, at, phase, type, stream, level, text} with consecutive seq … | e2e/cli.spec.ts › task pipeline commands › pipeline events are versioned NDJSON ending in the result |
+| PIPE-011 | scantor task build, check-static, pack and scantor validate exit 0 on success, 2 when the task … | e2e/cli.spec.ts › task pipeline commands › pipeline commands exit 0, 2 for invalid content and 3 for platform failures |
+| REV-001 | POST /api/tasks/{task}/revisions {message?} snapshots the workspace synchronously and returns 201 … | api/revisions.spec.ts › publish › snapshots the workspace at the request and numbers the revision<br>api/revisions.spec.ts › publish › identical content returns its revision; failed builds consume numbers and are rebuilt |
+| REV-002 | Publishing content whose pack hash matches a queued, building or ready revision returns that … | api/revisions.spec.ts › publish › identical content returns its revision; failed builds consume numbers and are rebuilt |
+| REV-003 | A ready revision has image {repository: "tasks/<taskId>", tag, digest, bytes, platform}, a … | api/revisions.spec.ts › ready and failed revisions › a ready revision carries its image, description, settings and manifest |
+| REV-004 | A failed revision has state failed, image: null, errors [{phase, file, line, column?, message}] … | api/revisions.spec.ts › ready and failed revisions › a failed revision has its errors with phase, file and line, and a build log |
+| REV-005 | GET /api/tasks/{task}/revisions returns Page<RevisionSummary> (id, number, ref, state, source kind … | api/revisions.spec.ts › list and get › lists summaries by number descending and filters by state |
+| REV-006 | GET /api/tasks/{task}/revisions/{revision} accepts a number, latest (the highest ready revision) or … | api/revisions.spec.ts › publish › snapshots the workspace at the request and numbers the revision<br>api/revisions.spec.ts › list and get › getRevision accepts a number, latest or an id and can wait |
+| REV-007 | GET …/revisions/{revision}/logs?afterLine&limit (default 1000, at most 5000; 5001 returns 400) … | api/revisions.spec.ts › list and get › build logs page by line, end with the result and follow a running build |
+| REV-008 | GET …/revisions/{revision}/source answers 302 to a presigned snapshot download served as an … | api/revisions.spec.ts › list and get › the source download is the stored snapshot as a gzip attachment |
+| REV-009 | Described schemas keep the property order of the source, for example the power scan config lists … | api/revisions.spec.ts › ready and failed revisions › a ready revision carries its image, description, settings and manifest<br>api/revisions.spec.ts › list and get › described schemas keep the property order of the source |
+| REV-010 | Publishing a manifest with defaults.privileged: true as a user without canRunPrivileged fails the … | e2e/privileged.spec.ts › publishing › a privileged manifest fails at static for a user without canRunPrivileged |
+| REV-011 | A revision whose build was interrupted by an orchestrator restart goes back to queued and is … | chaos/chaos.spec.ts › an orchestrator restart during a scan and a build › a build interrupted by the restart is rebuilt from its stored snapshot<br>chaos/chaos.spec.ts › an orchestrator restart during a scan and a build › the interrupted revision goes back to queued until its build runs again |
+| TRUN-001 | POST /api/tasks/{task}/test-runs {taskConfig?, scanConfig?, analysisConfig?, limit?, maxAttempts?, … | api/test-runs.spec.ts › creating and running test runs › a test run of an unpublished workspace builds a draft image and completes whatever the outcomes |
+| TRUN-002 | testTask?wait returns the settled run with analyses[], summary {analyses, succeeded, failed}, … | api/test-runs.spec.ts › creating and running test runs › the settled run carries analyses, summary, draft image and expiry; unchanged content reuses the draft image |
+| TRUN-003 | Test-run inputs are bounded: limit 1–50 (default 5), maxAttempts 1–5 (default 1) and timeoutMs … | api/test-runs.spec.ts › creating and running test runs › inputs are bounded and default to 5 analyses, 1 attempt and the manifest timeout |
+| TRUN-004 | A config that the described schema rejects causes no HTTP error: the run ends failed with one … | api/test-runs.spec.ts › creating and running test runs › configs the schema rejects and failing schedules end the run failed with BuildErrors |
+| TRUN-005 | With analysisConfig the test run skips schedule and calls run exactly once (seq 0). | api/test-runs.spec.ts › creating and running test runs › with analysisConfig the run skips schedule and calls run once |
+| TRUN-006 | GET /api/tasks/{task}/test-runs lists the task's runs newest first without analyses; GET … | api/test-runs.spec.ts › reading test runs › listTestRuns pages newest first without analyses; getTestRun includes them unless analyses=false |
+| TRUN-007 | GET /api/test-runs/{id}/stream is text/event-stream with the events state, log {seq, stream, text, … | api/test-runs.spec.ts › reading test runs › the event stream follows a run live and replays a finished one |
+| TRUN-008 | POST /api/test-runs/{id}/cancel moves a queued, building or running run to cancelled and removes … | api/test-runs.spec.ts › creating and running test runs › the settled run carries analyses, summary, draft image and expiry; unchanged content reuses the draft image<br>api/test-runs.spec.ts › creating and running test runs › configs the schema rejects and failing schedules end the run failed with BuildErrors<br>api/test-runs.spec.ts › cancelling test runs › cancel stops a running run and removes its container; a repeat returns the cancelled run unchanged<br>api/test-runs.spec.ts › cancelling test runs › a queued or building run is cancelled at once and never starts a container<br>api/test-runs.spec.ts › cancelling test runs › a run cancelled while its container is being started is stopped as well<br>api/test-runs.spec.ts › cancelling test runs › deleting the task cancels its running test runs |
+| TRUN-009 | GET /api/test-runs/{id}/files/{fileId} returns a FileDownload (302 with ?redirect=true) whose … | api/test-runs.spec.ts › reading test runs › getTestRunFileDownload serves the exact content of a test-run file |
+| TRUN-010 | A test run of a privileged task runs unprivileged (no Docker-in-Docker, no added capabilities), and … | e2e/privileged.spec.ts › test runs › a test run of a privileged task runs unprivileged |
+| TRUN-011 | The test-run container scantor-t-<id> runs on scantor-egress with the worker hardening profile, … | security/sandbox.spec.ts › short-lived containers › a test run runs on scantor-egress with the worker hardening profile and reaches no platform service |
+| TRUN-012 | A test run that references a list upload and the tranco and crux templates gets the upload's lines … | e2e/templates.spec.ts › test runs and template data › a test run reads a list upload and fetches Tranco and CrUX data itself |
+| UPL-001 | POST /api/uploads with a raw text/plain or application/octet-stream body, ?name (default … | api/uploads.spec.ts › createUpload › stores a raw body and counts its non-blank lines |
+| UPL-002 | Uploading content identical to one of the caller's uploads returns 200 with that upload; another … | api/uploads.spec.ts › createUpload › identical content returns the existing upload; another user gets their own |
+| UPL-003 | createUpload returns 415 for any other Content-Type, and 413 payloadTooLarge without storing … | api/uploads.spec.ts › createUpload › other media types are 415 and bodies above the cap are 413 without storing anything<br>api/uploads.spec.ts › createUpload › a streamed body without Content-Length above the cap is 413 without storing anything |
+| UPL-004 | GET /api/uploads pages through the caller's own uploads (admins included), and GET … | api/uploads.spec.ts › listUploads and getUpload › pages through the caller’s own uploads only, admins included |
+| UPL-005 | DELETE /api/uploads/{id} returns 204 and deletes the stored object; while a scan that is not … | api/uploads.spec.ts › deleteUpload and scan references › deletes an unused upload and its stored object<br>api/uploads.spec.ts › uploads referenced by scans › a scan that references an upload sets lastUsedAt and keeps it from deletion until the scan is deleted |
+| UPL-006 | Starting a scan that references an upload sets the upload's lastUsedAt. | api/uploads.spec.ts › uploads referenced by scans › a scan that references an upload sets lastUsedAt and keeps it from deletion until the scan is deleted<br>api/uploads.spec.ts › uploads referenced by scans › starting a scan with an unknown or foreign upload is 404 |
+| CAT-001 | GET /api/languages returns {items: [{language, title, base, baseImage, entry, extensions}]} for … | api/catalog.spec.ts › languages and scaffolds › listLanguages returns every row of languages.json |
+| CAT-002 | GET /api/templates, scantor templates list and MCP list_templates return the templates single, … | api/catalog.spec.ts › templates › listTemplates returns the seven templates with their schemas and examples |
+| CAT-003 | GET /api/templates/{template} returns one template; an unknown or badly formed name returns 404. | api/catalog.spec.ts › templates › getTemplate returns one template; unknown and malformed names are 404 |
+| CAT-004 | POST /api/templates/{template}/estimate {scanConfig} returns {expectedTotal, exact, … | api/catalog.spec.ts › templates › estimateTemplate counts analyses and flags confirmation |
+| CAT-005 | estimateTemplate returns 422 configInvalid with details.issues (JSON pointers under /scanConfig) … | api/catalog.spec.ts › templates › estimateTemplate rejects schema violations and semantic rules with JSON pointers |
+| CAT-006 | GET /api/scaffolds returns {items: [{language, templates}]} in which every language lists every … | api/catalog.spec.ts › languages and scaffolds › listScaffolds lists every template plus custom for every language |
+| CAT-007 | GET /api/guides/authoring/{language} returns text/markdown for every language of … | api/catalog.spec.ts › guides › getAuthoringGuide serves markdown for every language and 404 otherwise |
+| CAT-008 | GET /api/guides/{guide} returns text/markdown for templates, manifest, errors-and-retries, cli, mcp … | api/catalog.spec.ts › guides › getGuide serves the six named guides and 404 for any other name |
+| CAT-009 | scantor templates estimate <t> --config <json\|@file\|-> applies the defaults and validates: exit 0 … | e2e/cli.spec.ts › templates estimate › templates estimate applies the defaults and validates the scan config |
+| TPL-001 | Template single yields exactly one analysis whose config is {} filled with defaults, with an exact … | e2e/templates.spec.ts › template single › a task without a schedule yields exactly one analysis with an empty config |
+| TPL-002 | Template list combines the inline items with the lines of an uploaded list, trimming whitespace and … | e2e/templates.spec.ts › template list › combines inline items and upload lines, trimmed, with offset and limit<br>e2e/templates.spec.ts › template list › an upload line longer than 4096 bytes fails scheduling |
+| TPL-003 | Template range follows Python range semantics (end exclusive, negative steps count down; defaults … | e2e/templates.spec.ts › template range › follows Python range semantics and rejects step 0 |
+| TPL-004 | Template repeat yields {iteration} for 0…times − 1 (times ≥ 1, default 1) with an exact estimate of … | e2e/templates.spec.ts › template repeat › yields iterations 0 … times − 1 with an exact estimate |
+| TPL-005 | Template tranco resolves latest, a date or a list id, downloads the list and yields {domain, rank} … | e2e/templates.spec.ts › template tranco › resolves latest to a list id and yields the window in rank order<br>e2e/templates.spec.ts › template tranco › resolves a date and a list id<br>e2e/templates.spec.ts › template tranco › rejects unknown lists, dates without a list and windows beyond rank 1 000 000 |
+| TPL-006 | Template crux with month latest uses the newest of the current UTC month and the 3 before it that … | e2e/templates.spec.ts › template crux › latest resolves to the newest month; the stream stops at the first rank above the bucket<br>e2e/templates.spec.ts › template crux › a missing list fails scheduling |
+| TPL-007 | Template cidr clears host bits, merges overlapping and adjacent ranges and yields {ip, prefix, … | e2e/templates.spec.ts › template cidr › merges ranges and yields addresses and subnets, IPv4 first, minus exclusions<br>e2e/templates.spec.ts › template cidr › rejects invalid entries, prefix conflicts and expansions above maxAnalyses at scan start |
+| TPL-008 | Template data comes from SCANTOR_TRANCO_URL and SCANTOR_CRUX_URL, fetched by the scheduler (or the … | e2e/templates.spec.ts › template tranco › resolves latest to a list id and yields the window in rank order<br>e2e/templates.spec.ts › template crux › latest resolves to the newest month; the stream stops at the first rank above the bucket<br>e2e/templates.spec.ts › test runs and template data › a test run reads a list upload and fetches Tranco and CrUX data itself<br>e2e/templates.spec.ts › data sources › template data is fetched with the scantor User-Agent; 5xx and 429 are retried, then fail as a retryable platform error |
+| TPL-009 | A custom schedule that wraps a template proxy (as power wraps range) receives the template's items … | e2e/templates.spec.ts › wrapped templates › a custom schedule receives the proxy items in order; the resolution does not set expectedTotal<br>e2e/templates.spec.ts › wrapped templates › an invalid scan config for the proxy raises a validation error in user code |
+| TPL-010 | Before the first item is published, the scheduler records the template resolution under … | e2e/templates.spec.ts › template single › a task without a schedule yields exactly one analysis with an empty config<br>e2e/templates.spec.ts › template list › combines inline items and upload lines, trimmed, with offset and limit<br>e2e/templates.spec.ts › template tranco › resolves latest to a list id and yields the window in rank order<br>e2e/templates.spec.ts › template crux › latest resolves to the newest month; the stream stops at the first rank above the bucket<br>e2e/templates.spec.ts › wrapped templates › a custom schedule receives the proxy items in order; the resolution does not set expectedTotal |
+| TPL-011 | A scheduler resumed after a pause reuses the stored resolution instead of resolving again: … | e2e/templates.spec.ts › resolution on resume › a resumed scheduler reuses the stored resolution and the scan completes exactly |
+| SCAN-001 | POST /api/scans {revision, name?, taskConfig?, scanConfig?, settings?, confirm?} returns 201 with … | api/scans.spec.ts › start validation › a new scan starts in creating with merged settings and runs to completion |
+| SCAN-002 | The revision reference accepts <task>@<N>, <task>@latest, a bare <task> (latest), a revision id or … | api/scans.spec.ts › start validation › the revision reference accepts task@N, task@latest, a bare task, a revision id and a task id; unfinished revisions are refused first |
+| SCAN-003 | startScan returns 409 revisionNotReady with details.state for a queued, building or failed … | api/scans.spec.ts › start validation › the revision reference accepts task@N, task@latest, a bare task, a revision id and a task id; unfinished revisions are refused first |
+| SCAN-004 | taskConfig and scanConfig are validated against the revision's schemas with defaults applied: … | api/scans.spec.ts › start validation › task and scan configs are validated against the revision schemas and stored with defaults |
+| SCAN-005 | A taskConfig or scanConfig larger than SCANTOR_MAX_SCAN_CONFIG_BYTES returns 400 validationFailed. | api/scans.spec.ts › start validation › a task or scan config above the size limit is a validation failure |
+| SCAN-006 | Settings outside the static bounds return 400 validationFailed in startScan, scaleScan and … | api/scans.spec.ts › start validation › settings outside the static bounds are rejected by startScan, scaleScan and restartScan |
+| SCAN-007 | Partial nested settings merge over the revision defaults: nodeSelector {pool} without labels, or … | api/scans.spec.ts › start validation › partial nested settings merge over the revision defaults, also through the CLI |
+| SCAN-008 | Upload ids at the revision's upload paths must exist and belong to the scan owner (otherwise 404), … | api/scans.spec.ts › start validation › referenced uploads must exist and belong to the owner, at most 32 of them; validation runs in order |
+| SCAN-009 | For template schedules, an estimate above SCANTOR_MAX_ANALYSES_PER_SCAN returns 422 scanTooLarge … | api/scans.spec.ts › start validation › template estimates need confirmation above the threshold and are refused above the maximum; a restart needs no confirmation<br>api/scans.spec.ts › start validation › a custom schedule has no expected total and needs no confirmation |
+| SCAN-010 | The validation order is fixed: a not-ready revision with an invalid config returns 409 rather than … | api/scans.spec.ts › start validation › the revision reference accepts task@N, task@latest, a bare task, a revision id and a task id; unfinished revisions are refused first<br>api/scans.spec.ts › start validation › referenced uploads must exist and belong to the owner, at most 32 of them; validation runs in order<br>api/scans.spec.ts › start validation › the privilege check runs before the settings and config validation |
+| SCAN-011 | A scan with a custom schedule has stats.expectedTotal: null, and progress.total and percent stay … | api/scans.spec.ts › start validation › a custom schedule has no expected total and needs no confirmation<br>e2e/lifecycle.spec.ts › progress › progress follows the expected total, with percent and ETA while running, also in scans watch; a custom schedule has none until it is done |
+| SCAN-012 | For a privileged revision whose owner lacks canRunPrivileged, startScan, restartScan, resumeScan … | e2e/privileged.spec.ts › running privileged revisions › without canRunPrivileged every way of running a privileged revision is refused; with it, test nodes leave the workers pending |
+| SCAN-013 | With canRunPrivileged, a privileged scan on nodes without Docker-in-Docker (the test nodes) keeps … | e2e/privileged.spec.ts › running privileged revisions › without canRunPrivileged every way of running a privileged revision is refused; with it, test nodes leave the workers pending |
+| SCAN-014 | GET /api/scans returns Page<ScanSummary> (id, userId, name, task, revision {id, number, ref}, … | api/scans.spec.ts › reads › listScans returns summaries filtered by state and task, without deleted scans |
+| SCAN-015 | GET /api/scans/{id} returns the scan with progress {scheduled, terminal, total, percent, … | api/scans.spec.ts › reads › getScan returns progress and workers and long-polls until the scan settles<br>e2e/lifecycle.spec.ts › recounts and delete › deleting a scan purges its data and leaves a tombstone that refuses every transition; a late result is dropped |
+| SCAN-016 | progress.total equals stats.expectedTotal when known, percent rises toward 100 and etaSeconds is a … | e2e/lifecycle.spec.ts › progress › progress follows the expected total, with percent and ETA while running, also in scans watch; a custom schedule has none until it is done |
+| SCAN-017 | getScan?wait returns at once with Scantor-Wait: settled for a scan that is not creating or running, … | api/scans.spec.ts › reads › getScan returns progress and workers and long-polls until the scan settles |
+| SCAN-018 | GET /api/scans/{id}/conditions returns {items} with the scan's current conditions, such as … | api/scans.spec.ts › reads › conditions and events of a scan whose workers cannot be placed<br>e2e/lifecycle.spec.ts › broker topology and completion › a scan whose schedule fails ends failed with schedulingFailed once its published analyses are final |
+| SCAN-019 | GET /api/scans/{id}/events returns Page<Event> newest first; ?type takes an exact type … | api/scans.spec.ts › reads › conditions and events of a scan whose workers cannot be placed<br>api/scans.spec.ts › reads › workers, in-flight analyses and worker logs of a running scan |
+| SCAN-020 | GET /api/scans/{id}/workers?state returns Page<Worker> with role (scheduler or runner), state, node … | api/scans.spec.ts › reads › workers, in-flight analyses and worker logs of a running scan |
+| SCAN-021 | GET /api/scans/{id}/inflight returns {items: [{analysisId, seq, round, attempt, startedAt, … | api/scans.spec.ts › reads › workers, in-flight analyses and worker logs of a running scan |
+| SCAN-022 | GET /api/scans/{id}/workers/{workerId}/logs?wait&tailBytes (1024–262144, default 65536) fetches a … | api/scans.spec.ts › reads › workers, in-flight analyses and worker logs of a running scan |
+| SCAN-023 | POST /api/scans/{id}/pause on a running scan sets paused with stateReason {code: "user"} and … | e2e/lifecycle.spec.ts › recounts and delete › cancel removes the user, then the queue and the workers; running, paused and terminal scans are recounted on their cadences<br>e2e/lifecycle.spec.ts › pause, resume and scale › pause drains the workers but keeps the queue and user; resume continues the scheduler with epoch + 1<br>e2e/lifecycle.spec.ts › retry-failed › retry-failed reruns lost analyses that kept their config; a paused scan keeps its delayed retries |
+| SCAN-024 | Forbidden transitions return 409 invalidState with details {state, allowed} and repeating the … | api/scans.spec.ts › transitions › repeating the current state returns 200, forbidden transitions 409 with the allowed states<br>api/scans.spec.ts › transitions › delete accepts a terminal scan and is repeatable while deleting; a deleting scan refuses every other transition<br>e2e/lifecycle.spec.ts › recounts and delete › deleting a scan purges its data and leaves a tombstone that refuses every transition; a late result is dropped |
+| SCAN-025 | POST /api/scans/{id}/resume on a paused scan sets running and places new workers; an unfinished … | e2e/lifecycle.spec.ts › pause, resume and scale › pause drains the workers but keeps the queue and user; resume continues the scheduler with epoch + 1 |
+| SCAN-026 | resumeScan, restartScan and retryFailedAnalyses return 409 revisionUnavailable when the scan's … | api/scans.spec.ts › transitions › delete accepts a terminal scan and is repeatable while deleting; a deleting scan refuses every other transition<br>api/scans.spec.ts › transitions › resume, restart and retry-failed need the scan revision<br>e2e/lifecycle.spec.ts › recounts and delete › deleting a scan purges its data and leaves a tombstone that refuses every transition; a late result is dropped |
+| SCAN-027 | POST /api/scans/{id}/scale {workers?, processes?} works in creating, running and paused, updates … | api/scans.spec.ts › transitions › scaleScan updates the settings, writes scan.scaled and ignores unchanged values |
+| SCAN-028 | Scaling applies live: more workers add runner containers, fewer workers drain the least busy … | e2e/lifecycle.spec.ts › pause, resume and scale › scaling applies live: processes in place, workers added and drained |
+| SCAN-029 | Scaling beyond node capacity leaves the extra workers pending with the condition workersPending and … | e2e/lifecycle.spec.ts › pause, resume and scale › scaling beyond node capacity leaves the extra workers pending with insufficientCapacity |
+| SCAN-030 | POST /api/scans/{id}/cancel from creating, running or paused sets cancelled and completedAt; the … | e2e/lifecycle.spec.ts › recounts and delete › cancel removes the user, then the queue and the workers; running, paused and terminal scans are recounted on their cadences<br>chaos/chaos.spec.ts › the remote node remote-1 › cancelling a scan on remote-1 closes its worker connections, removes the broker objects and keeps the counts stable |
+| SCAN-031 | Cancelling a scan during an active retry-failed cancels the scanRetryFailed job and returns … | e2e/lifecycle.spec.ts › retry-failed › cancelling during an active retry cancels its job and restores the scheduling state |
+| SCAN-032 | POST /api/scans/{id}/retry-failed returns 202 {scan, job} (kind scanRetryFailed); the scan moves to … | e2e/lifecycle.spec.ts › retry-failed › retry-failed reruns lost analyses that kept their config; a paused scan keeps its delayed retries<br>e2e/lifecycle.spec.ts › retry-failed › retry-failed of a cancelled scan records the never-run analyses as cancelled and reruns only the failed ones |
+| SCAN-033 | retry-failed on a cancelled scan first records the never-run seqs as cancelled analyses of round 1, … | e2e/lifecycle.spec.ts › retry-failed › retry-failed of a cancelled scan records the never-run analyses as cancelled and reruns only the failed ones |
+| SCAN-034 | retry-failed returns 409 nothingToRetry when no failed or lost analysis has a config, and 409 … | api/scans.spec.ts › transitions › delete accepts a terminal scan and is repeatable while deleting; a deleting scan refuses every other transition<br>api/scans.spec.ts › transitions › retry-failed needs finished scheduling, no active retry and something to retry<br>e2e/lifecycle.spec.ts › recounts and delete › deleting a scan purges its data and leaves a tombstone that refuses every transition; a late result is dropped<br>e2e/lifecycle.spec.ts › pause, resume and scale › pause drains the workers but keeps the queue and user; resume continues the scheduler with epoch + 1 |
+| SCAN-035 | POST /api/scans/{id}/restart {name?, settings?: {workers?, processes?}} returns 201 with a new scan … | api/scans.spec.ts › start validation › template estimates need confirmation above the threshold and are refused above the maximum; a restart needs no confirmation<br>e2e/lifecycle.spec.ts › recounts and delete › restart clones the scan with its effective configs, secrets included, and the overrides |
+| SCAN-036 | DELETE /api/scans/{id} on a completed, failed or cancelled scan returns 202 {scan, job} with the … | api/scans.spec.ts › transitions › delete accepts a terminal scan and is repeatable while deleting; a deleting scan refuses every other transition<br>e2e/lifecycle.spec.ts › recounts and delete › deleting a scan purges its data and leaves a tombstone that refuses every transition; a late result is dropped |
+| SCAN-037 | When the scanDelete job finishes, the scan is a tombstone (deleted, purgeAfter = now + … | e2e/lifecycle.spec.ts › recounts and delete › deleting a scan purges its data and leaves a tombstone that refuses every transition; a late result is dropped |
+| SCAN-038 | When enough attempts in the breaker window fail (SCANTOR_BREAKER_MIN_ATTEMPTS, … | e2e/breaker.spec.ts › circuit breaker › a scan whose attempts all fail is paused with failureRate and breakerTripped; scans start --wait exits 1 |
+| SCAN-039 | Resuming a breaker-paused scan clears breakerTripped (a scan.conditionCleared event) and starts a … | e2e/breaker.spec.ts › circuit breaker › resuming a breaker-paused scan clears breakerTripped and starts a fresh failure window |
+| SCAN-040 | A scan completes only when scheduling is done or failed and the recounted terminal analyses reach … | e2e/lifecycle.spec.ts › broker topology and completion › a scan gets its queue and RabbitMQ user before it runs and loses them, user first, when it completes<br>e2e/lifecycle.spec.ts › broker topology and completion › a scan whose schedule fails ends failed with schedulingFailed once its published analyses are final |
+| SCAN-041 | Counters are recounted: running scans every 60 s, paused scans while they changed since the last … | e2e/lifecycle.spec.ts › recounts and delete › cancel removes the user, then the queue and the workers; running, paused and terminal scans are recounted on their cadences<br>chaos/chaos.spec.ts › the remote node remote-1 › cancelling a scan on remote-1 closes its worker connections, removes the broker objects and keeps the counts stable |
+| SCAN-042 | Live hint counters (stats.succeeded, failed, retrying, ratePerMin) rise as results arrive and never … | api/scans.spec.ts › reads › live hint counters only rise until the recount |
+| PLACE-001 | A running scan wants one scheduler while scheduling is pending or running plus settings.workers … | e2e/placement.spec.ts › desired workers › a running scan wants one scheduler while scheduling is unfinished plus settings.workers runners |
+| PLACE-002 | An unplaceable worker stays pending and the scan carries the condition workersPending {count, … | e2e/placement.spec.ts › pending reasons › unplaceable workers carry workersPending with the filter that removed the last node; it clears once placed<br>e2e/placement.spec.ts › pending reasons › nodes below SCANTOR_NODE_MIN_FREE_DISK leave workers pending with diskLow<br>e2e/placement.spec.ts › pending reasons › at most SCANTOR_PLACEMENT_MAX_CONCURRENT_PULLS workers pull one image at a time; the others wait with pullLimit<br>e2e/placement.spec.ts › capacity › placement reserves one slot, processes × cpus and processes × memoryMiB + 256 MiB per worker |
+| PLACE-003 | Placement reserves per worker one slot, processes × cpus CPUs and processes × memoryMiB + 256 MiB … | e2e/placement.spec.ts › capacity › placement reserves one slot, processes × cpus and processes × memoryMiB + 256 MiB per worker |
+| PLACE-004 | A user's non-zero maxWorkers caps their active workers across all scans: workers beyond it stay … | e2e/placement.spec.ts › user worker cap › a user's maxWorkers caps their active workers across scans; the cap is not checked at scan start |
+| PLACE-005 | settings.nodeSelector {pool, labels} places workers only on nodes of that pool whose labels include … | e2e/remote-node.spec.ts › remote node › a scan with pool remote runs end to end on remote-1 over the public endpoint profile |
+| PLACE-006 | The scheduler worker goes to the built-in node whenever it is a candidate, and a placed worker … | e2e/placement.spec.ts › node choice › the scheduler goes to the built-in node when it is a candidate<br>e2e/placement.spec.ts › node choice › a placed worker never moves to another node |
+| PLACE-007 | Placement writes a worker.placed event per placement and a worker.pending event only when a … | e2e/placement.spec.ts › placement events › worker.placed per placement, worker.pending only when the pending reason changes |
+| RES-001 | GET /api/scans/{id}/analyses returns Page<Analysis> sorted by seq ascending with ?status as a comma … | api/analyses.spec.ts › analyses of a finished scan › listAnalyses pages by seq with status filters and afterSeq |
+| RES-002 | listAnalyses?fields=<dot paths> returns only those paths plus id and seq; an unknown root field, a … | api/analyses.spec.ts › analyses of a finished scan › listAnalyses?fields returns only those paths plus id and seq |
+| RES-003 | GET /api/analyses/{scanId-seq} returns the analysis with round, attempt, attempts (at most 10), … | api/analyses.spec.ts › analyses of a finished scan › getAnalysis returns attempts, config, result, error, log tail, timings and files |
+| RES-004 | POST /api/scans/{id}/analyses/query {filter, projection?, sort?, limit?, afterSeq?} returns {items, … | api/analyses.spec.ts › analyses of a finished scan › queryAnalyses filters, projects and pages within the scan |
+| RES-005 | Sort keys must be dot paths with values 1 or −1 (others return 400 validationFailed); more than 8 … | api/analyses.spec.ts › analyses of a finished scan › sort keys are dot paths with 1 or -1, at most eight of them |
+| RES-006 | POST /api/scans/{id}/analyses/aggregate {pipeline, limit?} (at most 100 stages) returns {items, … | api/analyses.spec.ts › analyses of a finished scan › aggregateAnalyses runs allowlisted stages and rejects everything else |
+| RES-007 | An aggregation result over limit or SCANTOR_QUERY_MAX_DOCS is cut with truncated: true. | api/analyses.spec.ts › analyses of a finished scan › aggregation results above limit or SCANTOR_QUERY_MAX_DOCS are truncated |
+| RES-008 | A query that runs longer than SCANTOR_QUERY_MAX_TIME returns 504 queryTimeout. | api/analyses.spec.ts › analyses of a finished scan › a query running longer than SCANTOR_QUERY_MAX_TIME returns 504 queryTimeout |
+| RES-009 | More than SCANTOR_USER_MAX_CONCURRENT_QUERIES concurrent queries, aggregations or inline exports of … | api/analyses.spec.ts › analyses of a finished scan › more than SCANTOR_USER_MAX_CONCURRENT_QUERIES concurrent queries of one user return 429 |
+| RES-010 | GET /api/scans/{id}/export?format=jsonl\|csv&status&filter&fields&afterSeq streams … | api/exports.spec.ts › exports of a finished scan › the inline export streams JSONL or CSV in seq order as an attachment |
+| RES-011 | An inline export that matches more than SCANTOR_EXPORT_INLINE_MAX analyses returns 409 … | api/exports.spec.ts › exports of scans of their own › an inline export matching more than SCANTOR_EXPORT_INLINE_MAX analyses is 409 exportTooLarge |
+| RES-012 | A CSV export (inline or background) starts with a header row (default columns id, seq, status, … | api/exports.spec.ts › exports of a finished scan › a CSV export has the default header, JSON-encoded nested values, RFC 4180 quoting, CRLF and formula escaping |
+| RES-013 | JSONL export rows are whole masked analysis representations, or the fields projection when it is … | api/exports.spec.ts › exports of a finished scan › JSONL rows are whole masked analyses, or the fields projection |
+| RES-014 | POST /api/scans/{id}/exports {format, filter?, fields?, afterSeq?}?wait returns 201 with an export … | api/exports.spec.ts › exports of a finished scan › a background export becomes ready with a download equal to the inline export |
+| RES-015 | Exporting a deleting or deleted scan, inline or in the background, returns 409 invalidState. | api/exports.spec.ts › exports of scans of their own › exporting a deleting or deleted scan is 409 invalidState |
+| RES-016 | GET /api/exports?scanId pages through exports newest first and GET /api/exports/{id}?wait holds … | api/exports.spec.ts › exports of a finished scan › listExports pages newest first; deleteExport removes the export and its object; exports expire |
+| RES-017 | GET /api/analyses/{id}/files/{fileId} returns FileDownload {url, expiresAt, name, size, sha256, … | api/files.spec.ts › analysis files › getFileDownload serves the exact bytes of a stored file, directly or as a redirect |
+| RES-018 | File downloads of png, jpeg, gif and webp are served inline with their image type; html, svg and … | security/downloads.spec.ts › downloads › hostile-output files: png inline as image/png, html and svg as octet-stream attachments, names sanitised<br>security/downloads.spec.ts › downloads › jpeg, gif and webp are served inline with their type; json, pdf, text and scripts as attachments |
+| RES-019 | Downloads are presigned GETs on SCANTOR_S3_PUBLIC_URL, created per request and valid 10 minutes, … | security/downloads.spec.ts › downloads › hostile-output files: png inline as image/png, html and svg as octet-stream attachments, names sanitised<br>security/downloads.spec.ts › downloads › exports and revision sources download as attachments; unsigned, tampered and expired URLs are refused |
+| JOB-001 | GET /api/jobs?kind&state returns Page<Job> (id, kind, subject, state, progress, attempts, error, … | api/jobs.spec.ts › jobs of the tenant › listJobs shows a user their own jobs; admins see all and filter by userId<br>api/jobs.spec.ts › jobs without a user › admins see jobs without a user and jobs of deleted users; users do not |
+| JOB-002 | GET /api/jobs/{id}?wait holds until the job is succeeded, failed or cancelled; another user's job, … | api/jobs.spec.ts › jobs of the tenant › getJob?wait holds until the job finished; another user’s job is 404<br>api/jobs.spec.ts › jobs without a user › admins see jobs without a user and jobs of deleted users; users do not |
+| ING-001 | Orchestrator boot ensures the vhost scantor, the topic exchanges scantor.analyses, scantor.results … | security/cross-scan.spec.ts › per-scan RabbitMQ users › orchestrator boot ensures the vhost, the topic exchanges and the global quorum queues |
+| ING-002 | A creating scan gets the quorum queue scantor.scan.<id> (delivery limit SCANTOR_DELIVERY_LIMIT, … | e2e/lifecycle.spec.ts › broker topology and completion › a scan gets its queue and RabbitMQ user before it runs and loses them, user first, when it completes |
+| ING-003 | When a scan becomes completed, failed, cancelled or deleting, its user scan-<id> is deleted first … | e2e/lifecycle.spec.ts › recounts and delete › cancel removes the user, then the queue and the workers; running, paused and terminal scans are recounted on their cadences<br>e2e/lifecycle.spec.ts › broker topology and completion › a scan gets its queue and RabbitMQ user before it runs and loses them, user first, when it completes<br>e2e/lifecycle.spec.ts › broker topology and completion › orphan scan users and queues are removed within a reconciler tick |
+| ING-004 | The scan user's password is derived from SCANTOR_SECRET and the scan id and never stored, so a … | security/cross-scan.spec.ts › per-scan RabbitMQ users › the scan user’s password is derived from the secret and never stored; the user has no tags |
+| ING-005 | A scan user can consume only its own queue and publish only to scantor.analyses or scantor.results … | security/cross-scan.spec.ts › per-scan RabbitMQ users › the broker confines a scan user to its own routing key and its own queue |
+| ING-006 | The per-scan user is limited to 2 × (workers + 1) connections and that many × (processes + 2) … | security/cross-scan.spec.ts › per-scan RabbitMQ users › connections and channels are limited by workers and processes; scaling raises the limits |
+| ING-007 | The ingestor takes a result's scan only from the broker-validated user_id: a message without … | security/cross-scan.spec.ts › result ingestion trust › unauthenticated or inconsistent results are dead-lettered without writing anything |
+| ING-008 | A result for a round above the scan's round is dropped, and results for unknown, deleting or … | security/cross-scan.spec.ts › result ingestion trust › future rounds and results of deleting or deleted scans are dropped; late results of cancelled scans are recorded |
+| ING-009 | An authenticated result that fails its schema becomes a failed analysis of type platform, phase … | security/cross-scan.spec.ts › result ingestion trust › authenticated results that fail the schema or cannot be stored become failed analyses; other scans keep ingesting |
+| ING-010 | Results are applied as guarded upserts: a later success beats a failure of the same round, … | chaos/chaos.spec.ts › faults of one scan › re-published and conflicting result messages are absorbed by the guarded upserts |
+| ING-011 | An attempt event sets the analysis to retrying and appends an attempts[] entry (at most 10 are … | e2e/retries.spec.ts › retry policy › a retryable failure shows the analysis retrying while the retry waits as a delayed message<br>e2e/retries.spec.ts › attempt history › a flaky analysis succeeds on a later attempt and keeps only its last 10 attempts<br>e2e/retries.spec.ts › attempt history › attempt events are ignored once the analysis is final or a later attempt is recorded |
+| ING-012 | An analysis whose delivery limit is reached because every worker processing it died is recorded as … | chaos/chaos.spec.ts › faults of one scan › an analysis that kills every worker processing it is recorded as a crash at the delivery limit |
+| SCHED-001 | A template schedule without wrapping runs natively in the scheduler without a connector process, … | e2e/scheduler.spec.ts › native and connector schedules › an unwrapped template runs in the scheduler without a connector process<br>e2e/scheduler.spec.ts › native and connector schedules › a custom schedule runs in exactly one connector process that streams the items |
+| SCHED-002 | schedulerCheckpoint stores {epoch, confirmed, tailHash} only when confirmed increases; an older … | api/runtime-api.spec.ts › scheduler routes › checkpoints only move forward and an existing resolution is returned unchanged |
+| SCHED-003 | After a pause and resume, or after the scheduler is lost, a new scheduler with epoch + 1 … | e2e/scheduler.spec.ts › checkpoint and resume › a scan paused during backpressure resumes from its checkpoint with epoch + 1 and exact results<br>e2e/templates.spec.ts › resolution on resume › a resumed scheduler reuses the stored resolution and the scan completes exactly |
+| SCHED-004 | A custom schedule that yields different items on resume (the nondeterministic fixture, scheduler … | chaos/chaos.spec.ts › faults of one scan › a non-deterministic custom schedule fails on resume after its scheduler is killed |
+| SCHED-005 | When the scan queue reaches SCANTOR_SCAN_QUEUE_MAX_READY, publishes are refused and the scheduler … | e2e/backpressure.spec.ts › backpressure › a 20 000-analysis scan completes through a queue of at most 500 ready messages with exact counts<br>e2e/backpressure.spec.ts › backpressure › retries are accepted while the queue is full<br>e2e/scheduler.spec.ts › checkpoint and resume › a scan paused during backpressure resumes from its checkpoint with epoch + 1 and exact results |
+| SCHED-006 | When the stream ends and every item is confirmed, scheduling.state becomes done and the scheduler … | e2e/scheduler.spec.ts › end of scheduling › when every item is confirmed, scheduling is done and the scheduler is drained and removed |
+| SCHED-007 | Schedule limits fail scheduling with a non-retryable validation error in phase schedule, such as … | e2e/limits.spec.ts › analysis config size › an analysis config above SCANTOR_MAX_ANALYSIS_CONFIG_BYTES fails scheduling; earlier items still run |
+| SCHED-008 | A retryable error in schedule increments scheduling.restarts and raises the condition … | e2e/scheduler.spec.ts › schedule errors › a retryable schedule error restarts the scheduler until SCANTOR_SCHEDULER_MAX_RESTARTS, then scheduling fails<br>e2e/scheduler.spec.ts › schedule errors › the condition schedulerRestarting is raised while the scheduler restarts |
+| SCHED-009 | A Fatal or validation error in schedule fails scheduling at once without a restart (condition … | e2e/scheduler.spec.ts › schedule errors › Fatal in schedule fails scheduling at once; analyses published before it still run |
+| SCHED-010 | Scheduler calls with an old epoch return 409 staleEpoch with details.currentEpoch; a stale … | api/runtime-api.spec.ts › scheduler routes › a superseded scheduler epoch gets 409 staleEpoch and cannot end scheduling<br>chaos/chaos.spec.ts › the remote node remote-1 › a partitioned remote-1 goes offline, its workers are lost and replaced on the built-in node, and its stale containers are removed after it returns |
+| NODE-001 | GET /api/nodes?state&pool (admin) returns {items} with the built-in node first and the others by … | api/nodes.spec.ts › listing nodes › lists the built-in node first, the others by name, and never their secrets |
+| NODE-002 | POST /api/nodes {name, pool?, labels?, maxWorkers?} returns 201 {node, token, join} with the node … | api/nodes.spec.ts › creating nodes › creates a pending node in pool shared whose token is shown only once |
+| NODE-003 | Node names must be slugs: builtin returns 400 validationFailed and a duplicate name 409 … | api/nodes.spec.ts › creating nodes › rejects reserved, duplicate and malformed names and oversized labels |
+| NODE-004 | join.dockerRun is exactly docker run -d --name scantor-node --restart unless-stopped -v … | api/nodes.spec.ts › join instructions › the join snippet runs the daemon image with the public URL and the new token |
+| NODE-005 | GET /api/nodes/{id}/join returns the join instructions with the token replaced by … | api/nodes.spec.ts › join instructions › the join instructions of an existing node carry a token placeholder |
+| NODE-006 | PATCH /api/nodes/{id} updates name, pool, labels, maxWorkers (null removes it) and cordoned; an … | api/nodes.spec.ts › updating nodes › changes name, pool, labels, worker cap and cordon; validates the body<br>api/nodes.spec.ts › updating nodes › the built-in node keeps its name but accepts its other attributes |
+| NODE-007 | DELETE /api/nodes/{id} returns 204: the node is removed, its workers become lost and are replaced … | api/node-api.spec.ts › removing a node › deleting a node loses its workers, replaces them elsewhere and locks out its daemon |
+| NODE-008 | POST /api/nodes/{id}/token returns {node, token, join} with a new token: the old token gets 401 on … | api/nodes.spec.ts › node tokens › rotating replaces the token at once and brings a revoked node back to pending |
+| NODE-009 | DELETE /api/nodes/{id}/token sets the node revoked: its workers become lost at once (their worker … | api/node-api.spec.ts › removing a node › revoking a token loses the workers at once and denies registry pulls |
+| NODE-010 | Rotating, revoking or deleting the built-in node returns 409 builtInNode, and scantor nodes exits 2 … | api/nodes.spec.ts › the built-in node › cannot be rotated, revoked or deleted<br>api/nodes.spec.ts › the built-in node › scantor nodes exits 2 for rotate, revoke and delete of the built-in node |
+| NODE-011 | GET /api/nodes/{id}/workers?state pages through the workers placed on the node, each with scan {id, … | api/node-api.spec.ts › node detail › lists the workers on a node with their scan, and its events newest first by type or prefix |
+| NODE-012 | The built-in node builtin (builtIn: true, endpoint profile internal, pool shared) exists and is … | api/nodes.spec.ts › the built-in node › is online in pool shared with the configured worker capacity and a clock offset near 0 |
+| NODE-013 | A cordoned node gets no new workers while its running workers stay; a scan that only that node … | chaos/chaos.spec.ts › the remote node remote-1 › a cordoned remote-1 keeps its running workers and gets new ones only after uncordoning |
+| NODE-014 | Running the dockerRun join snippet on a Docker host brings a pending node online with its reported … | e2e/remote-node.spec.ts › remote node › remote-1 runs the dockerRun join snippet, reports its host and created scantor-workers |
+| NODE-015 | POST /api/node/hello sets the node online, stores its info (hostname, os, arch, kernel, Docker … | api/node-api.spec.ts › hello › sets the node online, stores its info and returns its identity and configuration |
+| NODE-016 | Hello with an unknown or revoked node token returns 401, and hello to a release orchestrator … | api/node-api.spec.ts › hello › refuses an unknown or revoked node token with 401<br>api/node-api.spec.ts › hello › refuses a daemon version outside the same or previous minor with 426 |
+| NODE-017 | A second daemon using the same node token on a different Docker engine gets 409 … | api/node-api.spec.ts › instance lease › a daemon on another engine gets 409, a restart on the same engine takes over |
+| NODE-018 | GET /api/node/assignments?rev&wait returns at once when the node's assignments revision is newer … | api/node-api.spec.ts › assignments › long-poll returns at once for a newer revision, after the wait otherwise, and early on a placement |
+| NODE-019 | An assignment references the task image by digest at the node's registry host (localhost:<port> on … | api/node-api.spec.ts › assignments › an assignment pulls the task image by digest from the public registry host, sized by processes<br>api/node-api.spec.ts › assignments › the built-in node pulls by digest from localhost with the same limits |
+| NODE-020 | Node status entries for workers not assigned to the calling node are ignored, and posting worker … | api/node-api.spec.ts › assignments › status entries and log answers for workers of another node are ignored |
+| NODE-021 | A running worker container scantor-w-<workerId> matches the hardening profile: the runtime as … | security/sandbox.spec.ts › worker containers › a worker on the built-in node runs with the hardening profile on scantor-sandbox, with only its assignment environment<br>security/sandbox.spec.ts › worker containers › a worker on a remote node joins scantor-workers, where workers of other scans cannot reach it |
+| NODE-022 | Workers on the built-in node join scantor-sandbox; workers on a remote node join scantor-workers … | security/sandbox.spec.ts › worker containers › a worker on the built-in node runs with the hardening profile on scantor-sandbox, with only its assignment environment<br>security/sandbox.spec.ts › worker containers › a worker on a remote node joins scantor-workers, where workers of other scans cannot reach it |
+| NODE-023 | A worker's environment is exactly the assignment's environment plus SCANTOR_CA_CERT (and … | security/sandbox.spec.ts › worker containers › a worker on the built-in node runs with the hardening profile on scantor-sandbox, with only its assignment environment<br>security/sandbox.spec.ts › worker containers › a worker on a remote node joins scantor-workers, where workers of other scans cannot reach it |
+| NODE-024 | The daemon only touches containers it can attribute to itself: a name conflict with a foreign … | security/sandbox.spec.ts › node daemon boundaries › the daemon never touches containers it cannot attribute to itself |
+| NODE-025 | On SIGTERM the daemon exits 0 and its workers keep running; the restarted daemon adopts the … | chaos/chaos.spec.ts › the remote node remote-1 › remote-1's daemon exits 0 on SIGTERM, its workers keep running and the restarted daemon adopts them |
+| NODE-026 | A worker container that exits non-zero restarts in place (same container id) with a growing … | e2e/workers.spec.ts › crash loops and memory › a worker container that keeps exiting restarts in place with a growing backoff and raises crashLoop<br>e2e/workers.spec.ts › crash loops and memory › a worker container that exits 0 restarts in place after 10 s without counting a crash<br>e2e/workers.spec.ts › drain and stop › a drained worker finishes its in-flight analysis, stops and is removed with its container |
+| NODE-027 | When a connector process exceeds the container's memory, it is killed first, the worker keeps … | e2e/workers.spec.ts › crash loops and memory › a connector process over the container memory is killed first and the run fails as an OOM crash |
+| NODE-028 | A worker that leaves the desired set (scale-in, pause, scheduling done, scan terminal) is stopped … | e2e/scheduler.spec.ts › end of scheduling › when every item is confirmed, scheduling is done and the scheduler is drained and removed<br>e2e/workers.spec.ts › drain and stop › a drained worker finishes its in-flight analysis, stops and is removed with its container |
+| NODE-029 | scantor node healthcheck exits 0 while the daemon's status file is younger than three status … | e2e/cli.spec.ts › node daemon command › scantor node healthcheck follows the age of the status file |
+| NODE-030 | scantor node exits 2 at start on invalid configuration (both SCANTOR_NODE_BUILTIN=true and … | e2e/cli.spec.ts › node daemon command › scantor node exits 2 on invalid configuration and refuses plaintext to public addresses |
+| NODE-031 | After its token is rejected (rotated, revoked or node deleted), the daemon logs orchestrator … | chaos/chaos.spec.ts › the remote node remote-1 › after its token is rotated, remote-1's daemon stays unauthorized, removes its workers after the offline window and rejoins with the new token |
+| NODE-032 | Task images are pulled by digest with a per-pull registry credential carrying the node token; the … | e2e/remote-node.spec.ts › remote node › a scan with pool remote runs end to end on remote-1 over the public endpoint profile |
+| NODE-033 | A failed image pull puts the worker in state error with code imagePullFailed and raises the scan … | e2e/workers.spec.ts › image pulls › a failed image pull leaves the worker pulling with imagePullFailed and raises the condition; the scan runs once the image is back<br>e2e/workers.spec.ts › image pulls › imagePullFailed clears when the node reports the containers of the pulled image<br>e2e/workers.spec.ts › image pulls › imagePullFailed clears when the runtime bootstraps before the node reports the containers |
+| NODE-034 | The daemon runs a one-shot egress helper scantor-netpol-<nodeId> (host network, NET_ADMIN and … | security/sandbox.spec.ts › egress deny list › where egressDenyApplied is true the deny rules are installed and 169.254.169.254 is unreachable from workers<br>security/sandbox.spec.ts › node daemon boundaries › a node daemon connects only with the CA of SCANTOR_CA_CERT, then runs its one-shot egress helper on the host network with NET_ADMIN and NET_RAW only |
+| NODE-035 | A scan with nodeSelector.pool = "remote" runs end to end on remote-1 over the public endpoint … | e2e/remote-node.spec.ts › remote node › a scan with pool remote runs end to end on remote-1 over the public endpoint profile |
+| REG-001 | GET /api/registry/token?service=scantor-registry&scope=repository:tasks/<id>:pull with Basic … | api/registry-token.spec.ts › token flows › GET with a node credential returns an ES256 token for its assigned repository |
+| REG-002 | POST /api/registry/token with the form grant_type=password, username=node, password=snt_… and scope … | api/registry-token.spec.ts › token flows › POST with a password grant form returns an access token |
+| REG-003 | The granted access is the requested access intersected with what is allowed: a node gets pull only … | api/registry-token.spec.ts › granted access › a node gets pull on the repositories of its own assignments only |
+| REG-004 | The orchestrator credential gets pull, push and delete on tasks/* and registry:catalog:* (sub … | api/registry-token.spec.ts › granted access › the orchestrator credential gets push, delete and the catalog, which no node gets |
+| REG-005 | Token errors use the registry format {errors: [{code, message}]}: 401 UNAUTHORIZED for an invalid … | api/registry-token.spec.ts › errors › errors use the registry format: 401, DENIED, UNSUPPORTED and SIZE_INVALID |
+| REG-006 | A node's pull grant for a task disappears from the next token once its worker is lost, the node is … | api/registry-token.spec.ts › grant lifetime › the grant ends with the scan<br>api/registry-token.spec.ts › grant lifetime › the grant ends when the worker is lost and the credential ends with a revoke |
+| RT-001 | The first GET /api/runtime/bootstrap moves the worker to running (the scheduler also moves … | api/runtime-api.spec.ts › bootstrap › the first bootstrap starts the worker and hands each role its configuration |
+| RT-002 | Bootstrap returns action stop when the scan is no longer running. | api/runtime-api.spec.ts › bootstrap › bootstrap answers stop once the scan no longer runs |
+| RT-003 | runtimePresignUploads builds the keys files/<scanId>/<seq>/<executionId>/<fileId>/<safeName> from … | api/runtime-api.spec.ts › uploads › presigned keys stay inside the scan prefix and the signed size is enforced |
+| RT-004 | runtimeAnalysesStatus accepts at most 1000 seqs and answers only for the token's scan. | api/runtime-api.spec.ts › redelivery status › answers at most 1000 seqs and only for the scan of the token |
+| RT-005 | runtimeReportError returns 202 and raises the scan condition workerErrors and a worker.error event. | api/runtime-api.spec.ts › error reports › a reported error is accepted with 202 and raises workerErrors and a worker.error event |
+| RT-006 | Connector processes never see SCANTOR_WORKER_TOKEN, SCANTOR_URL, SCANTOR_CA_CERT or … | security/sandbox.spec.ts › worker containers › connector processes never see the worker token, the platform URL or the CA |
+| RT-007 | Each runner process consumes the scan queue with prefetch 1, so the queue's consumer count equals … | e2e/workers.spec.ts › process slots › every runner process consumes with prefetch 1: 3 workers × 4 processes are 12 consumers |
+| RT-008 | Deleting the user scan-<id> closes every worker connection of the scan, remote nodes included; the … | chaos/chaos.spec.ts › the remote node remote-1 › cancelling a scan on remote-1 closes its worker connections, removes the broker objects and keeps the counts stable |
+| RT-009 | A connector process is recycled after settings.maxAnalysesPerProcess analyses and after a timeout, … | e2e/workers.spec.ts › process slots › a connector process is recycled after maxAnalysesPerProcess analyses and after a crash<br>e2e/workers.spec.ts › process slots › after repeated timeouts every process slot still has exactly one connector process |
+| RT-010 | Malformed analysis messages published as the scan user (wrong scan id, an analysisId that is not … | security/cross-scan.spec.ts › malformed analysis messages › a runner records attributable malformed messages as validation failures and drops the rest |
+| RT-011 | A run that exceeds settings.timeoutMs has its connector process group killed, child processes … | e2e/retries.spec.ts › outcomes › a run past timeoutMs is killed with its child processes and fails as a retryable timeout<br>e2e/workers.spec.ts › process slots › after repeated timeouts every process slot still has exactly one connector process |
+| RT-012 | A connector process that ends during a run gives type crash, retryable, with details {exitCode, … | e2e/retries.spec.ts › outcomes › a connector process that ends during a run is a retryable crash with its exit status |
+| RT-013 | Outcomes are classified per language: Fatal fails after 1 attempt, not retryable; Retry is … | e2e/retries.spec.ts › retry policy › Retry waits exactly its delay, clamped to at least 1 s and at most backoff.maxMs<br>e2e/retries.spec.ts › outcomes › Fatal, exceptions and rejected results are classified per type<br>e2e/retries.spec.ts › outcomes › JavaScript and Go classify Fatal, Retry, errors, panics and rejected results the same way |
+| RT-014 | A result that is not a JSON object, or whose size exceeds SCANTOR_MAX_RESULT_BYTES, fails as … | e2e/limits.spec.ts › result size › a result above SCANTOR_MAX_RESULT_BYTES fails as validation without retry while other scans keep ingesting |
+| RT-015 | ctx.files.put returns a FileRef {id, name, size, sha256, contentType} (null content type becomes … | e2e/files.spec.ts › file references › ctx.files.put returns FileRefs that are recorded wherever the result holds them and can be downloaded<br>e2e/files.spec.ts › file limits › too many files or a file above the size limit raise a validation error in user code |
+| RT-016 | Files are uploaded only after a successful run, so failed attempts store none; every registered … | e2e/files.spec.ts › file references › ctx.files.put returns FileRefs that are recorded wherever the result holds them and can be downloaded<br>e2e/files.spec.ts › file references › files of failed attempts are never uploaded |
+| RT-017 | When the per-user storage quota SCANTOR_USER_STORAGE_QUOTA_BYTES is exceeded, the analysis fails … | e2e/files.spec.ts › storage quota › an upload above the owner storage quota fails the analysis; retry-failed runs it again once storage is free |
+| RT-018 | A retryable failure with attempts left shows the analysis retrying with attempt n and an attempts[] … | e2e/backpressure.spec.ts › backpressure › retries are accepted while the queue is full<br>e2e/retries.spec.ts › retry policy › a retryable failure shows the analysis retrying while the retry waits as a delayed message |
+| RT-019 | Without jitter and with a backoff of 2 s × 2, attempts start 2 s, 4 s and 8 s apart; Retry(delay) … | e2e/retries.spec.ts › retry policy › without jitter, attempts start 2 s, 4 s and 8 s apart; exhausted attempts fail keeping retryable<br>e2e/retries.spec.ts › retry policy › Retry waits exactly its delay, clamped to at least 1 s and at most backoff.maxMs |
+| RT-020 | When attempts are exhausted, the analysis is failed with attempt == maxAttempts, keeping the error … | e2e/retries.spec.ts › retry policy › without jitter, attempts start 2 s, 4 s and 8 s apart; exhausted attempts fail keeping retryable<br>e2e/retries.spec.ts › attempt history › a flaky analysis succeeds on a later attempt and keeps only its last 10 attempts |
+| RT-021 | An analysis's logTail holds the connector's stdout and stderr plus ctx.log lines rendered as … | e2e/retries.spec.ts › outcomes › log tails keep stdout, stderr and ctx.log lines: 32 KiB for the result, 4 KiB per earlier attempt |
+| RT-022 | Worker logs (from getWorkerLogs) are JSON lines with scanId, workerId, nodeId and role, with … | security/sandbox.spec.ts › worker logs › worker logs are JSON lines with correlation ids that never carry credentials or config values |
+| RT-023 | Error fields are bounded: message at most 4 KiB, stack at most 16 KiB with the middle cut (…[<n> … | e2e/retries.spec.ts › outcomes › error messages, stacks and details are bounded |
+| RT-024 | On drain (pause or scale-in) a worker stops taking work, lets in-flight analyses finish within the … | e2e/workers.spec.ts › drain and stop › a drained worker finishes its in-flight analysis, stops and is removed with its container<br>e2e/workers.spec.ts › drain and stop › cancelling a scan stops its in-flight runs without recording anything for them |
+| CONN-001 | A task image started without the runtime (no readable fd 3 and writable fd 4) prints scantor: this … | e2e/examples.spec.ts › connectors and base images › a python task image started without the runtime refuses to run<br>e2e/examples.spec.ts › connectors and base images › a typescript task image started without the runtime refuses to run<br>e2e/examples.spec.ts › connectors and base images › a javascript task image started without the runtime refuses to run<br>e2e/examples.spec.ts › connectors and base images › a go task image started without the runtime refuses to run |
+| CONN-002 | User output on stdout and stderr never corrupts the protocol: a printed JSON line that looks like a … | e2e/examples.spec.ts › connectors and base images › every language has a connector probe<br>e2e/examples.spec.ts › connectors and base images › the python connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the typescript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the javascript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the go connector keeps the protocol clean, honours an ENV override and trusts the system roots |
+| CONN-003 | An exception while the task module loads fails the revision at describe with the message and stack … | e2e/examples.spec.ts › connectors and base images › an import error or an invalid definition fails the revision at describe |
+| CONN-004 | ctx.log(level, message, fields) lines appear in the analysis log tail and in local-mode events as … | e2e/cli.spec.ts › local development loop › dev run -o json prints the local-mode events<br>e2e/examples.spec.ts › example tasks › published together: http-status, echo › echo (python, single) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › origins (python, tranco) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › sleep (python, repeat) builds, describes and scans |
+| CONN-005 | Python tasks define a module-level scantor.Task(...) with configs derived from scantor.Config; run … | e2e/examples.spec.ts › example tasks › every example under tasks/ has an entry in e2e/examples.ts<br>e2e/examples.spec.ts › example tasks › the examples cover every language and every template<br>e2e/examples.spec.ts › example tasks › published together: http-status, echo › echo (python, single) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › files (python, list) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › origins (python, tranco) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › sleep (python, repeat) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › throws (python, range) builds, describes and scans<br>e2e/examples.spec.ts › connectors and base images › the python connector keeps the protocol clean, honours an ENV override and trusts the system roots |
+| CONN-006 | TypeScript and JavaScript tasks export default defineTask({...}) with config() roots and secret() … | e2e/examples.spec.ts › example tasks › every example under tasks/ has an entry in e2e/examples.ts<br>e2e/examples.spec.ts › example tasks › the examples cover every language and every template<br>e2e/examples.spec.ts › example tasks › published together: http-status, echo › http-status (typescript, crux) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › power (javascript, range) builds, describes and scans<br>e2e/examples.spec.ts › connectors and base images › the typescript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the javascript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › an import error or an invalid definition fails the revision at describe |
+| CONN-007 | Go tasks call scantor.Serve(schedule, run) or ServeRun(run), including uninstantiated template … | e2e/examples.spec.ts › example tasks › every example under tasks/ has an entry in e2e/examples.ts<br>e2e/examples.spec.ts › example tasks › the examples cover every language and every template<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › reverse-dns (go, cidr) builds, describes and scans<br>e2e/examples.spec.ts › connectors and base images › the go connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › a Go panic is a taskError with a stack and a result breaking a struct tag fails as validation |
+| CONN-008 | The base images implement the ENV contract (SCANTOR_LANGUAGE, SCANTOR_CONNECTOR_CMD, … | e2e/examples.spec.ts › connectors and base images › the base images implement the ENV contract and ship the system CA bundle<br>e2e/examples.spec.ts › connectors and base images › the python connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the typescript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the javascript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the go connector keeps the protocol clean, honours an ENV override and trusts the system roots |
+| CONN-009 | Every base image ships the system CA bundle, so HTTPS from tasks and from the runtime (data … | e2e/examples.spec.ts › connectors and base images › the base images implement the ENV contract and ship the system CA bundle<br>e2e/examples.spec.ts › connectors and base images › the python connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the typescript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the javascript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the go connector keeps the protocol clean, honours an ENV override and trusts the system roots |
+| CONN-010 | Describe exports normalised schemas ($schema draft 2020-12, no $id, object roots, no defaults on … | e2e/examples.spec.ts › example tasks › published together: http-status, echo › http-status (typescript, crux) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: http-status, echo › echo (python, single) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › files (python, list) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › origins (python, tranco) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › power (javascript, range) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › reverse-dns (go, cidr) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › sleep (python, repeat) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › throws (python, range) builds, describes and scans<br>e2e/examples.spec.ts › connectors and base images › the python connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the typescript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the javascript connector keeps the protocol clean, honours an ENV override and trusts the system roots<br>e2e/examples.spec.ts › connectors and base images › the go connector keeps the protocol clean, honours an ENV override and trusts the system roots |
+| CONN-011 | Describe fails the revision (phase describe) for an open config root, a default that violates its … | e2e/examples.spec.ts › connectors and base images › describe rejects open roots, invalid defaults, non-object results and a language mismatch and warns about open nested objects |
+| CONN-012 | An unwrapped template proxy (schedule=tranco.schedule, cidr.Schedule) is described as {kind: … | e2e/examples.spec.ts › example tasks › the examples cover every language and every template<br>e2e/examples.spec.ts › example tasks › published together: http-status, echo › http-status (typescript, crux) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: http-status, echo › echo (python, single) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › files (python, list) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › origins (python, tranco) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › power (javascript, range) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › reverse-dns (go, cidr) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › sleep (python, repeat) builds, describes and scans<br>e2e/examples.spec.ts › example tasks › published together: files, origins, power, reverse-dns, sleep, throws › throws (python, range) builds, describes and scans |
+| CONN-013 | A scan config with properties on a task without schedule (template single) is a definition error. | e2e/examples.spec.ts › connectors and base images › a scan config with properties on a task without schedule is a definition error |
+| DEV-001 | scantor init [dir] --language <l> [--template <t>\|custom] [--name] [--description] writes a … | e2e/cli.spec.ts › local development loop › scantor init writes a scaffold, derives the name and refuses non-empty folders |
+| DEV-002 | A scaffold contains scantor.yaml with the schema modeline (valid against … | e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × cidr: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × crux: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × list: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × range: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × repeat: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × single: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × tranco: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × custom: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × cidr: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × crux: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × list: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × range: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × repeat: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × single: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × tranco: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × custom: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × cidr: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × crux: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × list: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × range: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × repeat: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × single: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × tranco: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × custom: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × cidr: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × crux: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × list: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × range: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × repeat: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × single: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × tranco: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × custom: init, validate and dev run |
+| DEV-003 | For every language of schemas/languages.json × every template plus custom, scantor init, then … | e2e/scaffold-matrix.spec.ts › the matrix covers every language and template<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × cidr: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × crux: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × list: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × range: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × repeat: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × single: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × tranco: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: python › python × custom: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × cidr: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × crux: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × list: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × range: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × repeat: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × single: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × tranco: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: typescript › typescript × custom: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × cidr: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × crux: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × list: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × range: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × repeat: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × single: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × tranco: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: javascript › javascript × custom: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × cidr: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × crux: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × list: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × range: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × repeat: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × single: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × tranco: init, validate and dev run<br>e2e/scaffold-matrix.spec.ts › scaffold matrix: go › go × custom: init, validate and dev run |
+| DEV-004 | scantor validate [dir] runs pack, static checks, build, describe and the type check on local … | e2e/cli.spec.ts › local development loop › scantor validate runs every publish check locally with the server verdicts |
+| DEV-005 | Under SCANTOR_DEV_MODE=remote (the editor), scantor validate and scantor dev debug exit 3 with a … | e2e/cli.spec.ts › local development loop › validate and dev debug need local Docker under SCANTOR_DEV_MODE=remote |
+| DEV-006 | scantor dev run [dir] builds, describes, validates and fills the configs (an invalid config exits … | e2e/cli.spec.ts › local development loop › dev run takes configs inline, from files and stdin and honours limit, attempts and timeout<br>e2e/cli.spec.ts › local development loop › an interrupt kills the connector and reports in-flight analyses as cancelled |
+| DEV-007 | Local dev run uses SCANTOR_TRANCO_URL and SCANTOR_CRUX_URL when set, and a config that references … | e2e/cli.spec.ts › local development loop › local runs use the configured data sources and refuse uploads |
+| DEV-008 | scantor dev run -o json prints the local-mode NDJSON events unchanged: start, resolved, scheduled, … | e2e/cli.spec.ts › local development loop › dev run -o json prints the local-mode events |
+| DEV-009 | Local-mode exit codes, the highest applicable winning: 3 for a total timeout, an interrupt or a … | e2e/cli.spec.ts › local development loop › local-mode exit codes follow the worst outcome<br>e2e/cli.spec.ts › local development loop › an interrupt kills the connector and reports in-flight analyses as cancelled |
+| DEV-010 | In local mode --analysis-config skips schedule and runs once with seq 0, --limit caps the items … | e2e/cli.spec.ts › local development loop › local mode skips schedule for an analysis config, caps items and delays and runs as scan local |
+| DEV-011 | Files of a local run are copied to .scantor/out/<timestamp>/files/<seq>/<fileId>/<name> in the task … | e2e/cli.spec.ts › local development loop › files of a local run are copied into .scantor/out for the invoking user |
+| DEV-012 | On a total timeout or an interrupt, local mode kills the connector processes; in-flight analyses … | e2e/cli.spec.ts › local development loop › an interrupt kills the connector and reports in-flight analyses as cancelled |
+| DEV-013 | scantor dev run --remote (or SCANTOR_DEV_MODE=remote) syncs the folder with … | e2e/cli.spec.ts › platform commands › dev run --remote syncs the folder, runs a test run and downloads its files |
+| DEV-014 | scantor dev debug runs one connector process under the base image's debugger (debugpy, the Node … | e2e/debug.spec.ts › dev debug › python: a debugger attaches, resumes and the analysis completes<br>e2e/debug.spec.ts › dev debug › typescript: a debugger attaches, resumes and the analysis completes<br>e2e/debug.spec.ts › dev debug › javascript: a debugger attaches, resumes and the analysis completes<br>e2e/debug.spec.ts › dev debug › go: a debugger attaches, resumes and the analysis completes |
+| DEV-015 | scantor push [dir] packs locally and uploads; the manifest name selects or creates the task, it … | e2e/cli.spec.ts › platform commands › scantor push packs, uploads and publishes, and reports failed revisions |
+| CLI-001 | Exit codes: 0 success; 1 when analyses failed (dev run, and scans start --wait, scans get --wait … | e2e/cli.spec.ts › scans and results › scan commands › scans watch follows a scan to its end and honours pauses, the breaker and timeouts<br>e2e/cli.spec.ts › scans and results › scan commands › the waiting scan commands exit 1 for failed analyses and errors print as JSON |
+| CLI-002 | The CLI takes credentials only from SCANTOR_URL and SCANTOR_TOKEN; a token that does not start with … | e2e/cli.spec.ts › configuration and containers › credentials come only from SCANTOR_URL and SCANTOR_TOKEN and are validated |
+| CLI-003 | Run containerised (the scantor.sh shim pattern), the CLI rewrites a localhost, 127.0.0.1 or ::1 … | e2e/cli.spec.ts › configuration and containers › a containerised CLI reaches a localhost URL through host.docker.internal |
+| CLI-004 | scantor push <dir> --wait uploads a task folder and builds a ready revision, and scantor scans … | e2e/cli.spec.ts › scans and results › scan commands › scans start takes configs and settings from flags, files and stdin and waits for the result<br>e2e/smoke.spec.ts › CLI scan › a pushed task runs to completion from the CLI |
+| CLI-005 | scantor scans start [revision] takes --task-config, --scan-config and --settings as JSON, @file or … | e2e/cli.spec.ts › scans and results › scan commands › scans start takes configs and settings from flags, files and stdin and waits for the result |
+| CLI-006 | scantor scans watch <scan> prints progress until the scan completes, fails, is cancelled or is … | e2e/cli.spec.ts › scans and results › scan commands › scans watch follows a scan to its end and honours pauses, the breaker and timeouts |
+| CLI-007 | scantor scans … | e2e/cli.spec.ts › scans and results › scan commands › the scan control commands map to their operations and a conflict exits 2 |
+| CLI-008 | scantor tasks files ls\|cat\|put\|rm work on the platform workspace: a binary put/cat round trip keeps … | e2e/cli.spec.ts › task, revision and node commands › tasks files work on the platform workspace and revision snapshots<br>e2e/cli.spec.ts › task, revision and node commands › tasks import-git selects candidates and tasks pull --force replaces a diverged folder |
+| CLI-009 | scantor revisions get\|list\|logs [--follow]\|publish work on revisions. | e2e/cli.spec.ts › task, revision and node commands › revisions get, list, logs and publish work on revisions |
+| CLI-010 | scantor nodes create\|list\|get\|update\|delete\|join\|token rotate\|token revoke\|workers\|events manage … | e2e/cli.spec.ts › task, revision and node commands › nodes commands manage a node and print its token once |
+| CLI-011 | scantor uploads create with a list-template scan, scantor analyses query\|aggregate, scantor export … | e2e/cli.spec.ts › scans and results › result commands › uploads, analyses, export and files work against a list-template scan |
+| EDIT-001 | POST /api/editor/session {open?} returns 201 {url, expiresAt, editor} with a one-time URL … | api/editor.spec.ts › editor sessions › a session URL is a one-time code on the editor origin and starts the editor in the background |
+| EDIT-002 | createEditorSession returns 404 when open names a task the caller does not own, 400 when open is … | api/editor.spec.ts › editor sessions › refuses foreign, uuid-shaped and reserved task names and the editor key |
+| EDIT-003 | GET /api/editor returns {state, startedAt, lastActivityAt, idleTimeoutMs, error}: stopped for a … | api/editor.spec.ts › editor state › a failed start keeps its error until the next start; the origin shows starting and stopped pages |
+| EDIT-004 | DELETE /api/editor returns 204, removes the editor container and deletes the editor API key; it is … | api/editor.spec.ts › editor state › stopping removes the container and the editor key; a stopped editor stops as a no-op |
+| EDIT-005 | Every editor start mints a new editor API key (at most one per user, listed with configId=editor, … | api/editor.spec.ts › the editor key › every start mints one new editor key, listed but never creatable; a ban deletes it<br>api/editor.spec.ts › the editor key › deleting the user deletes the editor key |
+| EDIT-006 | An idle editor stops after SCANTOR_EDITOR_IDLE_TIMEOUT, and while it starts its origin serves a 503 … | api/editor.spec.ts › idle stop › an idle editor stops after the idle timeout<br>api/editor.spec.ts › editor state › a failed start keeps its error until the next start; the origin shows starting and stopped pages |
+| EDIT-007 | Inside the editor, SCANTOR_URL points at the orchestrator, SCANTOR_TOKEN is the editor key, … | api/editor.spec.ts › inside the editor › the CLI uses the editor key: tasks, scans and remote dev runs work, admin routes do not |
+| EDIT-008 | Editor routes always act on the caller's own editor, also for admins; a session code is single use, … | security/editor-isolation.spec.ts › editor sessions and cookies › a session code expires after 60 s<br>security/editor-isolation.spec.ts › editor sessions and cookies › codes are single use and bound to their user; each cookie reaches only its own editor, also for admins |
+| EDIT-009 | The editor listener answers 421 to any other host and serves only /_auth and the code-server proxy … | security/editor-isolation.spec.ts › editor listener › each listener refuses the other host, and the editor origin serves no API and accepts no dashboard credential |
+| EDIT-010 | The scantor_editor cookie is host-only, HttpOnly, SameSite=Lax and Secure, lives 12 h and stops … | security/editor-isolation.spec.ts › editor sessions and cookies › the editor cookie is host-only, HttpOnly, Lax and Secure for 12 h, bound to one editor start |
+| EDIT-011 | A WebSocket upgrade with a foreign Origin gets 403, and Set-Cookie headers from code-server never … | security/editor-isolation.spec.ts › editor origin traffic › WebSockets need the editor origin, code-server sets no cookies, and every response carries the headers |
+| EDIT-012 | A code-server socket replaced by a symlink (to /var/run/docker.sock, through docker exec in the … | security/editor-isolation.spec.ts › editor sessions and cookies › codes are single use and bound to their user; each cookie reaches only its own editor, also for admins |
+| EDIT-013 | A master worker cannot connect to an editor container. | security/editor-isolation.spec.ts › the editor container › is hardened, has no Docker socket and cannot be reached from a master worker |
+| EDIT-014 | The editor container has no Docker socket and only its home, workspace and socket mounts, runs as … | security/editor-isolation.spec.ts › the editor container › is hardened, has no Docker socket and cannot be reached from a master worker |
+| EDIT-015 | Editor-origin responses carry Content-Security-Policy: frame-ancestors 'self' <dashboard origin>, … | security/editor-isolation.spec.ts › editor origin traffic › WebSockets need the editor origin, code-server sets no cookies, and every response carries the headers<br>ui/headers.spec.ts › dashboard security headers › the editor origin sends its own frame-ancestors, nosniff, referrer policy and HSTS |
+| TOOLS-001 | GET /api/tools/session?target=rabbitmq\|mongo-express\|rustfs\|traefik (admin session) answers 302 to … | api/tools.spec.ts › createToolsSession › an admin session gets a 302 to the tool with the tools cookie on the domain<br>api/tools.spec.ts › createToolsSession › API keys, non-admins, anonymous callers and invalid targets are refused |
+| TOOLS-002 | GET /api/tools/forward-auth answers 200 with X-Scantor-User for a valid admin tools cookie on a … | api/tools.spec.ts › forwardAuth › a valid admin cookie on a tool host is allowed with X-Scantor-User<br>api/tools.spec.ts › forwardAuth › other hosts and missing, expired, forged or non-admin cookies get 401 text; browsers are sent to the session<br>api/tools.spec.ts › forwardAuth › an admin banned a moment ago is refused at once |
+| TOOLS-003 | Through Traefik, traefik., rabbitmq., mongo-express. and rustfs.<domain> are reachable only with an … | api/tools.spec.ts › tool hosts through Traefik › every tool host needs an admin tools cookie<br>api/tools.spec.ts › tool hosts through Traefik › a client-supplied X-Forwarded-Host is ignored<br>api/tools.spec.ts › tool hosts through Traefik › behind the cookie each tool still asks for its own credentials |
+| TOOLS-004 | RabbitMQ management accepts only the admin user, mongo-express runs read-only, and the bucket … | security/downloads.spec.ts › downloads › the bucket answers CORS preflights only from the dashboard origin, and only for GET<br>security/sandbox.spec.ts › reachability › the RabbitMQ management API rejects the scan user and accepts the admin; the object store answers only signed requests<br>security/sandbox.spec.ts › reachability › mongo-express runs read-only |
+| MCP-001 | tools/list equals the curated table of 29 tools (at most 30): names are snake_case(operationId) … | mcp/tools.spec.ts › MCP tool catalogue › tools/list of an admin key equals the curated table with names, titles, descriptions and annotations |
+| MCP-002 | A scantor:read grant sees only read tools (GET plus query_analyses and aggregate_analyses), and … | mcp/apikey.spec.ts › MCP with API keys › a user's default key works as Bearer and as x-api-key with the write level<br>mcp/apikey.spec.ts › MCP with API keys › an admin's default key has the admin level and lists the nodes<br>mcp/apikey.spec.ts › MCP with API keys › an admin's editor key has the write level without admin tools<br>mcp/oauth.spec.ts › MCP OAuth authorization › consent decides the level: scope is required, admin is stripped for users, Read only grants read, Deny returns access_denied<br>mcp/oauth.spec.ts › MCP OAuth authorization › an admin who approves Admin gets the admin tool, and Read and write keeps it hidden<br>mcp/tools.spec.ts › MCP tool catalogue › tools/list of an admin key equals the curated table with names, titles, descriptions and annotations<br>mcp/tools.spec.ts › MCP tool catalogue › a default key of a user has the write level: no admin tool, and calling it is an unknown tool<br>mcp/tools.spec.ts › MCP tool catalogue › a scantor:read grant lists only the read tools and cannot call a write tool |
+| MCP-003 | wait on publish_revision, get_revision, test_task, get_test_run, get_scan, export_scan and … | mcp/tools.spec.ts › MCP tool catalogue › the wait tools advertise wait with a maximum of 50 seconds<br>mcp/tools.spec.ts › MCP tool calls › a settled scan answers at once with _wait settled, and pausing it is a structured 409 invalidState<br>mcp/tools.spec.ts › MCP tool calls › a scan that does not settle answers after the wait with _wait timeout<br>mcp/tools.spec.ts › MCP tool calls › a wait above 50 is clamped to 50 seconds |
+| MCP-004 | A non-2xx REST response becomes isError with {error: {httpStatus, code, message, details}} (plus … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only<br>mcp/tools.spec.ts › MCP tool calls › a settled scan answers at once with _wait settled, and pausing it is a structured 409 invalidState<br>mcp/tools.spec.ts › MCP tool calls › REST errors become structured tool errors with status, code, message and details<br>mcp/tools.spec.ts › MCP tool calls › arguments that violate the input schema give the structured 400 validationFailed error |
+| MCP-005 | Target- and task-derived values are wrapped as {untrusted_data: …} (for example get_analysis … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only<br>mcp/tools.spec.ts › MCP tool calls › values derived from targets and task code are wrapped as untrusted data, absent and null values are not |
+| MCP-006 | Tool results are capped at 256 KiB: the longest fitting prefix of the list is kept with _truncated … | mcp/limits.spec.ts › MCP response cap › a query over large results keeps the longest fitting prefix with a note, and long strings are shortened<br>mcp/limits.spec.ts › MCP response cap › a truncated query sets nextCursor to the seq of the last returned analysis |
+| MCP-007 | No MCP tool manages credentials or identity (API keys, OAuth apps, users, git credentials, editor … | mcp/tools.spec.ts › MCP tool catalogue › no tool manages credentials or identity, and secret config values arrive as *** |
+| MCP-008 | /mcp accepts only POST (GET and DELETE return 405), is stateless, answers OPTIONS with CORS * … | mcp/smoke.spec.ts › MCP transport › /mcp accepts only POST and answers a preflight from any origin without credentials<br>mcp/smoke.spec.ts › MCP transport › /mcp is stateless and identifies itself as scantor with tools, resources and instructions<br>mcp/smoke.spec.ts › MCP transport › /mcp ignores the dashboard session cookie and challenges for a bearer credential |
+| MCP-009 | POST /mcp without a credential gets 401 with WWW-Authenticate: Bearer … | mcp/oauth.spec.ts › MCP OAuth discovery › /mcp without a credential gets the Bearer challenge and the discovery documents are served<br>mcp/oauth.spec.ts › MCP OAuth discovery › the OpenID metadata document is served at /.well-known/openid-configuration/api/auth<br>mcp/oauth.spec.ts › MCP OAuth discovery › the protected-resource metadata names the resource scantor |
+| MCP-010 | Dynamic client registration accepts loopback http redirect URIs on any port, private-use schemes … | mcp/oauth.spec.ts › MCP OAuth clients › dynamic registration rejects redirect URIs outside the policy with 400 invalid_redirect_uri<br>mcp/oauth.spec.ts › MCP OAuth clients › dynamic registration accepts loopback redirect URIs on any port and private-use schemes<br>mcp/oauth.spec.ts › MCP OAuth clients › dynamic registration rejects https loopback redirect URIs with the policy error<br>mcp/oauth.spec.ts › MCP OAuth clients › authorization enforces the redirect policy again and never redirects to a foreign URI |
+| MCP-011 | A CIMD client_id whose metadata URL is not https or whose host resolves to a private address is … | mcp/oauth.spec.ts › MCP OAuth clients › a CIMD client_id that is not https or whose host is private is refused |
+| MCP-012 | An MCP client connects through OAuth 2.1 (discovery, a registered client, consent as the signed-in … | mcp/oauth.spec.ts › MCP OAuth authorization › the PKCE code flow issues a one-hour JWT for /mcp and a rotating refresh token that works<br>mcp/oauth.spec.ts › MCP OAuth authorization › a token without any scantor scope gets 403 insufficient_scope<br>mcp/smoke.spec.ts › MCP plumbing › the OAuth flow connects as the signed-in user |
+| MCP-013 | Consent decides the token's level: accepting without scope returns 400 invalid_request, … | mcp/oauth.spec.ts › MCP OAuth authorization › consent decides the level: scope is required, admin is stripped for users, Read only grants read, Deny returns access_denied<br>mcp/oauth.spec.ts › MCP OAuth authorization › an admin who approves Admin gets the admin tool, and Read and write keeps it hidden |
+| MCP-014 | Every /mcp request re-checks the user and the consent: after revokeOAuthApp, a ban or the user's … | mcp/oauth.spec.ts › MCP OAuth revocation › revoking an app lists it no longer and its next /mcp call gets 401 Access revoked<br>mcp/oauth.spec.ts › MCP OAuth revocation › a banned user's token gets 401 Access revoked on the next call<br>mcp/oauth.spec.ts › MCP OAuth revocation › a deleted user's token gets 401 Access revoked on the next call |
+| MCP-015 | API keys work on /mcp (Bearer or x-api-key): an admin's default key gets level admin, other default … | mcp/apikey.spec.ts › MCP with API keys › a user's default key works as Bearer and as x-api-key with the write level<br>mcp/apikey.spec.ts › MCP with API keys › an admin's default key has the admin level and lists the nodes<br>mcp/apikey.spec.ts › MCP with API keys › an admin's editor key has the write level without admin tools<br>mcp/apikey.spec.ts › MCP with API keys › an invalid key gets 401 with the OAuth challenge, as Bearer and as x-api-key<br>mcp/apikey.spec.ts › MCP with API keys › an expired key gets 401 with the OAuth challenge<br>mcp/smoke.spec.ts › MCP plumbing › an API key lists the tools and calls one |
+| MCP-016 | The server instructions are present at initialize, at most 8 KiB, and every tool they name exists; … | mcp/guides.spec.ts › MCP instructions and guides › the instructions are the marked section of the MCP guide, at most 8 KiB, and name only existing tools<br>mcp/guides.spec.ts › MCP instructions and guides › the guide resources list and serve the instructions, every authoring guide and every named guide as markdown<br>mcp/guides.spec.ts › MCP instructions and guides › get_authoring_guide returns the authoring guide of every language |
+| MCP-017 | Every MCP tool name and scantor command mentioned in skills/ and docs/guide/*.md exists, and guide … | mcp/drift.spec.ts › MCP documentation drift › every MCP tool mentioned in the skills and guides exists<br>mcp/drift.spec.ts › MCP documentation drift › every scantor command mentioned in the skills and guides exists in the CLI reference<br>mcp/drift.spec.ts › MCP documentation drift › every guide snippet that includes a repository file equals that file |
+| MCP-018 | An agent loop with tools only succeeds: create_task (python, range), read_task_file, … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only |
+| MCP-019 | start_scan above the confirmation threshold returns 422 confirmationRequired, and the same call … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only |
+| SEC-001 | Every case of tests/corpora/dockerfile-policy uploaded with uploadTask gives a failed revision … | security/dockerfile-policy.spec.ts › Dockerfile policy › every case of the corpus gets exactly its static errors and warnings from the pipeline’s static check<br>security/dockerfile-policy.spec.ts › Dockerfile policy › one sample per rule fails statically through uploadTask with its file, line and rule, and builds nothing<br>security/dockerfile-policy.spec.ts › Dockerfile policy › the self-contained valid cases publish ready with the policy warnings in their build log |
+| SEC-002 | Image references in FROM, COPY --from and RUN --mount from= that point at the platform registry or … | security/dockerfile-policy.spec.ts › Dockerfile policy › every case of the corpus gets exactly its static errors and warnings from the pipeline’s static check<br>security/dockerfile-policy.spec.ts › Dockerfile policy › one sample per rule fails statically through uploadTask with its file, line and rule, and builds nothing<br>security/dockerfile-policy.spec.ts › Dockerfile policy › COPY --from another task image on the local registry is rejected with its line and never yields the files |
+| SEC-003 | The exploit COPY --from=localhost:<port>/tasks/<victim task> is rejected with its file and line and … | security/dockerfile-policy.spec.ts › Dockerfile policy › COPY --from another task image on the local registry is rejected with its line and never yields the files |
+| SEC-004 | A task whose earlier build stage is FROM an external image with ONBUILD triggers fails the revision … | security/dockerfile-policy.spec.ts › Dockerfile policy › an external stage image with ONBUILD triggers fails the build with the image and its line |
+| SEC-005 | A task with LABEL keys starting with traefik., com.docker.compose. or scantor. (any case), quoted, … | security/hostile-labels.spec.ts › hostile labels › forbidden LABEL keys are rejected statically, literal, quoted, in any case and ARG-expanded |
+| SEC-006 | Forbidden labels inherited from a base image pass the static check but fail the revision in phase … | security/hostile-labels.spec.ts › hostile labels › forbidden labels inherited from the base image pass the static check, fail the build and leave no image |
+| SEC-007 | Every container scantor creates (worker, helper, build, test run, editor, egress helper) and every … | security/hostile-labels.spec.ts › hostile labels › an image with Traefik and compose labels swapped into a ready revision runs with the managed labels and gets no route<br>security/insecure-secrets.spec.ts › secrets derived from SCANTOR_SECRET › the editor cookie the helpers derive opens the running editor<br>security/sandbox.spec.ts › worker containers › a worker on the built-in node runs with the hardening profile on scantor-sandbox, with only its assignment environment<br>security/sandbox.spec.ts › worker containers › a worker on a remote node joins scantor-workers, where workers of other scans cannot reach it<br>security/sandbox.spec.ts › short-lived containers › a test run runs on scantor-egress with the worker hardening profile and reaches no platform service<br>security/sandbox.spec.ts › short-lived containers › describe and check containers run without network, tokens or added capabilities, and are removed<br>security/sandbox.spec.ts › short-lived containers › workspace helpers run as 1000:1000 without network, read-only, with only the user’s volume, and are removed<br>security/sandbox.spec.ts › node daemon boundaries › a node daemon connects only with the CA of SCANTOR_CA_CERT, then runs its one-shot egress helper on the host network with NET_ADMIN and NET_RAW only |
+| SEC-008 | Defence in depth: a pre-built image carrying traefik.* and com.docker.compose.project=scantor … | security/hostile-labels.spec.ts › hostile labels › an image with Traefik and compose labels swapped into a ready revision runs with the managed labels and gets no route |
+| SEC-009 | A RUN step that connects to 169.254.169.254 fails during a build on a node that reports … | security/sandbox.spec.ts › egress deny list › where egressDenyApplied is true the deny rules are installed and 169.254.169.254 is unreachable from workers<br>security/sandbox.spec.ts › egress deny list › a RUN step that connects to 169.254.169.254 fails the build on the master |
+| SEC-010 | Master workers (netprobe on the built-in node) cannot open TCP connections to MongoDB, the registry … | security/sandbox.spec.ts › reachability › master workers cannot reach MongoDB, the registry or mongo-express, by name, address or published port<br>security/sandbox.spec.ts › reachability › the RabbitMQ management API rejects the scan user and accepts the admin; the object store answers only signed requests |
+| SEC-011 | Every rejected case of tests/corpora/query-injection sent through queryAnalyses, aggregateAnalyses … | security/query-injection.spec.ts › query injection › every rejected case of the corpus answers 400 queryRejected with its path<br>security/query-injection.spec.ts › query injection › the accepted cases of the corpus succeed on the caller’s scan |
+| SEC-012 | Scope-override attempts ({"scanId": {"$ne": null}} in a filter, $facet with $lookup, $unionWith) by … | security/query-injection.spec.ts › query injection › scope-override attempts by B on B’s scan return only that scan’s analyses, never A’s |
+| SEC-013 | Connected directly to MongoDB as the read-only scantor_query user, a $where find fails … | security/query-injection.spec.ts › query injection › the read-only query user cannot run scripts or write |
+| SEC-014 | writeOnly fields (secret(), SecretStr, scantor.Secret) of schema-zoo show * in scans, test runs, … | security/secrets-masking.spec.ts › secret masking › schema-zoo: the task secret is *** in scans, analyses, exports, test runs and MCP, reaches the task, and survives a restart<br>security/secrets-masking.spec.ts › secret masking › secrets in the scan config, the analysis config and the result are *** everywhere while the task sees them<br>security/secrets-masking.spec.ts › secret masking › describe drops the default of a nullable writeOnly field, so an omitted secret gets the task’s own default<br>security/secrets-masking.spec.ts › secret masking › the instance information shows no secret values |
+| SEC-015 | Filters, sorts, projection expressions and pipelines that reference a writeOnly path return 400 … | security/secrets-masking.spec.ts › secret masking › queries that reference a secret path are refused; plain projections are masked |
+| SEC-016 | TLS verification is always on: SCANTOR_CA_CERT is added to the system roots (never replacing them) … | security/sandbox.spec.ts › worker containers › a worker on a remote node joins scantor-workers, where workers of other scans cannot reach it<br>security/sandbox.spec.ts › node daemon boundaries › a node daemon connects only with the CA of SCANTOR_CA_CERT, then runs its one-shot egress helper on the host network with NET_ADMIN and NET_RAW only |
+| SEC-017 | The object store bucket is private: an unsigned GET returns 403, and a CORS preflight from a … | security/downloads.spec.ts › downloads › exports and revision sources download as attachments; unsigned, tampered and expired URLs are refused<br>security/downloads.spec.ts › downloads › the bucket answers CORS preflights only from the dashboard origin, and only for GET |
+| SEC-018 | A throwaway orchestrator in public mode (a non-loopback SCANTOR_PUBLIC_URL or SCANTOR_EDITOR_URL, … | security/insecure-secrets.spec.ts › startup guard › public mode by a public SCANTOR_PUBLIC_URL with insecure secrets exits 1 and names only the variables<br>security/insecure-secrets.spec.ts › startup guard › public mode by a public SCANTOR_EDITOR_URL with insecure secrets exits 1 and names only the variables<br>security/insecure-secrets.spec.ts › startup guard › public mode by COMPOSE_PROFILES with traefik with insecure secrets exits 1 and names only the variables<br>security/insecure-secrets.spec.ts › startup guard › public mode by a public SCANTOR_BIND_ADDRESS with insecure secrets exits 1 and names only the variables<br>security/insecure-secrets.spec.ts › startup guard › public mode by a public SCANTOR_ADMIN_BIND_ADDRESS with insecure secrets exits 1 and names only the variables |
+| SEC-019 | With SCANTOR_ALLOW_INSECURE_DEFAULTS=true a public deployment with offenders starts with a warning … | security/insecure-secrets.spec.ts › startup guard › with SCANTOR_ALLOW_INSECURE_DEFAULTS=true a public deployment starts with a warning per name; all-loopback settings start with an info line |
+| SEC-020 | A SCANTOR_EDITOR_URL with the same origin as SCANTOR_PUBLIC_URL always makes the orchestrator exit … | security/insecure-secrets.spec.ts › startup guard › an editor URL with the origin of the public URL always exits 1, even with the override |
+| SEC-021 | Invalid security-relevant settings abort startup: a URL with a path, query or credentials, an … | security/insecure-secrets.spec.ts › startup guard › invalid security-relevant settings abort startup and name the variable |
+| SEC-022 | After a SCANTOR_SECRET change on a throwaway orchestrator, boot recovers: MCP OAuth works again, … | security/insecure-secrets.spec.ts › SCANTOR_SECRET change › boot recovers: OAuth signing keys, the built-in node token and the registry keys are rewritten; API keys and node tokens survive; git credentials and scan secrets are undecryptable<br>security/insecure-secrets.spec.ts › SCANTOR_SECRET change › MCP OAuth works again after the secret change |
+| SEC-023 | The key derivations from SCANTOR_SECRET match the shared vectors of … | security/insecure-secrets.spec.ts › secrets derived from SCANTOR_SECRET › the derivations match the shared vectors<br>security/insecure-secrets.spec.ts › secrets derived from SCANTOR_SECRET › the credentials the helpers derive from the stack secret work against the stack<br>security/insecure-secrets.spec.ts › secrets derived from SCANTOR_SECRET › the editor cookie the helpers derive opens the running editor |
+| SEC-024 | Logs never contain credentials: the orchestrator and node daemon log JSON lines with correlation … | chaos/chaos.spec.ts › logs › no live credential appears in any container log of the stack |
+| OPS-001 | lint-compose fails when the infrastructure services (mongo, rabbitmq, rustfs, registry, … | security/compose-lint.spec.ts › lint-compose › the compose files of the checkout pass every rule<br>security/compose-lint.spec.ts › lint-compose › a difference in the mongo service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the rabbitmq service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the rustfs service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the registry service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the mongo-express service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the traefik service between dev and prod fails |
+| OPS-002 | lint-compose enforces the compose rules: Traefik exposedbydefault=false, the compose-project … | security/compose-lint.spec.ts › lint-compose › the compose files of the checkout pass every rule<br>security/compose-lint.spec.ts › lint-compose › only the image prefix fallback is allowed as a default<br>security/compose-lint.spec.ts › lint-compose › fails when Traefik exposes containers by default<br>security/compose-lint.spec.ts › lint-compose › fails when Traefik lacks the compose-project constraint<br>security/compose-lint.spec.ts › lint-compose › fails when Traefik serves its API insecurely<br>security/compose-lint.spec.ts › lint-compose › fails when the RabbitMQ management GUI is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when MongoDB is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when mongo-express is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when the RustFS console is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when the MongoDB TCP router is enabled without SCANTOR_EXPOSE_MONGO<br>security/compose-lint.spec.ts › lint-compose › fails when mongo-express is writable<br>security/compose-lint.spec.ts › lint-compose › fails when mongod runs without --noscripting<br>security/compose-lint.spec.ts › lint-compose › fails when the orchestrator service has no memory limit<br>security/compose-lint.spec.ts › lint-compose › fails when the mongo service has no memory limit<br>security/compose-lint.spec.ts › lint-compose › fails when the rabbitmq service has no memory limit<br>security/compose-lint.spec.ts › lint-compose › fails when the orchestrator mounts scantor-workspaces<br>security/compose-lint.spec.ts › lint-compose › fails when the orchestrator service has no env_file .env<br>security/compose-lint.spec.ts › lint-compose › fails when the traefik service has no env_file .env<br>security/compose-lint.spec.ts › lint-compose › fails when a production compose variable has a default<br>security/compose-lint.spec.ts › lint-compose › fails when a variable of the test stack override has a default |
+| OPS-003 | lint-env fails when a SCANTOR_* variable read by code, compose files, recipes or the test stack is … | security/env-example.spec.ts › lint-env › the checkout passes every rule<br>security/env-example.spec.ts › lint-env › a variable read by code but missing from .env.example fails<br>security/env-example.spec.ts › lint-env › a variable read by a Go config loader must be documented<br>security/env-example.spec.ts › lint-env › a variable read by a direct Go environment read must be documented<br>security/env-example.spec.ts › lint-env › a variable read by the orchestrator's config loader must be documented<br>security/env-example.spec.ts › lint-env › a variable read by a compose interpolation must be documented<br>security/env-example.spec.ts › lint-env › a variable read by the test stack override must be documented<br>security/env-example.spec.ts › lint-env › a variable read by a recipe must be documented<br>security/env-example.spec.ts › lint-env › a variable read by the test stack's settings must be documented<br>security/env-example.spec.ts › lint-env › a variable read by the suite's environment helper must be documented<br>security/env-example.spec.ts › lint-env › a non-empty PASSWORD or SECRET default must end in -insecure-dev |
+| OPS-004 | lint-env enforces the shipped secure defaults: loopback bind addresses, SCANTOR_NODE_DIND=disabled … | security/env-example.spec.ts › lint-env › the checkout passes every rule<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_BIND_ADDRESS=0.0.0.0 breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_ADMIN_BIND_ADDRESS=192.168.1.10 breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_NODE_DIND=rootless breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_BUILTIN_NODE_DIND=privileged breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_MONGO_EXPRESS_READONLY=false breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_EXPOSE_MONGO=true breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_NODE_EGRESS_DENY=fd00:ec2::254/128,100.100.100.200/32 breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_NODE_EGRESS_DENY=169.254.0.0/16,100.100.100.200/32 breaks a secure default<br>security/env-example.spec.ts › lint-env › a secure-default variable missing from .env.example fails<br>security/env-example.spec.ts › lint-env › the comment of SCANTOR_MONGO_PASSWORD must carry the first-initialisation note<br>security/env-example.spec.ts › lint-env › the comment of SCANTOR_RABBITMQ_PASSWORD must carry the first-initialisation note |
+| OPS-005 | lint-env fails when a non-configuration variable (SCANTOR_WORKER_TOKEN, SCANTOR_DIND, … | security/env-example.spec.ts › lint-env › the checkout passes every rule<br>security/env-example.spec.ts › lint-env › SCANTOR_WORKER_TOKEN must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_DIND must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_REGISTRY_PUSH_PASSWORD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_LANGUAGE must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_CONNECTOR_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_CHECK_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_DEBUG_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_DEBUG_PORT must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROTOCOL_IN_FD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROTOCOL_OUT_FD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROTOCOL_VERSIONS must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROCESS_INDEX must not appear in .env.example |
+| OPS-006 | Traefik redirects http:// permanently to https://, serves the operator's default certificate (the … | security/traefik.spec.ts › Traefik › http:// redirects permanently to https:// on every host<br>security/traefik.spec.ts › Traefik › the test CA's wildcard certificate is served for every host and the SNI TCP router<br>security/traefik.spec.ts › Traefik › the Traefik dashboard API is reachable only with an admin's tools cookie |
+| OPS-007 | Traefik routes each host to its target: scantor. to the orchestrator, editor. to the editor … | security/traefik.spec.ts › Traefik › routing › the apex host reaches the orchestrator<br>security/traefik.spec.ts › Traefik › routing › the editor host reaches the editor listener, not the API<br>security/traefik.spec.ts › Traefik › routing › the registry host reaches the registry with token auth<br>security/traefik.spec.ts › Traefik › routing › the s3 host reaches the object store with the Host header preserved<br>security/traefik.spec.ts › Traefik › routing › the traefik host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the rabbitmq host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the mongo-express host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the rustfs host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the amqp host is a TLS TCP router to RabbitMQ |
+| CHAOS-001 | Killing one runner of a scan while analyses are in flight still ends the scan completed with … | chaos/chaos.spec.ts › faults of one scan › killing a runner while analyses are in flight still completes the scan with one document per seq |
+| CHAOS-002 | Restarting the orchestrator during a running scan, also while results are being ingested, ends the … | chaos/chaos.spec.ts › an orchestrator restart during a scan and a build › a scan running across the restart completes with exact counts |
+| CHAOS-003 | Restarting RabbitMQ while retries are delayed keeps the quorum queues, delayed messages and users; … | chaos/chaos.spec.ts › platform components › restarting RabbitMQ while retries are delayed keeps the queue, the retries and the user; /api/health is 200 degraded meanwhile |
+| CHAOS-004 | Pausing a scan while retries are delayed, waiting 30 s and resuming loses no analysis, and the … | chaos/chaos.spec.ts › faults of one scan › pausing while retries are delayed, waiting 30 s and resuming loses no analysis |
+| CHAOS-005 | A scan cancelled and deleted right after a backlog of results built up (the orchestrator paused for … | chaos/chaos.spec.ts › platform components › a scan cancelled and deleted right after a result backlog built up stays a tombstone without analyses |
+| CHAOS-006 | A remote node disconnected longer than SCANTOR_NODE_OFFLINE_AFTER goes offline (node.offline); its … | chaos/chaos.spec.ts › the remote node remote-1 › a partitioned remote-1 goes offline, its workers are lost and replaced on the built-in node, and its stale containers are removed after it returns |
+| CHAOS-007 | When a scan queue with delayed retries is deleted, the reconciler recreates it empty; after … | chaos/chaos.spec.ts › faults of one scan › analyses whose queued messages vanished become lost, and retry-failed then completes the scan |
+| CHAOS-008 | During a RabbitMQ memory alarm, startScan returns 503 brokerAlarm, running scans show the condition … | chaos/chaos.spec.ts › platform components › during a RabbitMQ memory alarm startScan answers 503 and running scans show brokerAlarm until it clears<br>chaos/chaos.spec.ts › platform components › the health status is degraded during a RabbitMQ memory alarm |
+| CHAOS-009 | While MongoDB is paused, results accumulate in scantor.results.ingest and the runtimes keep … | chaos/chaos.spec.ts › platform components › while MongoDB is paused results wait in the ingest queue and /api/health answers 503; ingestion then resumes without loss |
+| UI-NAV-001 | The sidebar shows the Workspace (Overview, Tasks, Scans, Templates, Editor) and Access (CLI & MCP … | ui/navigation.spec.ts › sidebar of a user › shows the Workspace and Access groups but no Admin group<br>ui/navigation.spec.ts › sidebar of an admin › adds the Admin group with Nodes, Users and Admin tools |
+| UI-NAV-002 | When features.editor is false, the Editor item and every "Open in editor" entry point (task navbar, … | ui/editor.spec.ts › editor disabled › without features.editor every editor entry point is hidden |
+| UI-NAV-003 | "New scan" goes to /scans/new and "New task" to /tasks/new; in the collapsed sidebar they become … | ui/navigation.spec.ts › sidebar of a user › "New scan" and "New task" open their forms, also as icon buttons of the collapsed sidebar |
+| UI-NAV-004 | The Scans badge counts the user's own creating, running or paused scans, shows 200+ when there are … | ui/navigation.spec.ts › Scans badge › counts the own active scans, shows 200+ for a full page and is hidden at 0<br>ui/navigation.spec.ts › Scans badge › a running scan of the user shows in the badge, its page title and inline query errors; the badge clears after it ends |
+| UI-NAV-005 | For admins, the Nodes badge shows the number of offline nodes in the error color and is hidden at 0. | ui/navigation.spec.ts › sidebar of an admin › the Nodes badge counts offline nodes in the error color and is hidden at 0 |
+| UI-NAV-006 | The "API docs" footer link opens /api/docs in a new tab. | ui/navigation.spec.ts › sidebar of a user › "API docs" opens /api/docs in a new tab |
+| UI-NAV-007 | The sidebar collapses and expands ("Collapse sidebar", "Expand sidebar"; the collapsed logo is … | ui/navigation.spec.ts › sidebar of a user › "New scan" and "New task" open their forms, also as icon buttons of the collapsed sidebar<br>ui/navigation.spec.ts › sidebar of a user › the sidebar resizes between 14 and 24 rem, keeps its size and shows the brand in full at 1280 px |
+| UI-NAV-008 | Below the lg breakpoint the sidebar is a drawer opened with "Open navigation" and closed with … | ui/navigation.spec.ts › sidebar of a user › below the lg breakpoint the sidebar is a drawer |
+| UI-NAV-009 | The user menu shows initials, name, email and an "admin" badge for admins, with Account, CLI & MCP … | ui/auth.spec.ts › session loss › signing out from the user menu ends the session and protected pages redirect to /login<br>ui/auth.spec.ts › admin user menu › the user menu shows the admin badge for admins |
+| UI-NAV-010 | Every page's title is <Page> · scantor, and detail pages use the task, scan, revision or node name … | ui/admin-nodes.spec.ts › node page › an unjoined node shows its info, labels, an empty lease, workers and events<br>ui/navigation.spec.ts › sidebar of a user › every page title is "<Page> · scantor", and a task page uses the task name<br>ui/navigation.spec.ts › sidebar of an admin › admin page titles use the page and the node name<br>ui/navigation.spec.ts › Scans badge › a running scan of the user shows in the badge, its page title and inline query errors; the badge clears after it ends<br>ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log |
+| UI-NAV-011 | The theme toggle offers "Use system theme", "Use light theme" and "Use dark theme" with … | ui/navigation.spec.ts › sidebar of a user › the theme toggle switches system, light and dark; dark is the default and the choice persists |
+| UI-NAV-012 | A signed-out visit to a protected route redirects to /login?redirect=<path with query>, and after … | ui/auth.spec.ts › sign-in page › a protected route redirects to /login with its path and query and returns there after sign-in |
+| UI-NAV-013 | The redirect parameter is followed only for same-origin paths: //evil.example, /\evil, … | ui/auth.spec.ts › sign-in page › a redirect to another origin falls back to the overview after sign-in<br>ui/auth.spec.ts › signed-in visits to /login › a redirect with a protocol-relative URL falls back to /<br>ui/auth.spec.ts › signed-in visits to /login › a redirect with a backslash path falls back to /<br>ui/auth.spec.ts › signed-in visits to /login › a redirect with an absolute https URL falls back to /<br>ui/auth.spec.ts › signed-in visits to /login › a redirect with a javascript: URL falls back to /<br>ui/auth.spec.ts › signed-in visits to /login › a redirect with a control character falls back to /<br>ui/auth.spec.ts › signed-in visits to /login › a redirect with a value over 2048 characters falls back to / |
+| UI-NAV-014 | A non-admin opening /admin/nodes, /admin/nodes/:id, /admin/users or /admin/tools is sent to / with … | ui/navigation.spec.ts › sidebar of a user › a non-admin opening /admin/nodes is sent to / with "Admins only"<br>ui/navigation.spec.ts › sidebar of a user › a non-admin opening /admin/nodes/00000000-0000-4000-8000-000000000000 is sent to / with "Admins only"<br>ui/navigation.spec.ts › sidebar of a user › a non-admin opening /admin/users is sent to / with "Admins only"<br>ui/navigation.spec.ts › sidebar of a user › a non-admin opening /admin/tools is sent to / with "Admins only" |
+| UI-NAV-015 | A failed API call shows a red toast titled after its error code (for example "Not possible in the … | ui/navigation.spec.ts › Scans badge › a running scan of the user shows in the badge, its page title and inline query errors; the badge clears after it ends<br>ui/navigation.spec.ts › errors and toasts › a failed API call shows a red toast titled after its error code; forms show errors inline |
+| UI-NAV-016 | A 5xx error toast offers "Copy request id", which copies the X-Request-Id and shows "Copied". | ui/navigation.spec.ts › errors and toasts › a 5xx toast offers "Copy request id", which copies the X-Request-Id |
+| UI-NAV-017 | Any 401 from the API on a protected page, such as after the session was revoked from another … | ui/auth.spec.ts › signed-in visits to /login › a 401 from the API on a protected page navigates to /login with the current path |
+| UI-NAV-018 | When an admin bans a signed-in user, the ban deletes their sessions ([auth](../docs/auth.md) §5.7), … | ui/auth.spec.ts › session loss › a user banned while signed in is signed out on the next API call<br>ui/auth.spec.ts › session loss › a user banned while signed in lands on /login?banned=1 with "Your account is banned" |
+| UI-NAV-019 | Without any response from the server, the UI shows a single toast "Cannot reach the orchestrator" … | ui/navigation.spec.ts › errors and toasts › an unreachable orchestrator shows one toast at most every 10 s, and background polls never toast |
+| UI-NAV-020 | After 3 consecutive failures of a poll, the banner "Live updates paused, retrying…" (role=status, … | ui/navigation.spec.ts › polling › three failed polls show "Live updates paused, retrying…" until the next successful poll |
+| UI-NAV-021 | Polls pause while the tab is hidden and refetch when it becomes visible, keep one request in … | ui/navigation.spec.ts › polling › polls pause while hidden, refetch when visible, keep one request in flight and back off after failures |
+| UI-NAV-022 | Every polled page has a "Refresh" navbar button that refetches at once and shows a spinner while … | ui/navigation.spec.ts › polling › "Refresh" on the task page refetches at once and spins while loading<br>ui/navigation.spec.ts › polling › "Refresh" on the scans list refetches at once and spins while loading<br>ui/navigation.spec.ts › polling › "Refresh" on the git credentials page refetches at once and spins while loading<br>ui/navigation.spec.ts › polling › "Refresh" on the tasks list refetches at once and spins while loading |
+| UI-NAV-023 | Every button on every page has an accessible name, icon-only buttons use the same text as … | ui/a11y.spec.ts › dashboard accessibility › the crawl reached every page of the route map<br>ui/a11y.spec.ts › dashboard accessibility › every button on every page has an accessible name<br>ui/a11y.spec.ts › dashboard accessibility › the canonical icon-only controls show their name as tooltip<br>ui/a11y.spec.ts › dashboard accessibility › every icon-only button’s tooltip is its accessible name<br>ui/a11y.spec.ts › dashboard accessibility › every icon-only button has a tooltip with its name<br>ui/a11y.spec.ts › dashboard accessibility › repeated controls carry their context in the name<br>ui/a11y.spec.ts › dashboard accessibility › no two buttons in a table share a name<br>ui/a11y.spec.ts › dashboard accessibility › every canonical control name of the contract exists |
+| UI-NAV-024 | Tables have an aria-label, rows carry data-row-id, and the documented data-testids exist … | ui/a11y.spec.ts › dashboard accessibility › the crawl reached every page of the route map<br>ui/a11y.spec.ts › dashboard accessibility › tables are labelled and the rows of resource tables carry data-row-id<br>ui/a11y.spec.ts › dashboard accessibility › the rows of every table carry data-row-id<br>ui/a11y.spec.ts › dashboard accessibility › every table exposes its label as accessible name<br>ui/a11y.spec.ts › dashboard accessibility › the documented test ids exist<br>ui/a11y.spec.ts › dashboard accessibility › the test-run log, its analysis slideover and the secret reveal carry their test ids |
+| UI-NAV-025 | Status badges always include the state text; modals and slideovers have titles, trap focus and … | ui/a11y.spec.ts › dashboard accessibility › the crawl reached every page of the route map<br>ui/a11y.spec.ts › dashboard accessibility › the test-run log, its analysis slideover and the secret reveal carry their test ids<br>ui/a11y.spec.ts › dashboard accessibility › status badges always show their state as text<br>ui/a11y.spec.ts › dashboard accessibility › no page opens a native dialog<br>ui/a11y.spec.ts › dashboard accessibility › modals have a title, trap the focus and return it to their trigger |
+| UI-NAV-026 | The new-task wizard's stepper exposes the step position to screen readers. | ui/a11y.spec.ts › dashboard accessibility › the new-task wizard announces the position of the current step<br>ui/a11y.spec.ts › dashboard accessibility › the wizard stepper marks the current step |
+| UI-NAV-027 | Copy buttons copy to the clipboard and show "Copied" (a blocked clipboard shows "Copy failed"); id … | ui/navigation.spec.ts › copy buttons, ids, times, sizes and confirmations › copy buttons copy and confirm, id chips show 8 characters, times and sizes are formatted<br>ui/navigation.spec.ts › copy buttons, ids, times, sizes and confirmations › a blocked clipboard shows "Copy failed"<br>ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log |
+| UI-NAV-028 | A type-to-confirm dialog keeps its action disabled until the exact text is typed, and Cancel or … | ui/navigation.spec.ts › copy buttons, ids, times, sizes and confirmations › a type-to-confirm dialog stays disabled until the exact text, and Cancel or closing does nothing |
+| UI-NAV-029 | UI preferences live in one localStorage key scantor-ui; corrupted or unknown-version contents are … | ui/navigation.spec.ts › UI preferences › valid preferences restore the scans filter<br>ui/navigation.spec.ts › UI preferences › an unknown version is discarded<br>ui/navigation.spec.ts › UI preferences › truncated JSON is discarded<br>ui/navigation.spec.ts › UI preferences › a value that is not JSON is discarded<br>ui/navigation.spec.ts › UI preferences › changed filters are written as one versioned key<br>ui/navigation.spec.ts › UI preferences › every page works with localStorage unavailable |
+| UI-HOME-001 | A user without tasks and scans sees the empty state "No tasks yet" with "Create your first task", … | ui/overview.spec.ts › overview of a fresh user › a user without tasks and scans sees the first-run state |
+| UI-HOME-002 | "Active scans" shows a card per creating, running or paused scan (name, revision, state, progress, … | ui/overview.spec.ts › overview of the tenant › recent tasks and the last ten scans next to the quick actions<br>ui/overview.spec.ts › overview of the tenant › active scans and the scans that need attention link to their pages |
+| UI-HOME-003 | "Needs attention" lists, without duplicates, active scans with conditions ("N conditions need … | ui/overview.spec.ts › overview of the tenant › active scans and the scans that need attention link to their pages |
+| UI-HOME-004 | "Recent scans" shows the last 10 scans and "Recent tasks" the last 5 tasks with language, latest … | ui/overview.spec.ts › overview of the tenant › recent tasks and the last ten scans next to the quick actions |
+| UI-HOME-005 | For admins, "Platform health" shows the component states, RabbitMQ alarms, Nodes: N online · N … | ui/overview.spec.ts › overview of an admin › platform health shows the components, alarms, node counts and free capacity |
+| UI-AUTH-001 | A user signs in on /login with email and password and lands on the redirect target; the email field … | ui/auth.spec.ts › sign-in page › a protected route redirects to /login with its path and query and returns there after sign-in<br>ui/smoke.spec.ts › UI plumbing › a user signs in with email and password and lands on the overview |
+| UI-AUTH-002 | Wrong credentials show the inline alert "Invalid email or password" (data-testid=login-error) and … | ui/auth.spec.ts › sign-in page › wrong credentials show an inline alert and no toast; a 429 asks to wait a minute |
+| UI-AUTH-003 | A banned user's sign-in shows "Your account is banned", and /login?banned=1 shows the same message … | ui/auth.spec.ts › sign-in page › a banned user sees "Your account is banned" on sign-in and on /login?banned=1 |
+| UI-AUTH-004 | Opening /login with a valid session goes straight to the redirect target. | ui/auth.spec.ts › signed-in visits to /login › a valid session goes straight to the redirect target |
+| UI-AUTH-005 | With passkeys enabled, "Sign in with passkey" signs in with a virtual authenticator and lands on … | ui/passkeys.spec.ts › passkeys › "Sign in with passkey" signs in with the virtual authenticator and lands on the redirect target |
+| UI-AUTH-006 | /login reached from an OAuth authorization shows "Sign in to authorize an application to access … | ui/consent.spec.ts › OAuth sign-in on the way to consent › a signed-out visit to the consent page goes to /login with the OAuth query, which explains why<br>ui/consent.spec.ts › OAuth sign-in on the way to consent › signing in from an authorization returns to the consent page of the client |
+| UI-AUTH-007 | /setup?token=… stores the token in sessionStorage and removes it from the address bar and history … | ui/setup.spec.ts › setup page › the setup link token leaves the address bar and the history at once and survives a reload |
+| UI-AUTH-008 | Without a token, /setup explains where the setup link is printed (docker compose logs orchestrator … | ui/setup.spec.ts › setup page › without a token the page shows where the link is printed and a paste field |
+| UI-AUTH-009 | Password setup takes name, email, password (8–128 characters) and confirmation ("The passwords do … | ui/setup.spec.ts › setup page › a wrong token shows the restart hint, every route leads to /setup until setup, and password setup signs the admin in |
+| UI-AUTH-010 | With passkeys enabled, a "Password \| Passkey" choice appears, and passkey setup registers "Primary … | ui/setup.spec.ts › setup page › with passkeys enabled the passkey path registers "Primary passkey" and signs the admin in |
+| UI-AUTH-011 | A wrong setup token shows "The setup token is missing or wrong. Restarting the orchestrator prints … | ui/setup.spec.ts › setup page › a wrong token shows the restart hint, every route leads to /setup until setup, and password setup signs the admin in |
+| UI-AUTH-012 | The consent page shows the client name (the metadata host for CIMD clients, otherwise "An … | ui/consent.spec.ts › OAuth consent page without a registered client › an unknown client shows the error inline, its redirect origin and the signed-in account<br>ui/consent.spec.ts › OAuth consent page without a registered client › a client identified by a metadata document is named by its host and is not labelled unverified<br>ui/consent.spec.ts › OAuth consent page with a registered client › the page shows the client name, the unverified badge, its homepage link, the redirect origin and the account |
+| UI-AUTH-013 | The access level offers "Read only", "Read and write" and, for admins only, "Admin" (never … | ui/consent.spec.ts › OAuth consent page without a registered client › a user is offered Read only and Read and write, with Read and write preselected<br>ui/consent.spec.ts › OAuth consent page without a registered client › as an admin › an admin is also offered Admin, which is never preselected<br>ui/consent.spec.ts › OAuth consent page with a registered client › a level is enabled only when the client requested all of its scopes<br>ui/consent.spec.ts › OAuth consent page with a registered client › Approve with Read only yields a token without write tools; both buttons are disabled while submitting |
+| UI-AUTH-014 | "Approve" grants the requested non-scantor scopes plus the chosen level's scopes (so "Read only" … | ui/consent.spec.ts › OAuth consent page with a registered client › Approve with Read only yields a token without write tools; both buttons are disabled while submitting<br>ui/consent.spec.ts › OAuth consent page with a registered client › Deny returns access_denied to the client |
+| UI-AUTH-015 | /oauth/consent without an authorization request shows "This page is only reachable from an … | ui/consent.spec.ts › OAuth consent page without a registered client › without an authorization request the page says where it is reachable from and offers no decision<br>ui/consent.spec.ts › OAuth consent page without a registered client › an unknown client shows the error inline, its redirect origin and the signed-in account |
+| UI-TASK-001 | The tasks list filters by "Search tasks" (debounced) and language, admins get an "Only mine" … | ui/tasks.spec.ts › tasks list › filters by search and language and reloads from the start<br>ui/tasks.spec.ts › tasks list › as an admin › "Only mine" restricts the list to the admin's tasks and the owner column shows the owner |
+| UI-TASK-002 | The tasks table shows the name with the "Unpublished changes" badge (data-testid=unpublished-badge) … | ui/tasks.spec.ts › tasks list › the table shows badges, language, source, latest revision, revision count and update time; a row opens the task<br>ui/tasks.spec.ts › tasks list › empty states, the load error and "Load more"<br>ui/tasks.spec.ts › tasks list › as an admin › "Only mine" restricts the list to the admin's tasks and the owner column shows the owner |
+| UI-TASK-003 | The tasks list shows "No tasks yet" only without filters ("No tasks." with filters), "Tasks could … | ui/tasks.spec.ts › tasks list › empty states, the load error and "Load more" |
+| UI-TASK-004 | The new-task wizard starts with the sources "From a scaffold", "Import from git" and "Upload a … | ui/tasks.spec.ts › new-task wizard › the scaffold path steps through language, template and name; Back and switching the source reset |
+| UI-TASK-005 | The template step lists the scaffold's templates with title, description (code spans rendered as … | ui/tasks.spec.ts › new-task wizard › the scaffold path steps through language, template and name; Back and switching the source reset |
+| UI-TASK-006 | The name step validates the slug live and limits the description to 500 characters; "Create task" … | ui/tasks.spec.ts › new-task wizard › the name step validates live, a taken name shows inline and "Create task" opens the new task |
+| UI-TASK-007 | The git import form accepts only https URLs (http, ssh, userinfo, file:// and ext:: are rejected … | ui/tasks.spec.ts › git import › the form defaults Ref and Path, offers saved credentials and rejects non-https URLs before any request<br>ui/tasks.spec.ts › git import › an https URL with credentials in it is rejected before any request |
+| UI-TASK-008 | A git import of one task opens it; several manifests show a "Select tasks" checklist (existing … | ui/tasks.spec.ts › git import › one task opens at once; several candidates are selected, existing ones are disabled |
+| UI-TASK-009 | Git import errors show inline: gitFailed with its message under "The import failed", … | ui/tasks.spec.ts › git import › git errors show inline: gitFailed under "The import failed", manifestInvalid under "Manifest errors" |
+| UI-TASK-010 | The upload step accepts only .tar.gz and .tgz files ("Expected a .tar.gz or .tgz file"), shows the … | ui/tasks.spec.ts › upload › accepts only .tar.gz and .tgz files and shows the chosen file |
+| UI-TASK-011 | An upload that published a revision opens the revision page, otherwise the task page; … | ui/tasks.spec.ts › upload › upload results: task page, revision page, workspaceDirty with "Replace anyway", manifest and path errors |
+| UI-TASK-012 | The task header shows the name, language, source (git tasks git · <commit8>), privileged and … | ui/tasks.spec.ts › git import › one task opens at once; several candidates are selected, existing ones are disabled<br>ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task |
+| UI-TASK-013 | The task navbar offers "Open in editor" (/editor?task=<name>), "Publish revision", "Start scan" … | ui/tasks.spec.ts › git import › one task opens at once; several candidates are selected, existing ones are disabled<br>ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task<br>ui/tasks.spec.ts › task page › a build shows live in the header, then the files of the revision, the revisions tab and "Start scan" |
+| UI-TASK-014 | ?created=1 shows the banner "Task <name> is ready" in full with "Open the editor", "Try a test run" … | ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task |
+| UI-TASK-015 | The Overview, Files, Revisions and Test tabs sync with ?tab=, and an unknown value falls back to … | ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task |
+| UI-TASK-016 | The Overview tab shows the description and cards for the workspace ("Check now" refreshes its … | ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task |
+| UI-TASK-017 | The publish modal shows a fresh workspace status, notes when the workspace equals an existing … | ui/tasks.spec.ts › task page › the publish modal shows the workspace status, notes an existing revision and shows errors |
+| UI-TASK-018 | "Pull from git" shows "Pulled <commit8>" or "Already up to date", and on gitDiverged asks … | ui/tasks.spec.ts › task page › "Pull from git" reports up to date, pulls a new commit and asks before overwriting on divergence |
+| UI-TASK-019 | "Delete task" requires typing the task name, then shows "Task <name> is being deleted" and opens … | ui/tasks.spec.ts › task page › "Delete task" asks for the name, shows the deletion toast and opens /tasks<br>ui/tasks.spec.ts › task page › deleting a task that a scan uses shows "A scan still uses this task" with "Show active scans"<br>ui/tasks.spec.ts › task page › "Show active scans" lists the scans of that task |
+| UI-TASK-020 | An unknown task shows "Task not found", and the revision badge updates live while a new revision … | ui/tasks.spec.ts › task page › an unknown task shows "Task not found"<br>ui/tasks.spec.ts › task page › a build shows live in the header, then the files of the revision, the revisions tab and "Start scan" |
+| UI-TASK-021 | The Files tab shows the workspace tree with file, folder and symlink icons; a file shows its path, … | ui/tasks.spec.ts › task page › the files tab shows the tree, file content with line numbers, binary files and notices |
+| UI-TASK-022 | The Files tab's source select switches between "Workspace" and "Revision N" (synced with … | ui/tasks.spec.ts › task page › a build shows live in the header, then the files of the revision, the revisions tab and "Start scan" |
+| UI-TASK-023 | The Revisions tab filters by state and lists ref, state, source, pack hash, error count, created … | ui/tasks.spec.ts › task page › a build shows live in the header, then the files of the revision, the revisions tab and "Start scan" |
+| UI-TASK-024 | The revision page shows ref, state, privileged badge, message and times, "Start scan" for ready … | ui/revisions.spec.ts › revision page › a failed revision shows its errors first, each with phase, location and message<br>ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log<br>ui/revisions.spec.ts › revision page › an unknown revision shows "Revision not found" |
+| UI-TASK-025 | A failed revision shows its errors first (data-testid=build-errors), each with phase, … | ui/revisions.spec.ts › revision page › a failed revision shows its errors first, each with phase, location and message |
+| UI-TASK-026 | The build log (data-testid=build-log) follows a running build, groups lines by phase with … | ui/revisions.spec.ts › revision page › a failed revision shows its errors first, each with phase, location and message<br>ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log<br>ui/revisions.spec.ts › revision page › the build log of a running build follows new lines, strips ANSI and stops following when scrolled up<br>ui/revisions.spec.ts › revision page › a build log read before the revision opens scrolled to the bottom |
+| UI-TASK-027 | The revision facts show source, pack hash, git origin, base image, image digest, size and platform, … | ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log |
+| UI-TASK-028 | A ready revision's describe section has Task config, Scan config, Analysis config and Result tabs … | ui/revisions.spec.ts › revision page › a ready revision describes its schemas in tables with badges, raw JSON, settings defaults and the manifest<br>ui/revisions.spec.ts › revision page › a nullable writeOnly property carries the "secret" badge |
+| UI-TRUN-001 | The Test tab offers "Schedule + run" (task and scan config forms, limit 1–50) and "One analysis" … | ui/test-run.spec.ts › test runs › the test tab offers both modes with their inputs, bounds and the manifest timeout |
+| UI-TRUN-002 | The forms use the latest known schemas; without any, "No schemas known yet" appears and the forms … | ui/test-run.spec.ts › test runs › without known schemas the inputs start as JSON; after runs the form follows the workspace and announces changed schemas |
+| UI-TRUN-003 | "Start test run" is disabled while a run is active, and start errors (for example an invalid limit) … | ui/test-run.spec.ts › test runs › start is disabled while a run is active, cancel cancels it, and start errors are shown |
+| UI-TRUN-004 | A live run streams its state (queued → building → running → completed), the "draft image cached" … | ui/test-run.spec.ts › test runs › a live run streams its state, logs and analyses; the history loads earlier runs; the draft image is cached |
+| UI-TRUN-005 | When the event stream fails, the panel polls the run every 2 s and still shows its results. | ui/test-run.spec.ts › test runs › when the event stream fails, the panel polls the run and still shows its results |
+| UI-TRUN-006 | "Cancel test run" cancels the active run, and the history shows it cancelled. | ui/test-run.spec.ts › test runs › start is disabled while a run is active, cancel cancels it, and start errors are shown |
+| UI-TRUN-007 | An analysis row opens the slideover "Analysis <seq>" with status, attempt, duration, error and … | ui/test-run.spec.ts › test runs › an analysis opens its slideover with error, stack, config, result, earlier attempts, log tail and file downloads |
+| UI-TRUN-008 | The history lists earlier runs with state, x / y succeeded and pack hash, and a row loads that run. | ui/test-run.spec.ts › test runs › a live run streams its state, logs and analyses; the history loads earlier runs; the draft image is cached |
+| UI-TRUN-009 | Unsent test-run inputs are restored per task after a reload, without the values of writeOnly fields. | ui/test-run.spec.ts › test runs › unsent inputs are restored per task after a reload, without secrets |
+| UI-EDIT-001 | /editor starts the user's editor, shows "Editor is starting…", and then loads code-server from the … | ui/editor.spec.ts › editor of a fresh user › starts the editor, opens the task folder in code-server from the editor origin, opens a new tab and stops after confirmation |
+| UI-EDIT-002 | /editor?task=<name> opens that task's folder; an unknown task shows "Task “<name>” was not found" … | ui/editor.spec.ts › editor of a fresh user › starts the editor, opens the task folder in code-server from the editor origin, opens a new tab and stops after confirmation<br>ui/editor.spec.ts › editor page states › an unknown task offers "Open workspace", which opens the editor on the workspace root |
+| UI-EDIT-003 | The navbar shows the editor state and stops after N min idle, and "Open in new tab" opens a fresh … | ui/editor.spec.ts › editor of a fresh user › starts the editor, opens the task folder in code-server from the editor origin, opens a new tab and stops after confirmation |
+| UI-EDIT-004 | "Stop editor" asks for confirmation, shows "Editor stopped", removes the iframe and offers "Open … | ui/editor.spec.ts › editor of a fresh user › starts the editor, opens the task folder in code-server from the editor origin, opens a new tab and stops after confirmation |
+| UI-EDIT-005 | A failed start shows "The editor could not start" with the message and "Retry"; too many running … | ui/editor.spec.ts › editor page states › a failed start shows the error with "Retry"; a full instance shows "Too many editors are running" |
+| UI-EDIT-006 | An editor stopped elsewhere disappears from the page, and an editor restarted elsewhere is loaded … | ui/editor.spec.ts › editor of a fresh user › an editor stopped elsewhere disappears, one restarted elsewhere is reloaded with a fresh session; the account section stops it |
+| UI-SCAN-001 | The scans list filters by state (default "All states except deleted") and task, admins get "Only … | ui/scans.spec.ts › scans list › state and task filters narrow the table and persist across reloads; rows show every column<br>ui/scans.spec.ts › scans list for admins › admins see the owner column and can show only their own scans |
+| UI-SCAN-002 | The scans table shows name and id, revision, state with condition count, progress with … | ui/scans.spec.ts › scans list › state and task filters narrow the table and persist across reloads; rows show every column<br>ui/scans.spec.ts › scans list for admins › admins see the owner column and can show only their own scans |
+| UI-SCAN-003 | The row menu "Scan actions for <name>" offers Open, Pause, Resume, Cancel, Restart and Delete as … | ui/scans.spec.ts › scans list › row actions follow the state; cancel and delete confirm, restart opens its dialog |
+| UI-SCAN-004 | Without filters and scans the list shows "No scans yet" with "New scan", and "Load more" pages … | ui/scans.spec.ts › scans list › "Load more" pages through the list<br>ui/scans.spec.ts › scans list › "Load more" keeps its page when a refresh of the list was in flight<br>ui/scans.spec.ts › privileged revisions › a user without canRunPrivileged cannot start a privileged revision until an admin grants it |
+| UI-SCAN-005 | The new-scan form picks a task and a revision ("latest ready revision" or @N) and shows the … | ui/scans.spec.ts › new scan form › the revision picker explains unknown tasks, missing and non-ready revisions |
+| UI-SCAN-006 | For a privileged revision and a user without canRunPrivileged, the form shows "Privileged revision" … | ui/scans.spec.ts › privileged revisions › a user without canRunPrivileged cannot start a privileged revision until an admin grants it |
+| UI-SCAN-007 | The task and scan config forms follow the revision's schemas in source order with "Edit as JSON", … | ui/scans.spec.ts › new scan form › config forms follow the revision's schemas in source order with "Edit as JSON"; another revision resets configs, settings and estimate |
+| UI-SCAN-008 | "Runner workers" and "Processes per worker" are bounded by the instance limits and prefilled from … | ui/scans.spec.ts › new scan form › scaling, advanced settings and the estimate with its confirmation; only changed settings are sent |
+| UI-SCAN-009 | "Advanced settings" hold timeout, attempts, analyses per process, backoff, CPUs, memory, node pool … | ui/scans.spec.ts › new scan form › scaling, advanced settings and the estimate with its confirmation; only changed settings are sent |
+| UI-SCAN-010 | For template schedules the form estimates the scan ("≈ N analyses", "exactly N analyses"); custom … | ui/scans.spec.ts › new scan form › scaling, advanced settings and the estimate with its confirmation; only changed settings are sent<br>ui/scans.spec.ts › new scan form › custom schedules explain that their size is known later; estimates that are no exact count show "≈" |
+| UI-SCAN-011 | An estimate above the instance maximum disables "Start scan"; above the confirmation threshold the … | ui/scans.spec.ts › new scan form › scaling, advanced settings and the estimate with its confirmation; only changed settings are sent<br>ui/scans.spec.ts › new scan form › the confirmation checkbox is named after the current estimate |
+| UI-SCAN-012 | "Start scan" starts the scan and opens its page; a configInvalid answer marks each issue on its … | ui/scans.spec.ts › new scan form › scaling, advanced settings and the estimate with its confirmation; only changed settings are sent<br>ui/scans.spec.ts › new scan form › server answers: configInvalid lands on the field or the form, other rejections are form alerts<br>ui/scans.spec.ts › privileged revisions › a user without canRunPrivileged cannot start a privileged revision until an admin grants it<br>ui/schema-form.spec.ts › schema forms › server issues land on their field, on the nearest rendered ancestor, or above the form |
+| UI-SCAN-013 | A client-side validation failure shows "Check the highlighted fields" and sends no request. | ui/scans.spec.ts › new scan form › server answers: configInvalid lands on the field or the form, other rejections are form alerts |
+| UI-SCAN-014 | An upload field offers the user's uploads (name · N lines · size) and "Upload a list for <field>", … | ui/scans.spec.ts › new scan form › an upload field offers the user's uploads, uploads a list and explains unknown ids |
+| UI-SCAN-015 | The scan header shows name and id, state with its reason (paused · failure rate), round when above … | ui/scan-health.spec.ts › scan health › a 100 %-failing scan trips the breaker, and "Resume scan" resumes it and clears the condition<br>ui/scans.spec.ts › privileged revisions › a user without canRunPrivileged cannot start a privileged revision until an admin grants it<br>ui/scans.spec.ts › scan detail › controls follow the state, explain disabled ones and lock while an action runs; pause, resume, scale and cancel<br>ui/scans.spec.ts › scan detail › retry-failed confirms the count and round, follows its job and reports "Nothing to retry"<br>ui/scans.spec.ts › scan detail › restart clones the scan with the chosen scaling and opens the clone |
+| UI-SCAN-016 | An unknown scan, or another user's scan for a non-admin, shows "Scan not found" without revealing … | ui/scan-health.spec.ts › crash loops of a user with a worker limit › crashLoop shows the worker, node, exit code, OOM badge, restarts and an ANSI-free log tail above workersPending |
+| UI-SCAN-017 | The scan controls enable Pause, Resume, Scale, Cancel, "Retry failed analyses", Restart, "Export … | ui/scans.spec.ts › scan detail › controls follow the state, explain disabled ones and lock while an action runs; pause, resume, scale and cancel |
+| UI-SCAN-018 | Pause shows "Scan paused" and the workers drain away; Resume shows "Scan resumed" and runners … | ui/scans.spec.ts › scan detail › controls follow the state, explain disabled ones and lock while an action runs; pause, resume, scale and cancel<br>ui/scans.spec.ts › scan detail › resuming a scan whose revision was deleted says so |
+| UI-SCAN-019 | The scale dialog is bounded by the instance limits, shows the derived capacity line, and on submit … | ui/scans.spec.ts › scan detail › controls follow the state, explain disabled ones and lock while an action runs; pause, resume, scale and cancel |
+| UI-SCAN-020 | Cancel asks "Cancel scan <name>?", then shows "Scan cancelled" and the state cancelled. | ui/scans.spec.ts › scan detail › controls follow the state, explain disabled ones and lock while an action runs; pause, resume, scale and cancel |
+| UI-SCAN-021 | "Retry failed analyses" is enabled only for a finished scheduling with failed or lost analyses; … | ui/scans.spec.ts › scan detail › retry-failed confirms the count and round, follows its job and reports "Nothing to retry" |
+| UI-SCAN-022 | The restart dialog defaults the name to <name> (restart), starts the clone with the chosen workers … | ui/scans.spec.ts › scan detail › restart clones the scan with the chosen scaling and opens the clone |
+| UI-SCAN-023 | "Delete scan" requires typing the scan's name (or id), shows "Scan deletion started" and opens … | ui/scans.spec.ts › scan detail › controls follow the state, explain disabled ones and lock while an action runs; pause, resume, scale and cancel<br>ui/scans.spec.ts › scan detail › deleting a scan requires its name and opens the scans list; running scans cannot be deleted |
+| UI-SCAN-024 | The Overview, Results, Query, Workers, Events and Exports tabs sync with ?tab=, and ?analysis= … | ui/scans.spec.ts › scan detail › tabs sync with ?tab=, ?analysis= opens the drawer from any tab, and the page refreshes itself |
+| UI-SCAN-025 | The scan page refreshes while the scan is active, keeps refreshing for a few minutes after it ends … | ui/scans.spec.ts › scan detail › tabs sync with ?tab=, ?analysis= opens the drawer from any tab, and the page refreshes itself |
+| UI-SCAN-026 | The progress card (data-testid=scan-progress) shows the bar (indeterminate without a total), done / … | ui/scans.spec.ts › scan detail › progress and stats cards: totals, scheduling, tiles that filter the results, exact and live captions |
+| UI-SCAN-027 | The stats tiles (data-testid=scan-stats) for pending, retrying, succeeded, failed, lost and … | ui/scans.spec.ts › scan detail › progress and stats cards: totals, scheduling, tiles that filter the results, exact and live captions |
+| UI-SCAN-028 | The health card (data-testid=scan-health) shows "Healthy", or one item per condition … | ui/scan-health.spec.ts › scan health › a finished scan is healthy and its settings card shows settings, masked secrets, configs and its resolution<br>ui/scan-health.spec.ts › scan health › an impossible node selector shows the pending workers with a readable reason<br>ui/scan-health.spec.ts › scan health › a failing schedule shows schedulingFailed and the "Scheduling failed" alert; other conditions render their details<br>ui/scan-health.spec.ts › crash loops of a user with a worker limit › crashLoop shows the worker, node, exit code, OOM badge, restarts and an ANSI-free log tail above workersPending |
+| UI-SCAN-029 | workersPending shows N workers pending with readable reasons (for example "No online node matches", … | ui/scan-health.spec.ts › scan health › an impossible node selector shows the pending workers with a readable reason<br>ui/scan-health.spec.ts › crash loops of a user with a worker limit › crashLoop shows the worker, node, exit code, OOM badge, restarts and an ANSI-free log tail above workersPending |
+| UI-SCAN-030 | crashLoop (a task whose connector is OOM-killed at import inside workers) shows the worker, a node … | ui/scan-health.spec.ts › crash loops of a user with a worker limit › crashLoop shows the worker, node, exit code, OOM badge, restarts and an ANSI-free log tail above workersPending |
+| UI-SCAN-031 | breakerTripped shows X % of N attempts failed within D with a "Resume scan" button, which resumes … | ui/scan-health.spec.ts › scan health › a 100 %-failing scan trips the breaker, and "Resume scan" resumes it and clears the condition |
+| UI-SCAN-032 | Other conditions render their details: schedulingFailed, workerErrors and schedulerRestarting with … | ui/scan-health.spec.ts › scan health › a failing schedule shows schedulingFailed and the "Scheduling failed" alert; other conditions render their details |
+| UI-SCAN-033 | The settings card shows the effective settings, the task and scan configs with * values rendered as … | ui/scan-health.spec.ts › scan health › a finished scan is healthy and its settings card shows settings, masked secrets, configs and its resolution<br>ui/scan-health.spec.ts › scan health › template resolutions show the resolved scan config and its provenance<br>ui/scan-health.spec.ts › scan health › a failing schedule shows schedulingFailed and the "Scheduling failed" alert; other conditions render their details |
+| UI-RES-001 | The results status filter syncs with ?status= and reloads the table from the start; "Go to seq" … | ui/scan-results.spec.ts › results of a finished scan › the status filter syncs with ?status= and "Go to seq" starts the table at a seq |
+| UI-RES-002 | The advanced filter takes a JSON filter (default {"status": "failed"}), disables "Apply filter" for … | ui/scan-results.spec.ts › results of a finished scan › the advanced filter switches to the query API and shows rejected filters with their path |
+| UI-RES-003 | "Result columns" allows up to 4 result fields (default the first four of the result schema) and … | ui/scan-results.spec.ts › results of a finished scan › result columns default to four, are remembered per task, and cells render as text or file chips |
+| UI-RES-004 | The results table shows seq, status, attempt, round (when above 1), duration, error, the chosen … | ui/scan-results.spec.ts › results of a finished scan › result columns default to four, are remembered per task, and cells render as text or file chips |
+| UI-RES-005 | Results load 50 rows per page through "Load more" or scrolling, and stop at 5000 rows with "Showing … | ui/scan-results.spec.ts › results of a finished scan › results load page by page with "Load more" and stop at 5,000 rows |
+| UI-RES-006 | "Auto-refresh" appears only while the scan runs, is on by default and reloads the loaded rows. | ui/scan-results.spec.ts › results of a finished scan › result columns default to four, are remembered per task, and cells render as text or file chips<br>ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
+| UI-RES-007 | ?analysis=<seq> opens the drawer "Analysis <seq>" on load, closing removes the parameter, and an … | ui/scan-results.spec.ts › results of a finished scan › ?analysis= opens the drawer with the summary; closing removes it; copy and "Query similar" |
+| UI-RES-008 | The drawer summary shows the analysis id, status, attempt, round, worker, node (a link for admins), … | ui/scan-results.spec.ts › results of a finished scan › ?analysis= opens the drawer with the summary; closing removes it; copy and "Query similar"<br>ui/scan-results.spec.ts › results for admins › admins get a node link in the analysis drawer |
+| UI-RES-009 | The drawer shows the config with * secrets as locks (or "No config was stored for this analysis."), … | ui/scan-results.spec.ts › results of a finished scan › the drawer shows masked config secrets, file chips at the FileRef paths, other files, previews and downloads |
+| UI-RES-010 | The drawer's error section shows type, phase, retryability, attempt, message and details, and "Show … | ui/scan-results.spec.ts › results of a finished scan › the drawer shows the error with its stack, details and the log tail |
+| UI-RES-011 | The attempts table lists attempts across rounds newest first with their errors, worker and node, … | ui/scan-results.spec.ts › results of a finished scan › the attempts of a flaky analysis: newest first, with errors, worker, node and expandable logs |
+| UI-RES-012 | The drawer's log view shows the final log tail with "Wrap lines" and "Follow log", or "No output … | ui/scan-results.spec.ts › results of a finished scan › the drawer shows the error with its stack, details and the log tail |
+| UI-RES-013 | A file chip shows name, size and type; "Download <name>" downloads through a presigned URL, and … | ui/scan-results.spec.ts › results of a finished scan › the drawer shows masked config secrets, file chips at the FileRef paths, other files, previews and downloads |
+| UI-RES-014 | The query console has Query (filter, projection, sort, limit, after seq) and Aggregate (pipeline, … | ui/scan-results.spec.ts › results of a finished scan › the query console runs queries and aggregations with Ctrl+Enter, tables, "Load more" and truncation |
+| UI-RES-015 | Query output shows N items as JSON or, for flat items, as a table; "Load more" follows the cursor … | ui/scan-results.spec.ts › results of a finished scan › the query console runs queries and aggregations with Ctrl+Enter, tables, "Load more" and truncation |
+| UI-RES-016 | Query errors stay inline: a rejected operator shows under its editor with (at <path>), timeouts and … | ui/scan-results.spec.ts › results of a finished scan › query errors stay inline with their path, and a filter naming another scan finds nothing |
+| UI-RES-017 | The last 20 queries per scan are kept, "Recent queries" restores one, ?filter=<json> prefills the … | ui/scan-results.spec.ts › results of a finished scan › recent queries, the ?filter= prefill and "Export these results" |
+| UI-RES-018 | The Workers tab shows N active · N pending · N desired and a table of workers (role, state, node, … | ui/scan-results.spec.ts › results of a finished scan › the workers tab of a finished scan lists stopped workers once the state filter is cleared<br>ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
+| UI-RES-019 | "Show worker logs of <id>" opens "Logs of <role> <id>", requests a fresh tail ("Requesting the … | ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
+| UI-RES-020 | The in-flight table lists running analyses with seq, attempt, round, a live "running for" timer, … | ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
+| UI-RES-021 | The Events tab lists events newest first with level, type, time and message, filters all, scan or … | ui/scan-results.spec.ts › results of a finished scan › the events tab lists events newest first, filters by kind, expands data and loads older ones |
+| UI-RES-022 | The Exports tab lists format, state (with the error when failed), rows, size, selection, created … | ui/scan-results.spec.ts › results of a finished scan › exports: the dialog validates and starts an export that is followed until ready; download and delete<br>ui/scan-results.spec.ts › results of a finished scan › a failed export is reported, and deleted scans offer no new export |
+| UI-RES-023 | The export dialog takes JSON Lines or CSV, a status selection or a JSON filter, and fields (at most … | ui/scan-results.spec.ts › results of a finished scan › exports: the dialog validates and starts an export that is followed until ready; download and delete<br>ui/scan-results.spec.ts › results of a finished scan › a failed export is reported, and deleted scans offer no new export |
+| UI-FORM-001 | Object properties render as field groups in schema source order; nested objects from depth 2 are … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: collapsible nested objects, the depth limit, recursion and unsupported constructs fall back to JSON<br>ui/schema-form.spec.ts › schema forms › the test-run panel renders the same form and sends only what was touched |
+| UI-FORM-002 | String fields use the input type of their format (uri, email, date, date-time), a textarea above … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps |
+| UI-FORM-003 | writeOnly strings render as password inputs with "Show value of <field>" and a "secret" badge, are … | ui/schema-form.spec.ts › schema forms › schema-zoo: arrays, maps, the discriminated union and the secret; browser validation under the production CSP |
+| UI-FORM-004 | Enums and unions of titled constants render as a select with titles, required fields with at most 4 … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps |
+| UI-FORM-005 | A discriminated union renders a select of the branch titles followed by the chosen branch's fields, … | ui/schema-form.spec.ts › schema forms › schema-zoo: arrays, maps, the discriminated union and the secret; browser validation under the production CSP<br>ui/schema-form.spec.ts › schema forms › server issues land on their field, on the nearest rendered ancestor, or above the form |
+| UI-FORM-006 | Numbers take min, max and step from the schema and clearing removes the key; booleans are switches … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps |
+| UI-FORM-007 | Arrays of enums render as a multi-select, arrays of primitives as rows with "Add item to <field>" … | ui/schema-form.spec.ts › schema forms › schema-zoo: arrays, maps, the discriminated union and the secret; browser validation under the production CSP<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps |
+| UI-FORM-008 | Maps render as a key-value editor with "Add <field> entry", key validation ("Duplicate key", "Key … | ui/schema-form.spec.ts › schema forms › schema-zoo: arrays, maps, the discriminated union and the secret; browser validation under the production CSP<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps |
+| UI-FORM-009 | Nullable fields have "Set <field> to null", fields with a default show it and offer "Reset … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps |
+| UI-FORM-010 | Unsupported constructs (allOf, if/then/else, not, patternProperties, prefixItems, other unions) … | ui/schema-form.spec.ts › schema forms › form-extras: collapsible nested objects, the depth limit, recursion and unsupported constructs fall back to JSON |
+| UI-FORM-011 | "Edit as JSON" switches the whole form to JSON and "Edit as form" back (blocked while the JSON is … | ui/schema-form.spec.ts › schema forms › schema-zoo: arrays, maps, the discriminated union and the secret; browser validation under the production CSP<br>ui/schema-form.spec.ts › schema forms › the test-run panel renders the same form and sends only what was touched<br>ui/test-run.spec.ts › test runs › without known schemas the inputs start as JSON; after runs the form follows the workspace and announces changed schemas |
+| UI-FORM-012 | An untouched optional field is absent from the request, so the server applies its default, and … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps<br>ui/schema-form.spec.ts › schema forms › the test-run panel renders the same form and sends only what was touched |
+| UI-FORM-013 | The browser validates forms under the production CSP (no unsafe-eval) and shows errors such as "is … | ui/schema-form.spec.ts › schema forms › schema-zoo: arrays, maps, the discriminated union and the secret; browser validation under the production CSP<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps<br>ui/schema-form.spec.ts › schema forms › leaving a required number field right after typing keeps the form still, so the click on "Start test run" starts the run |
+| UI-TPL-001 | /templates shows a card per template with title, name, description, a "pins inputs at scan start" … | ui/templates.spec.ts › templates catalog › a card per template with title, name, description, the resolve badge, examples and schema tables |
+| UI-TPL-002 | A card's estimate form, prefilled with the example, shows "N analyses (exact)", "(estimate)" or … | ui/templates.spec.ts › templates catalog › the estimate form starts from the example and shows exact, estimated and unknown totals with their badges<br>ui/templates.spec.ts › templates catalog › configs the template rejects are mapped onto the estimate form's fields |
+| UI-ADMIN-001 | The nodes table shows name (with a "built-in" pill), state and "cordoned" badges, pool and labels, … | ui/admin-nodes.spec.ts › nodes table › shows name, state, cordon, pool, labels, platform, capacity, DinD, version and last seen, filtered by state and pool<br>ui/admin-nodes.spec.ts › nodes table › warns when a node did not apply the egress deny list or its clock is off |
+| UI-ADMIN-002 | "Add node" (name, pool, labels, worker limit) reveals "Token of node <name>" … | ui/admin-nodes.spec.ts › adding a node › "Add node" reveals the token once with copy buttons, join commands and the checklist |
+| UI-ADMIN-003 | A duplicate node name shows "A node with this name already exists.", and an invalid name or label … | ui/admin-nodes.spec.ts › adding a node › a duplicate name is reported; invalid names and labels are blocked before any request |
+| UI-ADMIN-004 | "Node actions for <name>" offer Edit (with a "Cordoned" switch; only changed fields are saved, … | ui/admin-nodes.spec.ts › node actions › Edit saves only changed fields and cordons; "Show join command" uses the token placeholder |
+| UI-ADMIN-005 | "Rotate token" reveals a new token, "Revoke token" shows "Token of <name> revoked" and the revoked … | ui/admin-nodes.spec.ts › node actions › rotate reveals a new token, revoke marks the node revoked and delete needs the name<br>ui/admin-nodes.spec.ts › node actions › rotate, revoke and delete are disabled for the built-in node<br>ui/admin-nodes.spec.ts › node actions › the built-in node explains why its token actions are disabled |
+| UI-ADMIN-006 | The node page shows the node's info, lease, labels, workers (with "Active only") and events, and … | ui/admin-nodes.spec.ts › node page › an unjoined node shows its info, labels, an empty lease, workers and events<br>ui/admin-nodes.spec.ts › node page › the built-in node shows its reported info and lease, and "Active only" switches the worker filter<br>ui/admin-nodes.spec.ts › node page › an unknown node shows "Node not found" |
+| UI-ADMIN-007 | The users table searches by name or email and shows name (with "(you)"), email, role, status … | ui/admin-users.spec.ts › users table › searches by name or email and shows role, status, privileged flag, worker limit, usage and creation |
+| UI-ADMIN-008 | "New user" creates a user with email, name, password, role, "Can run privileged tasks" and worker … | ui/admin-users.spec.ts › creating and editing users › "New user" creates a user with every field and reports a duplicate email |
+| UI-ADMIN-009 | Editing a user sends only changed fields; on the admin's own row the role is locked ("You cannot … | ui/admin-users.spec.ts › creating and editing users › editing sends only changed fields; the own row cannot change its role, password, ban or delete |
+| UI-ADMIN-010 | "Set password" (with confirmation) notes that it signs the user out everywhere and shows "Password … | ui/admin-users.spec.ts › creating and editing users › "Set password" confirms the password, notes the sign-out everywhere and signs the user out |
+| UI-ADMIN-011 | Ban takes an optional reason and "Also cancel all their scans" (checked by default); the row then … | ui/admin-users.spec.ts › banning and deleting users › Ban takes a reason and cancels scans by default; Unban returns the user to active |
+| UI-ADMIN-012 | Deleting a user requires typing their email, shows the purge job's progress on the row, and removes … | ui/admin-users.spec.ts › banning and deleting users › Delete needs the email, shows the purge job on the row and removes it with "User deleted" |
+| UI-ADMIN-013 | With Traefik, the admin tools page shows cards for RabbitMQ management, mongo-express, the RustFS … | ui/admin-tools.spec.ts › infrastructure tools › "Open RabbitMQ management" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open mongo-express" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open RustFS console" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open Traefik dashboard" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › without Traefik the page says so and shows the bind address instead of links |
+| UI-ADMIN-014 | The admin tools page links the API reference, the OpenAPI document and the metrics, and shows the … | ui/admin-tools.spec.ts › API links, health and jobs › links the API reference, the OpenAPI document and the metrics<br>ui/admin-tools.spec.ts › API links, health and jobs › shows the health report, also when it answers 503<br>ui/admin-tools.spec.ts › API links, health and jobs › the jobs table lists other users' jobs, filters by kind and state and puts failed jobs first |
+| UI-ACCT-001 | The account page has Profile, Password, Passkeys, Sessions and Editor sections that load and fail … | ui/account.spec.ts › account page of the tenant › has Profile, Password, Passkeys, Sessions and Editor sections that load and fail on their own<br>ui/account.spec.ts › account page of the tenant › a failed account load offers "Retry" |
+| UI-ACCT-002 | The profile saves the name ("Saved") and changes the email ("Email changed"), and shows role, … | ui/account.spec.ts › account changes › the profile saves the name, changes the email and shows role and limits |
+| UI-ACCT-003 | Changing the password takes the current one, a new one and its confirmation, signs out other … | ui/account.spec.ts › account changes › changing the password checks the current one and signs out other sessions by default |
+| UI-ACCT-004 | A passkey-only account sets a password ("Password set"); "Remove password" appears only with a … | ui/passkeys.spec.ts › passkeys › add, rename and remove passkeys; remove and set the password; the last way to sign in stays |
+| UI-ACCT-005 | The passkeys section lists passkeys (name or "Unnamed passkey", added time, synced or … | ui/passkeys.spec.ts › passkeys › add, rename and remove passkeys; remove and set the password; the last way to sign in stays |
+| UI-ACCT-006 | The sessions section lists device, IP and sign-in time with "this browser" first, signs out a … | ui/account.spec.ts › account page of the tenant › has Profile, Password, Passkeys, Sessions and Editor sections that load and fail on their own<br>ui/account.spec.ts › account changes › the sessions section lists sessions with this browser first and signs out one or all others |
+| UI-ACCT-007 | The account's editor section shows the editor state, opens /editor, stops the editor after … | ui/editor.spec.ts › editor of a fresh user › an editor stopped elsewhere disappears, one restarted elsewhere is reloaded with a fresh session; the account section stops it<br>ui/editor.spec.ts › editor page states › the account section shows "The last start failed" after a failed start |
+| UI-ACCT-008 | CLI & MCP access lists default keys (name, prefix, created, expiry, last use, enabled) and the … | ui/access.spec.ts › CLI & MCP access: API keys › the key table lists default keys with their facts, and editor keys separately<br>ui/access.spec.ts › CLI & MCP access: API keys › "Create key" validates the name and expiry and creates the key with the chosen expiry |
+| UI-ACCT-009 | A new key is revealed once (data-testid=secret-value) with the SCANTOR_URL/SCANTOR_TOKEN … | ui/access.spec.ts › CLI & MCP access: API keys › a new key is revealed once with its snippets, works for the API, the CLI and MCP, and a two-step delete revokes it |
+| UI-ACCT-010 | CLI download links appear only for a release version, and dev builds show none. | ui/access.spec.ts › CLI & MCP access: downloads and MCP › a dev build shows no CLI download links<br>ui/access.spec.ts › CLI & MCP access: downloads and MCP › a release version links the release and every CLI asset |
+| UI-ACCT-011 | The MCP section shows the endpoint (data-testid=mcp-url) with "Copy MCP URL", the OAuth command and … | ui/access.spec.ts › CLI & MCP access: downloads and MCP › the MCP section shows the endpoint with copy, the OAuth command, the client snippet and the API-key command<br>ui/access.spec.ts › CLI & MCP access: downloads and MCP › without OAuth only the API-key command is shown, and with MCP disabled the section says so |
+| UI-ACCT-012 | Authorized apps list name, client id, URI (http(s) links only, rel="noopener noreferrer"), scopes … | ui/access.spec.ts › CLI & MCP access: authorized apps › authorized apps show name, client id, http(s) links only, scopes and time, and revoke in two steps<br>ui/access.spec.ts › CLI & MCP access: revoking a real authorized app › revoking a real authorized app removes it and its next MCP call gets 401 |
+| UI-ACCT-013 | The git credentials page lists name, host, username, the token as ••••<last4>, last use and created … | ui/credentials.spec.ts › git credentials page › the table lists name, host, username, the token as ••••last4, last use and creation |
+| UI-ACCT-014 | "New credential" takes name, host (host[:port] without scheme), username (default x-access-token) … | ui/credentials.spec.ts › git credentials page › creates, edits (keeping the token when the field is empty) and deletes in two steps |
+| UI-ACCT-015 | A saved credential is offered in the git import form and makes the import of a private repository … | ui/credentials.spec.ts › git credentials page › a saved credential is offered in the git import form and imports a private repository |
+| UI-SEC-001 | Every dashboard response, static assets included, and every /api response carries a CSP with … | ui/headers.spec.ts › dashboard security headers › every dashboard and /api response carries the required headers<br>ui/headers.spec.ts › dashboard security headers › documents and /api answers send HSTS on https<br>ui/headers.spec.ts › dashboard security headers › static assets send HSTS on https as well |
+| UI-SEC-002 | /login, /setup and /oauth/consent send frame-ancestors 'none' and Cache-Control: no-store. | ui/headers.spec.ts › dashboard security headers › /login, /setup and /oauth/consent are never framed or cached |
+| UI-SEC-003 | No page logs a CSP violation, and the production script-src never contains unsafe-eval. | ui/headers.spec.ts › dashboard security headers › script-src never allows eval on any page<br>ui/headers.spec.ts › dashboard security headers › no page logs a CSP violation |
+| UI-SEC-004 | Results, logs, error and event messages and file names of the hostile-output fixture render as … | ui/scan-results.spec.ts › hostile task output › results, logs, errors, events and file names of hostile-output render as inert text<br>ui/scan-results.spec.ts › hostile task output › ANSI sequences of result strings and error messages are stripped in the results table and the drawer |
+| UI-SEC-005 | The dashboard sends no request outside its own origin except to the S3 public origin (downloads, … | ui/headers.spec.ts › dashboard security headers › the dashboard talks only to its own, the S3 public and the editor origin |
+| UI-SEC-006 | Browser storage never holds tokens, API keys, node tokens, passwords, writeOnly values or results, … | ui/account.spec.ts › account page of the tenant › revealing an API key leaves it out of browser storage<br>ui/admin-nodes.spec.ts › adding a node › "Add node" reveals the token once with copy buttons, join commands and the checklist<br>ui/auth.spec.ts › sign-in page › a protected route redirects to /login with its path and query and returns there after sign-in<br>ui/setup.spec.ts › setup page › a wrong token shows the restart hint, every route leads to /setup until setup, and password setup signs the admin in<br>ui/setup.spec.ts › setup page › with passkeys enabled the passkey path registers "Primary passkey" and signs the admin in<br>ui/tasks.spec.ts › task page › a test run with a secret field leaves no secret in browser storage |
 
 ### Uncovered features
 
-- API-001 Every /api response carries an X-Request-Id header: a valid incoming value (1–128 characters of …
-- API-002 Errors use the envelope {error: {code, message, details?}} with Content-Type: application/json and …
-- API-003 Deny by default: an /api path that matches no operation returns 404 notFound (also /api//users; one …
-- API-004 An unknown key in a JSON body or in the query string returns 400 validationFailed with …
-- API-005 A non-empty body whose Content-Type is not application/json returns 415 unsupportedMediaType, …
-- API-006 A JSON body larger than SCANTOR_MAX_REQUEST_BYTES (declared Content-Length or actual size) returns …
-- API-007 A malformed path id (a non-uuid id, a bad analysis id, ../, or a URL-encoded {"$ne": null}) returns …
-- API-008 Query values are strict: booleans accept only true/false and integers must be decimal, so ?wait=60s …
-- API-009 Cursor pagination: limit defaults to 50 and allows at most 200 (201 returns 400); following …
-- API-010 While the orchestrator boots, every /api route except /api/health, /api/docs and …
-- API-011 The dashboard listener answers 421 Misdirected Request (text/plain) to any request whose Host is …
-- API-012 The wait query parameter accepts 0–120 seconds (121 returns 400). Without wait or with wait=0 there …
-- API-013 More than SCANTOR_MAX_CONCURRENT_WAITS concurrent waits of one user return 429 tooManyRequests with …
-- OAS-001 GET /api/docs/openapi.json is public and a valid OpenAPI 3.1 document that lists only operations …
-- OAS-002 The OpenAPI lint passes: every operation has one tag, a summary, a description, a unique camelCase …
-- OAS-003 Each operation's scope matches its route prefix: node for /api/node/* and /api/registry/token, …
-- OAS-004 Route-meta values survive Nitro's extraction: the descriptions of startScan, listTasks, …
-- OAS-005 GET /api/docs serves the Scalar UI with its docs-specific CSP (which allows …
-- PLAT-002 /api/health returns HTTP 503 only while MongoDB is down; with another component down it returns 200 …
-- PLAT-003 GET /api/info (401 without credentials) returns version, publicUrl, editorUrl, mcpUrl (null when …
-- PLAT-004 cliImage and the node join image use the orchestrator version as tag for a release X.Y.Z and …
-- PLAT-005 InstanceInfo.adminTools appears only for callers with effective admin power (absent for users and …
-- PLAT-006 GET /api/info never contains secret values: no tokens, passwords, SCANTOR_SECRET or registry …
-- PLAT-007 GET /api/metrics returns 401 without credentials, 403 adminRequired for non-admins and 400 for any …
-- PLAT-008 scantor_http_requests_total labels each request with its route pattern, never the raw path.
-- SETUP-001 GET /api/setup/status needs no credentials and returns {needsSetup, passkeysEnabled, mcpUrl}; …
-- SETUP-002 A zero-user orchestrator without SCANTOR_ADMIN_* logs the setup link [setup] no users exist; open …
-- SETUP-003 createSetupAdmin without a token or with a wrong X-Scantor-Setup-Token returns 401 …
-- SETUP-004 Once any user exists, every /api/setup/* request except GET status returns 409 setupCompleted for …
-- SETUP-005 createSetupAdmin validates its body: a valid email (stored lowercased), a name of 1–100 characters …
-- SETUP-006 createSetupPasskeyToken returns 201 {token: "spk_…", expiresIn: 300}; the token is single use, a …
-- SETUP-007 With both SCANTOR_ADMIN_EMAIL and SCANTOR_ADMIN_PASSWORD set and no users, the first admin is …
-- AUTH-002 An explicit credential decides alone: an invalid or expired API key sent together with a valid …
-- AUTH-003 A Bearer value that is not an sk_scantor_ key, such as an MCP OAuth access token (eyJ…), returns …
-- AUTH-004 A request to /api/auth/* that carries an API key (x-api-key or Bearer sk_scantor_…, default or …
-- AUTH-005 A cookie-authenticated POST, PUT, PATCH or DELETE without an Origin header or with a foreign Origin …
-- AUTH-006 No dashboard route sends Access-Control-Allow-Origin with credentials; only /.well-known/*, …
-- AUTH-007 Credentials are bound to their route prefix: a node, worker or setup token on a user route returns …
-- AUTH-008 better-auth's disabled paths return 404: /sign-up/email, /token, /api-key/*, /admin/*, …
-- AUTH-009 On https the session cookie is __Secure-scantor.session_token: host-only (no Domain), Path=/, …
-- AUTH-010 On a throwaway orchestrator with SCANTOR_TRUST_PROXY=false, the 11th /sign-in/email from one client …
-- AUTH-011 Further per-IP auth rate limits return 429 above their budgets per minute: …
-- AUTH-012 The client IP ignores an incoming x-scantor-client-ip header; with SCANTOR_TRUST_PROXY=true it is …
-- AUTH-013 An internal MCP capability (x-scantor-internal-auth: sic_…) sent from outside the orchestrator …
-- AUTH-014 Passkeys are disabled when SCANTOR_PUBLIC_URL is plain http on a non-localhost host or an IP …
-- AUTH-015 Registering a passkey with a session older than 24 h returns 403 sessionRequired, and …
-- AUTH-016 A banned user is rejected with 403 banned on every user principal: session, API key and MCP.
-- AUTH-017 Banning a user who holds a session, a default key, an editor key, an MCP OAuth token, MCP over an …
-- AUTH-018 Role changes and bans take effect on every principal of the user within 30 s.
-- AUTH-019 Signing out also clears the admin tools cookie (Set-Cookie: scantor_tools=; …
-- ACCT-001 GET /api/account returns {id, email, name, role, canRunPrivileged, maxWorkers, credentials: …
-- ACCT-002 PATCH /api/account {name} updates the display name (trimmed, 1–100 characters) and returns the …
-- ACCT-003 POST /api/account/password {newPassword} returns 204 and sets a password only when the user has …
-- ACCT-004 DELETE /api/account/password returns 204 when the user has at least one passkey and 409 …
-- ACCT-005 Deleting the last passkey of a user without a password through POST …
-- ACCT-006 GET /api/account/oauth-apps lists the caller's authorized MCP OAuth clients as {clientId, name, …
-- ACCT-007 DELETE /api/account/oauth-apps/{clientId} returns 204 and deletes the client's consent, access …
-- ACCT-008 POST /api/account/api-keys {name, expiresInDays?} (session only) returns 201 {apiKey, key}; key …
-- ACCT-009 A new default key expires 90 days (±1 minute) after creation, or after expiresInDays; expiresInDays …
-- ACCT-010 GET /api/account/api-keys lists only the caller's keys (admins included), newest first, with id, …
-- ACCT-011 DELETE /api/account/api-keys/{keyId} returns 204 and the deleted key gets 401 afterwards; another …
-- ACCT-012 An expired API key gets 401 and is deleted.
-- USER-001 GET /api/users (admin) returns Page<User> newest first; ?q filters by a case-insensitive substring …
-- USER-002 POST /api/users {email, name, password?, role?, canRunPrivileged?, maxWorkers?} returns 201; the …
-- USER-003 A user created with a password can sign in with it; a user created without one cannot sign in until …
-- USER-004 GET /api/users/{userId} returns the user; an unknown or malformed id returns 404.
-- USER-005 PATCH /api/users/{userId} updates name, email, role, canRunPrivileged and maxWorkers; an empty body …
-- USER-006 PUT /api/users/{userId}/password {password} (8–128 characters) returns 204 and revokes the target's …
-- USER-007 POST /api/users/{userId}/ban {reason?} returns the user with banned: true and banReason, and …
-- USER-008 A ban with cancelScans: true cancels every non-terminal scan of the user; without it those scans …
-- USER-009 POST /api/users/{userId}/unban clears only the ban flag: deleted keys, sessions and OAuth grants …
-- USER-010 DELETE /api/users/{userId} returns 202 with a userPurge job and locks the user out at once (banned, …
-- USER-011 While a userPurge job for a user is active, updateUser, setUserPassword, banUser and unbanUser …
-- USER-012 canRunPrivileged, maxWorkers and role cannot be changed through better-auth's own update-user …
-- CRED-001 POST /api/credentials {kind: "gitToken", name, host, username?, token} returns 201 {id, kind, name, …
-- CRED-002 The host is normalised to lowercase host[:port] with a default :443 dropped; a host with a scheme, …
-- CRED-003 A second credential with the same name for the same user returns 409 alreadyExists, also when …
-- CRED-004 GET /api/credentials returns {items} sorted by name, without a cursor, holding only the caller's …
-- CRED-005 PATCH /api/credentials/{id} updates name, host, username or token (a new token updates last4), and …
-- AUTHZ-001 Every owner-scope operation returns 401 unauthorized to an anonymous request.
-- AUTHZ-002 Every owner-scope operation, read or mutation, that user B calls with user A's ids (task, revision, …
-- AUTHZ-003 An admin (session or default key) can read and act on other users' resources by id, and list …
-- AUTHZ-004 A non-admin passing ?userId=<another user> to a list operation (tasks, scans, jobs) gets 403 …
-- AUTHZ-005 No list response B receives (tasks, scans, revisions, test runs, uploads, exports, jobs, …
-- AUTHZ-006 Task names and revision references (alpha, alpha@1, alpha@latest) resolve only among the caller's …
-- AUTHZ-007 A create that references another user's document returns 404, also for admins acting on their own …
-- AUTHZ-008 Every admin-scope operation (users, nodes, metrics, tools session) returns 401 to anonymous callers …
-- AUTHZ-009 Every x-session-only operation (createApiKey, setAccountPassword, removeAccountPassword, …
-- AUTHZ-010 An admin's editor API key carries no admin power: 403 adminRequired on admin operations, 403 …
-- AUTHZ-011 Public operations (getHealth, getSetupStatus, /api/docs, openapi.json) answer the same to every …
-- AUTHZ-012 Node-scope operations reject anonymous callers, sessions, API keys and worker tokens with 401; node …
-- AUTHZ-013 Worker-scope operations reject anonymous callers, users, API keys and node tokens with 401; a …
-- AUTHZ-014 toolsForwardAuth succeeds only with an admin's scantor_tools cookie; a session, an API key, an …
-- AUTHZ-015 The MCP half of the matrix: B's read/write OAuth session lists exactly the read and write tools, …
-- AUTHZ-016 Security events (user null, for example security.ingestRejected) and node events are visible only …
-- TASK-001 POST /api/tasks {name, language, template?, description?} scaffolds the workspace (template single …
-- TASK-002 A task name must be a slug of 1–64 characters: reserved names (upload, import-git, new, latest), …
-- TASK-003 createTask returns 400 validationFailed for an unknown language and for an unknown template (path …
-- TASK-004 Creating a task with a name the caller already uses returns 409 alreadyExists; two users can each …
-- TASK-005 GET /api/tasks lists the caller's tasks newest first; ?q matches name or description …
-- TASK-006 GET /api/tasks/{task} accepts an id or a name and returns the task with workspace {packSha256, …
-- TASK-007 workspace.dirty becomes true when a file is edited after a publish and false again once that …
-- TASK-008 GET /api/tasks/{task}/workspace computes the hash fresh, returns {packSha256, fileCount, bytes, …
-- TASK-009 GET /api/tasks/{task}/workspace/archive streams application/gzip as attachment <task>.tar.gz; the …
-- TASK-010 DELETE /api/tasks/{task} returns 202 with a taskDelete job and the task disappears at once (GET …
-- TASK-011 Deleting a task that a creating, running, paused or deleting scan uses returns 409 taskInUse with …
-- TASK-012 While a task is being deleted its name cannot be reused (createTask and uploadTask return 409 …
-- TASK-013 POST /api/tasks/upload (a .tar.gz body) creates the task named by its manifest when it does not …
-- TASK-014 uploadTask?publish=false only replaces the workspace and returns revision: null; ?message sets the …
-- TASK-015 uploadTask returns 415 for a Content-Type other than application/gzip or application/x-gzip, and …
-- TASK-016 An archive without a valid scantor.yaml or with an unknown language returns 422 manifestInvalid …
-- TASK-017 Uploading to a task whose workspace has unpublished edits returns 409 workspaceDirty with details …
-- TASK-018 An upload never conflicts when the workspace hash equals the uploaded hash, the latest revision's …
-- TASK-019 Uploading content identical to an existing queued, building or ready revision returns that revision …
-- WS-001 GET /api/tasks/{task}/files returns {entries: [{path, type, size, mode}], truncated}, recursive by …
-- WS-002 With ?revision=<N|latest|id>, listing and reading files use the immutable revision snapshot; later …
-- WS-003 GET /api/tasks/{task}/files/content?path returns {path, size, sha256, encoding, content, truncated} …
-- WS-004 PUT /api/tasks/{task}/files {files: {path: text | {base64}}} writes 1–200 files atomically, …
-- WS-005 writeTaskFiles returns 400 validationFailed for an empty files map, more than 200 files or invalid …
-- WS-006 DELETE /api/tasks/{task}/files?path removes a file, a directory only with recursive=true, and …
-- WS-007 Every case of tests/corpora/paths sent through writeTaskFiles, deleteTaskFile and readTaskFile …
-- WS-008 Every case of tests/corpora/tar-slip uploaded with uploadTask (../x, /abs, a/../../x, backslash, …
-- WS-009 Archive caps are enforced while streaming: a gzip bomb is stopped, more than SCANTOR_TASK_MAX_FILES …
-- WS-010 Extracted archives are normalised: tar owners are ignored, file modes become 0644 or 0755 and …
-- WS-011 A write never passes through a pre-existing workspace symlink that points outside the task folder: …
-- WS-012 Workspace helper containers (scantor-h-*) run as 1000:1000 with only the user's volume subpath …
-- GIT-001 POST /api/tasks/import-git {url} for a repository with one manifest returns 201 {imported: [task], …
-- GIT-002 For a repository with several valid manifests and no select, the import returns 200 {imported: [], …
-- GIT-003 A select entry naming a path without a candidate, or two selected folders with the same task name, …
-- GIT-004 Importing a task whose name the caller already uses returns 409 alreadyExists, and that candidate …
-- GIT-005 A repository or path without scantor.yaml (no scantor.yaml was found), or with an invalid manifest …
-- GIT-006 URLs other than https://, URLs with userinfo, a leading -, ext:: and file:// return 400 …
-- GIT-007 A failed clone or fetch returns 422 gitFailed with details.message and credentials redacted; an …
-- GIT-008 A private repository behind Basic auth imports with the caller's credentialId, which sets the …
-- GIT-009 POST /api/tasks/{task}/git/pull returns {task, previousCommit, commit, changed}: changed: false for …
-- GIT-010 A pull returns 409 gitDiverged when the workspace changed since the last import or pull, and when …
-- GIT-011 A pull of a task that was not imported from git returns 409 invalidState, and a pulled manifest …
-- GIT-012 A revision published from unmodified imported content has source.kind: "git" with {url, ref, path, …
-- PIPE-001 scantor task pack is deterministic: the same tree gives the same packSha256 (sha256 of the …
-- PIPE-002 Packing keeps relative in-tree symlinks as symlinks; absolute or escaping symlinks (whose target is …
-- PIPE-003 Manifest rules M1–M10 produce static errors in file scantor.yaml with the line: duplicate keys, …
-- PIPE-004 A task needs the regular files scantor.yaml (scantor.yml is not accepted) and Dockerfile at its …
-- PIPE-005 Dockerfile warnings never fail the build: W1 (CMD is ignored; the runtime is the entrypoint, also …
-- PIPE-006 The build pulls the base image when it is absent, records baseImage {ref, digest} and …
-- PIPE-007 The check phase runs the base image's type checker (basedpyright, tsc --noEmit, go vet); each …
-- PIPE-008 Describe and check containers (scantor-b-*) run the built image with network none, the worker …
-- PIPE-009 A published image is pushed by digest as tasks/<taskId>:<revisionId> with the orchestrator's …
-- PIPE-010 Pipeline events are NDJSON {v: 1, seq, at, phase, type, stream, level, text} with consecutive seq …
-- PIPE-011 scantor task build, check-static, pack and scantor validate exit 0 on success, 2 when the task …
-- REV-001 POST /api/tasks/{task}/revisions {message?} snapshots the workspace synchronously and returns 201 …
-- REV-002 Publishing content whose pack hash matches a queued, building or ready revision returns that …
-- REV-003 A ready revision has image {repository: "tasks/<taskId>", tag, digest, bytes, platform}, a …
-- REV-004 A failed revision has state failed, image: null, errors [{phase, file, line, column?, message}] …
-- REV-005 GET /api/tasks/{task}/revisions returns Page<RevisionSummary> (id, number, ref, state, source kind …
-- REV-006 GET /api/tasks/{task}/revisions/{revision} accepts a number, latest (the highest ready revision) or …
-- REV-007 GET …/revisions/{revision}/logs?afterLine&limit (default 1000, at most 5000; 5001 returns 400) …
-- REV-008 GET …/revisions/{revision}/source answers 302 to a presigned snapshot download served as an …
-- REV-009 Described schemas keep the property order of the source, for example the power scan config lists …
-- REV-010 Publishing a manifest with defaults.privileged: true as a user without canRunPrivileged fails the …
-- REV-011 A revision whose build was interrupted by an orchestrator restart goes back to queued and is …
-- TRUN-001 POST /api/tasks/{task}/test-runs {taskConfig?, scanConfig?, analysisConfig?, limit?, maxAttempts?, …
-- TRUN-002 testTask?wait returns the settled run with analyses[], summary {analyses, succeeded, failed}, …
-- TRUN-003 Test-run inputs are bounded: limit 1–50 (default 5), maxAttempts 1–5 (default 1) and timeoutMs …
-- TRUN-004 A config that the described schema rejects causes no HTTP error: the run ends failed with one …
-- TRUN-005 With analysisConfig the test run skips schedule and calls run exactly once (seq 0).
-- TRUN-006 GET /api/tasks/{task}/test-runs lists the task's runs newest first without analyses; GET …
-- TRUN-007 GET /api/test-runs/{id}/stream is text/event-stream with the events state, log {seq, stream, text, …
-- TRUN-008 POST /api/test-runs/{id}/cancel moves a queued, building or running run to cancelled and removes …
-- TRUN-009 GET /api/test-runs/{id}/files/{fileId} returns a FileDownload (302 with ?redirect=true) whose …
-- TRUN-010 A test run of a privileged task runs unprivileged and needs no canRunPrivileged.
-- TRUN-011 The test-run container scantor-t-<id> runs on scantor-egress with the worker hardening profile, …
-- TRUN-012 A test run that references a list upload and the tranco and crux templates gets the upload's lines …
-- UPL-001 POST /api/uploads with a raw text/plain or application/octet-stream body, ?name (default …
-- UPL-002 Uploading content identical to one of the caller's uploads returns 200 with that upload; another …
-- UPL-003 createUpload returns 415 for any other Content-Type, and 413 payloadTooLarge without storing …
-- UPL-004 GET /api/uploads pages through the caller's own uploads (admins included), and GET …
-- UPL-005 DELETE /api/uploads/{id} returns 204 and deletes the stored object; while a scan that is not …
-- UPL-006 Starting a scan that references an upload sets the upload's lastUsedAt.
-- CAT-001 GET /api/languages returns {items: [{language, title, base, baseImage, entry, extensions}]} for …
-- CAT-002 GET /api/templates, scantor templates list and MCP list_templates return the templates single, …
-- CAT-003 GET /api/templates/{template} returns one template; an unknown or badly formed name returns 404.
-- CAT-004 POST /api/templates/{template}/estimate {scanConfig} returns {expectedTotal, exact, …
-- CAT-005 estimateTemplate returns 422 configInvalid with details.issues (JSON pointers under /scanConfig) …
-- CAT-006 GET /api/scaffolds returns {items: [{language, templates}]} in which every language lists every …
-- CAT-007 GET /api/guides/authoring/{language} returns text/markdown for every language of …
-- CAT-008 GET /api/guides/{guide} returns text/markdown for templates, manifest, errors-and-retries, cli, mcp …
-- CAT-009 scantor templates estimate <t> --config <json|@file|-> applies the defaults and validates: exit 0 …
-- TPL-001 Template single yields exactly one analysis whose config is {} filled with defaults, with an exact …
-- TPL-002 Template list combines the inline items with the lines of an uploaded list, trimming whitespace and …
-- TPL-003 Template range follows Python range semantics (end exclusive, negative steps count down; defaults …
-- TPL-004 Template repeat yields {iteration} for 0…times − 1 (times ≥ 1, default 1) with an exact estimate of …
-- TPL-005 Template tranco resolves latest, a date or a list id, downloads the list and yields {domain, rank} …
-- TPL-006 Template crux with month latest uses the newest of the current UTC month and the 3 before it that …
-- TPL-007 Template cidr clears host bits, merges overlapping and adjacent ranges and yields {ip, prefix, …
-- TPL-008 Template data comes from SCANTOR_TRANCO_URL and SCANTOR_CRUX_URL, fetched by the scheduler (or the …
-- TPL-009 A custom schedule that wraps a template proxy (as power wraps range) receives the template's items …
-- TPL-010 Before the first item is published, the scheduler records the template resolution under …
-- TPL-011 A scheduler resumed after a pause reuses the stored resolution instead of resolving again: …
-- SCAN-001 POST /api/scans {revision, name?, taskConfig?, scanConfig?, settings?, confirm?} returns 201 with …
-- SCAN-002 The revision reference accepts <task>@<N>, <task>@latest, a bare <task> (latest), a revision id or …
-- SCAN-003 startScan returns 409 revisionNotReady with details.state for a queued, building or failed …
-- SCAN-004 taskConfig and scanConfig are validated against the revision's schemas with defaults applied: …
-- SCAN-005 A taskConfig or scanConfig larger than SCANTOR_MAX_SCAN_CONFIG_BYTES returns 400 validationFailed.
-- SCAN-006 Settings outside the static bounds return 400 validationFailed in startScan, scaleScan and …
-- SCAN-007 Partial nested settings merge over the revision defaults: nodeSelector {pool} without labels, or …
-- SCAN-008 Upload ids at the revision's upload paths must exist and belong to the scan owner (otherwise 404), …
-- SCAN-009 For template schedules, an estimate above SCANTOR_MAX_ANALYSES_PER_SCAN returns 422 scanTooLarge …
-- SCAN-010 The validation order is fixed: a not-ready revision with an invalid config returns 409 rather than …
-- SCAN-011 A scan with a custom schedule has stats.expectedTotal: null, and progress.total and percent stay …
-- SCAN-012 For a privileged revision whose owner lacks canRunPrivileged, startScan, restartScan, resumeScan …
-- SCAN-013 With canRunPrivileged, a privileged scan on nodes without Docker-in-Docker (the test nodes) keeps …
-- SCAN-014 GET /api/scans returns Page<ScanSummary> (id, userId, name, task, revision {id, number, ref}, …
-- SCAN-015 GET /api/scans/{id} returns the scan with progress {scheduled, terminal, total, percent, …
-- SCAN-016 progress.total equals stats.expectedTotal when known, percent rises toward 100 and etaSeconds is a …
-- SCAN-017 getScan?wait returns at once with Scantor-Wait: settled for a scan that is not creating or running, …
-- SCAN-018 GET /api/scans/{id}/conditions returns {items} with the scan's current conditions, such as …
-- SCAN-019 GET /api/scans/{id}/events returns Page<Event> newest first; ?type takes an exact type …
-- SCAN-020 GET /api/scans/{id}/workers?state returns Page<Worker> with role (scheduler or runner), state, node …
-- SCAN-021 GET /api/scans/{id}/inflight returns {items: [{analysisId, seq, round, attempt, startedAt, …
-- SCAN-022 GET /api/scans/{id}/workers/{workerId}/logs?wait&tailBytes (1024–262144, default 65536) fetches a …
-- SCAN-023 POST /api/scans/{id}/pause on a running scan sets paused with stateReason {code: "user"} and …
-- SCAN-024 Forbidden transitions return 409 invalidState with details {state, allowed} and repeating the …
-- SCAN-025 POST /api/scans/{id}/resume on a paused scan sets running and places new workers; an unfinished …
-- SCAN-026 resumeScan, restartScan and retryFailedAnalyses return 409 revisionUnavailable when the scan's …
-- SCAN-027 POST /api/scans/{id}/scale {workers?, processes?} works in creating, running and paused, updates …
-- SCAN-028 Scaling applies live: more workers add runner containers, fewer workers drain the least busy …
-- SCAN-029 Scaling beyond node capacity leaves the extra workers pending with the condition workersPending and …
-- SCAN-030 POST /api/scans/{id}/cancel from creating, running or paused sets cancelled and completedAt; the …
-- SCAN-031 Cancelling a scan during an active retry-failed cancels the scanRetryFailed job and returns …
-- SCAN-032 POST /api/scans/{id}/retry-failed returns 202 {scan, job} (kind scanRetryFailed); the scan moves to …
-- SCAN-033 retry-failed on a cancelled scan first records the never-run seqs as cancelled analyses of round 1, …
-- SCAN-034 retry-failed returns 409 nothingToRetry when no failed or lost analysis has a config, and 409 …
-- SCAN-035 POST /api/scans/{id}/restart {name?, settings?: {workers?, processes?}} returns 201 with a new scan …
-- SCAN-036 DELETE /api/scans/{id} on a completed, failed or cancelled scan returns 202 {scan, job} with the …
-- SCAN-037 When the scanDelete job finishes, the scan is a tombstone (deleted, purgeAfter = now + …
-- SCAN-038 When enough attempts in the breaker window fail (SCANTOR_BREAKER_MIN_ATTEMPTS, …
-- SCAN-039 Resuming a breaker-paused scan clears breakerTripped (a scan.conditionCleared event) and starts a …
-- SCAN-040 A scan completes only when scheduling is done or failed and the recounted terminal analyses reach …
-- SCAN-041 Counters are recounted: running scans every 60 s, paused scans while they changed since the last …
-- SCAN-042 Live hint counters (stats.succeeded, failed, retrying, ratePerMin) rise as results arrive and never …
-- PLACE-001 A running scan wants one scheduler while scheduling is pending or running plus settings.workers …
-- PLACE-002 An unplaceable worker stays pending and the scan carries the condition workersPending {count, …
-- PLACE-003 Placement reserves per worker one slot, processes × cpus CPUs and processes × memoryMiB + 256 MiB …
-- PLACE-004 A user's non-zero maxWorkers caps their active workers across all scans: workers beyond it stay …
-- PLACE-005 settings.nodeSelector {pool, labels} places workers only on nodes of that pool whose labels include …
-- PLACE-006 The scheduler worker goes to the built-in node whenever it is a candidate, and a placed worker …
-- PLACE-007 Placement writes a worker.placed event per placement and a worker.pending event only when a …
-- RES-001 GET /api/scans/{id}/analyses returns Page<Analysis> sorted by seq ascending with ?status as a comma …
-- RES-002 listAnalyses?fields=<dot paths> returns only those paths plus id and seq; an unknown root field, a …
-- RES-003 GET /api/analyses/{scanId-seq} returns the analysis with round, attempt, attempts (at most 10), …
-- RES-004 POST /api/scans/{id}/analyses/query {filter, projection?, sort?, limit?, afterSeq?} returns {items, …
-- RES-005 Sort keys must be dot paths with values 1 or −1 (others return 400 validationFailed); more than 8 …
-- RES-006 POST /api/scans/{id}/analyses/aggregate {pipeline, limit?} (at most 100 stages) returns {items, …
-- RES-007 An aggregation result over limit or SCANTOR_QUERY_MAX_DOCS is cut with truncated: true.
-- RES-008 A query that runs longer than SCANTOR_QUERY_MAX_TIME returns 504 queryTimeout.
-- RES-009 More than SCANTOR_USER_MAX_CONCURRENT_QUERIES concurrent queries, aggregations or inline exports of …
-- RES-010 GET /api/scans/{id}/export?format=jsonl|csv&status&filter&fields&afterSeq streams …
-- RES-011 An inline export that matches more than SCANTOR_EXPORT_INLINE_MAX analyses returns 409 …
-- RES-012 A CSV export (inline or background) starts with a header row (default columns id, seq, status, …
-- RES-013 JSONL export rows are whole masked analysis representations, or the fields projection when it is …
-- RES-014 POST /api/scans/{id}/exports {format, filter?, fields?, afterSeq?}?wait returns 201 with an export …
-- RES-015 Exporting a deleting or deleted scan, inline or in the background, returns 409 invalidState.
-- RES-016 GET /api/exports?scanId pages through exports newest first and GET /api/exports/{id}?wait holds …
-- RES-017 GET /api/analyses/{id}/files/{fileId} returns FileDownload {url, expiresAt, name, size, sha256, …
-- RES-018 File downloads of png, jpeg, gif and webp are served inline with their image type; html, svg and …
-- RES-019 Downloads are presigned GETs on SCANTOR_S3_PUBLIC_URL, created per request and valid 10 minutes, …
-- JOB-001 GET /api/jobs?kind&state returns Page<Job> (id, kind, subject, state, progress, attempts, error, …
-- JOB-002 GET /api/jobs/{id}?wait holds until the job is succeeded, failed or cancelled; another user's job, …
-- ING-001 Orchestrator boot ensures the vhost scantor, the topic exchanges scantor.analyses, scantor.results …
-- ING-002 A creating scan gets the quorum queue scantor.scan.<id> (delivery limit SCANTOR_DELIVERY_LIMIT, …
-- ING-003 When a scan becomes completed, failed, cancelled or deleting, its user scan-<id> is deleted first …
-- ING-004 The scan user's password is derived from SCANTOR_SECRET and the scan id and never stored, so a …
-- ING-005 A scan user can consume only its own queue and publish only to scantor.analyses or scantor.results …
-- ING-006 The per-scan user is limited to 2 × (workers + 1) connections and that many × (processes + 2) …
-- ING-007 The ingestor takes a result's scan only from the broker-validated user_id: a message without …
-- ING-008 A result for a round above the scan's round is dropped, and results for unknown, deleting or …
-- ING-009 An authenticated result that fails its schema becomes a failed analysis of type platform, phase …
-- ING-010 Results are applied as guarded upserts: a later success beats a failure of the same round, …
-- ING-011 An attempt event sets the analysis to retrying and appends an attempts[] entry (at most 10 are …
-- ING-012 An analysis whose delivery limit is reached because every worker processing it died is recorded as …
-- SCHED-001 A template schedule without wrapping runs natively in the scheduler without a connector process, …
-- SCHED-002 schedulerCheckpoint stores {epoch, confirmed, tailHash} only when confirmed increases; an older …
-- SCHED-003 After a pause and resume, or after the scheduler is lost, a new scheduler with epoch + 1 …
-- SCHED-004 A custom schedule that yields different items on resume (the nondeterministic fixture, scheduler …
-- SCHED-005 When the scan queue reaches SCANTOR_SCAN_QUEUE_MAX_READY, publishes are refused and the scheduler …
-- SCHED-006 When the stream ends and every item is confirmed, scheduling.state becomes done and the scheduler …
-- SCHED-007 Schedule limits fail scheduling with a non-retryable validation error in phase schedule, such as …
-- SCHED-008 A retryable error in schedule increments scheduling.restarts and raises the condition …
-- SCHED-009 A Fatal or validation error in schedule fails scheduling at once without a restart (condition …
-- SCHED-010 Scheduler calls with an old epoch return 409 staleEpoch with details.currentEpoch; a stale …
-- NODE-001 GET /api/nodes?state&pool (admin) returns {items} with the built-in node first and the others by …
-- NODE-002 POST /api/nodes {name, pool?, labels?, maxWorkers?} returns 201 {node, token, join} with the node …
-- NODE-003 Node names must be slugs: builtin returns 400 validationFailed and a duplicate name 409 …
-- NODE-004 join.dockerRun is exactly docker run -d --name scantor-node --restart unless-stopped -v …
-- NODE-005 GET /api/nodes/{id}/join returns the join instructions with the token replaced by …
-- NODE-006 PATCH /api/nodes/{id} updates name, pool, labels, maxWorkers (null removes it) and cordoned; an …
-- NODE-007 DELETE /api/nodes/{id} returns 204: the node is removed, its workers become lost and are replaced …
-- NODE-008 POST /api/nodes/{id}/token returns {node, token, join} with a new token: the old token gets 401 on …
-- NODE-009 DELETE /api/nodes/{id}/token sets the node revoked: its workers become lost at once (their worker …
-- NODE-010 Rotating, revoking or deleting the built-in node returns 409 builtInNode, and scantor nodes exits 2 …
-- NODE-011 GET /api/nodes/{id}/workers?state pages through the workers placed on the node, each with scan {id, …
-- NODE-012 The built-in node builtin (builtIn: true, endpoint profile internal, pool shared) exists and is …
-- NODE-013 A cordoned node gets no new workers while its running workers stay; a scan that only that node …
-- NODE-014 Running the dockerRun join snippet on a Docker host brings a pending node online with its reported …
-- NODE-015 POST /api/node/hello sets the node online, stores its info (hostname, os, arch, kernel, Docker …
-- NODE-016 Hello with an unknown or revoked node token returns 401, and hello from a daemon version outside …
-- NODE-017 A second daemon using the same node token on a different Docker engine gets 409 …
-- NODE-018 GET /api/node/assignments?rev&wait returns at once when the node's assignments revision is newer …
-- NODE-019 An assignment references the task image by digest at the node's registry host (localhost:<port> on …
-- NODE-020 Node status entries for workers not assigned to the calling node are ignored, and posting worker …
-- NODE-021 A running worker container scantor-w-<workerId> matches the hardening profile: the runtime as …
-- NODE-022 Workers on the built-in node join scantor-sandbox; workers on a remote node join scantor-workers …
-- NODE-023 A worker's environment is exactly the assignment's environment plus SCANTOR_CA_CERT (and …
-- NODE-024 The daemon only touches containers it can attribute to itself: a name conflict with a foreign …
-- NODE-025 On SIGTERM the daemon exits 0 and its workers keep running; the restarted daemon adopts the …
-- NODE-026 A worker container that exits non-zero restarts in place (same container id) with a growing …
-- NODE-027 When a connector process exceeds the container's memory, it is killed first, the worker keeps …
-- NODE-028 A worker that leaves the desired set (scale-in, pause, scheduling done, scan terminal) is stopped …
-- NODE-029 scantor node healthcheck exits 0 while the daemon's status file is younger than three status …
-- NODE-030 scantor node exits 2 at start on invalid configuration (both SCANTOR_NODE_BUILTIN=true and …
-- NODE-031 After its token is rejected (rotated, revoked or node deleted), the daemon logs orchestrator …
-- NODE-032 Task images are pulled by digest with a per-pull registry credential carrying the node token; the …
-- NODE-033 A failed image pull puts the worker in state error with code imagePullFailed and raises the scan …
-- NODE-034 The daemon runs a one-shot egress helper scantor-netpol-<nodeId> (host network, NET_ADMIN and …
-- NODE-035 A scan with nodeSelector.pool = "remote" runs end to end on remote-1 over the public endpoint …
-- REG-001 GET /api/registry/token?service=scantor-registry&scope=repository:tasks/<id>:pull with Basic …
-- REG-002 POST /api/registry/token with the form grant_type=password, username=node, password=snt_… and scope …
-- REG-003 The granted access is the requested access intersected with what is allowed: a node gets pull only …
-- REG-004 The orchestrator credential gets pull, push and delete on tasks/* and registry:catalog:* (sub …
-- REG-005 Token errors use the registry format {errors: [{code, message}]}: 401 UNAUTHORIZED for an invalid …
-- REG-006 A node's pull grant for a task disappears from the next token once its worker is lost, the node is …
-- RT-001 The first GET /api/runtime/bootstrap moves the worker to running (the scheduler also moves …
-- RT-002 Bootstrap returns action stop when the scan is no longer running.
-- RT-003 runtimePresignUploads builds the keys files/<scanId>/<seq>/<executionId>/<fileId>/<safeName> from …
-- RT-004 runtimeAnalysesStatus accepts at most 1000 seqs and answers only for the token's scan.
-- RT-005 runtimeReportError returns 202 and raises the scan condition workerErrors and a worker.error event.
-- RT-006 Connector processes never see SCANTOR_WORKER_TOKEN, SCANTOR_URL, SCANTOR_CA_CERT or …
-- RT-007 Each runner process consumes the scan queue with prefetch 1, so the queue's consumer count equals …
-- RT-008 Deleting the user scan-<id> closes every worker connection of the scan, remote nodes included; the …
-- RT-009 A connector process is recycled after settings.maxAnalysesPerProcess analyses and after a timeout, …
-- RT-010 Malformed analysis messages published as the scan user (wrong scan id, an analysisId that is not …
-- RT-011 A run that exceeds settings.timeoutMs has its connector process group killed, child processes …
-- RT-012 A connector process that ends during a run gives type crash, retryable, with details {exitCode, …
-- RT-013 Outcomes are classified per language: Fatal fails after 1 attempt, not retryable; Retry is …
-- RT-014 A result that is not a JSON object, or whose size exceeds SCANTOR_MAX_RESULT_BYTES, fails as …
-- RT-015 ctx.files.put returns a FileRef {id, name, size, sha256, contentType} (null content type becomes …
-- RT-016 Files are uploaded only after a successful run, so failed attempts store none; every registered …
-- RT-017 When the per-user storage quota SCANTOR_USER_STORAGE_QUOTA_BYTES is exceeded, the analysis fails …
-- RT-018 A retryable failure with attempts left shows the analysis retrying with attempt n and an attempts[] …
-- RT-019 Without jitter and with a backoff of 2 s × 2, attempts start 2 s, 4 s and 8 s apart; Retry(delay) …
-- RT-020 When attempts are exhausted, the analysis is failed with attempt == maxAttempts, keeping the error …
-- RT-021 An analysis's logTail holds the connector's stdout and stderr plus ctx.log lines rendered as …
-- RT-022 Worker logs (from getWorkerLogs) are JSON lines with scanId, workerId, nodeId and role, with …
-- RT-023 Error fields are bounded: message at most 4 KiB, stack at most 16 KiB with the middle cut (…[<n> …
-- RT-024 On drain (pause or scale-in) a worker stops taking work, lets in-flight analyses finish within the …
-- CONN-001 A task image started without the runtime (no readable fd 3 and writable fd 4) prints scantor: this …
-- CONN-002 User output on stdout and stderr never corrupts the protocol: a printed JSON line that looks like a …
-- CONN-003 An exception while the task module loads fails the revision at describe with the message and stack …
-- CONN-004 ctx.log(level, message, fields) lines appear in the analysis log tail and in local-mode events as …
-- CONN-005 Python tasks define a module-level scantor.Task(...) with configs derived from scantor.Config; run …
-- CONN-006 TypeScript and JavaScript tasks export default defineTask({...}) with config() roots and secret() …
-- CONN-007 Go tasks call scantor.Serve(schedule, run) or ServeRun(run), including uninstantiated template …
-- CONN-008 The base images implement the ENV contract (SCANTOR_LANGUAGE, SCANTOR_CONNECTOR_CMD, …
-- CONN-009 Every base image ships the system CA bundle, so HTTPS from tasks and from the runtime (data …
-- CONN-010 Describe exports normalised schemas ($schema draft 2020-12, no $id, object roots, no defaults on …
-- CONN-011 Describe fails the revision (phase describe) for an open config root, a default that violates its …
-- CONN-012 An unwrapped template proxy (schedule=tranco.schedule, cidr.Schedule) is described as {kind: …
-- CONN-013 A scan config with properties on a task without schedule (template single) is a definition error.
-- DEV-001 scantor init [dir] --language <l> [--template <t>|custom] [--name] [--description] writes a …
-- DEV-002 A scaffold contains scantor.yaml with the schema modeline (valid against …
-- DEV-003 For every language of schemas/languages.json × every template plus custom, scantor init, then …
-- DEV-004 scantor validate [dir] runs pack, static checks, build, describe and the type check on local …
-- DEV-005 Under SCANTOR_DEV_MODE=remote (the editor), scantor validate and scantor dev debug exit 3 with a …
-- DEV-006 scantor dev run [dir] builds, describes, validates and fills the configs (an invalid config exits …
-- DEV-007 Local dev run uses SCANTOR_TRANCO_URL and SCANTOR_CRUX_URL when set, and a config that references …
-- DEV-008 scantor dev run -o json prints the local-mode NDJSON events unchanged: start, resolved, scheduled, …
-- DEV-009 Local-mode exit codes, the highest applicable winning: 3 for a total timeout, an interrupt or a …
-- DEV-010 In local mode --analysis-config skips schedule and runs once with seq 0, --limit caps the items …
-- DEV-011 Files of a local run are copied to .scantor/out/<timestamp>/files/<seq>/<fileId>/<name> in the task …
-- DEV-012 On a total timeout or an interrupt, local mode kills the connector processes; in-flight analyses …
-- DEV-013 scantor dev run --remote (or SCANTOR_DEV_MODE=remote) syncs the folder with …
-- DEV-014 scantor dev debug runs one connector process under the base image's debugger (debugpy, the Node …
-- DEV-015 scantor push [dir] packs locally and uploads; the manifest name selects or creates the task, it …
-- CLI-001 Exit codes: 0 success; 1 when analyses failed (dev run, and scans start --wait, scans get --wait …
-- CLI-002 The CLI takes credentials only from SCANTOR_URL and SCANTOR_TOKEN; a token that does not start with …
-- CLI-003 Run containerised (the scantor.sh shim pattern), the CLI rewrites a localhost, 127.0.0.1 or ::1 …
-- CLI-005 scantor scans start [revision] takes --task-config, --scan-config and --settings as JSON, @file or …
-- CLI-006 scantor scans watch <scan> prints progress until the scan completes, fails, is cancelled or is …
-- CLI-007 scantor scans …
-- CLI-008 scantor tasks files ls|cat|put|rm work on the platform workspace: a binary put/cat round trip keeps …
-- CLI-009 scantor revisions get|list|logs [--follow]|publish work on revisions.
-- CLI-010 scantor nodes create|list|get|update|delete|join|token rotate|token revoke|workers|events manage …
-- CLI-011 scantor uploads create with a list-template scan, scantor analyses query|aggregate, scantor export …
-- EDIT-001 POST /api/editor/session {open?} returns 201 {url, expiresAt, editor} with a one-time URL …
-- EDIT-002 createEditorSession returns 404 when open names a task the caller does not own, 400 when open is …
-- EDIT-003 GET /api/editor returns {state, startedAt, lastActivityAt, idleTimeoutMs, error}: stopped for a …
-- EDIT-004 DELETE /api/editor returns 204, removes the editor container and deletes the editor API key; it is …
-- EDIT-005 Every editor start mints a new editor API key (at most one per user, listed with configId=editor, …
-- EDIT-006 An idle editor stops after SCANTOR_EDITOR_IDLE_TIMEOUT, and while it starts its origin serves a 503 …
-- EDIT-007 Inside the editor, SCANTOR_URL points at the orchestrator, SCANTOR_TOKEN is the editor key, …
-- EDIT-008 Editor routes always act on the caller's own editor, also for admins; a session code is single use, …
-- EDIT-009 The editor listener answers 421 to any other host and serves only /_auth and the code-server proxy …
-- EDIT-010 The scantor_editor cookie is host-only, HttpOnly, SameSite=Lax and Secure, lives 12 h and stops …
-- EDIT-011 A WebSocket upgrade with a foreign Origin gets 403, and Set-Cookie headers from code-server never …
-- EDIT-012 A code-server socket replaced by a symlink (to /var/run/docker.sock, through docker exec in the …
-- EDIT-013 A master worker cannot connect to an editor container.
-- EDIT-014 The editor container has no Docker socket and only its home, workspace and socket mounts, runs as …
-- EDIT-015 Editor-origin responses carry Content-Security-Policy: frame-ancestors 'self' <dashboard origin>, …
-- TOOLS-001 GET /api/tools/session?target=rabbitmq|mongo-express|rustfs|traefik (admin session) answers 302 to …
-- TOOLS-002 GET /api/tools/forward-auth answers 200 with X-Scantor-User for a valid admin tools cookie on a …
-- TOOLS-003 Through Traefik, traefik., rabbitmq., mongo-express. and rustfs.<domain> are reachable only with an …
-- TOOLS-004 RabbitMQ management accepts only the admin user, mongo-express runs read-only, and the bucket …
-- MCP-001 tools/list equals the curated table of 29 tools (at most 30): names are snake_case(operationId) …
-- MCP-002 A scantor:read grant sees only read tools (GET plus query_analyses and aggregate_analyses), and …
-- MCP-003 wait on publish_revision, get_revision, test_task, get_test_run, get_scan, export_scan and …
-- MCP-004 A non-2xx REST response becomes isError with {error: {httpStatus, code, message, details}} (plus …
-- MCP-005 Target- and task-derived values are wrapped as {untrusted_data: …} (for example get_analysis …
-- MCP-006 Tool results are capped at 256 KiB: the longest fitting prefix of the list is kept with _truncated …
-- MCP-007 No MCP tool manages credentials or identity (API keys, OAuth apps, users, git credentials, editor …
-- MCP-008 /mcp accepts only POST (GET and DELETE return 405), is stateless, answers OPTIONS with CORS * …
-- MCP-009 POST /mcp without a credential gets 401 with WWW-Authenticate: Bearer …
-- MCP-010 Dynamic client registration accepts loopback http(s) redirect URIs on any port, private-use schemes …
-- MCP-011 A CIMD client_id whose metadata URL is not https or whose host resolves to a private address is …
-- MCP-013 Consent decides the token's level: accepting without scope returns 400 invalid_request, …
-- MCP-014 Every /mcp request re-checks the user and the consent: after revokeOAuthApp, a ban or the user's …
-- MCP-016 The server instructions are present at initialize, at most 8 KiB, and every tool they name exists; …
-- MCP-017 Every MCP tool name and scantor command mentioned in skills/ and docs/guide/*.md exists, and guide …
-- MCP-018 An agent loop with tools only succeeds: create_task (python, range), read_task_file, …
-- MCP-019 start_scan above the confirmation threshold returns 422 confirmationRequired, and the same call …
-- SEC-001 Every case of tests/corpora/dockerfile-policy uploaded with uploadTask gives a failed revision …
-- SEC-002 Image references in FROM, COPY --from and RUN --mount from= that point at the platform registry or …
-- SEC-003 The exploit COPY --from=localhost:<port>/tasks/<victim task> is rejected with its file and line and …
-- SEC-004 A task whose earlier build stage is FROM an external image with ONBUILD triggers fails the revision …
-- SEC-005 A task with LABEL keys starting with traefik., com.docker.compose. or scantor. (any case), quoted, …
-- SEC-006 Forbidden labels inherited from a base image pass the static check but fail the revision in phase …
-- SEC-007 Every container scantor creates (worker, helper, build, test run, editor, egress helper) and every …
-- SEC-008 Defence in depth: a pre-built image carrying traefik.* and com.docker.compose.project=scantor …
-- SEC-009 A RUN step that connects to 169.254.169.254 fails during a build on a node that reports …
-- SEC-010 Master workers (netprobe on the built-in node) cannot open TCP connections to MongoDB, the registry …
-- SEC-011 Every rejected case of tests/corpora/query-injection sent through queryAnalyses, aggregateAnalyses …
-- SEC-012 Scope-override attempts ({"scanId": {"$ne": null}} in a filter, $facet with $lookup, $unionWith) by …
-- SEC-013 Connected directly to MongoDB as the read-only scantor_query user, a $where find fails …
-- SEC-014 writeOnly fields (secret(), SecretStr, scantor.Secret) of schema-zoo show * in scans, test runs, …
-- SEC-015 Filters, sorts, projection expressions and pipelines that reference a writeOnly path return 400 …
-- SEC-016 TLS verification is always on: SCANTOR_CA_CERT is added to the system roots (never replacing them) …
-- SEC-017 The object store bucket is private: an unsigned GET returns 403, and a CORS preflight from a …
-- SEC-018 A throwaway orchestrator in public mode (a non-loopback SCANTOR_PUBLIC_URL or SCANTOR_EDITOR_URL, …
-- SEC-019 With SCANTOR_ALLOW_INSECURE_DEFAULTS=true a public deployment with offenders starts with a warning …
-- SEC-020 A SCANTOR_EDITOR_URL with the same origin as SCANTOR_PUBLIC_URL always makes the orchestrator exit …
-- SEC-021 Invalid security-relevant settings abort startup: a URL with a path, query or credentials, an …
-- SEC-022 After a SCANTOR_SECRET change on a throwaway orchestrator, boot recovers: MCP OAuth works again, …
-- SEC-023 The key derivations from SCANTOR_SECRET match the shared vectors of …
-- SEC-024 Logs never contain credentials: the orchestrator and node daemon log JSON lines with correlation …
-- OPS-001 lint-compose fails when the infrastructure services (mongo, rabbitmq, rustfs, registry, …
-- OPS-002 lint-compose enforces the compose rules: Traefik exposedbydefault=false, the compose-project …
-- OPS-003 lint-env fails when a SCANTOR_* variable read by code, compose files, recipes or the test stack is …
-- OPS-004 lint-env enforces the shipped secure defaults: loopback bind addresses, SCANTOR_NODE_DIND=disabled …
-- OPS-005 lint-env fails when a non-configuration variable (SCANTOR_WORKER_TOKEN, SCANTOR_DIND, …
-- OPS-006 Traefik redirects http:// permanently to https://, serves the operator's default certificate (the …
-- OPS-007 Traefik routes each host to its target: scantor. to the orchestrator, editor. to the editor …
-- CHAOS-001 Killing one runner of a scan while analyses are in flight still ends the scan completed with …
-- CHAOS-002 Restarting the orchestrator during a running scan, also while results are being ingested, ends the …
-- CHAOS-003 Restarting RabbitMQ while retries are delayed keeps the quorum queues, delayed messages and users; …
-- CHAOS-004 Pausing a scan while retries are delayed, waiting 30 s and resuming loses no analysis, and the …
-- CHAOS-005 A scan cancelled and deleted right after a backlog of results built up (the orchestrator paused for …
-- CHAOS-006 A remote node disconnected longer than SCANTOR_NODE_OFFLINE_AFTER goes offline (node.offline); its …
-- CHAOS-007 When a scan queue with delayed retries is deleted, the reconciler recreates it empty; after …
-- CHAOS-008 During a RabbitMQ memory alarm, startScan returns 503 brokerAlarm, running scans show the condition …
-- CHAOS-009 While MongoDB is paused, results accumulate in scantor.results.ingest and the runtimes keep …
-- UI-NAV-001 The sidebar shows the Workspace (Overview, Tasks, Scans, Templates, Editor) and Access (CLI & MCP …
-- UI-NAV-002 When features.editor is false, the Editor item and every "Open in editor" entry point (task navbar, …
-- UI-NAV-003 "New scan" goes to /scans/new and "New task" to /tasks/new; in the collapsed sidebar they become …
-- UI-NAV-004 The Scans badge counts the user's own creating, running or paused scans, shows 200+ when there are …
-- UI-NAV-005 For admins, the Nodes badge shows the number of offline nodes in the error color and is hidden at 0.
-- UI-NAV-006 The "API docs" footer link opens /api/docs in a new tab.
-- UI-NAV-007 The sidebar collapses and expands ("Collapse sidebar", "Expand sidebar"; the collapsed logo is …
-- UI-NAV-008 Below the lg breakpoint the sidebar is a drawer opened with "Open navigation" and closed with …
-- UI-NAV-009 The user menu shows initials, name, email and an "admin" badge for admins, with Account, CLI & MCP …
-- UI-NAV-010 Every page's title is <Page> · scantor, and detail pages use the task, scan, revision or node name …
-- UI-NAV-011 The theme toggle offers "Use system theme", "Use light theme" and "Use dark theme" with …
-- UI-NAV-012 A signed-out visit to a protected route redirects to /login?redirect=<path with query>, and after …
-- UI-NAV-013 The redirect parameter is followed only for same-origin paths: //evil.example, /\evil, …
-- UI-NAV-014 A non-admin opening /admin/nodes, /admin/nodes/:id, /admin/users or /admin/tools is sent to / with …
-- UI-NAV-015 A failed API call shows a red toast titled after its error code (for example "Not possible in the …
-- UI-NAV-016 A 5xx error toast offers "Copy request id", which copies the X-Request-Id and shows "Copied".
-- UI-NAV-017 Any 401 from the API on a protected page, such as after the session was revoked from another …
-- UI-NAV-018 When an admin bans a signed-in user, their next API call signs them out and lands on …
-- UI-NAV-019 Without any response from the server, the UI shows a single toast "Cannot reach the orchestrator" …
-- UI-NAV-020 After 3 consecutive failures of a poll, the banner "Live updates paused, retrying…" (role=status, …
-- UI-NAV-021 Polls pause while the tab is hidden and refetch when it becomes visible, keep one request in …
-- UI-NAV-022 Every polled page has a "Refresh" navbar button that refetches at once and shows a spinner while …
-- UI-NAV-023 Every button on every page has an accessible name, icon-only buttons use the same text as …
-- UI-NAV-024 Tables have an aria-label, rows carry data-row-id, and the documented data-testids exist …
-- UI-NAV-025 Status badges always include the state text; modals and slideovers have titles, trap focus and …
-- UI-NAV-026 The new-task wizard's stepper exposes the step position to screen readers.
-- UI-NAV-027 Copy buttons copy to the clipboard and show "Copied" (a blocked clipboard shows "Copy failed"); id …
-- UI-NAV-028 A type-to-confirm dialog keeps its action disabled until the exact text is typed, and Cancel or …
-- UI-NAV-029 UI preferences live in one localStorage key scantor-ui; corrupted or unknown-version contents are …
-- UI-HOME-001 A user without tasks and scans sees the empty state "No tasks yet" with "Create your first task", …
-- UI-HOME-002 "Active scans" shows a card per creating, running or paused scan (name, revision, state, progress, …
-- UI-HOME-003 "Needs attention" lists, without duplicates, active scans with conditions ("N conditions need …
-- UI-HOME-004 "Recent scans" shows the last 10 scans and "Recent tasks" the last 5 tasks with language, latest …
-- UI-HOME-005 For admins, "Platform health" shows the component states, RabbitMQ alarms, Nodes: N online · N …
-- UI-AUTH-002 Wrong credentials show the inline alert "Invalid email or password" (data-testid=login-error) and …
-- UI-AUTH-003 A banned user's sign-in shows "Your account is banned", and /login?banned=1 shows the same message …
-- UI-AUTH-004 Opening /login with a valid session goes straight to the redirect target.
-- UI-AUTH-005 With passkeys enabled, "Sign in with passkey" signs in with a virtual authenticator and lands on …
-- UI-AUTH-006 /login reached from an OAuth authorization shows "Sign in to authorize an application to access …
-- UI-AUTH-007 /setup?token=… stores the token in sessionStorage and removes it from the address bar and history …
-- UI-AUTH-008 Without a token, /setup explains where the setup link is printed (docker compose logs orchestrator …
-- UI-AUTH-009 Password setup takes name, email, password (8–128 characters) and confirmation ("The passwords do …
-- UI-AUTH-010 With passkeys enabled, a "Password | Passkey" choice appears, and passkey setup registers "Primary …
-- UI-AUTH-011 A wrong setup token shows "The setup token is missing or wrong. Restarting the orchestrator prints …
-- UI-AUTH-012 The consent page shows the client name (the metadata host for CIMD clients, otherwise "An …
-- UI-AUTH-013 The access level offers "Read only", "Read and write" and, for admins only, "Admin" (never …
-- UI-AUTH-014 "Approve" grants the requested non-scantor scopes plus the chosen level's scopes (so "Read only" …
-- UI-AUTH-015 /oauth/consent without an authorization request shows "This page is only reachable from an …
-- UI-TASK-001 The tasks list filters by "Search tasks" (debounced) and language, admins get an "Only mine" …
-- UI-TASK-002 The tasks table shows the name with the "Unpublished changes" badge (data-testid=unpublished-badge) …
-- UI-TASK-003 The tasks list shows "No tasks yet" only without filters ("No tasks." with filters), "Tasks could …
-- UI-TASK-004 The new-task wizard starts with the sources "From a scaffold", "Import from git" and "Upload a …
-- UI-TASK-005 The template step lists the scaffold's templates with title, description (code spans rendered as …
-- UI-TASK-006 The name step validates the slug live and limits the description to 500 characters; "Create task" …
-- UI-TASK-007 The git import form accepts only https URLs (http, ssh, userinfo, file:// and ext:: are rejected …
-- UI-TASK-008 A git import of one task opens it; several manifests show a "Select tasks" checklist (existing …
-- UI-TASK-009 Git import errors show inline: gitFailed with its message under "The import failed", …
-- UI-TASK-010 The upload step accepts only .tar.gz and .tgz files ("Expected a .tar.gz or .tgz file"), shows the …
-- UI-TASK-011 An upload that published a revision opens the revision page, otherwise the task page; …
-- UI-TASK-012 The task header shows the name, language, source (git tasks git · <commit8>), privileged and …
-- UI-TASK-013 The task navbar offers "Open in editor" (/editor?task=<name>), "Publish revision", "Start scan" …
-- UI-TASK-014 ?created=1 shows the banner "Task <name> is ready" in full with "Open the editor", "Try a test run" …
-- UI-TASK-015 The Overview, Files, Revisions and Test tabs sync with ?tab=, and an unknown value falls back to …
-- UI-TASK-016 The Overview tab shows the description and cards for the workspace ("Check now" refreshes its …
-- UI-TASK-017 The publish modal shows a fresh workspace status, notes when the workspace equals an existing …
-- UI-TASK-018 "Pull from git" shows "Pulled <commit8>" or "Already up to date", and on gitDiverged asks …
-- UI-TASK-019 "Delete task" requires typing the task name, then shows "Task <name> is being deleted" and opens …
-- UI-TASK-020 An unknown task shows "Task not found", and the revision badge updates live while a new revision …
-- UI-TASK-021 The Files tab shows the workspace tree with file, folder and symlink icons; a file shows its path, …
-- UI-TASK-022 The Files tab's source select switches between "Workspace" and "Revision N" (synced with …
-- UI-TASK-023 The Revisions tab filters by state and lists ref, state, source, pack hash, error count, created …
-- UI-TASK-024 The revision page shows ref, state, privileged badge, message and times, "Start scan" for ready …
-- UI-TASK-025 A failed revision shows its errors first (data-testid=build-errors), each with phase, …
-- UI-TASK-026 The build log (data-testid=build-log) follows a running build, groups lines by phase with …
-- UI-TASK-027 The revision facts show source, pack hash, git origin, base image, image digest, size and platform, …
-- UI-TASK-028 A ready revision's describe section has Task config, Scan config, Analysis config and Result tabs …
-- UI-TRUN-001 The Test tab offers "Schedule + run" (task and scan config forms, limit 1–50) and "One analysis" …
-- UI-TRUN-002 The forms use the latest known schemas; without any, "No schemas known yet" appears and the forms …
-- UI-TRUN-003 "Start test run" is disabled while a run is active, and start errors (for example an invalid limit) …
-- UI-TRUN-004 A live run streams its state (queued → building → running → completed), the "draft image cached" …
-- UI-TRUN-005 When the event stream fails, the panel polls the run every 2 s and still shows its results.
-- UI-TRUN-006 "Cancel test run" cancels the active run, and the history shows it cancelled.
-- UI-TRUN-007 An analysis row opens the slideover "Analysis <seq>" with status, attempt, duration, error and …
-- UI-TRUN-008 The history lists earlier runs with state, x / y succeeded and pack hash, and a row loads that run.
-- UI-TRUN-009 Unsent test-run inputs are restored per task after a reload, without the values of writeOnly fields.
-- UI-EDIT-001 /editor starts the user's editor, shows "Editor is starting…", and then loads code-server from the …
-- UI-EDIT-002 /editor?task=<name> opens that task's folder; an unknown task shows "Task “<name>” was not found" …
-- UI-EDIT-003 The navbar shows the editor state and stops after N min idle, and "Open in new tab" opens a fresh …
-- UI-EDIT-004 "Stop editor" asks for confirmation, shows "Editor stopped", removes the iframe and offers "Open …
-- UI-EDIT-005 A failed start shows "The editor could not start" with the message and "Retry"; too many running …
-- UI-EDIT-006 An editor stopped elsewhere disappears from the page, and an editor restarted elsewhere is loaded …
-- UI-SCAN-001 The scans list filters by state (default "All states except deleted") and task, admins get "Only …
-- UI-SCAN-002 The scans table shows name and id, revision, state with condition count, progress with …
-- UI-SCAN-003 The row menu "Scan actions for <name>" offers Open, Pause, Resume, Cancel, Restart and Delete as …
-- UI-SCAN-004 Without filters and scans the list shows "No scans yet" with "New scan", and "Load more" pages …
-- UI-SCAN-005 The new-scan form picks a task and a revision ("latest ready revision" or @N) and shows the …
-- UI-SCAN-006 For a privileged revision and a user without canRunPrivileged, the form shows "Privileged revision" …
-- UI-SCAN-007 The task and scan config forms follow the revision's schemas in source order with "Edit as JSON", …
-- UI-SCAN-008 "Runner workers" and "Processes per worker" are bounded by the instance limits and prefilled from …
-- UI-SCAN-009 "Advanced settings" hold timeout, attempts, analyses per process, backoff, CPUs, memory, node pool …
-- UI-SCAN-010 For template schedules the form estimates the scan ("≈ N analyses", "exactly N analyses"); custom …
-- UI-SCAN-011 An estimate above the instance maximum disables "Start scan"; above the confirmation threshold the …
-- UI-SCAN-012 "Start scan" starts the scan and opens its page; a configInvalid answer marks each issue on its …
-- UI-SCAN-013 A client-side validation failure shows "Check the highlighted fields" and sends no request.
-- UI-SCAN-014 An upload field offers the user's uploads (name · N lines · size) and "Upload a list for <field>", …
-- UI-SCAN-015 The scan header shows name and id, state with its reason (paused · failure rate), round when above …
-- UI-SCAN-016 An unknown scan, or another user's scan for a non-admin, shows "Scan not found" without revealing …
-- UI-SCAN-017 The scan controls enable Pause, Resume, Scale, Cancel, "Retry failed analyses", Restart, "Export …
-- UI-SCAN-018 Pause shows "Scan paused" and the workers drain away; Resume shows "Scan resumed" and runners …
-- UI-SCAN-019 The scale dialog is bounded by the instance limits, shows the derived capacity line, and on submit …
-- UI-SCAN-020 Cancel asks "Cancel scan <name>?", then shows "Scan cancelled" and the state cancelled.
-- UI-SCAN-021 "Retry failed analyses" is enabled only for a finished scheduling with failed or lost analyses; …
-- UI-SCAN-022 The restart dialog defaults the name to <name> (restart), starts the clone with the chosen workers …
-- UI-SCAN-023 "Delete scan" requires typing the scan's name (or id), shows "Scan deletion started" and opens …
-- UI-SCAN-024 The Overview, Results, Query, Workers, Events and Exports tabs sync with ?tab=, and ?analysis= …
-- UI-SCAN-025 The scan page refreshes while the scan is active, keeps refreshing for a few minutes after it ends …
-- UI-SCAN-026 The progress card (data-testid=scan-progress) shows the bar (indeterminate without a total), done / …
-- UI-SCAN-027 The stats tiles (data-testid=scan-stats) for pending, retrying, succeeded, failed, lost and …
-- UI-SCAN-028 The health card (data-testid=scan-health) shows "Healthy", or one item per condition …
-- UI-SCAN-029 workersPending shows N workers pending with readable reasons (for example "No online node matches", …
-- UI-SCAN-030 crashLoop (from crashy) shows the worker, a node link, the exit code, an "OOM killed" badge, the …
-- UI-SCAN-031 breakerTripped shows X % of N attempts failed within D with a "Resume scan" button, which resumes …
-- UI-SCAN-032 Other conditions render their details: schedulingFailed, workerErrors and schedulerRestarting with …
-- UI-SCAN-033 The settings card shows the effective settings, the task and scan configs with * values rendered as …
-- UI-RES-001 The results status filter syncs with ?status= and reloads the table from the start; "Go to seq" …
-- UI-RES-002 The advanced filter takes a JSON filter (default {"status": "failed"}), disables "Apply filter" for …
-- UI-RES-003 "Result columns" allows up to 4 result fields (default the first four of the result schema) and …
-- UI-RES-004 The results table shows seq, status, attempt, round (when above 1), duration, error, the chosen …
-- UI-RES-005 Results load 50 rows per page through "Load more" or scrolling, and stop at 5000 rows with "Showing …
-- UI-RES-006 "Auto-refresh" appears only while the scan runs, is on by default and reloads the loaded rows.
-- UI-RES-007 ?analysis=<seq> opens the drawer "Analysis <seq>" on load, closing removes the parameter, and an …
-- UI-RES-008 The drawer summary shows the analysis id, status, attempt, round, worker, node (a link for admins), …
-- UI-RES-009 The drawer shows the config with * secrets as locks (or "No config was stored for this analysis."), …
-- UI-RES-010 The drawer's error section shows type, phase, retryability, attempt, message and details, and "Show …
-- UI-RES-011 The attempts table lists attempts across rounds newest first with their errors, worker and node, …
-- UI-RES-012 The drawer's log view shows the final log tail with "Wrap lines" and "Follow log", or "No output …
-- UI-RES-013 A file chip shows name, size and type; "Download <name>" downloads through a presigned URL, and …
-- UI-RES-014 The query console has Query (filter, projection, sort, limit, after seq) and Aggregate (pipeline, …
-- UI-RES-015 Query output shows N items as JSON or, for flat items, as a table; "Load more" follows the cursor …
-- UI-RES-016 Query errors stay inline: a rejected operator shows under its editor with (at <path>), timeouts and …
-- UI-RES-017 The last 20 queries per scan are kept, "Recent queries" restores one, ?filter=<json> prefills the …
-- UI-RES-018 The Workers tab shows N active · N pending · N desired and a table of workers (role, state, node, …
-- UI-RES-019 "Show worker logs of <id>" opens "Logs of <role> <id>", requests a fresh tail ("Requesting the …
-- UI-RES-020 The in-flight table lists running analyses with seq, attempt, round, a live "running for" timer, …
-- UI-RES-021 The Events tab lists events newest first with level, type, time and message, filters all, scan or …
-- UI-RES-022 The Exports tab lists format, state (with the error when failed), rows, size, selection, created …
-- UI-RES-023 The export dialog takes JSON Lines or CSV, a status selection or a JSON filter, and fields (at most …
-- UI-FORM-001 Object properties render as field groups in schema source order; nested objects from depth 2 are …
-- UI-FORM-002 String fields use the input type of their format (uri, email, date, date-time), a textarea above …
-- UI-FORM-003 writeOnly strings render as password inputs with "Show value of <field>" and a "secret" badge, are …
-- UI-FORM-004 Enums and unions of titled constants render as a select with titles, required fields with at most 4 …
-- UI-FORM-005 A discriminated union renders a select of the branch titles followed by the chosen branch's fields, …
-- UI-FORM-006 Numbers take min, max and step from the schema and clearing removes the key; booleans are switches …
-- UI-FORM-007 Arrays of enums render as a multi-select, arrays of primitives as rows with "Add item to <field>" …
-- UI-FORM-008 Maps render as a key-value editor with "Add <field> entry", key validation ("Duplicate key", "Key …
-- UI-FORM-009 Nullable fields have "Set <field> to null", fields with a default show it and offer "Reset …
-- UI-FORM-010 Unsupported constructs (allOf, if/then/else, not, patternProperties, prefixItems, other unions) …
-- UI-FORM-011 "Edit as JSON" switches the whole form to JSON and "Edit as form" back (blocked while the JSON is …
-- UI-FORM-012 An untouched optional field is absent from the request, so the server applies its default, and …
-- UI-FORM-013 The browser validates forms under the production CSP (no unsafe-eval) and shows errors such as "is …
-- UI-TPL-001 /templates shows a card per template with title, name, description, a "pins inputs at scan start" …
-- UI-TPL-002 A card's estimate form, prefilled with the example, shows "N analyses (exact)", "(estimate)" or …
-- UI-ADMIN-001 The nodes table shows name (with a "built-in" pill), state and "cordoned" badges, pool and labels, …
-- UI-ADMIN-002 "Add node" (name, pool, labels, worker limit) reveals "Token of node <name>" …
-- UI-ADMIN-003 A duplicate node name shows "A node with this name already exists.", and an invalid name or label …
-- UI-ADMIN-004 "Node actions for <name>" offer Edit (with a "Cordoned" switch; only changed fields are saved, …
-- UI-ADMIN-005 "Rotate token" reveals a new token, "Revoke token" shows "Token of <name> revoked" and the revoked …
-- UI-ADMIN-006 The node page shows the node's info, lease, labels, workers (with "Active only") and events, and …
-- UI-ADMIN-007 The users table searches by name or email and shows name (with "(you)"), email, role, status …
-- UI-ADMIN-008 "New user" creates a user with email, name, password, role, "Can run privileged tasks" and worker …
-- UI-ADMIN-009 Editing a user sends only changed fields; on the admin's own row the role is locked ("You cannot …
-- UI-ADMIN-010 "Set password" (with confirmation) notes that it signs the user out everywhere and shows "Password …
-- UI-ADMIN-011 Ban takes an optional reason and "Also cancel all their scans" (checked by default); the row then …
-- UI-ADMIN-012 Deleting a user requires typing their email, shows the purge job's progress on the row, and removes …
-- UI-ADMIN-013 With Traefik, the admin tools page shows cards for RabbitMQ management, mongo-express, the RustFS …
-- UI-ADMIN-014 The admin tools page links the API reference, the OpenAPI document and the metrics, and shows the …
-- UI-ACCT-001 The account page has Profile, Password, Passkeys, Sessions and Editor sections that load and fail …
-- UI-ACCT-002 The profile saves the name ("Saved") and changes the email ("Email changed"), and shows role, …
-- UI-ACCT-003 Changing the password takes the current one, a new one and its confirmation, signs out other …
-- UI-ACCT-004 A passkey-only account sets a password ("Password set"); "Remove password" appears only with a …
-- UI-ACCT-005 The passkeys section lists passkeys (name or "Unnamed passkey", added time, synced or …
-- UI-ACCT-006 The sessions section lists device, IP and sign-in time with "this browser" first, signs out a …
-- UI-ACCT-007 The account's editor section shows the editor state, opens /editor, stops the editor after …
-- UI-ACCT-008 CLI & MCP access lists default keys (name, prefix, created, expiry, last use, enabled) and the …
-- UI-ACCT-009 A new key is revealed once (data-testid=secret-value) with the SCANTOR_URL/SCANTOR_TOKEN …
-- UI-ACCT-010 CLI download links appear only for a release version, and dev builds show none.
-- UI-ACCT-011 The MCP section shows the endpoint (data-testid=mcp-url) with "Copy MCP URL", the OAuth command and …
-- UI-ACCT-012 Authorized apps list name, client id, URI (http(s) links only, rel="noopener noreferrer"), scopes …
-- UI-ACCT-013 The git credentials page lists name, host, username, the token as ••••<last4>, last use and created …
-- UI-ACCT-014 "New credential" takes name, host (host[:port] without scheme), username (default x-access-token) …
-- UI-ACCT-015 A saved credential is offered in the git import form and makes the import of a private repository …
-- UI-SEC-001 Every dashboard response, static assets included, and every /api response carries a CSP with …
-- UI-SEC-002 /login, /setup and /oauth/consent send frame-ancestors 'none' and Cache-Control: no-store.
-- UI-SEC-003 No page logs a CSP violation, and the production script-src never contains unsafe-eval.
-- UI-SEC-004 Results, logs, error and event messages and file names of the hostile-output fixture render as …
-- UI-SEC-005 The dashboard sends no request outside its own origin except to the S3 public origin (downloads, …
-- UI-SEC-006 Browser storage never holds tokens, API keys, node tokens, passwords, writeOnly values or results, …
+None.
 
 ### Unknown feature tags
 
@@ -1463,8 +919,11 @@ None.
 - `orchestrator/test/services/ingestor/writer.test.ts`
 - `orchestrator/test/services/jobs/runner.test.ts`
 - `orchestrator/test/services/jobs/user-purge.test.ts`
+- `orchestrator/test/services/mcp/arguments.test.ts`
 - `orchestrator/test/services/mcp/bridge.test.ts`
+- `orchestrator/test/services/mcp/discovery.test.ts`
 - `orchestrator/test/services/mcp/loopback-call.test.ts`
+- `orchestrator/test/services/mcp/redirect-policy.test.ts`
 - `orchestrator/test/services/mcp/resources.test.ts`
 - `orchestrator/test/services/mcp/tools.test.ts`
 - `orchestrator/test/services/mcp/truncate.test.ts`
@@ -1490,6 +949,7 @@ None.
 - `orchestrator/test/services/registry/scopes.test.ts`
 - `orchestrator/test/services/registry/token.test.ts`
 - `orchestrator/test/services/revisions/build-log.test.ts`
+- `orchestrator/test/services/revisions/build-requeue.test.ts`
 - `orchestrator/test/services/revisions/publish-flow.test.ts`
 - `orchestrator/test/services/revisions/publish.test.ts`
 - `orchestrator/test/services/runtime/bootstrap.test.ts`
@@ -1518,19 +978,30 @@ None.
 - `orchestrator/test/services/tools/forward-auth.test.ts`
 - `orchestrator/test/services/uploads/uploads.test.ts`
 - `orchestrator/test/shared/error-codes.test.ts`
+- `orchestrator/test/shared/git-url.test.ts`
 - `orchestrator/test/shared/scan-actions.test.ts`
 - `orchestrator/test/shared/slug.test.ts`
 - `orchestrator/test/ui/analyses.test.ts`
 - `orchestrator/test/ui/ansi.test.ts`
+- `orchestrator/test/ui/clipboard.test.ts`
 - `orchestrator/test/ui/consent.test.ts`
+- `orchestrator/test/ui/cursor-list.test.ts`
 - `orchestrator/test/ui/errors.test.ts`
+- `orchestrator/test/ui/follow-scroll.test.ts`
 - `orchestrator/test/ui/format.test.ts`
+- `orchestrator/test/ui/icon-buttons.test.ts`
 - `orchestrator/test/ui/json-pointer.test.ts`
 - `orchestrator/test/ui/navigation.test.ts`
+- `orchestrator/test/ui/scan-filters.test.ts`
 - `orchestrator/test/ui/schema-subset.test.ts`
 - `orchestrator/test/ui/schema-validation.test.ts`
+- `orchestrator/test/ui/settled-validator.test.ts`
 - `orchestrator/test/ui/status.test.ts`
+- `orchestrator/test/ui/table-labels.test.ts`
+- `orchestrator/test/ui/toggle-labels.test.ts`
 - `orchestrator/test/ui/ui-prefs.test.ts`
+- `orchestrator/test/ui/workers.test.ts`
+- `orchestrator/test/ui/zod-jitless.test.ts`
 - `orchestrator/test/utils/auth-indexes.test.ts`
 - `orchestrator/test/utils/auth-policy.test.ts`
 - `orchestrator/test/utils/authz.test.ts`
@@ -1540,6 +1011,7 @@ None.
 - `orchestrator/test/utils/config.test.ts`
 - `orchestrator/test/utils/env-values.test.ts`
 - `orchestrator/test/utils/errors.test.ts`
+- `orchestrator/test/utils/health.test.ts`
 - `orchestrator/test/utils/instance-info.test.ts`
 - `orchestrator/test/utils/internal-auth.test.ts`
 - `orchestrator/test/utils/keys.test.ts`
