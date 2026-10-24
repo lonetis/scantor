@@ -1,6 +1,6 @@
 import { stackEnv } from '../helpers/docker'
 import { cancelIfActive, withMcpTenants } from '../helpers/mcp-tenant'
-import { callOk, callToolError, pollTool, unwrap } from '../helpers/mcp-tools'
+import { callOk, callOkPatiently, callToolError, pollTool, unwrap } from '../helpers/mcp-tools'
 import { SMALL_SETTINGS } from '../helpers/scans'
 import { expect, test as base, unique } from '../fixtures'
 
@@ -158,7 +158,7 @@ test.describe('MCP agent loop', () => {
         })
 
         const scanId = await test.step('run the scan to completion', async () => {
-          const started = await callOk<Scan>(mcpKey, 'start_scan', {
+          const started = await callOkPatiently<Scan>(mcpKey, 'start_scan', {
             revision: `${name}@latest`,
             name: 'agent loop',
             scanConfig: { start: 0, end: 5 },
@@ -216,7 +216,7 @@ test.describe('MCP agent loop', () => {
           const refused = await callToolError(mcpKey, 'start_scan', body)
           expect(refused).toMatchObject({ httpStatus: 422, code: 'confirmationRequired', details: expect.objectContaining({ expectedTotal: threshold + 1 }) })
 
-          const confirmed = await callOk<Scan>(mcpKey, 'start_scan', { ...body, confirm: true })
+          const confirmed = await callOkPatiently<Scan>(mcpKey, 'start_scan', { ...body, confirm: true })
           scanIds.push(confirmed.id)
           expect(confirmed.state).toBe('creating')
           const cancelled = await callOk<Scan>(mcpKey, 'cancel_scan', { scanId: confirmed.id })

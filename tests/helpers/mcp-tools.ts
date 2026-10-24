@@ -63,6 +63,29 @@ export function unwrap<T = unknown>(value: unknown, what: string): T {
   return (value as { untrusted_data: T }).untrusted_data
 }
 
+/**
+ * Calls a tool that must succeed, retrying a structured 503 every 5 s until `timeoutMs`: the busy shared stack
+ * refuses new scans with 503 `brokerAlarm` while RabbitMQ is out of memory, until it recovers.
+ */
+export async function callOkPatiently<T = Record<string, unknown>>(
+  client: Client,
+  name: string,
+  args: Record<string, unknown>,
+  timeoutMs = 90_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const call = await callTool<T & { error?: ToolError }>(client, name, args)
+    const unavailable = call.result.isError && call.json?.error?.httpStatus === 503
+    if (!unavailable || Date.now() >= deadline) {
+      if (call.result.isError) throw new Error(`${name} failed: ${call.texts.join('\n')}`)
+      if (call.json === null) throw new Error(`${name} returned no JSON: ${call.texts.join('\n').slice(0, 2000)}`)
+      return call.json
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5_000))
+  }
+}
+
 type Waited = Record<string, unknown> & { _wait?: string; state?: string }
 
 /** Calls a `wait` tool with wait 50 until `done` holds for its result; each round takes at most 50 s. */

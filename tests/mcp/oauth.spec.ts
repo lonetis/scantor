@@ -398,6 +398,7 @@ test.describe('MCP OAuth revocation', () => {
       await expect.poll(async () => (await rawMcp(session, { Authorization: `Bearer ${tokens.access_token}` })).status, { timeout: 60_000 }).toBe(401)
       const rejected = await rawMcp(session, { Authorization: `Bearer ${tokens.access_token}` })
       expect((rejected.body?.error as { message?: string } | undefined)?.message).toMatch(/^Access revoked: /)
+      expect(bearerChallenge(rejected.headers['www-authenticate']).error).toBe('invalid_token')
     })
   })
 })

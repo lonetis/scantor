@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type { APIRequestContext, APIResponse } from '@playwright/test'
-import type { OAuthClientMetadata, StoredOAuthClientInformation } from '@modelcontextprotocol/client'
+import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client'
+import type { FetchLike, OAuthClientMetadata, StoredOAuthClientInformation } from '@modelcontextprotocol/client'
 import { env } from './env'
-import { DEFAULT_MCP_SCOPES, ISSUER, REDIRECT_URI, registerClient } from './mcp'
-import { oauthRequest } from './mcp-limiter'
+import { DEFAULT_MCP_SCOPES, ISSUER, REDIRECT_URI, registerClient, TestOAuthProvider, type McpConnection } from './mcp'
+import { oauthRequest, reserveOAuth, retryAfterMs } from './mcp-limiter'
 import { unique } from './unique'
 import { newApiContext } from './users'
 
@@ -186,6 +187,66 @@ export async function authorize(
   const code = callback.searchParams.get('code')
   if (!code) throw new Error(`the authorization returned no code: ${callback.toString()}`)
   return { client, tokens: await exchangeCode(session, client.client_id, code, verifier) }
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * A fetch for the MCP SDK whose token requests take a slot of the OAuth token budget and wait out a 429 of the
+ * provider's per-IP token limit (X-Retry-After) before they are sent again, for up to `timeoutMs`.
+ */
+function budgetedFetch(timeoutMs: number): FetchLike {
+  const deadline = Date.now() + timeoutMs
+  return async (url, init) => {
+    const limited = new URL(url).pathname === new URL(`${ISSUER}/oauth2/token`).pathname
+    for (;;) {
+      if (limited) await reserveOAuth('/oauth2/token')
+      const response = await fetch(url, init)
+      if (!limited || response.status !== 429 || Date.now() >= deadline) return response
+      await sleep(Math.min(retryAfterMs(response.headers.get('x-retry-after')), Math.max(deadline - Date.now(), 0)))
+    }
+  }
+}
+
+/**
+ * Connects an MCP client as the user signed in to `session` through the SDK's OAuth flow (401 challenge, discovery,
+ * the given registered client, PKCE S256), like helpers/mcp.ts `connectMcp`, but within the OAuth budget: the
+ * authorize and token requests wait out a 429 of the provider's per-IP limits, which better-auth resets only after
+ * a minute without requests and which every spec on the shared stack spends.
+ */
+export async function connectMcpPatiently(
+  session: APIRequestContext,
+  options: { client: StoredOAuthClientInformation; scopes?: string; consentScope?: string; timeoutMs?: number },
+): Promise<McpConnection> {
+  const scopes = options.scopes ?? DEFAULT_MCP_SCOPES
+  const provider = new TestOAuthProvider(scopes, options.client)
+  const fetchFn = budgetedFetch(options.timeoutMs ?? 150_000)
+  const challenged = new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider, fetch: fetchFn })
+  const unchallenged = await new Client({ name: 'scantor-tests', version: '1.0.0' }).connect(challenged).then(
+    () => true,
+    (error: unknown) => {
+      if (error instanceof UnauthorizedError) return false
+      throw error
+    },
+  )
+  if (unchallenged) throw new Error('the unauthenticated MCP connect was not challenged')
+  if (!provider.authorizationUrl) throw new Error('the MCP SDK did not start an authorization')
+
+  // The SDK's authorization URL has no prompt=consent: a user who already consented to these scopes is sent back
+  // with a code at once, otherwise the consent page decides.
+  const next = await authorizeRedirect(session, provider.authorizationUrl)
+  const callback =
+    next.origin === env.publicUrl && next.pathname === CONSENT_PATH
+      ? await consentRedirect(await postConsent(session, next, { accept: true, scope: options.consentScope ?? scopes }))
+      : next
+  if (!callback.searchParams.get('code')) throw new Error(`the authorization returned no code: ${callback.toString()}`)
+  await challenged.finishAuth(callback.searchParams)
+
+  const client = new Client({ name: 'scantor-tests', version: '1.0.0' })
+  await client.connect(new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider, fetch: fetchFn }))
+  const tokens = provider.tokens()
+  if (!tokens) throw new Error('the MCP SDK stored no tokens')
+  return { client, provider, accessToken: tokens.access_token, close: () => client.close() }
 }
 
 /** The claims of a JWT (not verified: the server verifies, the test only reads). */

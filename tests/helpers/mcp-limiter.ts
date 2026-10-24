@@ -80,18 +80,23 @@ export async function reserveOAuth(path: OAuthPath): Promise<void> {
   }
 }
 
+/** How long to wait after a better-auth 429: its `X-Retry-After` seconds (1–61, default 10) plus a little jitter. */
+export function retryAfterMs(header: string | null | undefined): number {
+  const seconds = Number(header ?? '10')
+  return (Number.isFinite(seconds) ? Math.min(Math.max(seconds, 1), 61) : 10) * 1000 + Math.random() * 1000
+}
+
 /**
  * Sends a request to a rate-limited OAuth endpoint within the budget; a 429 (from other specs' traffic) is waited out
- * with better-auth's `X-Retry-After` and retried for up to `timeoutMs`.
+ * with better-auth's `X-Retry-After` and retried for up to `timeoutMs`. better-auth counts per IP and resets a
+ * counter only after a full window without allowed requests, so on a busy stack a 429 happens despite the budget.
  */
-export async function oauthRequest(path: OAuthPath, send: () => Promise<APIResponse>, timeoutMs = 120_000): Promise<APIResponse> {
+export async function oauthRequest(path: OAuthPath, send: () => Promise<APIResponse>, timeoutMs = 150_000): Promise<APIResponse> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     await reserveOAuth(path)
     const response = await send()
     if (response.status() !== 429 || Date.now() >= deadline) return response
-    const retryAfter = Number(response.headers()['x-retry-after'] ?? '10')
-    const waitMs = (Number.isFinite(retryAfter) ? Math.min(Math.max(retryAfter, 1), 61) : 10) * 1000
-    await sleep(Math.min(waitMs + Math.random() * 1000, Math.max(deadline - Date.now(), 0)))
+    await sleep(Math.min(retryAfterMs(response.headers()['x-retry-after']), Math.max(deadline - Date.now(), 0)))
   }
 }

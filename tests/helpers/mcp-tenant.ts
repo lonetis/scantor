@@ -11,8 +11,7 @@ import { startScan, TERMINAL_STATES, waitForScanState, type StartScanBody } from
 import { exampleTaskDir, fixtureTaskDir, manifestName, removeDir, uploadAndPublish, type UploadedTask } from './tasks'
 import { unique } from './unique'
 import { createUser, deleteUser, newApiContext } from './users'
-import { connectMcp } from './mcp'
-import { reserveOAuth } from './mcp-limiter'
+import { connectMcpPatiently, workerOAuthClient } from './mcp-oauth'
 import { writeTaskDir } from './mcp-tools'
 import type { Scan } from '#shared/types/scans'
 import type { ScanState } from '#shared/utils/enums'
@@ -23,7 +22,9 @@ import type { ScanState } from '#shared/utils/enums'
 //     worker with the same index overwrites while several runs share one kept-alive stack (a test would then act as
 //     that run's tenant, which its teardown deletes); these tenants save their session under a unique file name;
 //   - a sign-in that still meets better-auth's per-IP 429 waits it out and retries with a new limiter slot;
-//   - the `mcp` fixture's authorize and token requests take slots of helpers/mcp-limiter.ts first;
+//   - the `mcp` fixture connects through helpers/mcp-oauth.ts `connectMcpPatiently`, whose authorize and token
+//     requests take slots of helpers/mcp-limiter.ts and wait out a 429 of the provider's per-IP limits, with the
+//     worker's one registered client;
 //   - publishing builds an image, so `sharedTasks` publishes each task a worker's tests reuse once per worker, and
 //     `sharedScans` runs each scan that several read-only tests inspect once per worker; both are left to the purge
 //     of the tenant at worker teardown.
@@ -126,6 +127,22 @@ function onceByKey<T>(): (key: string, create: () => Promise<T>) => Promise<T> {
   }
 }
 
+/**
+ * Starts a scan; a 503 (for example `brokerAlarm` while RabbitMQ is out of memory on the busy shared stack, which
+ * refuses new scans only until it recovers) is retried every 5 s until `timeoutMs`.
+ */
+export async function startScanPatiently(api: ApiClient, body: StartScanBody, timeoutMs = 90_000): Promise<Scan> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    try {
+      return await startScan(api, body)
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.response.status !== 503 || Date.now() >= deadline) throw error
+      await sleep(5_000)
+    }
+  }
+}
+
 /** Cancels a scan that is not terminal yet (a 409 means it just finished, a 404 that it is gone). */
 export async function cancelIfActive(api: ApiClient, scanId: string): Promise<void> {
   const response = await api.getScan(scanId)
@@ -162,12 +179,12 @@ export function withMcpTenants(base: FixturesTest) {
         if (tenant) await deleteMcpTenant(adminApi, tenant)
       }
     },
+    // The worker's one registered client, shared with helpers/mcp-oauth.ts (one registration per worker, not two).
+    oauthClient: [async ({}, use) => use(await workerOAuthClient()), { scope: 'worker' }],
     mcp: async ({ mcpScopes, oauthClient, role, user }, use) => {
       const session = await newApiContext({ storageState: role === 'admin' ? env.paths.adminState : user.storageState })
       try {
-        await reserveOAuth('/oauth2/authorize')
-        await reserveOAuth('/oauth2/token')
-        const connection = await connectMcp(session, { scopes: mcpScopes, client: oauthClient })
+        const connection = await connectMcpPatiently(session, { scopes: mcpScopes, client: oauthClient })
         try {
           await use(connection)
         } finally {
@@ -214,7 +231,7 @@ export function withMcpTenants(base: FixturesTest) {
           await use({
             get: (key, body, options = {}) =>
               once(key, async () => {
-                const scan = await startScan(api, await body())
+                const scan = await startScanPatiently(api, await body())
                 started.push(scan.id)
                 const state = options.state === undefined ? 'completed' : options.state
                 return state === null ? scan : waitForScanState(api, scan.id, state, options.timeoutMs ?? 150_000)
