@@ -4,16 +4,24 @@ import type { Logger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
 import type { WorkerPrincipal } from '../../utils/principal'
 import { type BusyItem, forgetWorker, recordWorkerBusy } from '../inflight'
+import { clearScanCondition } from './conditions'
 import { mergeRuntime } from './worker-runtime'
 
 // POST /api/runtime/state (docs/api.md §8.2, docs/runtime.md §5): the runtime's heartbeat. `busy[]` feeds the
 // in-memory in-flight store; `runtime.lastSeenAt` and `processes.running` are stored. The response tells the runtime
 // what to do (`run`, `drain`, `stop`) and how many processes it may run: min(desired, node-applied) while scaling
-// up, the desired value at once while scaling down (docs/nodes.md §12.6).
+// up, the desired value at once while scaling down (docs/nodes.md §12.6). A poll of the current scheduler that
+// reports a schedule run in progress (`processes.busy` 1) clears the condition schedulerRestarting.
 
 export type RuntimeAction = 'run' | 'drain' | 'stop'
 
 export const STATE_POLL_MS = 5000
+
+/**
+ * The shortest restart backoff of a scheduler (`backoff.initialMs` ≥ 1000, docs/runtime.md §11.9). A poll that
+ * reports a schedule run less than this after schedulerRestarting was raised was built before the restart.
+ */
+export const MIN_RESTART_BACKOFF_MS = 1000
 
 const STOPPED_SCAN_STATES: ScanState[] = ['cancelled', 'completed', 'failed', 'deleting', 'deleted']
 
@@ -38,6 +46,22 @@ export function runtimeAction(input: ActionInput): RuntimeAction {
   return 'run'
 }
 
+/**
+ * Whether a state poll shows that the restarted scheduler runs again (docs/data-model.md §4.5.4): the current
+ * scheduler reports a schedule run in progress, and schedulerRestarting was raised at least the shortest restart
+ * backoff ago.
+ */
+export function schedulerRunsAgain(
+  scan: Pick<ScanDoc, 'scheduling' | 'conditions'>,
+  worker: Pick<WorkerDoc, 'role' | 'epoch'>,
+  report: Pick<StateReport, 'processes'>,
+  now: Date,
+): boolean {
+  if (worker.role !== 'scheduler' || worker.epoch !== scan.scheduling.epoch || report.processes.busy < 1) return false
+  const restarting = scan.conditions.find((condition) => condition.type === 'schedulerRestarting')
+  return restarting !== undefined && restarting.updatedAt.getTime() <= now.getTime() - MIN_RESTART_BACKOFF_MS
+}
+
 /** The processes a worker may run: schedulers 1; runners min(desired, applied) up, desired at once down. */
 export function allowedProcesses(worker: Pick<WorkerDoc, 'role' | 'processes'>, maxProcessesPerWorker: number): number {
   if (worker.role === 'scheduler') return 1
@@ -54,6 +78,8 @@ export interface StateReport {
   counters?: Record<string, number>
   scheduler?: Record<string, unknown> | null
 }
+
+type PolledScan = Pick<ScanDoc, '_id' | 'state' | 'scheduling' | 'userId' | 'conditions'>
 
 export interface RuntimeStateResponse {
   serverTime: number
@@ -73,7 +99,7 @@ export async function handleRuntimeState(principal: WorkerPrincipal, report: Sta
       [{ $set: { runtime: mergeRuntime({ lastSeenAt: now }), 'processes.running': report.processes.running, updatedAt: now } }],
       { returnDocument: 'after' },
     ),
-    scans.findOne({ _id: identity.scanId }, { projection: { state: 1, scheduling: 1 } }) as Promise<Pick<ScanDoc, '_id' | 'state' | 'scheduling'> | null>,
+    scans.findOne({ _id: identity.scanId }, { projection: { state: 1, scheduling: 1, userId: 1, conditions: 1 } }) as Promise<PolledScan | null>,
   ])
   if (!worker) {
     forgetWorker(identity.id)
@@ -89,6 +115,9 @@ export async function handleRuntimeState(principal: WorkerPrincipal, report: Sta
   })
   if (action === 'stop') forgetWorker(identity.id)
   else recordWorkerBusy({ workerId: identity.id, scanId: identity.scanId, nodeId: identity.nodeId, busy: report.busy, at: now })
+  if (action === 'run' && scan && schedulerRunsAgain(scan, worker, report, now)) {
+    await clearScanCondition(scan._id, 'schedulerRestarting', scan.userId, {}, now, new Date(now.getTime() - MIN_RESTART_BACKOFF_MS))
+  }
   if (worker.runtime === null) log.debug('state poll before the first bootstrap', { workerId: identity.id })
   return {
     serverTime: Date.now(),

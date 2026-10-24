@@ -1200,7 +1200,9 @@ Scheduler request: `"processes": {"running": 1, "busy": 1}`, `"busy": []`, and
 
 `processes` = min(desired, node-applied) while scaling up, desired immediately while scaling down. The
 `busy` list feeds `listInflightAnalyses`; it is never written to MongoDB. Effects: `runtime.lastSeenAt`,
-`processes.running` updated.
+`processes.running` updated. A poll of the current scheduler with `processes.busy: 1` (a schedule run in
+progress) clears the scan condition `schedulerRestarting`, unless the condition was raised less than 1 s before,
+the shortest restart backoff: such a poll was built before the restart.
 
 ### 8.3 `POST /api/runtime/uploads/presign`
 
@@ -1377,8 +1379,9 @@ the scheduler worker is drained; completion is checked. Idempotent for the same 
 ```
 
 HTTP 202. Effects: `workers.runtime.lastError`, event `worker.error`, condition `workerErrors`; for the
-scheduler with a `schedule`-phase or retryable error, `scheduling.restarts` is incremented (and scheduling
-fails above `SCANTOR_SCHEDULER_MAX_RESTARTS`). `fatal: true` means the runtime exits non-zero next.
+scheduler with a `schedule`-phase or retryable error, `scheduling.restarts` is incremented and the condition
+`schedulerRestarting {restarts, error}` raised, because the runtime restarts the schedule in process (above
+`SCANTOR_SCHEDULER_MAX_RESTARTS` scheduling fails instead). `fatal: true` means the runtime exits non-zero next.
 `context.stderrTail` ≤ 4 KiB.
 
 ## 9. Non-API routes

@@ -83,7 +83,8 @@ export async function raiseScanCondition(scanId: string, input: ConditionInput, 
 
 /**
  * Clears a condition. `match` narrows which entry may be cleared (for example only the `clockSkew` raised for one
- * node). Returns true when an entry was removed.
+ * node), and `updatedBefore` keeps an entry raised or refreshed after that time. Returns true when an entry was
+ * removed.
  */
 export async function clearScanCondition(
   scanId: string,
@@ -91,10 +92,12 @@ export async function clearScanCondition(
   userId: string | null,
   match: Record<string, unknown> = {},
   now = new Date(),
+  updatedBefore?: Date,
 ): Promise<boolean> {
   const { scans } = useCollections()
   const elementMatch: Record<string, unknown> = { type }
   for (const [key, value] of Object.entries(match)) elementMatch[`details.${key}`] = value
+  if (updatedBefore) elementMatch.updatedAt = { $lte: updatedBefore }
   const result = await scans.updateOne(
     { _id: scanId, conditions: { $elemMatch: elementMatch } },
     { $pull: { conditions: elementMatch as never }, $set: { updatedAt: now } },

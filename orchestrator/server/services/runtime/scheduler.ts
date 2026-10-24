@@ -7,15 +7,17 @@ import type { WorkerPrincipal } from '../../utils/principal'
 import { isoDate } from '../../utils/serialize'
 import { notifyAssignmentsChanged } from '../nodes/assignments'
 import { recordEvent } from '../nodes/events'
+import { schedulerRestartingCondition } from '../reconciler/scheduler'
 import { tryCompleteScan } from '../scans/completion'
+import { CONDITION_SEVERITY } from '../scans/conditions'
 import { clearScanCondition, raiseScanCondition } from './conditions'
 
 // Scheduler routes of the runtime API (docs/api.md §8.5–§8.7, docs/runtime.md §11): template resolutions, the
 // contiguous confirmed prefix (checkpoints with `$max` semantics) and the end of scheduling. Every call is fenced by
 // the scheduling epoch: the worker's own epoch (from its token) must be the scan's current epoch and equal the
 // epoch in the body, otherwise 409 staleEpoch with `details.currentEpoch` (docs/data-model.md §7 invariant 3, 4).
-// `countSchedulerRestart` counts scheduler crashes and retryable scheduling errors and fails scheduling above
-// SCANTOR_SCHEDULER_MAX_RESTARTS.
+// `countSchedulerRestart` counts retryable scheduling errors (in-process restarts), raises schedulerRestarting and
+// fails scheduling above SCANTOR_SCHEDULER_MAX_RESTARTS.
 
 export const MAX_RESOLUTIONS = 16
 const UNFINISHED = ['pending', 'running'] as const
@@ -215,10 +217,12 @@ export async function recordSchedulingDone(principal: WorkerPrincipal, input: Do
 
 /**
  * Counts one scheduler restart for a retryable or `schedule`-phase error report of the scheduler of `epoch`
- * (docs/api.md §8.8). Above SCANTOR_SCHEDULER_MAX_RESTARTS, scheduling fails (`scheduling.error` set, condition
- * schedulingFailed) and the next state poll returns `stop`. Crashed scheduler containers are counted by the
- * reconciler's scheduler supervision, which also owns the condition schedulerRestarting. Returns the new restart
- * count, or null when the epoch is not current or scheduling already ended.
+ * (docs/api.md §8.8). The runtime restarts the schedule in process, so the worker stays `running`: the condition
+ * schedulerRestarting is raised here and cleared by the first state poll that reports the restarted schedule
+ * running (./state.ts). Above SCANTOR_SCHEDULER_MAX_RESTARTS, scheduling fails instead (`scheduling.error` set,
+ * condition schedulingFailed) and the next state poll returns `stop`. Crashed scheduler containers are counted by
+ * the reconciler's scheduler supervision. Returns the new restart count, or null when the epoch is not current or
+ * scheduling already ended.
  */
 export async function countSchedulerRestart(scanId: string, epoch: number, error: ScantorErrorDoc, maxRestarts: number, log: Logger): Promise<number | null> {
   const { scans } = useCollections()
@@ -230,7 +234,10 @@ export async function countSchedulerRestart(scanId: string, epoch: number, error
   )
   if (!scan) return null
   const restarts = scan.scheduling.restarts
-  if (restarts > maxRestarts) {
+  if (restarts <= maxRestarts) {
+    const condition = { ...schedulerRestartingCondition(restarts, error), severity: CONDITION_SEVERITY.schedulerRestarting }
+    await raiseScanCondition(scanId, condition, scan.userId, now)
+  } else {
     const failure: ScantorErrorDoc = {
       ...error,
       retryable: false,

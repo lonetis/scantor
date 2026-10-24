@@ -281,7 +281,7 @@ Every `nextPollMs` of the last response (initially `intervals.statePollMs`) ± `
 | Request field | Value |
 |---|---|
 | `processes.running` | slots with a ready connector process and an open slot channel |
-| `processes.busy` | slots currently executing an analysis |
+| `processes.busy` | slots currently executing an analysis; for the scheduler 1 while a schedule run is in progress and 0 while it starts its connector or waits out a restart backoff (§11.9) |
 | `busy[]` | per busy slot `{seq, round, attempt, executionId, startedAt, progress}`; `progress` is the last value the connector reported with a `progress` call, else null |
 | `consuming` | true when at least one slot has an active consumer |
 | `clockOffsetMs` | current offset (§5.2), rounded |
@@ -996,7 +996,7 @@ additionally fenced by 401 on every call.
 
 | Failure | Behaviour |
 |---|---|
-| retryable (`taskError`, `retry`, `timeout`, `crash`, data-source `platform`) | report `POST /api/runtime/errors` (phase `schedule`, `fatal: false`), which increments `scheduling.restarts` (these restart reports are exempt from the per-(type, phase) rate limit of §4.3, because the orchestrator counts restarts from them; the restart backoff paces them); wait `min(backoff.maxMs, backoff.initialMs × factor^(restarts−1))` from the scan settings; recycle the connector process; resume in-process from the runtime's own current `confirmed`/`tailHash` (§11.3). When `restarts` exceeds `SCANTOR_SCHEDULER_MAX_RESTARTS`, the orchestrator fails scheduling and the next state poll returns `stop`. |
+| retryable (`taskError`, `retry`, `timeout`, `crash`, data-source `platform`) | report `POST /api/runtime/errors` (phase `schedule`, `fatal: false`), which increments `scheduling.restarts` and raises the scan condition `schedulerRestarting` until a state poll reports the restarted schedule running (`processes.busy: 1`, §5.1) (these restart reports are exempt from the per-(type, phase) rate limit of §4.3, because the orchestrator counts restarts from them; the restart backoff paces them); wait `min(backoff.maxMs, backoff.initialMs × factor^(restarts−1))` from the scan settings; recycle the connector process; resume in-process from the runtime's own current `confirmed`/`tailHash` (§11.3). When `restarts` exceeds `SCANTOR_SCHEDULER_MAX_RESTARTS`, the orchestrator fails scheduling and the next state poll returns `stop`. |
 | non-retryable (`fatal`, `validation`, deterministic `platform`) | `done` with `outcome: "failed"` (§11.7), exit 0 |
 | item timeout | no `analysis`, `templateCredit` or `done` message from the connector for `settings.timeoutMs` while the runtime is pulling ([protocol](protocol.md) §6.2): `timeout`, retryable |
 | container death | the node daemon restarts the container; the runtime bootstraps again and resumes from the stored checkpoint |

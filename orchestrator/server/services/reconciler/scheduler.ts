@@ -3,7 +3,7 @@ import type { ScanDoc, ScantorErrorDoc, WorkerDoc } from '../../types/documents'
 import type { Config } from '../../utils/config'
 import type { Logger } from '../../utils/logger'
 import { tryCompleteScan } from '../scans/completion'
-import { clearCondition, reconcileCondition, setCondition } from '../scans/conditions'
+import { clearCondition, type ConditionInput, setCondition } from '../scans/conditions'
 import { writeEvent } from '../scans/events'
 
 /*
@@ -18,8 +18,12 @@ import { writeEvent } from '../scans/events'
  *   - `restarts > SCANTOR_SCHEDULER_MAX_RESTARTS` fails scheduling (`scheduling.error`, condition schedulingFailed,
  *     event scan.schedulingFailed) unless the error path already did; the scan then completes as `failed` once its
  *     analyses are final.
- *   - the condition schedulerRestarting is raised while a restarted scheduler of the current epoch is not running and
- *     cleared once it runs again or scheduling has finished.
+ *   - the condition schedulerRestarting (schedulerRestartingCondition) is raised here while a restarted scheduler of
+ *     the current epoch is not running (its container restarts, or a replacement waits for placement), and by
+ *     POST /api/runtime/errors for every in-process restart, while the worker stays `running`
+ *     (../runtime/scheduler.ts countSchedulerRestart). Supervision never clears it for a running worker: the
+ *     scheduler's state poll does once it reports a schedule run in progress (../runtime/state.ts), and it is
+ *     cleared when scheduling has finished.
  *
  * Replacement schedulers (lost workers, resume) are created by placement with `epoch + 1` (../placement).
  */
@@ -40,6 +44,19 @@ export function schedulingError(restarts: number, maxRestarts: number, lastError
     attempt: restarts,
     at: now,
     message: `the scheduler restarted ${restarts} times (limit ${maxRestarts})${lastError ? `; last error: ${lastError.message}` : ''}`.slice(0, 4096),
+  }
+}
+
+/** The condition schedulerRestarting after `restarts` restarts (docs/data-model.md §4.5.4). */
+export function schedulerRestartingCondition(
+  restarts: number,
+  error: Pick<ScantorErrorDoc, 'type' | 'phase' | 'message'> | null | undefined,
+): ConditionInput & { type: 'schedulerRestarting' } {
+  return {
+    type: 'schedulerRestarting',
+    reason: 'restarting',
+    message: `the scheduler restarted ${restarts} time${restarts === 1 ? '' : 's'}`,
+    details: { restarts, error: error ? { type: error.type, phase: error.phase, message: error.message } : null },
   }
 }
 
@@ -108,21 +125,9 @@ export class SchedulerSupervisor {
       await this.failScheduling(scan, scheduler, restarts, now)
       return
     }
-    const lastError = scheduler?.runtime?.lastError ?? null
-    const restarting = restarts > 0 && scheduler?.state !== 'running'
-    await reconcileCondition(
-      scan,
-      'schedulerRestarting',
-      restarting
-        ? {
-            reason: 'restarting',
-            message: `the scheduler restarted ${restarts} time${restarts === 1 ? '' : 's'}`,
-            details: { restarts, error: lastError ? { type: lastError.type, phase: lastError.phase, message: lastError.message } : null },
-          }
-        : null,
-      now,
-      this.deps.scans,
-    )
+    // A running scheduler may be restarting in process; its state poll clears the condition (../runtime/state.ts).
+    if (restarts === 0 || scheduler?.state === 'running') return
+    await setCondition(scan, schedulerRestartingCondition(restarts, scheduler?.runtime?.lastError), now, this.deps.scans)
   }
 
   private async failScheduling(scan: ScanDoc, scheduler: WorkerDoc | undefined, restarts: number, now: Date): Promise<void> {

@@ -213,40 +213,29 @@ test.describe('schedule errors', () => {
     },
   )
 
-  // product bug: schedulerRestarting is never raised for in-process schedule restarts
-  test.fail(
-    'the condition schedulerRestarting is raised while the scheduler restarts',
-    {
-      tag: ['@SCHED-008'],
-      annotation: {
-        type: 'issue',
-        description:
-          'a retryable schedule error restarts the schedule in process, so the scheduler worker stays running; the reconciler raises schedulerRestarting only while the current scheduler is not running (orchestrator/server/services/reconciler/scheduler.ts supervise), and countSchedulerRestart never raises it (orchestrator/server/services/runtime/scheduler.ts)',
-      },
-    },
-    async ({ api, shared, scans }) => {
-      const { revision } = await shared.example('throws')
-      const scan = await scans.start({
-        revision: revision.ref,
-        taskConfig: { mode: 'ok', fail_in_schedule: true },
-        scanConfig: { start: 0, end: 5 },
-        // 3 s, 6 s and 12 s between the restarts: more than one reconciler tick (10 s) while restarting.
-        settings: settings({ backoff: backoff(3000, 2) }),
-      })
-      const seen = await pollScan(api, scan.id, (s) => findCondition(s, 'schedulerRestarting') !== undefined || TERMINAL_STATES.includes(s.state), {
-        what: 'schedulerRestarting',
-        intervalMs: 250,
-        timeoutMs: 90_000,
-      })
-      expect(findCondition(seen, 'schedulerRestarting'), JSON.stringify(seen.conditions)).toMatchObject({
-        type: 'schedulerRestarting',
-        severity: 'warning',
-        details: { restarts: expect.any(Number) },
-      })
-      expect((findCondition(seen, 'schedulerRestarting')!.details as { restarts: number }).restarts).toBeGreaterThanOrEqual(1)
-      expect(seen.scheduling.restarts).toBeGreaterThanOrEqual(1)
-    },
-  )
+  test('the condition schedulerRestarting is raised while the scheduler restarts', { tag: ['@SCHED-008'] }, async ({ api, shared, scans }) => {
+    const { revision } = await shared.example('throws')
+    const scan = await scans.start({
+      revision: revision.ref,
+      taskConfig: { mode: 'ok', fail_in_schedule: true },
+      scanConfig: { start: 0, end: 5 },
+      // 3 s, 6 s and 12 s between the restarts. The worker stays running; the error report raises the condition and only
+      // a state poll during a schedule run clears it, so it is up for seconds at a time.
+      settings: settings({ backoff: backoff(3000, 2) }),
+    })
+    const seen = await pollScan(api, scan.id, (s) => findCondition(s, 'schedulerRestarting') !== undefined || TERMINAL_STATES.includes(s.state), {
+      what: 'schedulerRestarting',
+      intervalMs: 250,
+      timeoutMs: 90_000,
+    })
+    expect(findCondition(seen, 'schedulerRestarting'), JSON.stringify(seen.conditions)).toMatchObject({
+      type: 'schedulerRestarting',
+      severity: 'warning',
+      details: { restarts: expect.any(Number), error: { type: 'taskError', phase: 'schedule' } },
+    })
+    expect((findCondition(seen, 'schedulerRestarting')!.details as { restarts: number }).restarts).toBeGreaterThanOrEqual(1)
+    expect(seen.scheduling.restarts).toBeGreaterThanOrEqual(1)
+  })
 
   test('Fatal in schedule fails scheduling at once; analyses published before it still run', { tag: ['@SCHED-009'] }, async ({ api, shared, scans }) => {
     const { revision } = await shared.generated('wrap')

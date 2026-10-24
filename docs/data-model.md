@@ -388,7 +388,7 @@ one entry per type; removed when cleared.
 | `crashLoop` | error | reconciler (node status), only when a worker reports `backoff` with a new `lastExit.at` and `exitCode ≠ 0` or `oomKilled`; exit code 0 (the runtime stopping after drain, stop or 401) never raises it | no worker of the scan in `backoff` for 5 min | `{workerId, nodeId, exitCode, oomKilled, restarts, logTail}` |
 | `imagePullFailed` | error | reconciler (node status) | a pull of the image succeeds | `{nodeId, message}` |
 | `workerErrors` | warning | runtime error reports | no report for 10 min | `{workerId, error}` (latest) |
-| `schedulerRestarting` | warning | reconciler | scheduler `running` again | `{restarts, error}` |
+| `schedulerRestarting` | warning | API (`POST /api/runtime/errors`, an in-process restart) / reconciler (a restarted scheduler of the current epoch that is not running) | a state poll of the current scheduler reports a schedule run in progress (`processes.busy: 1`, at least 1 s after the condition was raised), or scheduling ends | `{restarts, error}` |
 | `schedulingFailed` | error | API (`scheduler/done` failed) / reconciler | never (scan ends `failed`) | `{error}` |
 | `topologyFailed` | error | reconciler | topology ensured | `{message}` |
 | `brokerAlarm` | error | reconciler (RabbitMQ health checks) | alarm gone | `{alarms}` |

@@ -430,9 +430,10 @@ describe.skipIf(!enabled)('scans against MongoDB, RabbitMQ and RustFS', () => {
     await supervisor.run()
     expect((await reload(scan._id)).conditions).toMatchObject([{ type: 'schedulerRestarting', details: { restarts: 1 } }])
 
+    // A running scheduler may be restarting in process: its state poll clears the condition, never supervision.
     await useCollections().workers.updateOne({ scanId: scan._id }, { $set: { state: 'running' } })
     await supervisor.run()
-    expect((await reload(scan._id)).conditions).toEqual([])
+    expect((await reload(scan._id)).conditions).toMatchObject([{ type: 'schedulerRestarting', details: { restarts: 1 } }])
 
     // a crash of the current scheduler is counted once, however often the supervisor looks at it
     const crashAt = new Date(Date.now() + 1000)

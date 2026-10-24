@@ -312,6 +312,32 @@ describe.skipIf(!integrationEnabled)('runtime API against MongoDB and RustFS', (
       const scan = (await useCollections().scans.findOne({ _id: scanId }))!
       expect(scan.conditions.map((condition) => condition.type)).toContain('workerErrors')
       expect(await useCollections().events.countDocuments({ type: 'worker.error', workerId: schedulerId })).toBe(2)
+      // The schedule restarts in process, so the worker stays running: the report raised schedulerRestarting.
+      expect(scan.conditions.find((condition) => condition.type === 'schedulerRestarting')).toMatchObject({
+        severity: 'warning',
+        reason: 'restarting',
+        details: { restarts: 2, error: { type: 'platform', phase: 'schedule', message: '$fetch failed' } },
+      })
+    })
+
+    it('clears schedulerRestarting once a state poll shows the restarted schedule running', async () => {
+      const { scans } = useCollections()
+      const restarting = async () => (await scans.findOne({ _id: scanId }))!.conditions.find((condition) => condition.type === 'schedulerRestarting')
+      const raisedAt = (at: Date) => scans.updateOne({ _id: scanId, 'conditions.type': 'schedulerRestarting' }, { $set: { 'conditions.$.updatedAt': at } })
+      const poll = async (busy: number) =>
+        handleRuntimeState(await principal(schedulerId), { processes: { running: 1, busy }, busy: [], consuming: false, clockOffsetMs: 0, tmpFreeBytes: 1 }, config, log)
+      expect(await restarting()).toBeDefined()
+      // Waiting out the restart backoff (no schedule run), or a poll built before the restart (less than 1 s after the report).
+      await raisedAt(new Date())
+      expect((await poll(0)).action).toBe('run')
+      await poll(1)
+      expect(await restarting()).toBeDefined()
+      await raisedAt(new Date(Date.now() - 2000))
+      await poll(0)
+      expect(await restarting()).toBeDefined()
+      await poll(1)
+      expect(await restarting()).toBeUndefined()
+      expect(await useCollections().events.countDocuments({ scanId, type: 'scan.conditionCleared', 'data.type': 'schedulerRestarting' })).toBe(1)
     })
 
     it('ends scheduling, drains the scheduler and is idempotent for its epoch', async () => {
