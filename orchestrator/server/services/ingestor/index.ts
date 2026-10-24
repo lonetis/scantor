@@ -41,6 +41,7 @@ async function pingWritablePrimary(): Promise<boolean> {
 
 export class Ingestor {
   private cache: ScanStateCache | null = null
+  private processor: BatchProcessor | null = null
   private consumers: (ResultConsumer | DeadLetterConsumer)[] = []
 
   constructor(private readonly options: IngestorOptions) {}
@@ -58,6 +59,7 @@ export class Ingestor {
     this.cache = new ScanStateCache(collections.scans, log.child({ part: 'scan-cache' }), { watch: this.options.watchScans })
     this.cache.start()
     const processor = new BatchProcessor({ analyses: collections.analyses, scans: collections.scans, cache: this.cache, config, hooks, log })
+    this.processor = processor
     const common = { connection, log, pingWritable }
     const results = new ResultConsumer({ ...common, consumerTag: `scantor-ingestor-${instanceId}` }, config, processor)
     const deadLetters = new DeadLetterConsumer(
@@ -74,6 +76,8 @@ export class Ingestor {
   async stop(): Promise<void> {
     await Promise.all(this.consumers.map((consumer) => consumer.stop()))
     this.consumers = []
+    this.processor?.stop()
+    this.processor = null
     await this.cache?.stop()
     this.cache = null
   }

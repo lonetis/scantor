@@ -591,7 +591,9 @@ The recount and the completion function are shared by the ingestor and the recon
 ```js
 // recount (authoritative), index {scanId: 1, status: 1, seq: 1}
 analyses.aggregate([{ $match: { scanId } }, { $group: { _id: "$status", n: { $sum: 1 } } }])
-// → $set stats.{pending, retrying, succeeded, failed, lost, cancelled}, stats.recountedAt
+// → $set stats.{pending, retrying, succeeded, failed, lost, cancelled}, stats.recountedAt, only while the hints
+//   stats.{succeeded, failed, retrying} still hold the values read before counting (else count again; the third
+//   attempt writes anyway)
 
 // completion (idempotent, the only path to completed/failed)
 if (succeeded + failed + lost + cancelled >= scheduling.confirmed)
@@ -603,16 +605,18 @@ if (succeeded + failed + lost + cancelled >= scheduling.confirmed)
 The ingestor triggers `checkCompletion(scanId)` (recount, then the conditional update) after a flush when, from
 the scan as the flush's hint update returned it (§6.8), `scheduling.state ∈ {done, failed}`, the scan is `running`,
 and the hint terminal count (`succeeded + failed + lost + cancelled`) is at least `scheduling.confirmed`; at most once
-per scan and round per 10 s. The cached scan is not used for this: it predates the increments of the previous flushes
-until the change stream invalidates it, so the flush with a round's last results would see too few. Only when the hint
-update failed does the check fall back to the cached scan plus the flush's own results. The throttle is per round, so
-the first check of a retry-failed round never waits for the trigger that completed the round before.
+per scan and round per 10 s, and a check that this interval holds back runs once when the interval ends. The cached
+scan is not used for this: it predates the increments of the previous flushes until the change stream invalidates it,
+so the flush with a round's last results would see too few. Only when the hint update failed does the check fall back
+to the cached scan plus the flush's own results. The throttle is per round, so the first check of a retry-failed round
+never waits for the trigger that completed the round before.
 Other triggers (reconciler): scheduler `done`, end of retry-failed, resume, every 60 s per running scan, and once
 more two minutes after a scan entered a terminal state to absorb late duplicates. A paused scan is recounted (never
 completed) at the same 60 s cadence while its `updatedAt` is newer than `stats.recountedAt`, so results of work that
-finished during the drain do not leave drifted hints on it. A hint that overestimates causes an early recount, and when the
-round's last results arrive within the following 10 s, completion waits for the periodic recount; one that
-underestimates delays completion until the periodic recount.
+finished during the drain do not leave drifted hints on it. A hint that overestimates causes an early recount and delays
+completion by at most the 10 s interval; one that underestimates delays it until the periodic recount. The recount
+itself must not create underestimates: a flush whose write and hint increment both fall between the recount's
+aggregation and its write would be overwritten, so the write is conditional on the hints it read before counting.
 
 ### 6.10 Circuit breaker
 

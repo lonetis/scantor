@@ -50,7 +50,7 @@ const workerErrors = (scan: Scan) => findCondition(scan, 'workerErrors')
 test.describe('backpressure', () => {
   test(
     'a 20 000-analysis scan completes through a queue of at most 500 ready messages with exact counts',
-    { tag: ['@SCHED-005'] },
+    { tag: ['@SCHED-005', '@SCAN-040'] },
     async ({ api, shared, scans }) => {
       // The documented case: 20 000 analyses through a queue of 500 take a minute or two.
       test.setTimeout(360_000)
@@ -92,10 +92,14 @@ test.describe('backpressure', () => {
 
       expect(final.scheduling).toMatchObject({ state: 'done', confirmed: 20_000, restarts: 0 })
       expect(await scans.counts(scan.id)).toEqual({ succeeded: 20_000 })
-      const analyses = await allAnalyses(api, scan.id, ['config', 'result'])
+      const analyses = await allAnalyses(api, scan.id, ['config', 'result', 'updatedAt'])
       expect(analyses).toHaveLength(20_000)
       expect(analyses.every((a, i) => a.seq === i && (a.config as { value: number }).value === i)).toBe(true)
       expect(analyses.every((a) => (a.result as { value: number }).value === a.seq)).toBe(true)
+      // The ingestor completes the scan within its 10 s check interval of the last result, also when the scheduler's
+      // done recount ran while the last results were ingested (docs/queue.md §6.9), never only at the 60 s recount.
+      const lastIngested = Math.max(...analyses.map((a) => Date.parse(a.updatedAt)))
+      expect(Date.parse(final.completedAt!) - lastIngested, 'completion after the last ingested result (ms)').toBeLessThan(15_000)
     },
   )
 

@@ -80,12 +80,34 @@ function statsSet(stats: CountedStats, now: Date): Record<string, unknown> {
 
 const RECOUNT_PROJECTION = { _id: 1, userId: 1, state: 1, round: 1, scheduling: 1, stats: 1 } as const
 
+/** Counting attempts of one recount; only the last one writes even though the hint counters moved meanwhile. */
+export const RECOUNT_ATTEMPTS = 3
+
 type RecountView = Pick<ScanDoc, '_id' | 'userId' | 'state' | 'round' | 'scheduling' | 'stats'>
 
+/** The hint counters the ingestor increments (docs/queue.md §6.8), as read before counting. */
+function hintsUnchanged(stats: ScanStatsDoc): Record<string, number> {
+  return { 'stats.succeeded': stats.succeeded, 'stats.failed': stats.failed, 'stats.retrying': stats.retrying }
+}
+
+/**
+ * Counts the scan's analyses and writes the exact stats. The ingestor increments the hint counters after each flush,
+ * and an increment that lands between the read of the scan and this write belongs to results the aggregation may
+ * not have seen: overwriting it would leave the hints short until the next recount, and the ingestor's completion
+ * check would miss the round's last results (docs/queue.md §6.9). So the write requires the hints it started from
+ * and the recount counts again when they moved; the last attempt writes anyway.
+ */
 async function recount(scan: RecountView, deps: CompletionCollections, now: Date): Promise<{ stats: ScanStatsDoc; counted: CountedStats }> {
-  const counted = statsFromCounts(await countStatuses(scan._id, deps.analyses), scan)
-  await deps.scans.updateOne({ _id: scan._id }, { $set: statsSet(counted, now) })
-  return { counted, stats: { ...scan.stats, ...counted, recountedAt: now } }
+  let view = scan
+  for (let attempt = 1; ; attempt++) {
+    const counted = statsFromCounts(await countStatuses(view._id, deps.analyses), view)
+    const last = attempt >= RECOUNT_ATTEMPTS
+    const written = await deps.scans.updateOne(last ? { _id: view._id } : { _id: view._id, ...hintsUnchanged(view.stats) }, { $set: statsSet(counted, now) })
+    if (last || written.matchedCount > 0) return { counted, stats: { ...view.stats, ...counted, recountedAt: now } }
+    const fresh = (await deps.scans.findOne({ _id: view._id }, { projection: RECOUNT_PROJECTION })) as RecountView | null
+    if (!fresh) return { counted, stats: { ...view.stats, ...counted, recountedAt: now } }
+    view = fresh
+  }
 }
 
 /** The authoritative recount of one scan; writes `stats` and `stats.recountedAt` and returns the new stats. */

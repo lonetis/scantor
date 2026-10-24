@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   type CompletionCollections,
+  RECOUNT_ATTEMPTS,
   recountScan,
   statsFromCounts,
   terminalOf,
@@ -17,13 +18,23 @@ import { analysisDoc, scanDoc as fixtureScan } from './fixtures'
 
 /** The fake collection plus the `$match` + `$group by $status` aggregation the recount runs. */
 class FakeAnalyses extends FakeCollection<AnalysisDoc> {
+  /** runs after each aggregation has counted, before the recount writes: what the ingestor does meanwhile */
+  afterCount: (() => Promise<void>) | null = null
+  aggregations = 0
+
   aggregate(pipeline: Record<string, unknown>[]) {
     const match = (pipeline[0]?.$match ?? {}) as Record<string, unknown>
     const counts = new Map<string, number>()
     for (const doc of this.docs.filter((candidate) => matches(candidate, match))) {
       counts.set(doc.status as string, (counts.get(doc.status as string) ?? 0) + 1)
     }
-    return { toArray: async () => [...counts].map(([status, n]) => ({ _id: status, n })) }
+    this.aggregations += 1
+    return {
+      toArray: async () => {
+        await this.afterCount?.()
+        return [...counts].map(([status, n]) => ({ _id: status, n }))
+      },
+    }
   }
 }
 
@@ -71,6 +82,51 @@ describe('recountScan', () => {
     const stored = await scans.findOne({ _id: SCAN_ID })
     expect(stored?.stats).toMatchObject({ pending: 1, retrying: 1, succeeded: 1, failed: 1, lost: 1, cancelled: 0, ratePerMin: 12 })
     expect(stored?.stats.recountedAt).toBeInstanceOf(Date)
+  })
+})
+
+describe('recount against the ingestor', () => {
+  /** One ingestor flush: the result is written, then the hint counter is incremented (docs/queue.md §6.4, §6.8). */
+  async function flushOne(scans: FakeCollection<ScanDoc>, analyses: FakeAnalyses, seq: number): Promise<void> {
+    await analyses.insertOne(analysis(seq, 'succeeded'))
+    await scans.updateOne({ _id: SCAN_ID }, { $inc: { 'stats.succeeded': 1 } })
+  }
+
+  it('counts again when a flush lands between its count and its write, so the hints keep that result', async () => {
+    const { scans, analyses, deps } = await setup(scanDoc({ scheduling: { confirmed: 3 }, stats: { ...scanDoc().stats, succeeded: 1 } }), ['succeeded'])
+    let flushed = false
+    analyses.afterCount = async () => {
+      if (flushed) return
+      flushed = true
+      await flushOne(scans, analyses, 1)
+    }
+    const stats = await recountScan(SCAN_ID, deps)
+    expect(analyses.aggregations).toBe(2)
+    expect(stats.succeeded).toBe(2)
+    expect((await scans.findOne({ _id: SCAN_ID }))?.stats.succeeded).toBe(2)
+  })
+
+  it('lets the completion check see the last results of a round that arrived while it counted', async () => {
+    const { scans, analyses, deps } = await setup(scanDoc({ scheduling: { confirmed: 2 }, stats: { ...scanDoc().stats, succeeded: 1 } }), ['succeeded'])
+    let flushed = false
+    analyses.afterCount = async () => {
+      if (flushed) return
+      flushed = true
+      await flushOne(scans, analyses, 1)
+    }
+    expect(await tryCompleteScan(SCAN_ID, 'schedulerDone', deps)).toBe(true)
+    expect(await scans.findOne({ _id: SCAN_ID })).toMatchObject({ state: 'completed', stats: { succeeded: 2 } })
+  })
+
+  it('writes on its last attempt while the hints keep moving', async () => {
+    const { scans, analyses, deps } = await setup(scanDoc({ stats: { ...scanDoc().stats, succeeded: 1 } }), ['succeeded'])
+    let seq = 0
+    analyses.afterCount = () => flushOne(scans, analyses, ++seq)
+    const stats = await recountScan(SCAN_ID, deps)
+    expect(analyses.aggregations).toBe(RECOUNT_ATTEMPTS)
+    // The last count saw RECOUNT_ATTEMPTS analyses; the flush after it is lost from the hints until the next recount.
+    expect(stats.succeeded).toBe(RECOUNT_ATTEMPTS)
+    expect((await scans.findOne({ _id: SCAN_ID }))?.stats.succeeded).toBe(RECOUNT_ATTEMPTS)
   })
 })
 

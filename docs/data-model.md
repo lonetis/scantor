@@ -928,7 +928,9 @@ completed | failed | cancelled ──delete──► deleting ──job──►
 
 Completion function (the only path to `completed`/`failed`, idempotent):
 1. Recount: `aggregate([{$match: {scanId}}, {$group: {_id: "$status", n: {$sum: 1}}}])`; write `stats` and
-   `recountedAt`.
+   `recountedAt` only while `stats.succeeded`, `stats.failed` and `stats.retrying` still hold the values read before
+   the aggregation, so a concurrent hint increment of the ingestor is not lost; otherwise read and count again (the
+   third attempt writes unconditionally, [queue](queue.md) §6.9).
 2. If `succeeded + failed + lost + cancelled ≥ scheduling.confirmed`:
    `findOneAndUpdate({_id, state: "running", round: R, "scheduling.state": {$in: ["done", "failed"]}},
    {$set: {state: <"failed" if scheduling.error else "completed">, stateReason, stats, completedAt}})`.

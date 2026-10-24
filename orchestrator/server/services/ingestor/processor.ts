@@ -137,6 +137,8 @@ export class BatchProcessor {
   private readonly rate = new RateWindow()
   private readonly breaker: BreakerWindow
   private readonly lastCompletionTrigger = new Map<string, { round: number; at: number }>()
+  /** checks held back by the interval, run when it ends (one per scan) */
+  private readonly deferredCompletions = new Map<string, NodeJS.Timeout>()
   private readonly now: () => Date
   private lastSweep = 0
 
@@ -303,20 +305,45 @@ export class BatchProcessor {
 
   /**
    * Triggers completion when the hint terminal count reaches the confirmed count, at most every 10 s per scan and
-   * round: a trigger of an earlier round (which completed it) never holds back the first trigger of a retry round.
+   * round: a trigger of an earlier round (which completed it) never holds back the first trigger of a retry round. A
+   * check the interval holds back runs once when it ends, so a trigger that came too early (hints that overestimate)
+   * cannot leave the round's last results to the periodic recount.
    */
   private checkCompletion(view: CompletionView, nowMs: number): void {
     if (view.state !== 'running') return
     if (view.schedulingState !== 'done' && view.schedulingState !== 'failed') return
     if (view.terminal < view.confirmed) return
     const last = this.lastCompletionTrigger.get(view.id)
-    if (last && last.round === view.round && nowMs - last.at < COMPLETION_TRIGGER_INTERVAL_MS) return
-    this.lastCompletionTrigger.set(view.id, { round: view.round, at: nowMs })
-    this.deps.hooks.tryCompleteScan(view.id, 'ingestor').then(
+    if (last && last.round === view.round && nowMs - last.at < COMPLETION_TRIGGER_INTERVAL_MS) {
+      this.deferCompletion(view.id, view.round, last.at + COMPLETION_TRIGGER_INTERVAL_MS - nowMs)
+      return
+    }
+    this.triggerCompletion(view.id, view.round, nowMs)
+  }
+
+  private deferCompletion(scanId: string, round: number, delayMs: number): void {
+    if (this.deferredCompletions.has(scanId)) return
+    const timer = setTimeout(() => {
+      this.deferredCompletions.delete(scanId)
+      this.triggerCompletion(scanId, round, this.now().getTime())
+    }, delayMs)
+    timer.unref()
+    this.deferredCompletions.set(scanId, timer)
+  }
+
+  private triggerCompletion(scanId: string, round: number, nowMs: number): void {
+    this.lastCompletionTrigger.set(scanId, { round, at: nowMs })
+    this.deps.hooks.tryCompleteScan(scanId, 'ingestor').then(
       (completed) => {
-        if (completed) this.deps.cache.invalidate(view.id)
+        if (completed) this.deps.cache.invalidate(scanId)
       },
-      (error: unknown) => this.deps.log.error('completion check failed', { scanId: view.id, err: error }),
+      (error: unknown) => this.deps.log.error('completion check failed', { scanId, err: error }),
     )
+  }
+
+  /** Drops the completion checks still waiting for their interval (the ingestor stops). */
+  stop(): void {
+    for (const timer of this.deferredCompletions.values()) clearTimeout(timer)
+    this.deferredCompletions.clear()
   }
 }

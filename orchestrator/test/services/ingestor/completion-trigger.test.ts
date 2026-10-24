@@ -1,12 +1,12 @@
 import type { Collection, Document } from 'mongodb'
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { BatchProcessor, COMPLETION_TRIGGER_INTERVAL_MS, type FlushResult, type IngestorHooks } from '../../../server/services/ingestor/processor'
 import type { CachedScan, ScanStateCache } from '../../../server/services/ingestor/scan-cache'
 import type { ScanDoc } from '../../../server/types/documents'
 import { useLogger } from '../../../server/utils/logger'
 
 // The ingestor's completion trigger after a flush (docs/queue.md §6.8–§6.9): it reads the hint counters its own
-// increment returned, and it throttles per scan and round.
+// increment returned, and it throttles per scan and round, running a held-back check when the interval ends.
 
 const SCAN = '0b6c2f4e-7d1a-4e8b-9c3f-5a2d1e0f9b8c'
 
@@ -91,11 +91,14 @@ function flush(scan: CachedScan, tally: { succeeded?: number; failed?: number },
 }
 
 describe('the completion trigger of a flush', () => {
+  beforeEach(() => vi.useFakeTimers({ now: new Date('2026-10-24T10:00:00.000Z') }))
+  afterEach(() => vi.useRealTimers())
+
   it('counts the results of earlier flushes that the cached scan does not show yet', async () => {
     const doc = storedScan({ stats: { succeeded: 2, failed: 0, retrying: 0, lost: 0, cancelled: 0 } })
     const { batch, triggers } = processor(scansCollection(doc))
     // The cache was filled before the increments of the two earlier flushes reached the change stream.
-    await batch.finish(flush(cached(doc, { succeeded: 0 }), { succeeded: 1 }, 1_000_000))
+    await batch.finish(flush(cached(doc, { succeeded: 0 }), { succeeded: 1 }, Date.now()))
     expect(doc.stats.succeeded).toBe(3)
     expect(triggers).toEqual([SCAN])
   })
@@ -103,43 +106,73 @@ describe('the completion trigger of a flush', () => {
   it('does not trigger while the hints are short of the confirmed analyses, or for a scan that is not running', async () => {
     const doc = storedScan()
     const { batch, triggers } = processor(scansCollection(doc))
-    await batch.finish(flush(cached(doc), { succeeded: 2 }, 1_000_000))
+    await batch.finish(flush(cached(doc), { succeeded: 2 }, Date.now()))
     expect(triggers).toEqual([])
     doc.state = 'paused'
-    await batch.finish(flush(cached(doc), { failed: 1 }, 1_001_000))
+    await batch.finish(flush(cached(doc), { failed: 1 }, Date.now() + 1_000))
     expect(doc.stats.failed).toBe(1)
     expect(triggers).toEqual([])
   })
 
-  it('throttles a round to one trigger per interval, but never holds back the first trigger of a retry round', async () => {
+  it('throttles a round to one check per interval and runs a held-back check once when the interval ends', async () => {
     const doc = storedScan()
     const { batch, triggers } = processor(scansCollection(doc))
     // The cache is up to date here, so only the throttle decides.
     const fresh = () => cached(doc, { ...doc.stats })
-    const start = 1_000_000
-    await batch.finish(flush(fresh(), { failed: 3 }, start))
+    await batch.finish(flush(fresh(), { failed: 3 }, Date.now()))
     expect(triggers).toHaveLength(1)
-    // The same round within the interval: no second recount.
-    await batch.finish(flush(fresh(), { succeeded: 1 }, start + 1_000))
+    // Two more flushes of the same round within the interval: no recount now, one when the interval ends.
+    vi.advanceTimersByTime(1_000)
+    await batch.finish(flush(fresh(), { succeeded: 1 }, Date.now()))
+    vi.advanceTimersByTime(1_000)
+    await batch.finish(flush(fresh(), { succeeded: 1 }, Date.now()))
     expect(triggers).toHaveLength(1)
-
-    // retry-failed reset the failures and published them in round 2; their results arrive 3 s after the last trigger.
-    Object.assign(doc, { round: 2, stats: { succeeded: 1, failed: 0, retrying: 0, lost: 0, cancelled: 0 } })
-    doc.scheduling.confirmed = 4
-    await batch.finish(flush(fresh(), { failed: 3 }, start + 3_000))
+    vi.advanceTimersByTime(COMPLETION_TRIGGER_INTERVAL_MS - 2_001)
+    expect(triggers).toHaveLength(1)
+    vi.advanceTimersByTime(1)
     expect(triggers).toHaveLength(2)
-    await batch.finish(flush(fresh(), { failed: 1 }, start + 3_000 + COMPLETION_TRIGGER_INTERVAL_MS - 1))
+    // The held-back check counts as the round's last trigger: a flush 1 s later waits for the interval again.
+    vi.advanceTimersByTime(1_000)
+    await batch.finish(flush(fresh(), { succeeded: 1 }, Date.now()))
     expect(triggers).toHaveLength(2)
-    await batch.finish(flush(fresh(), { failed: 1 }, start + 3_000 + COMPLETION_TRIGGER_INTERVAL_MS))
+    vi.advanceTimersByTime(COMPLETION_TRIGGER_INTERVAL_MS - 1_000)
     expect(triggers).toHaveLength(3)
+    vi.advanceTimersByTime(2 * COMPLETION_TRIGGER_INTERVAL_MS)
+    expect(triggers).toHaveLength(3)
+    batch.stop()
+  })
+
+  it('never holds back the first check of a retry round', async () => {
+    const doc = storedScan()
+    const { batch, triggers } = processor(scansCollection(doc))
+    const fresh = () => cached(doc, { ...doc.stats })
+    await batch.finish(flush(fresh(), { failed: 3 }, Date.now()))
+    expect(triggers).toHaveLength(1)
+    // retry-failed reset the failures and published them in round 2; their results arrive 3 s after the last trigger.
+    vi.advanceTimersByTime(3_000)
+    Object.assign(doc, { round: 2, stats: { succeeded: 0, failed: 0, retrying: 0, lost: 0, cancelled: 0 } })
+    await batch.finish(flush(fresh(), { failed: 3 }, Date.now()))
+    expect(triggers).toHaveLength(2)
+    batch.stop()
+  })
+
+  it('stop drops the checks still waiting for their interval', async () => {
+    const doc = storedScan()
+    const { batch, triggers } = processor(scansCollection(doc))
+    await batch.finish(flush(cached(doc, { ...doc.stats }), { failed: 3 }, Date.now()))
+    vi.advanceTimersByTime(1_000)
+    await batch.finish(flush(cached(doc, { ...doc.stats }), { failed: 1 }, Date.now()))
+    batch.stop()
+    vi.advanceTimersByTime(2 * COMPLETION_TRIGGER_INTERVAL_MS)
+    expect(triggers).toHaveLength(1)
   })
 
   it('falls back to the cached scan and the flush’s own results when the hint update fails', async () => {
     const doc = storedScan()
     const { batch, triggers } = processor(scansCollection(doc, { failing: true }))
-    await batch.finish(flush(cached(doc, { succeeded: 1 }), { succeeded: 1 }, 1_000_000))
+    await batch.finish(flush(cached(doc, { succeeded: 1 }), { succeeded: 1 }, Date.now()))
     expect(triggers).toEqual([])
-    await batch.finish(flush(cached(doc, { succeeded: 2 }), { failed: 1 }, 1_001_000))
+    await batch.finish(flush(cached(doc, { succeeded: 2 }), { failed: 1 }, Date.now() + 1_000))
     expect(triggers).toEqual([SCAN])
   })
 })
