@@ -130,7 +130,7 @@ Conventions for recipes:
 | `build-images *targets` | `docker buildx bake --load` of `docker-bake.hcl` targets (default: the `dev` group, §10), tagged `:dev` without registry prefix |
 | `test-images-save` | `docker save` every image of the `test` bake group into `.test-images/` (CI, §12 of [testing](testing.md)) |
 | **Quality** | |
-| `lint` | `golangci-lint run` (Go), `ruff check` (Python connector), ESLint (orchestrator with `@nuxt/eslint`, tests, JS connector; `vue/no-v-html` is an error), `tests/scripts/check-terms.mjs`, `tests/scripts/lint-env.mjs`, `lint-compose` ([testing](testing.md) §11) |
+| `lint` | `golangci-lint run` (Go), `ruff check` (Python connector), ESLint (orchestrator with `@nuxt/eslint`, tests, JS connector; `vue/no-v-html` is an error), `tests/scripts/check-terms.mjs`, `tests/scripts/lint-env.mjs`, the `tests/scripts/*.test.mjs` unit tests (`node --test`), `lint-compose` ([testing](testing.md) §11) |
 | `lint-compose` | `tests/scripts/lint-compose.mjs`: the infrastructure services are identical in `docker-compose.dev.yml` and `docker-compose.prod.yml`, and the compose security rules of [security](security.md) hold |
 | `typecheck` | `nuxt typecheck` (vue-tsc), `tsc --noEmit` for `tests/` and `connectors/js/`, `basedpyright` for `connectors/python/` |
 | `fmt` | `golangci-lint fmt` (gofmt + goimports), `ruff format`, `prettier --write` |

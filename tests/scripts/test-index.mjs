@@ -6,9 +6,13 @@
 // FEATURES.md also validates its format: unique ids whose prefix matches their section, known surfaces, one line
 // per feature.
 //
-//   node scripts/test-index.mjs [--check]        (just test-index [--check])
+//   just test-index [--check]
+//
+// The recipe runs it in the Playwright image; inside the test runner `node scripts/test-index.mjs [--check]` works too.
+// Anywhere else it refuses to run (containerProblem), because listing loads every spec and helper, and those are
+// written for the dockerized runner.
 import { spawnSync } from 'node:child_process'
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -60,6 +64,19 @@ function summary(text) {
   if (plain.length <= SUMMARY_LENGTH) return plain
   const cut = plain.slice(0, SUMMARY_LENGTH)
   return `${cut.slice(0, cut.lastIndexOf(' ') > 0 ? cut.lastIndexOf(' ') : SUMMARY_LENGTH)} …`
+}
+
+/**
+ * Why this process may not list the suite, or null inside a Linux container (Docker's /.dockerenv, Podman's
+ * /run/.containerenv). Specs and helpers run module code for the runner (Linux procfs, /src, /run/scantor-test), so
+ * a listing on another host fails on unrelated errors or lists a different suite.
+ */
+export function containerProblem({ platform = process.platform, exists = existsSync } = {}) {
+  if (platform === 'linux' && (exists('/.dockerenv') || exists('/run/.containerenv'))) return null
+  return (
+    'test-index.mjs runs only inside a Linux container, because listing the suite loads every spec and helper, which ' +
+    'expect the dockerized runner: run `just test-index` (or `just test-index --check`) instead (docs/testing.md §10)'
+  )
 }
 
 /** The suite as Playwright lists it: [{project, file, describe, title, tags}]. */
@@ -177,6 +194,8 @@ export function generate() {
 }
 
 function main() {
+  const problem = containerProblem()
+  if (problem) throw new Error(problem)
   const check = process.argv.includes('--check')
   const file = join(testsDir, 'TESTS.md')
   const current = readFileSync(file, 'utf8')
@@ -201,9 +220,12 @@ function main() {
   console.log(`TESTS.md: ${next === current ? 'up to date' : 'regenerated'} (${uncovered.length} uncovered, ${unknown.length} unknown tags)`)
 }
 
-try {
-  main()
-} catch (error) {
-  console.error(error instanceof Error ? error.message : error)
-  process.exit(1)
+// Imported by its unit tests (test-index.test.mjs), it only exports.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    main()
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    process.exit(1)
+  }
 }

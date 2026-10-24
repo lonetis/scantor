@@ -274,8 +274,8 @@ lint: _caches
       for dir in orchestrator tests connectors/js; do
         (cd "$dir" && {{npm_ci}} && npx --no-install eslint .)
       done'
-    echo "==> Terminology and .env.example"
-    {{run}} {{node_image}} sh -euc 'node tests/scripts/check-terms.mjs && node tests/scripts/lint-env.mjs'
+    echo "==> Terminology, .env.example and the tests/scripts unit tests"
+    {{run}} {{node_image}} sh -euc 'node tests/scripts/check-terms.mjs && node tests/scripts/lint-env.mjs && node --test tests/scripts/*.test.mjs'
     {{just}} lint-compose
 
 # Check the compose files: identical infrastructure services in dev and prod, compose security rules

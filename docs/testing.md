@@ -20,7 +20,7 @@ conventions and the CI workflow. Behaviour under test is defined by the other do
 | Orchestrator integration tests (vitest, opt-in) | `orchestrator/test/services/**/*.integration.test.ts` | a root `node:26.12.1-trixie-slim` container with the Docker socket (§4.2) | throwaway MongoDB, RabbitMQ, RustFS, registry and code-server containers, started by the recipe and the harness | `just test-orchestrator-integration`; skipped by `just test-orchestrator` |
 | Connector unit tests | `connectors/python/tests`, `connectors/js/test`, `connectors/go/*_test.go` | each base image's `test` stage | no | `just test-connectors [base]` |
 | Conformance harness | `internal/conformance` + fixture tasks | each base image (through the task pipeline) | Docker only | `just test-conformance [language]` |
-| Static checks (terminology, compose, `.env.example`, test index) | `tests/scripts/*.mjs` | node container | no | `just lint` (includes `just lint-compose`), `just test-index --check` |
+| Static checks (terminology, compose, `.env.example`, test index) and their unit tests | `tests/scripts/*.mjs`, `tests/scripts/*.test.mjs` (`node:test`) | node container (the test index: the Playwright image) | no | `just lint` (includes `just lint-compose`), `just test-index --check` |
 | Dockerized Playwright suite (API, UI, e2e, MCP, authz, security, scaffold matrix, chaos) | `tests/` | privileged DinD runner (`docker-compose.tests.yml`) | fresh master + remote node inside the runner | `just test-e2e`, `just test-api`, `just test-ui` |
 
 `just test` runs `test-unit` (Go, orchestrator, connectors, conformance) followed by `test-e2e`. Every
@@ -74,7 +74,8 @@ tests/
 │   └── fixtures/                fixtures server image: Dockerfile, main.go (templatestest data sources, git
 │                                smart-HTTP, control API), build-repos.sh, repo-task/ (the repositories' task)
 ├── scripts/
-│   ├── test-index.mjs           generates the TESTS.md index; --check mode
+│   ├── test-index.mjs           generates the TESTS.md index; --check mode (only inside a Linux container)
+│   ├── test-index.test.mjs      node:test unit tests of test-index.mjs (`just lint`)
 │   ├── check-terms.mjs          terminology lint for UI strings and guides
 │   ├── lint-compose.mjs         compose rules (§11), run by `just lint-compose`
 │   └── lint-env.mjs             `.env.example` rules (§11)
@@ -840,7 +841,10 @@ runbook) and a generated index between `<!-- BEGIN GENERATED: test-index -->` an
 `just test-index` runs `tests/scripts/test-index.mjs` in the Playwright image: it calls
 `npx playwright test --list --reporter=json` (no stack needed) and parses FEATURES.md, failing on a line that
 breaks its format (a malformed feature line, a duplicate id, an id outside its area's section, an unknown
-surface). No document anywhere (README, CLAUDE.md, docs, FEATURES.md) contains hand-kept test or feature
+surface). Listing loads every spec and helper, and those are written for the runner (Linux procfs, `/src`,
+`/run/scantor-test`), so the script refuses to run outside a Linux container and names `just test-index`
+instead; inside the test runner (`docker exec scantor-test-runner node scripts/test-index.mjs --check`) it
+works too. No document anywhere (README, CLAUDE.md, docs, FEATURES.md) contains hand-kept test or feature
 counts. CI runs `just test-index --check`.
 
 Every change that adds or changes behaviour updates FEATURES.md, adds or adjusts tagged tests and
@@ -882,6 +886,8 @@ regenerates the index in the same commit ([development](development.md) §13).
   `SCANTOR_DEBUG_PORT`) and the connector protocol variables of [protocol](protocol.md)
   (`SCANTOR_PROTOCOL_IN_FD`, `SCANTOR_PROTOCOL_OUT_FD`, `SCANTOR_PROTOCOL_VERSIONS`,
   `SCANTOR_PROCESS_INDEX`).
+- `tests/scripts/*.test.mjs` (part of `just lint`, `node --test`, dependency-free) unit-test the scripts'
+  pure functions, for example the container check of `test-index.mjs`.
 - `authz/openapi-lint.spec.ts` (§8.5) enforces the OpenAPI extensions at runtime.
 
 ## 12. CI workflow (`.github/workflows/test.yml`)
