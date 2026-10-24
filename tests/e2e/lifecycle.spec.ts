@@ -33,6 +33,7 @@ import {
   type DelayedResult,
 } from '../helpers/api-scans-broker'
 import { scantor } from '../helpers/cli'
+import { allAnalyses } from '../helpers/e2e-runtime'
 import { innerDocker } from '../helpers/docker'
 import { SMALL_SETTINGS } from '../helpers/scans'
 import { expect, test as base, unique } from '../fixtures'
@@ -654,6 +655,31 @@ test.describe('retry-failed', () => {
     expect(job.state).toBe('cancelled')
     expect((await getScan(api, scan.id)).scheduling.state).toBe('done')
   })
+
+  test(
+    'a retry round started right after the round before completes as soon as its last result is ingested',
+    { tag: ['@SCAN-040', '@SCAN-032'] },
+    async ({ api, shared, scans }) => {
+      const { revision } = await shared.get('lifecycle')
+      const scan = await scans.start({ revision: revision.ref, taskConfig: { mode: 'fatal' }, scanConfig: { count: 3 } })
+      await scans.wait(scan.id, { timeoutMs: 120_000 })
+      expect(await scans.counts(scan.id)).toEqual({ failed: 3 })
+
+      // Round 2 starts at once, so its results usually arrive within 10 s of the ingestor's completion of round 1:
+      // completing it must not wait for the reconciler's 60 s recount (docs/queue.md §6.9).
+      ok(await scanOps(api).retryFailed(scan.id), 'retryFailedAnalyses')
+      const done = await scans.wait(scan.id, { timeoutMs: 120_000 })
+      expect(done).toMatchObject({ state: 'completed', round: 2 })
+      const analyses = await allAnalyses(api, scan.id)
+      expect(analyses.map((analysis) => [analysis.status, analysis.round])).toEqual([
+        ['failed', 2],
+        ['failed', 2],
+        ['failed', 2],
+      ])
+      const lastIngested = Math.max(...analyses.map((analysis) => Date.parse(analysis.updatedAt)))
+      expect(Date.parse(done.completedAt!) - lastIngested).toBeLessThan(10_000)
+    },
+  )
 
   test(
     'retry-failed of a cancelled scan records the never-run analyses as cancelled and reruns only the failed ones',

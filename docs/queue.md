@@ -565,15 +565,18 @@ redelivers the batch and the guards absorb the replay.
 After each flush, per scan with at least one applied operation (not E11000, not dropped):
 
 ```js
-scans.updateOne({ _id: scanId },
+scans.findOneAndUpdate({ _id: scanId },
   { $inc: { "stats.succeeded": s, "stats.failed": f, "stats.retrying": r },
-    $set: { "stats.ratePerMin": rate, updatedAt: now } })
+    $set: { "stats.ratePerMin": rate, updatedAt: now } },
+  { returnDocument: "after",
+    projection: { state: 1, round: 1, "scheduling.state": 1, "scheduling.confirmed": 1,
+                  "stats.succeeded": 1, "stats.failed": 1, "stats.lost": 1, "stats.cancelled": 1 } })
 ```
 
 `s`, `f`, `r` count applied succeeded, failed (including minimal and dead-lettered failures) and attempt
 operations. These are **hints** for a live UI: they never decrement (`retrying → succeeded` is counted as one more
 success without one less retry), so they drift until the next recount overwrites `stats` with exact values.
-A failed hint update is logged and ignored.
+The returned document feeds the completion check of §6.9. A failed hint update is logged and ignored.
 
 `ratePerMin`: per scan, five one-minute buckets of applied terminal operations (succeeded + failed); the rate is
 their sum divided by the number of minutes covered (1–5). It lives in memory only and restarts empty after an
@@ -598,13 +601,18 @@ if (succeeded + failed + lost + cancelled >= scheduling.confirmed)
 ```
 
 The ingestor triggers `checkCompletion(scanId)` (recount, then the conditional update) after a flush when, from
-the cache, `scheduling.state ∈ {done, failed}`, the scan is `running`, and the hint terminal count
-(`succeeded + failed + lost + cancelled`) is at least `scheduling.confirmed`; at most once per scan per 10 s.
+the scan as the flush's hint update returned it (§6.8), `scheduling.state ∈ {done, failed}`, the scan is `running`,
+and the hint terminal count (`succeeded + failed + lost + cancelled`) is at least `scheduling.confirmed`; at most once
+per scan and round per 10 s. The cached scan is not used for this: it predates the increments of the previous flushes
+until the change stream invalidates it, so the flush with a round's last results would see too few. Only when the hint
+update failed does the check fall back to the cached scan plus the flush's own results. The throttle is per round, so
+the first check of a retry-failed round never waits for the trigger that completed the round before.
 Other triggers (reconciler): scheduler `done`, end of retry-failed, resume, every 60 s per running scan, and once
 more two minutes after a scan entered a terminal state to absorb late duplicates. A paused scan is recounted (never
 completed) at the same 60 s cadence while its `updatedAt` is newer than `stats.recountedAt`, so results of work that
-finished during the drain do not leave drifted hints on it. A hint that overestimates only causes an early recount;
-one that underestimates delays completion until the periodic recount.
+finished during the drain do not leave drifted hints on it. A hint that overestimates causes an early recount, and when the
+round's last results arrive within the following 10 s, completion waits for the periodic recount; one that
+underestimates delays completion until the periodic recount.
 
 ### 6.10 Circuit breaker
 

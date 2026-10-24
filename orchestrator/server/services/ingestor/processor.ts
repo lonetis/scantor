@@ -68,6 +68,58 @@ export interface FlushResult {
   now: Date
 }
 
+/** What a completion trigger needs of a scan (§6.9). */
+interface CompletionView {
+  id: string
+  state: CachedScan['state']
+  round: number
+  schedulingState: CachedScan['schedulingState']
+  confirmed: number
+  /** hint terminal count: succeeded + failed + lost + cancelled */
+  terminal: number
+}
+
+const COMPLETION_PROJECTION = {
+  state: 1,
+  round: 1,
+  'scheduling.state': 1,
+  'scheduling.confirmed': 1,
+  'stats.succeeded': 1,
+  'stats.failed': 1,
+  'stats.lost': 1,
+  'stats.cancelled': 1,
+} as const
+
+type CompletionDoc = Pick<ScanDoc, '_id' | 'state' | 'round'> & {
+  scheduling?: Partial<Pick<ScanDoc['scheduling'], 'state' | 'confirmed'>>
+  stats?: Partial<ScanDoc['stats']>
+}
+
+function completionViewOf(doc: CompletionDoc): CompletionView {
+  const stats = doc.stats ?? {}
+  return {
+    id: doc._id,
+    state: doc.state,
+    round: doc.round,
+    schedulingState: doc.scheduling?.state ?? null,
+    confirmed: doc.scheduling?.confirmed ?? 0,
+    terminal: (stats.succeeded ?? 0) + (stats.failed ?? 0) + (stats.lost ?? 0) + (stats.cancelled ?? 0),
+  }
+}
+
+/** The fallback when the hint update failed: the scan as the flush loaded it plus this flush's results. */
+function cachedCompletionView(scan: CachedScan, tally: ScanTally): CompletionView {
+  const { succeeded, failed, lost, cancelled } = scan.stats
+  return {
+    id: scan.id,
+    state: scan.state,
+    round: scan.round,
+    schedulingState: scan.schedulingState,
+    confirmed: scan.confirmed,
+    terminal: succeeded + failed + lost + cancelled + tally.succeeded + tally.failed,
+  }
+}
+
 const GONE_STATES = new Set(['deleting', 'deleted'])
 
 /** Check 7: the reason why an update document cannot be stored, or null. */
@@ -84,7 +136,7 @@ export function bsonProblem(update: Document): string | null {
 export class BatchProcessor {
   private readonly rate = new RateWindow()
   private readonly breaker: BreakerWindow
-  private readonly lastCompletionTrigger = new Map<string, number>()
+  private readonly lastCompletionTrigger = new Map<string, { round: number; at: number }>()
   private readonly now: () => Date
   private lastSweep = 0
 
@@ -182,8 +234,8 @@ export class BatchProcessor {
     this.lastSweep = nowMs
     this.rate.sweep(nowMs)
     this.breaker.sweep(nowMs)
-    for (const [scanId, at] of this.lastCompletionTrigger) {
-      if (nowMs - at > COMPLETION_TRIGGER_INTERVAL_MS) this.lastCompletionTrigger.delete(scanId)
+    for (const [scanId, last] of this.lastCompletionTrigger) {
+      if (nowMs - last.at > COMPLETION_TRIGGER_INTERVAL_MS) this.lastCompletionTrigger.delete(scanId)
     }
   }
 
@@ -191,6 +243,7 @@ export class BatchProcessor {
   async finish(result: FlushResult): Promise<void> {
     const nowMs = result.now.getTime()
     this.sweep(nowMs)
+    const counted = new Map<string, CompletionView>()
     for (const [scanId, tally] of result.tallies) {
       const terminal = tally.succeeded + tally.failed
       if (tally.succeeded > 0) analysesCompleted.inc({ status: 'succeeded' }, tally.succeeded)
@@ -198,13 +251,15 @@ export class BatchProcessor {
       this.rate.record(scanId, terminal, nowMs)
       this.breaker.record(scanId, tally.succeeded, tally.failed + tally.retrying, nowMs, result.scans.get(scanId)?.pausedAt ?? null)
       try {
-        await this.deps.scans.updateOne(
+        const updated = await this.deps.scans.findOneAndUpdate(
           { _id: scanId },
           {
             $inc: { 'stats.succeeded': tally.succeeded, 'stats.failed': tally.failed, 'stats.retrying': tally.retrying },
             $set: { 'stats.ratePerMin': this.rate.ratePerMin(scanId, nowMs), updatedAt: result.now },
           },
+          { returnDocument: 'after', projection: COMPLETION_PROJECTION },
         )
+        if (updated) counted.set(scanId, completionViewOf(updated as CompletionDoc))
       } catch (error) {
         this.deps.log.warn('updating the live scan counters failed', { scanId, err: error })
       }
@@ -217,7 +272,9 @@ export class BatchProcessor {
       const scan = result.scans.get(scanId)
       if (!scan || scan.state !== 'running') continue
       if (await this.checkBreaker(scanId, nowMs)) continue
-      this.checkCompletion(scan, tally, nowMs)
+      // The counters as this flush's own increment returned them: the cached scan predates the increments of
+      // earlier flushes until the change stream invalidates it, so its hints can be short of the last results.
+      this.checkCompletion(counted.get(scanId) ?? cachedCompletionView(scan, tally), nowMs)
     }
   }
 
@@ -244,19 +301,22 @@ export class BatchProcessor {
     return true
   }
 
-  /** Triggers completion when the hint terminal count reaches the confirmed count (at most every 10 s per scan). */
-  private checkCompletion(scan: CachedScan, tally: ScanTally, nowMs: number): void {
-    if (scan.schedulingState !== 'done' && scan.schedulingState !== 'failed') return
-    const terminal = scan.stats.succeeded + scan.stats.failed + scan.stats.lost + scan.stats.cancelled + tally.succeeded + tally.failed
-    if (terminal < scan.confirmed) return
-    const last = this.lastCompletionTrigger.get(scan.id) ?? 0
-    if (nowMs - last < COMPLETION_TRIGGER_INTERVAL_MS) return
-    this.lastCompletionTrigger.set(scan.id, nowMs)
-    this.deps.hooks.tryCompleteScan(scan.id, 'ingestor').then(
+  /**
+   * Triggers completion when the hint terminal count reaches the confirmed count, at most every 10 s per scan and
+   * round: a trigger of an earlier round (which completed it) never holds back the first trigger of a retry round.
+   */
+  private checkCompletion(view: CompletionView, nowMs: number): void {
+    if (view.state !== 'running') return
+    if (view.schedulingState !== 'done' && view.schedulingState !== 'failed') return
+    if (view.terminal < view.confirmed) return
+    const last = this.lastCompletionTrigger.get(view.id)
+    if (last && last.round === view.round && nowMs - last.at < COMPLETION_TRIGGER_INTERVAL_MS) return
+    this.lastCompletionTrigger.set(view.id, { round: view.round, at: nowMs })
+    this.deps.hooks.tryCompleteScan(view.id, 'ingestor').then(
       (completed) => {
-        if (completed) this.deps.cache.invalidate(scan.id)
+        if (completed) this.deps.cache.invalidate(view.id)
       },
-      (error: unknown) => this.deps.log.error('completion check failed', { scanId: scan.id, err: error }),
+      (error: unknown) => this.deps.log.error('completion check failed', { scanId: view.id, err: error }),
     )
   }
 }
