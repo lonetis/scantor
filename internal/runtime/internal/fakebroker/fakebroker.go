@@ -1,7 +1,7 @@
 // Package fakebroker is an in-memory AMQP broker for the runtime's unit tests: one scan queue with
 // prefetch-1 slot channels, delayed delivery (x-opt-delivery-time), redelivery flags, consumer
-// cancellation by the broker, connection loss and blocking, and a scripted outcome for every publish.
-// It implements runner.Broker and the scheduler's publisher.
+// cancellation by the broker, connection loss and blocking, an optional x-max-length with reject-publish,
+// and a scripted outcome for every publish. It implements runner.Broker and the scheduler's publisher.
 package fakebroker
 
 import (
@@ -43,6 +43,8 @@ type Broker struct {
 	nextTag   uint64
 	missing   bool // the queue does not exist (consume fails with NOT_FOUND)
 	wake      chan struct{}
+	maxLength int  // x-max-length with x-overflow reject-publish; 0 means unlimited
+	rejecting bool // the queue went over maxLength and refuses publishes
 
 	// Outcome decides the outcome of a publish; nil confirms everything. It runs without the lock.
 	Outcome func(pub amqpx.Publication) amqpx.Outcome
@@ -61,6 +63,7 @@ func New() *Broker {
 func (b *Broker) Enqueue(body []byte) {
 	b.mu.Lock()
 	b.queue = append(b.queue, &message{body: body})
+	b.limitLocked()
 	b.mu.Unlock()
 	b.poke()
 }
@@ -69,8 +72,35 @@ func (b *Broker) Enqueue(body []byte) {
 func (b *Broker) EnqueueRedelivered(body []byte) {
 	b.mu.Lock()
 	b.queue = append(b.queue, &message{body: body, redelivered: true, deliveries: 1})
+	b.limitLocked()
 	b.mu.Unlock()
 	b.poke()
+}
+
+// SetMaxLength limits the queue like x-max-length with x-overflow reject-publish on a RabbitMQ 4.4 quorum
+// queue (docs/queue.md §3.3): ready and delayed messages count, unacknowledged ones do not; a publish is
+// accepted while the queue is not rejecting, and the queue starts rejecting once it holds more than n
+// messages (so it can exceed n by the publishes accepted before); it rejects every publish, delayed ones
+// included, until it holds at most 80 % of n again (RabbitMQ keeps refusing only the publishers it refused;
+// refusing every publisher is the stricter case). 0 removes the limit.
+func (b *Broker) SetMaxLength(n int) {
+	b.mu.Lock()
+	b.maxLength = n
+	b.rejecting = false
+	b.limitLocked()
+	b.mu.Unlock()
+}
+
+// limitLocked updates the reject state from the number of queued (ready and delayed) messages.
+func (b *Broker) limitLocked() {
+	switch {
+	case b.maxLength <= 0:
+		b.rejecting = false
+	case len(b.queue) > b.maxLength:
+		b.rejecting = true
+	case len(b.queue) <= b.maxLength*8/10:
+		b.rejecting = false
+	}
 }
 
 // Ready returns the number of ready (visible, undelivered) messages and of delayed ones.
@@ -245,6 +275,9 @@ func (b *Broker) Publish(ctx context.Context, pub amqpx.Publication) amqpx.Outco
 		outcome = b.Outcome(pub)
 	}
 	b.mu.Lock()
+	if outcome == amqpx.Confirmed && pub.Exchange == b.AnalysesExchange && b.rejecting {
+		outcome = amqpx.Nacked
+	}
 	b.published = append(b.published, Published{Publication: pub, Outcome: outcome, At: time.Now()})
 	if outcome == amqpx.Confirmed && pub.Exchange == b.AnalysesExchange {
 		m := &message{body: pub.Body}
@@ -252,6 +285,7 @@ func (b *Broker) Publish(ctx context.Context, pub amqpx.Publication) amqpx.Outco
 			m.visibleAt = time.UnixMilli(v)
 		}
 		b.queue = append(b.queue, m)
+		b.limitLocked()
 	}
 	b.mu.Unlock()
 	b.poke()
@@ -303,6 +337,7 @@ func (b *Broker) dispatch() {
 		}
 		m := b.queue[idx]
 		b.queue = append(b.queue[:idx], b.queue[idx+1:]...)
+		b.limitLocked()
 		b.nextTag++
 		m.deliveries++
 		c.held = m
@@ -364,11 +399,14 @@ func (c *Channel) lose(reason string) {
 	c.b.poke()
 }
 
+// requeueLocked returns the held delivery to the head of the queue (RabbitMQ 4.4 quorum queues redeliver
+// a requeued message first).
 func (c *Channel) requeueLocked() {
 	if c.held != nil {
 		c.held.redelivered = true
 		c.b.queue = append([]*message{c.held}, c.b.queue...)
 		c.held = nil
+		c.b.limitLocked()
 	}
 }
 

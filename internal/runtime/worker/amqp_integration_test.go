@@ -395,6 +395,79 @@ func TestRunnerWithRabbitMQ(t *testing.T) {
 	}
 }
 
+// TestRefusedRetryWithRabbitMQ runs a retry against a full queue: RabbitMQ 4.4 nacks the future-dated
+// republish (docs/queue.md §3.3), so the runner holds the delivery and runs the next attempt on it once
+// the retry is due (docs/runtime.md §8.11), without reporting a worker error.
+func TestRefusedRetryWithRabbitMQ(t *testing.T) {
+	r := broker(t)
+	// While the runner executes seq 0, three more messages put the queue over its limit of 2; with seq 0
+	// unacknowledged the queue holds 3 > 2 messages, so it refuses the retry of seq 0.
+	s := r.scan(t, amqp.Table{"x-max-length": int64(2)})
+	results := s.collect(t)
+	srv := fakeapi.New()
+	defer srv.Close()
+	boot := runnerBootstrap(s)
+	boot.Scan.Settings.Processes = 1
+	var stop atomic.Bool
+	srv.Snapshot(func(f *fakeapi.Server) {
+		f.Bootstrap = boot
+		f.State = func(api.RuntimeStateRequest) (api.RuntimeStateResponse, int) {
+			action := api.ActionRun
+			if stop.Load() {
+				action = api.ActionStop
+			}
+			return api.RuntimeStateResponse{Action: action, Processes: 1, ScanState: "running", NextPollMs: 200}, http.StatusOK
+		}
+	})
+	s.publish(t, 0, `{"mode":"flaky","failAttempts":1,"sleepMs":1500}`)
+	exit, log := startWorker(t, srv, boot.Worker.ID)
+	waitFor(t, "seq 0 running", 30*time.Second, func() bool {
+		busy := false
+		srv.Snapshot(func(f *fakeapi.Server) {
+			if n := len(f.States); n > 0 {
+				busy = len(f.States[n-1].Busy) > 0
+			}
+		})
+		return busy
+	})
+	for seq := int64(1); seq <= 3; seq++ {
+		s.publish(t, seq, `{"name":"later"}`)
+	}
+
+	waitFor(t, "four results", time.Minute, func() bool {
+		m := results()
+		return find(m, "result", 0) != nil && find(m, "result", 1) != nil && find(m, "result", 2) != nil && find(m, "result", 3) != nil
+	})
+	stop.Store(true)
+	select {
+	case code := <-exit:
+		if code != ExitOK {
+			t.Fatalf("exit %d\n%s", code, log.String())
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatalf("the worker did not exit")
+	}
+	m := results()
+	attempt, final := find(m, "attempt", 0), find(m, "result", 0)
+	if attempt == nil || attempt.body["attempt"] != float64(1) {
+		t.Fatalf("attempt event %+v\n%s", attempt, log.String())
+	}
+	if final.body["status"] != "succeeded" || final.body["attempt"] != float64(2) {
+		t.Fatalf("result of the retried analysis %+v\n%s", final.body, log.String())
+	}
+	if gap := final.at.Sub(attempt.at); gap < 900*time.Millisecond {
+		t.Fatalf("attempt 2 ran %s after attempt 1 failed; the backoff is 1 s", gap)
+	}
+	if !bytes.Contains(log.Bytes(), []byte("running the next attempt on the held delivery")) {
+		t.Fatalf("the queue did not refuse the retry; the test needs a full queue\n%s", log.String())
+	}
+	srv.Snapshot(func(f *fakeapi.Server) {
+		if len(f.Errors) != 0 {
+			t.Fatalf("a refused retry was reported as a worker error: %+v", f.Errors)
+		}
+	})
+}
+
 func TestKillSwitchEndsTheWorker(t *testing.T) {
 	r := broker(t)
 	s := r.scan(t, nil)

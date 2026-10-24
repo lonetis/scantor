@@ -51,6 +51,9 @@ const (
 	consumeMax     = 30 * time.Second
 	// recheckInterval bounds every wait for a state change.
 	recheckInterval = time.Second
+	// republishWait is the pause between republishes of a retry that the full scan queue refused
+	// (docs/runtime.md §8.11), ± 20 %.
+	republishWait = 500 * time.Millisecond
 )
 
 // Config configures a Worker.

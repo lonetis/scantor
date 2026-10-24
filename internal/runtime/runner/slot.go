@@ -327,20 +327,59 @@ func (s *slot) process(ctx context.Context, d *delivery, msg amqp.Delivery) (dis
 		s.w.log.Warn("connector process is gone; the delivery is given back", log...)
 		return dispNack, true
 	}
+	for {
+		disp, recycle, inline := s.runAttempt(ctx, d, id, log)
+		if !inline {
+			return disp, recycle
+		}
+		// The full scan queue refused the retry until it was due: the next attempt runs on the held delivery
+		// (docs/runtime.md §8.11).
+		id.Attempt++
+		log = append(s.logger(), "analysisId", m.AnalysisID, "seq", m.Seq, "round", m.Round, "attempt", id.Attempt)
+		if recycle || s.proc == nil || !s.proc.Usable() {
+			if !s.replaceHeldProcess(d, log) {
+				// recycle: stop consuming while the slot respawns with backoff (docs/runtime.md §7.3).
+				return s.giveBackRefused(log), true
+			}
+		}
+		s.w.log.Info("the scan queue is full; running the next attempt on the held delivery", log...)
+	}
+}
 
+// replaceHeldProcess replaces the slot's process before an attempt that runs on a held delivery, within
+// the delivery's holding budget. It reports false when no new process completed the handshake.
+func (s *slot) replaceHeldProcess(d *delivery, log []any) bool {
+	s.retireProcess(s.w.Stopping())
+	ctx, cancel := s.budgetContext(d)
+	defer cancel()
+	if err := s.spawn(ctx); err != nil {
+		if ctx.Err() == nil {
+			s.w.health.SpawnFailed(err)
+		}
+		s.w.log.Warn("cannot start a connector process for the held delivery", append(log, "err", err)...)
+		return false
+	}
+	return true
+}
+
+// runAttempt executes one attempt of the delivery's analysis and runs its publish plan (docs/runtime.md
+// §8.3–§8.9, §8.11). inline reports that the retry was refused by the full scan queue until it was due and the next
+// attempt is to run on the held delivery.
+func (s *slot) runAttempt(ctx context.Context, d *delivery, id identity, log []any) (disp disposition, recycle, inline bool) {
+	boot := s.w.cfg.Boot
 	log = append(log, "pid", s.proc.PID())
 	for len(s.ctl) > 0 { // controls meant for an earlier execution
 		<-s.ctl
 	}
 	s.set(func() { s.executing = true })
 	x := Execute(ctx, ExecSpec{
-		Process: s.proc, ScanID: boot.Worker.ScanID, Seq: m.Seq, Round: m.Round, Attempt: m.Attempt,
-		Config: m.Config, TaskConfig: boot.Scan.TaskConfig, Timeout: s.w.timeout, WorkRoot: s.w.cfg.WorkRoot,
+		Process: s.proc, ScanID: boot.Worker.ScanID, Seq: id.Seq, Round: id.Round, Attempt: id.Attempt,
+		Config: id.Config, TaskConfig: boot.Scan.TaskConfig, Timeout: s.w.timeout, WorkRoot: s.w.cfg.WorkRoot,
 		Limits: s.w.limits, Now: s.w.cfg.Now, Capture: s.capture, Control: s.ctl,
 		Output: s.w.mirror.Sink(log...),
 		OnStart: func(executionID string, startedAt time.Time) {
 			s.set(func() {
-				s.busy = &api.BusyAnalysis{Seq: m.Seq, Round: m.Round, Attempt: m.Attempt, ExecutionID: executionID, StartedAt: api.NewTime(startedAt)}
+				s.busy = &api.BusyAnalysis{Seq: id.Seq, Round: id.Round, Attempt: id.Attempt, ExecutionID: executionID, StartedAt: api.NewTime(startedAt)}
 				s.busyStart = time.Now()
 			})
 		},
@@ -360,50 +399,51 @@ func (s *slot) process(ctx context.Context, d *delivery, msg amqp.Delivery) (dis
 		s.set(func() { s.busy = nil })
 	}()
 	s.handled++
-	recycle := x.Recycle || (boot.Scan.Settings.MaxAnalysesPerProcess > 0 && s.handled >= boot.Scan.Settings.MaxAnalysesPerProcess)
+	recycle = x.Recycle || (boot.Scan.Settings.MaxAnalysesPerProcess > 0 && s.handled >= boot.Scan.Settings.MaxAnalysesPerProcess)
 	id.ExecutionID = x.ID
 	log = append(log, "executionId", x.ID)
 
 	switch {
 	case s.w.discarding():
 		s.w.log.Info("analysis aborted; nothing is published", log...)
-		return dispNone, recycle
+		return dispNone, recycle, false
 	case x.Aborted, x.Cancelled:
 		s.w.log.Info("analysis given back", append(log, "cancelled", x.Cancelled)...)
-		return dispNack, recycle
+		return dispNack, recycle, false
 	case x.Error != nil && x.Error.Type == api.ErrorPlatform:
 		s.w.health.Transient(x.Error.Phase, errors.New(x.Error.Message))
-		return dispNack, recycle
+		return dispNack, recycle, false
 	}
 
 	if x.Succeeded() && len(x.Files) > 0 {
 		budgetCtx, cancel := s.budgetContext(d)
-		err := s.w.cfg.Uploader.Upload(budgetCtx, upload.Target{Seq: m.Seq, Round: m.Round, Attempt: m.Attempt, ExecutionID: x.ID}, x.Files)
+		err := s.w.cfg.Uploader.Upload(budgetCtx, upload.Target{Seq: id.Seq, Round: id.Round, Attempt: id.Attempt, ExecutionID: x.ID}, x.Files)
 		cancel()
 		var se scerr.ScantorError
 		switch {
 		case err == nil:
 		case errors.As(err, &se):
-			se.Attempt, se.At = m.Attempt, s.w.cfg.Now()
+			se.Attempt, se.At = id.Attempt, s.w.cfg.Now()
 			se = se.Truncate(s.w.limits.StackBytes)
 			x.Error, x.Result = &se, nil
 		case errors.Is(err, bootstrap.ErrUnauthorized):
 			s.w.log.Warn("the orchestrator rejected the worker token; stopping", log...)
 			s.w.Stop()
-			return dispNone, recycle
+			return dispNone, recycle, false
 		default:
-			return s.giveUp(d, api.PhaseUpload, "uploading files", log), recycle
+			return s.giveUp(d, api.PhaseUpload, "uploading files", log), recycle, false
 		}
 	}
 
 	if x.Error == nil {
-		return s.publishFinal(ctx, d, id, timings(id, x), x.Result, nil, x.Files, s.capture.Tail(s.tailBytes()), log), recycle
+		return s.publishFinal(ctx, d, id, timings(id, x), x.Result, nil, x.Files, s.capture.Tail(s.tailBytes()), log), recycle, false
 	}
 	e := *x.Error
-	if s.w.policy.Retry(e, m.Attempt) {
-		return s.publishRetry(ctx, d, id, timings(id, x), e, log), recycle
+	if s.w.policy.Retry(e, id.Attempt) {
+		disp, inline = s.publishRetry(ctx, d, id, timings(id, x), e, log)
+		return disp, recycle, inline
 	}
-	return s.publishFinal(ctx, d, id, timings(id, x), nil, &e, nil, s.capture.Tail(s.tailBytes()), log), recycle
+	return s.publishFinal(ctx, d, id, timings(id, x), nil, &e, nil, s.capture.Tail(s.tailBytes()), log), recycle, false
 }
 
 func (s *slot) tailBytes() int { return max(s.w.cfg.Boot.Limits.LogTailBytes, 0) }
@@ -512,7 +552,9 @@ func (s *slot) publishFinal(ctx context.Context, d *delivery, id identity, t run
 }
 
 // publishRetry publishes the attempt event and the delayed republish (docs/runtime.md §8.9 retry plan).
-func (s *slot) publishRetry(ctx context.Context, d *delivery, id identity, t runtime.Timings, e scerr.ScantorError, log []any) disposition {
+// inline reports that the full scan queue refused the republish until the retry was due and the next attempt
+// is to run on the held delivery.
+func (s *slot) publishRetry(ctx context.Context, d *delivery, id identity, t runtime.Timings, e scerr.ScantorError, log []any) (disp disposition, inline bool) {
 	boot := s.w.cfg.Boot
 	e.Attempt = id.Attempt
 	if e.At.IsZero() {
@@ -522,40 +564,138 @@ func (s *slot) publishRetry(ctx context.Context, d *delivery, id identity, t run
 	body, err := attemptBody(id, t, e, s.capture.Tail(max(boot.Limits.LogTailEarlierBytes, 0)))
 	if err != nil {
 		s.w.log.Error("cannot build the attempt event", append(log, "err", err)...)
-		return s.giveUp(d, api.PhasePublish, "building the attempt event", log)
+		return s.giveUp(d, api.PhasePublish, "building the attempt event", log), false
 	}
 	retry, err := retryBody(id)
 	if err != nil {
 		s.w.log.Error("cannot build the retry message", append(log, "err", err)...)
-		return s.giveUp(d, api.PhasePublish, "building the retry message", log)
+		return s.giveUp(d, api.PhasePublish, "building the retry message", log), false
 	}
 	attemptPub := amqpx.Publication{Exchange: boot.AMQP.ResultsExchange, RoutingKey: boot.AMQP.RoutingKey, Type: runtime.TypeAttempt, Body: body}
 	switch s.publish(d, attemptPub, false) {
 	case pubDropped:
-		return dispNone
+		return dispNone, false
 	case pubGaveUp:
-		return s.giveUp(d, api.PhasePublish, "publishing the attempt event", log)
+		return s.giveUp(d, api.PhasePublish, "publishing the attempt event", log), false
 	}
+	s.w.count(func(c *api.RuntimeCounters) { c.Retried++ })
 	delay := s.w.policy.Delay(e, id.Attempt)
-	at := s.w.policy.DeliveryTime(s.w.cfg.Now(), delay)
-	retryPub := amqpx.Publication{
-		Exchange: boot.AMQP.AnalysesExchange, RoutingKey: boot.AMQP.RoutingKey, Type: runtime.TypeAnalysis, Body: retry,
-		Headers: amqp.Table{runtime.HeaderDeliveryTime: at.UnixMilli()},
-	}
-	switch s.publish(d, retryPub, true) {
-	case pubDropped:
+	due := s.w.policy.DeliveryTime(s.w.cfg.Now(), delay)
+	log = append(log, "errorType", e.Type, "error", e.Message, "nextAttempt", id.Attempt+1)
+	result, at := s.republish(d, retry, due, log)
+	switch result {
+	case repConfirmed:
+		s.w.log.Info("analysis finished", append(log, "outcome", "retrying", "deliveryTime", at.UTC().Format(time.RFC3339Nano), "durationMs", t.DurationMs)...)
+		return dispAck, false
+	case repInline:
+		return dispNone, true
+	case repDropped:
 		s.w.log.Warn("the scan queue is gone; the retry was dropped", log...)
 		if s.w.cfg.PollNow != nil {
 			s.w.cfg.PollNow()
 		}
-		return dispNone
-	case pubGaveUp:
-		return s.giveUp(d, api.PhasePublish, "publishing the retry", log)
+		return dispNone, false
+	case repRefused:
+		return s.giveBackRefused(log), false
+	default:
+		return s.giveUp(d, api.PhasePublish, "publishing the retry", log), false
 	}
-	s.w.count(func(c *api.RuntimeCounters) { c.Retried++ })
-	s.w.log.Info("analysis finished", append(log, "outcome", "retrying", "errorType", e.Type, "error", e.Message,
-		"nextAttempt", id.Attempt+1, "deliveryTime", at.UTC().Format(time.RFC3339Nano), "durationMs", t.DurationMs)...)
-	return dispAck
+}
+
+// republishResult is the outcome of a retry republish.
+type republishResult int
+
+const (
+	repConfirmed republishResult = iota
+	repDropped                   // returned: the scan queue is gone
+	repInline                    // refused by the full queue until due: run the next attempt on the held delivery
+	repRefused                   // refused by the full queue and no attempt can run on the held delivery
+	repGaveUp                    // budget exhausted, drain closed or stop after other failures
+)
+
+// republish publishes the retry of an analysis, due at `due`, until the broker confirms it
+// (docs/runtime.md §8.11). A nack means the scan queue is full: x-max-length with reject-publish
+// refuses future-dated messages too (docs/queue.md §3.3). That is backpressure, not a
+// platform failure: the slot keeps the delivery and republishes every republishWait ± 20 % until the retry
+// is due. Then the next attempt runs on the held delivery (repInline) while the holding budget still covers
+// a whole attempt; otherwise the slot keeps republishing until the budget ends (repRefused). It returns the
+// delivery time of the confirmed publish.
+func (s *slot) republish(d *delivery, body []byte, due time.Time, log []any) (republishResult, time.Time) {
+	boot := s.w.cfg.Boot
+	ctx, cancel := s.budgetContext(d)
+	defer cancel()
+	refused := 0
+	for attempt := 1; ; attempt++ {
+		now := s.w.cfg.Now()
+		at := due
+		if floor := now.Add(scerr.MinRetryDelay); at.Before(floor) {
+			at = floor
+		}
+		pub := amqpx.Publication{
+			Exchange: boot.AMQP.AnalysesExchange, RoutingKey: boot.AMQP.RoutingKey, Type: runtime.TypeAnalysis, Body: body,
+			Headers: amqp.Table{runtime.HeaderDeliveryTime: at.UnixMilli()},
+		}
+		outcome := s.w.cfg.Broker.Publish(ctx, pub)
+		var wait time.Duration
+		switch outcome {
+		case amqpx.Confirmed:
+			if refused > 0 {
+				s.w.log.Info("the scan queue accepted the held retry", append(log, "refused", refused)...)
+			}
+			return repConfirmed, at
+		case amqpx.Returned:
+			return repDropped, at
+		case amqpx.Nacked:
+			refused++
+			if refused == 1 {
+				s.w.log.Info("the scan queue is full; holding the retry", append(log, "due", due.UTC().Format(time.RFC3339Nano))...)
+			}
+			if d.detached() || s.w.currentPhase() != phaseRunning || s.w.discarding() {
+				// The broker took the delivery back (it runs again elsewhere), or a draining or stopping worker
+				// runs no further attempt.
+				return repRefused, at
+			}
+			if !s.w.cfg.Now().Before(due) && s.inlineAllowed(d) {
+				return repInline, at
+			}
+			wait = time.Duration(float64(republishWait) * (0.8 + 0.4*rand.Float64())) //nolint:gosec // jitter
+			if until := due.Sub(s.w.cfg.Now()); until > 0 && until < wait {
+				wait = until // run the attempt as soon as it is due
+			}
+		case amqpx.Unconfirmed:
+			if ctx.Err() == nil {
+				s.w.health.Transient(api.PhasePublish, errors.New("the publish was not confirmed"))
+			}
+			wait = time.Duration(rand.Float64() * float64(min(time.Second<<min(attempt-1, 10), 30*time.Second))) //nolint:gosec // backoff jitter
+		}
+		if ctx.Err() == nil && outcome != amqpx.Nacked {
+			s.w.log.Warn("publish failed; retrying", append(s.logger(), "type", pub.Type, "outcome", outcome.String(), "attempt", attempt)...)
+		}
+		if ctx.Err() != nil || (!sleepCtx(ctx, wait, nil) && ctx.Err() != nil) {
+			if outcome == amqpx.Nacked {
+				return repRefused, at
+			}
+			return repGaveUp, at
+		}
+	}
+}
+
+// inlineAllowed reports whether the next attempt may run on the held delivery: the worker runs, the delivery
+// is still held and the holding budget still covers a whole attempt (settings.timeoutMs plus uploads.timeoutMs).
+func (s *slot) inlineAllowed(d *delivery) bool {
+	need := s.w.timeout + time.Duration(s.w.cfg.Boot.Uploads.TimeoutMs)*time.Millisecond
+	return s.w.currentPhase() == phaseRunning && !s.w.discarding() && !d.detached() && time.Until(d.budget) >= need
+}
+
+// giveBackRefused gives back a delivery whose retry the full scan queue refused (docs/runtime.md §8.11):
+// basic.nack with requeue, which is not counted toward the delivery limit. The worker stays healthy: a full
+// queue is backpressure, not a worker problem. When the worker stops, nothing is settled.
+func (s *slot) giveBackRefused(log []any) disposition {
+	if s.w.discarding() {
+		return dispNone
+	}
+	s.w.log.Warn("the scan queue refused the retry; the analysis is given back", log...)
+	return dispNack
 }
 
 type pubResult int

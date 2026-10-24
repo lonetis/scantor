@@ -7,11 +7,11 @@ import { TERMINAL_STATES } from '../helpers/scans'
 import type { ProbeConfig } from '../helpers/e2e-runtime-tasks'
 import { expect, test as base } from '../fixtures'
 
-// Scheduler backpressure end to end (docs/runtime.md §10.2, §11.4; docs/queue.md §3.3, §10): the scan queue holds at
-// most SCANTOR_SCAN_QUEUE_MAX_READY ready messages (500 on the test stack, reject-publish); the scheduler's refused
+// Scheduler backpressure end to end (docs/runtime.md §8.11, §11.4; docs/queue.md §3.3, §10): the scan queue holds at
+// most SCANTOR_SCAN_QUEUE_MAX_READY messages (500 on the test stack, reject-publish); the scheduler's refused
 // publishes are retried until the runners make room, so a scan far larger than the limit still ends with exact
-// counts, and retries (future-dated publishes) are accepted by a full queue. The tasks are published once per run
-// (helpers/e2e-runtime-fixtures.ts).
+// counts, and a full queue never loses or fails a retry (a refused retry is held by its runner). The tasks are
+// published once per run (helpers/e2e-runtime-fixtures.ts).
 
 const test = extendRuntime(base)
 
@@ -90,47 +90,35 @@ test.describe('backpressure', () => {
     },
   )
 
-  // product bug: a full scan queue nacks future-dated retry publishes
-  test.fail(
-    'retries are accepted while the queue is full',
-    {
-      tag: ['@SCHED-005', '@RT-018'],
-      annotation: {
-        type: 'issue',
-        description:
-          'RabbitMQ 4.4 nacks a publish with a future x-opt-delivery-time to a scan queue at x-max-length (reject-publish), contrary to docs/queue.md §3.3 and docs/runtime.md §10.2; the runner treats the nack as a transient platform error, reports workerErrors ("the broker nacked the publish") and the scan stalls (queue declaration in orchestrator/server/services/reconciler topology, retry republish in internal/runtime/runner)',
-      },
-    },
-    async ({ api, shared, scans }) => {
-      const { revision } = await shared.generated('probe')
-      // 1000 analyses of 50 ms: the scheduler fills the queue at once. Every 100th analysis fails its first attempt and
-      // is republished with a 1 s delay while the queue is full.
-      const failing = Array.from({ length: 10 }, (_, i) => i * 100)
-      const taskConfig: ProbeConfig = { mode: 'flaky', fail_attempts: 1, iterations: failing, others: 'sleep', seconds: 0.05 }
-      const scan = await scans.start({
-        revision: revision.ref,
-        taskConfig: { ...taskConfig },
-        scanConfig: { times: 1000 },
-        settings: settings({ processes: 2, maxAttempts: 2, backoff: backoff(1000) }),
-      })
-      const completed = pollScan(api, scan.id, (s) => TERMINAL_STATES.includes(s.state) || workerErrors(s) !== undefined, {
-        what: 'the scan completed or a runner reported errors',
-        timeoutMs: 150_000,
-        intervalMs: 1000,
-      })
-      const { samples, sampling } = observeQueue(scan.id, completed)
-      const settled = await completed
-      await sampling
-      // A refused retry publish surfaces as workerErrors: the runner holds the delivery and the scan stalls.
-      expect(workerErrors(settled), JSON.stringify(workerErrors(settled))).toBeUndefined()
-      expect(settled.state).toBe('completed')
-      expect(Math.max(...samples.map((s) => s.queue?.messages_ready ?? 0)), 'the queue filled up').toBeGreaterThanOrEqual(MAX_READY - 50)
+  test('retries are neither lost nor failed while the queue is full', { tag: ['@SCHED-005', '@RT-018'] }, async ({ api, shared, scans }) => {
+    const { revision } = await shared.generated('probe')
+    // 1000 analyses of 50 ms: the scheduler fills the queue at once. Every 100th analysis fails its first attempt and
+    // is republished with a 1 s delay while the queue is full.
+    const failing = Array.from({ length: 10 }, (_, i) => i * 100)
+    const taskConfig: ProbeConfig = { mode: 'flaky', fail_attempts: 1, iterations: failing, others: 'sleep', seconds: 0.05 }
+    const scan = await scans.start({
+      revision: revision.ref,
+      taskConfig: { ...taskConfig },
+      scanConfig: { times: 1000 },
+      settings: settings({ processes: 2, maxAttempts: 2, backoff: backoff(1000) }),
+    })
+    const completed = pollScan(api, scan.id, (s) => TERMINAL_STATES.includes(s.state) || workerErrors(s) !== undefined, {
+      what: 'the scan completed or a runner reported errors',
+      timeoutMs: 150_000,
+      intervalMs: 1000,
+    })
+    const { samples, sampling } = observeQueue(scan.id, completed)
+    const settled = await completed
+    await sampling
+    // A full queue refuses future-dated publishes too; a refused retry is backpressure, not a worker error.
+    expect(workerErrors(settled), JSON.stringify(workerErrors(settled))).toBeUndefined()
+    expect(settled.state).toBe('completed')
+    expect(Math.max(...samples.map((s) => s.queue?.messages_ready ?? 0)), 'the queue filled up').toBeGreaterThanOrEqual(MAX_READY - 50)
 
-      expect(await scans.counts(scan.id)).toEqual({ succeeded: 1000 })
-      const retried: Analysis[] = (await allAnalyses(api, scan.id, ['attempt', 'attempts', 'status'])).filter((a) => a.attempt > 1)
-      expect(retried.map((a) => a.seq)).toEqual(failing)
-      expect(retried.every((a) => a.attempts.length === 2 && a.attempts[0]!.error?.type === 'taskError')).toBe(true)
-      expect(settled.scheduling.confirmed).toBe(1000)
-    },
-  )
+    expect(await scans.counts(scan.id)).toEqual({ succeeded: 1000 })
+    const retried: Analysis[] = (await allAnalyses(api, scan.id, ['attempt', 'attempts', 'status'])).filter((a) => a.attempt > 1)
+    expect(retried.map((a) => a.seq)).toEqual(failing)
+    expect(retried.every((a) => a.attempts.length === 2 && a.attempts[0]!.error?.type === 'taskError')).toBe(true)
+    expect(settled.scheduling.confirmed).toBe(1000)
+  })
 })

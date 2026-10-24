@@ -188,6 +188,10 @@ type runConfig struct {
 	DelayMs *int64         `json:"delayMs"`
 	Files   []fileSpec     `json:"files"`
 	Extra   map[string]any `json:"extra"`
+	// FailAttempts and FailWith drive mode flaky: attempts up to FailAttempts fail ("throw", the default, or
+	// "exit") after SleepMs; later attempts succeed at once.
+	FailAttempts int    `json:"failAttempts"`
+	FailWith     string `json:"failWith"`
 }
 
 type fileSpec struct {
@@ -223,6 +227,17 @@ func (c *conn) run(m protocol.Run, cancel <-chan string) {
 	case "throw":
 		fail("taskError", "boom")
 		return
+	case "flaky":
+		if m.Ctx.Attempt <= max(cfg.FailAttempts, 1) {
+			if !sleep(time.Duration(cfg.SleepMs) * time.Millisecond) {
+				return
+			}
+			if cfg.FailWith == "exit" {
+				os.Exit(3)
+			}
+			fail("taskError", "flaky attempt "+strconv.Itoa(m.Ctx.Attempt))
+			return
+		}
 	case "validation":
 		c.send(protocol.Error{ID: m.ID, Error: protocol.ErrorObject{Type: "validation", Message: "analysis config is invalid", Details: json.RawMessage(`{"issues":[{"path":"/name","message":"bad"}]}`)}})
 		return

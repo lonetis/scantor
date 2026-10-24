@@ -572,3 +572,204 @@ func TestLaterSpawnFailuresMakeTheWorkerUnhealthy(t *testing.T) {
 		t.Fatalf("reason %+v", reason)
 	}
 }
+
+// publishedAnalyses returns the retry republishes the broker saw with outcome out.
+func (h *harness) publishedAnalyses(out amqpx.Outcome) []fakebroker.Published {
+	var got []fakebroker.Published
+	for _, p := range h.b.Published() {
+		if p.Type == runtime.TypeAnalysis && p.Outcome == out {
+			got = append(got, p)
+		}
+	}
+	return got
+}
+
+// at returns the time a message of type typ for seq (and attempt, when > 0) was published and confirmed.
+func (h *harness) at(typ string, seq float64, attempt float64) time.Time {
+	for _, p := range h.b.Published() {
+		var m map[string]any
+		if p.Type != typ || p.Outcome != amqpx.Confirmed || json.Unmarshal(p.Body, &m) != nil {
+			continue
+		}
+		if m["seq"] == seq && (attempt == 0 || m["attempt"] == attempt) {
+			return p.At
+		}
+	}
+	return time.Time{}
+}
+
+// A full scan queue nacks future-dated publishes too (RabbitMQ 4.4, docs/queue.md §3.3). The refused retry is
+// backpressure, not a platform failure: the slot holds the delivery, republishes until the retry is due and then
+// runs the next attempt on the held delivery.
+func TestRetryRefusedByAFullQueueRunsOnTheHeldDelivery(t *testing.T) {
+	h := newHarness(t, "ok")
+	h.b.SetMaxLength(3)
+	h.b.Enqueue(analysisBody(1, 1, `{"mode":"flaky","failAttempts":1}`))
+	for seq := int64(2); seq <= 6; seq++ {
+		h.b.Enqueue(analysisBody(seq, 1, `{"name":"later"}`))
+	}
+	h.start()
+	results := h.waitPublished(runtime.TypeResult, 6)
+	first := results[0]
+	if first["seq"] != float64(1) || first["status"] != "succeeded" || first["attempt"] != float64(2) {
+		t.Fatalf("the retried analysis %v", first)
+	}
+	attempts := h.published(runtime.TypeAttempt)
+	if len(attempts) != 1 || attempts[0]["seq"] != float64(1) || attempts[0]["attempt"] != float64(1) {
+		t.Fatalf("attempt events %v", attempts)
+	}
+	if n := len(h.publishedAnalyses(amqpx.Nacked)); n < 2 {
+		t.Fatalf("%d refused republishes, want at least 2 (held until due)", n)
+	}
+	if n := len(h.publishedAnalyses(amqpx.Confirmed)); n != 0 {
+		t.Fatalf("%d republishes accepted by a full queue", n)
+	}
+	// The next attempt waited for its backoff (1 s) although it ran on the held delivery.
+	if gap := h.at(runtime.TypeResult, 1, 2).Sub(h.at(runtime.TypeAttempt, 1, 1)); gap < 900*time.Millisecond {
+		t.Fatalf("the next attempt ran %s after the failed one; the backoff is 1 s", gap)
+	}
+	if !h.w.Health().Healthy() || len(h.reports) != 0 {
+		t.Fatalf("a full queue made the worker unhealthy: %v", h.reports)
+	}
+	_, _, _, c := h.w.State()
+	if c.Retried != 1 || c.Succeeded != 6 {
+		t.Fatalf("counters %+v", c)
+	}
+	waitFor(t, "empty queue", func() bool { r, d := h.b.Ready(); return r == 0 && d == 0 })
+}
+
+// Once the queue has room again (at most 80 % of x-max-length), the held retry is republished before it is due
+// and runs as a delivery of its own.
+func TestHeldRetryIsRepublishedWhenTheQueueHasRoom(t *testing.T) {
+	h := newHarness(t, "ok", func(b *api.Bootstrap) { b.Scan.Settings.Processes = 2 })
+	h.b.SetMaxLength(4)
+	h.b.Enqueue(analysisBody(1, 1, `{"mode":"retry","delayMs":4000}`))
+	for seq := int64(2); seq <= 7; seq++ {
+		h.b.Enqueue(analysisBody(seq, 1, `{"mode":"sleep","sleepMs":100}`))
+	}
+	h.start()
+	waitFor(t, "a confirmed republish", func() bool { return len(h.publishedAnalyses(amqpx.Confirmed)) == 1 })
+	if len(h.publishedAnalyses(amqpx.Nacked)) == 0 {
+		t.Fatal("the full queue accepted the retry at once")
+	}
+	retry := h.publishedAnalyses(amqpx.Confirmed)[0]
+	at, ok := retry.Headers[runtime.HeaderDeliveryTime].(int64)
+	if !ok || time.UnixMilli(at).Before(retry.At.Add(900*time.Millisecond)) {
+		t.Fatalf("delivery time %v of a republish at %s", retry.Headers, retry.At)
+	}
+	res := h.waitPublished(runtime.TypeResult, 7)
+	for _, r := range res {
+		if r["seq"] == float64(1) && (r["status"] != "failed" || r["attempt"] != float64(2)) {
+			t.Fatalf("the retried analysis %v", r)
+		}
+	}
+	if !h.w.Health().Healthy() {
+		t.Fatal("a full queue made the worker unhealthy")
+	}
+}
+
+// When the holding budget cannot cover another attempt, the refused delivery is given back with nack-requeue
+// (uncounted, nothing lost) and the worker stays healthy.
+func TestRefusedRetryIsGivenBackWhenTheBudgetCannotCoverAnAttempt(t *testing.T) {
+	h := newHarness(t, "ok", func(b *api.Bootstrap) { b.AMQP.ConsumerTimeoutMs = 62500 }) // a 2.5 s budget
+	h.b.SetMaxLength(1)
+	h.b.Enqueue(analysisBody(1, 1, `{"mode":"flaky","failAttempts":1}`))
+	h.b.Enqueue(analysisBody(2, 1, `{}`))
+	h.b.Enqueue(analysisBody(3, 1, `{}`))
+	h.start()
+	// The analysis is given back after its budget and runs its first attempt again.
+	waitFor(t, "two attempt events", func() bool { return len(h.published(runtime.TypeAttempt)) >= 2 })
+	if len(h.published(runtime.TypeResult)) != 0 || len(h.publishedAnalyses(amqpx.Confirmed)) != 0 {
+		t.Fatal("published although the queue refused the retry")
+	}
+	for _, a := range h.published(runtime.TypeAttempt) {
+		if a["seq"] != float64(1) || a["attempt"] != float64(1) {
+			t.Fatalf("attempt event %v", a)
+		}
+	}
+	if !h.w.Health().Healthy() {
+		t.Fatal("a full queue made the worker unhealthy")
+	}
+	h.b.SetMaxLength(0)
+	h.waitPublished(runtime.TypeResult, 3)
+	if len(h.publishedAnalyses(amqpx.Confirmed)) == 0 {
+		t.Fatal("the retry was never republished")
+	}
+}
+
+// The next attempt on a held delivery needs a new process when the failed one crashed: the slot respawns within
+// the holding budget.
+func TestHeldDeliveryRespawnsACrashedProcess(t *testing.T) {
+	h := newHarness(t, "ok")
+	h.b.SetMaxLength(1)
+	h.b.Enqueue(analysisBody(1, 1, `{"mode":"flaky","failAttempts":1,"failWith":"exit"}`))
+	h.b.Enqueue(analysisBody(2, 1, `{}`))
+	h.b.Enqueue(analysisBody(3, 1, `{}`))
+	h.start()
+	res := h.waitPublished(runtime.TypeResult, 3)[0]
+	if res["seq"] != float64(1) || res["status"] != "succeeded" || res["attempt"] != float64(2) {
+		t.Fatalf("result %v", res)
+	}
+	att := h.published(runtime.TypeAttempt)
+	if len(att) != 1 || att[0]["error"].(map[string]any)["type"] != "crash" {
+		t.Fatalf("attempt events %v", att)
+	}
+	if h.spawner.count.Load() < 2 {
+		t.Fatalf("%d spawns; the crashed process was not replaced", h.spawner.count.Load())
+	}
+}
+
+// A draining worker runs no further attempt: a refused retry is given back at once.
+func TestDrainGivesBackARefusedRetry(t *testing.T) {
+	h := newHarness(t, "ok", func(b *api.Bootstrap) { b.Scan.Settings.Backoff.InitialMs = 30000 })
+	h.b.SetMaxLength(1)
+	h.b.Enqueue(analysisBody(1, 1, `{"mode":"flaky","failAttempts":1}`))
+	h.b.Enqueue(analysisBody(2, 1, `{}`))
+	h.b.Enqueue(analysisBody(3, 1, `{}`))
+	h.start()
+	waitFor(t, "a refused republish", func() bool { return len(h.publishedAnalyses(amqpx.Nacked)) >= 1 })
+	start := time.Now()
+	h.w.Drain()
+	select {
+	case <-h.runDone:
+	case <-time.After(10 * time.Second):
+		t.Fatal("drain did not finish")
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("the drain waited %s for a retry the queue refused", elapsed)
+	}
+	if r, _ := h.b.Ready(); r != 3 {
+		t.Fatalf("%d ready messages, want 3 (the refused delivery was given back)", r)
+	}
+	if !h.w.Health().Healthy() {
+		t.Fatal("a full queue made the worker unhealthy")
+	}
+}
+
+// A held delivery that the broker took back (consumer cancelled, connection lost) runs again elsewhere: the slot
+// stops holding its refused retry instead of running the next attempt on a delivery it no longer owns.
+func TestDetachedDeliveryEndsTheHold(t *testing.T) {
+	h := newHarness(t, "ok", func(b *api.Bootstrap) { b.Scan.Settings.Backoff.InitialMs = 3000 })
+	h.b.SetMaxLength(1)
+	h.b.Enqueue(analysisBody(1, 1, `{"mode":"flaky","failAttempts":1}`))
+	h.b.Enqueue(analysisBody(2, 1, `{}`))
+	h.b.Enqueue(analysisBody(3, 1, `{}`))
+	h.start()
+	waitFor(t, "a refused republish", func() bool { return len(h.publishedAnalyses(amqpx.Nacked)) >= 1 })
+	h.b.CancelConsumers()
+	// The redelivered message runs attempt 1 again: its attempt event is published a second time.
+	waitFor(t, "attempt 1 again", func() bool { return len(h.published(runtime.TypeAttempt)) >= 2 })
+	h.b.SetMaxLength(0)
+	waitFor(t, "the retry accepted", func() bool { return len(h.publishedAnalyses(amqpx.Confirmed)) == 1 })
+	accepted := h.publishedAnalyses(amqpx.Confirmed)[0].At
+	waitFor(t, "attempt 2 of seq 1", func() bool { return !h.at(runtime.TypeResult, 1, 2).IsZero() })
+	for _, p := range h.b.Published() {
+		var m map[string]any
+		if p.Type == runtime.TypeResult && json.Unmarshal(p.Body, &m) == nil && m["seq"] == float64(1) && p.At.Before(accepted) {
+			t.Fatalf("seq 1 finished on the detached delivery before its retry was accepted: %v", m)
+		}
+	}
+	if !h.w.Health().Healthy() {
+		t.Fatal("a full queue made the worker unhealthy")
+	}
+}

@@ -694,7 +694,7 @@ Publish outcomes:
 | Outcome | Results / attempt events (`scantor.results`) | Retry republish (`scantor.analyses`) |
 |---|---|---|
 | confirmed | done | done |
-| nacked | transient platform error: retry with 1 s → 30 s backoff within the holding budget | cannot happen for future-dated messages (≥ 1 s ahead) even when the queue is full ([queue](queue.md) §10); treated as transient |
+| nacked | transient platform error: retry with 1 s → 30 s backoff within the holding budget | the scan queue is full (`reject-publish` refuses future-dated messages too, [queue](queue.md) §3.3): **backpressure**, not a platform error; hold the delivery (§8.11) |
 | returned (unroutable) | the ingest binding is missing: transient platform error (the orchestrator re-ensures it at boot) | the scan queue is gone (cancelled or terminal): drop the plan, do not ack, poll state now |
 | unconfirmed | republish (duplicates are absorbed) | republish |
 
@@ -717,7 +717,35 @@ The **holding budget** of a delivery is `consumerTimeoutMs − (now − delivere
   capped by the remaining budget.
 - When the budget is exhausted before the plan is confirmed, the runtime gives the delivery back with
   `basic.nack(requeue=true)` (not counted toward the delivery limit), discards the outcome, and makes the
-  worker unhealthy (§12). The analysis will run again elsewhere.
+  worker unhealthy (§12). The analysis will run again elsewhere. A retry that the full scan queue refused is
+  the exception (§8.11).
+
+### 8.11 Refused retries
+
+A full scan queue nacks the retry republish of the retry plan (§8.9) although it is future-dated
+([queue](queue.md) §3.3), and it accepts publishes again only once it is down to 80 % of its limit. The
+attempt event is already confirmed at that point. A refused retry is backpressure: the analysis must neither be
+lost nor fail, and the worker stays healthy (it is not a transient platform failure, §12, and raises no
+`workerErrors`). The slot keeps the delivery and:
+
+1. Republishes the retry every 500 ms ± 20 % (uniform), never later than its delivery time `due` (§10.2),
+   with `x-opt-delivery-time = max(due, serverNow() + 1000)`. A confirmed republish ends the plan as usual
+   (ack); a returned one drops it as in §8.9.
+2. When `due` has passed and the queue still refuses, the slot runs attempt `n + 1` **on the held delivery**,
+   provided the remaining holding budget (§8.10) covers a whole attempt (`settings.timeoutMs +
+   uploads.timeoutMs`). A process that must be recycled (§7.3) is replaced first, within the budget. The
+   attempt is an ordinary execution: its outcome takes a publish plan of §8.9, so a further retry can be held
+   again, and the final result acks the original delivery. The backoff is honoured because the attempt starts
+   only after `due`.
+3. Otherwise the slot keeps republishing until the budget ends, then gives the delivery back with
+   `basic.nack(requeue=true)` (uncounted, §12). The broker redelivers it at the head of the queue, so the same
+   attempt `n` runs again (its attempt event is a duplicate the ingestor ignores).
+4. A draining worker runs no further attempt: a refused retry is given back at once. A stopping worker settles
+   nothing (§14.2). A detached delivery (§6.4, §6.6) ends the hold too: the broker already returned it, so it
+   runs again elsewhere.
+
+While a slot holds a refused retry, `busy[]` keeps reporting the failed attempt, so stall detection
+([queue](queue.md) §9) does not consider the analysis gone.
 
 ## 9. Unified error model
 
@@ -811,9 +839,10 @@ RabbitMQ 4.4 quorum queues honour by keeping the message invisible until then ([
 deliveryTime = clamp(serverNow() + delay, serverNow() + 1000, serverNow() + backoff.maxMs)
 ```
 
-The floor of 1 s matters twice: a future-dated publish is accepted even by a full queue (so retries are never
-rejected by backpressure), and jitter can otherwise produce sub-second delays. Because `serverNow()` is the
-corrected clock (§5.2), node clock skew neither hides retries nor turns backoff into a storm.
+The floor of 1 s keeps jitter from producing sub-second delays. A future-dated publish is **not** exempt from
+`reject-publish`: a full scan queue refuses it ([queue](queue.md) §3.3), which §8.11 handles. Because
+`serverNow()` is the corrected clock (§5.2), node clock skew neither hides retries nor turns backoff into a
+storm.
 
 ### 10.3 Attempt events
 
@@ -825,7 +854,8 @@ its own event or by the final result.
 ### 10.4 What is not an attempt
 
 - A redelivery after container death, connection loss or consumer timeout (§8.2).
-- A give-back after an exhausted holding budget, a drain or an unhealthy worker (nack with requeue).
+- A give-back after an exhausted holding budget, a drain, an unhealthy worker or a refused retry (nack with
+  requeue, §8.11).
 - An analysis that ended `cancelled` after a `cancel` (§8.6), which is given back or dropped with the queue.
 - A skipped redelivery whose analysis is already final.
 
@@ -991,7 +1021,8 @@ reach the delivery limit through the runtime.
 The worker becomes **unhealthy** when any of these holds:
 
 - a holding budget was exhausted (§8.10);
-- 3 transient platform failures (presign, PUT, publish) within 60 s, across all slots;
+- 3 transient platform failures (presign, PUT, publish) within 60 s, across all slots (a retry republish
+  refused by the full scan queue is backpressure and never counts, §8.11);
 - 3 consecutive connector spawn failures (§7.5);
 - free space under `/tmp/scantor` below `limits.minFreeTmpBytes`.
 
@@ -1293,6 +1324,7 @@ the orchestrator's bootstrap response.
 | redelivered status batch | 20 ms window, ≤ 1000 seqs | – |
 | clock EWMA | α = 0.2, samples with rtt > 2 s discarded | – |
 | retry delivery time | ≥ server now + 1 s, ≤ server now + `backoff.maxMs` | – |
+| republish of a refused retry | every 500 ms ± 20 % within the holding budget | – |
 | upload parallelism | 4 PUTs per execution | – |
 | wrapped template credit | 256 items | – |
 | error reports | ≤ 1 per (type, phase) per 10 s | – |
@@ -1343,6 +1375,11 @@ Made in this document (item 7 in part and items 14–16 implement lead rulings):
 16. **The runtime starts the inner `dockerd`** of DinD workers (`SCANTOR_DIND=1`, set by the node daemon),
     waits up to 60 s for its socket and fails the worker with a clear error when the task image lacks
     Docker.
+17. **A refused retry runs on the held delivery** (§8.11): RabbitMQ 4.4 refuses future-dated publishes to a
+    full queue, and the runner has nowhere else to put attempt `n + 1`. Holding the delivery and running the
+    next attempt once it is due keeps slots productive, so slots that hold refused retries cannot starve the
+    queue that would make room for them; giving the delivery back is the fallback when the holding budget
+    cannot cover another attempt.
 
 ## 19. Future extensions
 

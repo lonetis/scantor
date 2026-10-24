@@ -120,14 +120,22 @@ Argument semantics (verified on RabbitMQ 4.4.0):
   `x-last-death-*`, `x-delivery-count` and `x-acquired-count` headers. Forged `x-death`/`x-first-death-*`
   headers set by a publisher are **overwritten** by the broker when it dead-letters the message (verified), and
   per-scan users cannot publish to `scantor.dead`; the dead-letter consumer can therefore trust them.
-- **`x-max-length` with `reject-publish`**: when ready messages reach the limit, publishes of immediately
-  deliverable or past-dated messages are nacked; publishes with a future `x-opt-delivery-time` are accepted;
-  delayed messages do not count until they become due (the ready count may then exceed the limit). Quorum
-  queues apply `reject-publish` with a lag: publishes already in flight to the leader are accepted, and only
-  later publishes of the channel are nacked (verified on 4.4: at `x-max-length` 3, ten publishes in flight
-  were all accepted and the following ones nacked). A scan queue can therefore exceed `x-max-length` by up to
-  the publishers' unconfirmed windows (512 items per scheduler, [runtime](runtime.md) §11.4), so the bound is
-  approximate. This is the scheduler's backpressure (§10).
+- **`x-max-length` with `reject-publish`** counts ready **and delayed** messages (unacknowledged deliveries do
+  not count). Once the queue holds more than the limit, it nacks **every** publish, including those with a
+  future `x-opt-delivery-time`; a publisher it refused stays refused until the queue holds at most 80 % of the
+  limit again, while a channel that has not published since is accepted as soon as the queue is back at the
+  limit (verified on 4.4.0: at limit 5, six delayed messages were accepted and the seventh nacked; with the
+  queue full, publishes dated 2 s, 60 s and 1 h ahead were nacked; at limit 10, a refused channel was accepted
+  again at 8 messages, not at 9; at limit 2, a new channel was accepted at 2 messages and refused at 3). Quorum queues
+  apply `reject-publish` with a lag: publishes already in flight to the leader are accepted, and only later
+  publishes of the channel are nacked (verified on 4.4: at `x-max-length` 3, ten publishes in flight were all
+  accepted and the following ones nacked). A scan queue can therefore exceed `x-max-length` by up to the
+  publishers' unconfirmed windows (512 items per scheduler, [runtime](runtime.md) §11.4), so the bound is
+  approximate. This is the scheduler's backpressure (§10); a runner whose retry republish is refused holds
+  the delivery instead ([runtime](runtime.md) §8.11).
+- **Requeue**: `basic.nack(requeue=true)` returns a delivery to the **head** of a quorum queue, so the next
+  delivery of the channel is usually the same message (verified on 4.4: eight nack-requeues of one message at
+  delivery limit 5 redelivered it eight times, with `redelivered` set and without dead-lettering).
 - **`x-consumer-timeout`** bounds how long one delivery may stay unacked. It equals the analysis timeout plus
   the upload timeout plus 5 minutes of margin, so a healthy runtime never reaches it ([runtime](runtime.md)
   §8.10). Because it is a queue argument, a running scan's `timeoutMs` cannot change
@@ -716,7 +724,7 @@ A late result for a `lost` analysis still applies (the guards allow `lost → su
 | Guard | Mechanism | Effect |
 |---|---|---|
 | scan queue size | `x-max-length = SCANTOR_SCAN_QUEUE_MAX_READY` with `x-overflow: reject-publish` | the scheduler's publishes are nacked when the queue is full; it waits 2 s ± jitter and republishes only the nacked seqs ([runtime](runtime.md) §11.4). The scheduler never runs ahead of the runners by more than the limit plus its window: quorum queues accept publishes already in flight to the leader, so the queue can exceed the limit by up to the unconfirmed windows of its publishers (§3.3; verified on 4.4 by `internal/runtime/worker` `TestSchedulerBackpressureWithRabbitMQ`). |
-| retries never blocked | runners publish retries with `x-opt-delivery-time ≥ server now + 1 s`; future-dated publishes are accepted by full queues | a full queue cannot turn a retry into a lost analysis |
+| retries never lost | runners publish retries with `x-opt-delivery-time ≥ server now + 1 s`; a full queue nacks them too (§3.3), so a refused retry is backpressure: the runner holds the delivery, republishes until the retry is due, then runs the next attempt on the held delivery, and gives the delivery back (`basic.nack(requeue=true)`, uncounted) only when its holding budget cannot cover another attempt ([runtime](runtime.md) §8.11) | a full queue cannot turn a retry into a lost or failed analysis, and it does not make the runner unhealthy |
 | retry-failed | same nack-and-wait loop (§8) | large retry-failed jobs respect the same bound |
 | analyses per scan | `SCANTOR_MAX_ANALYSES_PER_SCAN` (start-time estimate, runtime enforcement) | bounds per-scan broker and database volume |
 | message size | broker `max_message_size` 4 MiB; runtime caps result messages at 2 MiB, results at `SCANTOR_MAX_RESULT_BYTES`, configs at `SCANTOR_MAX_ANALYSIS_CONFIG_BYTES` | large data goes to S3 as files |
@@ -732,6 +740,7 @@ A late result for a `lost` analysis still applies (the guards allow `lost → su
 
 | Event | What happens |
 |---|---|
+| a runner's retry republish is refused because the scan queue is full | the runner holds the delivery and republishes; when the retry is due it runs the next attempt on the held delivery; only when the holding budget cannot cover another attempt does it give the delivery back with `basic.nack(requeue=true)` (uncounted; the next delivery re-runs the same attempt) ([runtime](runtime.md) §8.11) |
 | a runner container is killed mid-analysis | its connection dies; the broker returns the delivery (delivery count + 1) to another runner, which checks the status (`redelivered`) and runs it again. If the killed runner had already published, the duplicate is absorbed. |
 | a remote node is partitioned longer than the AMQP heartbeat | the broker closes the connection and requeues its deliveries; other runners execute them. When the partition heals, the old runtime publishes its finished results after reconnecting (duplicates absorbed). If the node stays offline, its workers become `lost` and their tokens stop working. |
 | the orchestrator crashes between the bulkWrite and the ack | the batch is redelivered; every operation is E11000 (or re-applies identically); counters are hints and the recount fixes them; completion is a single conditional update. |
