@@ -1,8 +1,9 @@
 import { Readable, Writable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { describe, expect, it } from 'vitest'
-import { assertTaskUploadContentType, ByteCap, uploadConflicts } from '../../../server/services/tasks/upload'
+import { assertTaskUploadContentType, uploadConflicts } from '../../../server/services/tasks/upload'
 import type { TaskDoc } from '../../../server/types/documents'
+import { ByteCap } from '../../../server/utils/byte-cap'
 import { ApiError } from '../../../server/utils/errors'
 
 // The upload conflict rule (docs/api.md §5.3, docs/tasks.md §13) and the streaming cap (security.md WS-9).

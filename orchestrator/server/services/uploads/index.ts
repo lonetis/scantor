@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { PassThrough, type Readable } from 'node:stream'
+import type { Readable } from 'node:stream'
 import type { UploadKind } from '#shared/utils/enums'
 import type { Page } from '#shared/types/common'
 import type { Upload } from '#shared/types/uploads'
 import type { UploadDoc } from '../../types/documents'
 import { loadOwned } from '../../utils/authz'
+import { ByteCap } from '../../utils/byte-cap'
 import { apiError } from '../../utils/errors'
 import { useLogger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
@@ -15,7 +16,8 @@ import { isoDate, isoDateOrNull } from '../../utils/serialize'
 
 // Uploaded list files for templates (docs/api.md §4.9, docs/data-model.md §4.10, security.md WS-9): the body streams
 // into a temporary S3 object under SCANTOR_MAX_UPLOAD_BYTES while its SHA-256 and non-empty lines are counted; it is
-// never buffered whole. Uploads are de-duplicated per user by content hash and stored at `uploads/<userId>/<sha256>`.
+// never buffered whole, and a body over the cap is not read further (413). Uploads are de-duplicated per user by
+// content hash and stored at `uploads/<userId>/<sha256>`.
 
 export const UPLOAD_CONTENT_TYPES = ['text/plain', 'application/octet-stream'] as const
 
@@ -88,45 +90,21 @@ export async function createUpload(principal: UserPrincipal, input: CreateUpload
   const tmpKey = `tmp/uploads/${randomUUID()}`
   const hash = createHash('sha256')
   const counter = new LineCounter()
-  const body = new PassThrough()
-  let bytes = 0
-  let tooLarge = false
-  const uploaded = uploadStream(tmpKey, body, input.contentType)
-  uploaded.catch(() => undefined)
+  const cap = new ByteCap(input.maxBytes, (chunk) => {
+    hash.update(chunk)
+    counter.update(chunk)
+  })
+  // The request is piped, never destroyed: at the cap the pipe only pauses it, so the 413 still reaches the client.
+  input.body.once('error', (error) => cap.destroy(error))
   try {
-    await new Promise<void>((resolve, reject) => {
-      input.body.on('data', (chunk: Buffer) => {
-        bytes += chunk.length
-        if (bytes > input.maxBytes) {
-          tooLarge = true
-          input.body.destroy()
-          body.end()
-          resolve()
-          return
-        }
-        hash.update(chunk)
-        counter.update(chunk)
-        if (!body.write(chunk)) {
-          input.body.pause()
-          body.once('drain', () => input.body.resume())
-        }
-      })
-      input.body.once('end', () => {
-        body.end()
-        resolve()
-      })
-      input.body.once('error', (error) => {
-        body.end()
-        reject(error)
-      })
-    })
-    await uploaded
-    if (tooLarge) throw apiError('payloadTooLarge', `the upload exceeds ${input.maxBytes} bytes`, { limit: input.maxBytes })
+    await uploadStream(tmpKey, input.body.pipe(cap), input.contentType)
   } catch (error) {
     await deleteObject(tmpKey).catch((deleteError: unknown) => log.warn('deleting a temporary upload failed', { key: tmpKey, err: deleteError }))
+    if (cap.exceeded) throw apiError('payloadTooLarge', `the upload exceeds ${input.maxBytes} bytes`, { limit: input.maxBytes })
     throw error
   }
 
+  const bytes = cap.bytes
   const sha256 = hash.digest('hex')
   const lines = counter.finish()
   const { uploads } = useCollections()

@@ -133,7 +133,10 @@ Further rules of the global middleware ([auth](auth.md) §5):
 - Query parameters: booleans `true`/`false`, integers in decimal, lists comma-separated.
 - Body caps: `SCANTOR_MAX_REQUEST_BYTES` for every JSON body (413 `payloadTooLarge`); streaming routes have
   their own cap (task upload `SCANTOR_TASK_MAX_PACK_BYTES`, list upload `SCANTOR_MAX_UPLOAD_BYTES`); machine
-  routes: `/api/runtime/*` 1 MiB, `/api/node/status` and `/api/node/workers/*/logs` 2 MiB.
+  routes: `/api/runtime/*` 1 MiB, `/api/node/status` and `/api/node/workers/*/logs` 2 MiB. A declared
+  `Content-Length` above the cap is rejected before the body is read; a body without one (chunked) is counted
+  while it streams, and at the cap the route stops reading it (it pauses the request, never destroys it) and
+  answers 413 `payloadTooLarge` with `details.limit`.
 - Lifecycle actions are idempotent: requesting the state a resource is already in returns 200 with the
   unchanged resource; any other forbidden transition is 409 `invalidState`.
 

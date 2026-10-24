@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { type Readable, Transform, type TransformCallback } from 'node:stream'
+import type { Readable } from 'node:stream'
 import type { RevisionDoc, TaskDoc } from '../../types/documents'
+import { ByteCap } from '../../utils/byte-cap'
 import { type ApiError, apiError } from '../../utils/errors'
 import { useLogger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
@@ -33,29 +34,6 @@ export function assertTaskUploadContentType(header: string | undefined): void {
   const type = (header ?? '').split(';')[0]!.trim().toLowerCase()
   if (!(TASK_UPLOAD_CONTENT_TYPES as readonly string[]).includes(type)) {
     throw apiError('unsupportedMediaType', 'the task upload body must be application/gzip (a tar.gz of the task folder)')
-  }
-}
-
-/**
- * Counts the bytes of a streamed body and ends the stream with an error once `maxBytes` is exceeded, so an oversized
- * upload is never read further (security.md WS-9). `exceeded` tells the caller to answer 413.
- */
-export class ByteCap extends Transform {
-  bytes = 0
-  exceeded = false
-
-  constructor(readonly maxBytes: number) {
-    super()
-  }
-
-  override _transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
-    this.bytes += chunk.length
-    if (this.bytes > this.maxBytes) {
-      this.exceeded = true
-      callback(new Error(`the upload exceeds ${this.maxBytes} bytes`))
-      return
-    }
-    callback(null, chunk)
   }
 }
 
