@@ -334,7 +334,7 @@ Navbar actions (icon + label; icon-only on narrow screens with the same aria-lab
 | Start scan | "Start scan" | `latestReadyRevision` set | → `/scans/new?revision=<taskId>@latest` |
 | Pull from git | "Pull from git" | `source.kind === 'git'` | `pullGitTask {}` → toast "Pulled <short commit>" or "Already up to date"; `409 gitDiverged` → `ConfirmModal` "Local changes or a non-fast-forward remote. Overwrite the workspace?" → `pullGitTask {force: true}` |
 | Download workspace | "Download workspace" | always | anchor to `downloadTaskWorkspace` (`download` attribute) |
-| Delete task | "Delete task" | always | `ConfirmModal` (type the task name) → `deleteTask` → 202 → `/tasks` with toast; `409 taskInUse` → toast with a link to the task's active scans |
+| Delete task | "Delete task" | always | `ConfirmModal` (type the task name) → `deleteTask` → 202 → `/tasks` with toast; `409 taskInUse` → toast "A scan still uses this task" with "Show active scans" (`/scans?task=<taskId>&state=creating,running,paused`, §5.11) |
 
 Tabs (`?tab=`):
 
@@ -412,7 +412,9 @@ Tabs (`?tab=`):
 ### 5.11 Scans list (`/scans`)
 
 - Toolbar: state filter (`USelectMenu` multiple over scan states, default all except `deleting`/
-  `deleted`), task filter (`USelectMenu` over `listTasks`), admin "Only mine" switch.
+  `deleted`), task filter (`USelectMenu` over `listTasks`), admin "Only mine" switch. The filters are
+  remembered (§14); `?task=<taskId>` and `?state=<state,…>` take precedence over the remembered ones and are
+  dropped from the URL at the first filter change.
 - `ScanTable` columns: name (or short id) + id chip, `task@N` link, state badge (+ amber triangle with
   `conditionsCount` when > 0), progress bar + `terminal / total` + percent, rate (`stats.ratePerMin` /min),
   ETA, `workers × processes`, owner (admins; `userId` resolved to an email through a cached `getUser`),

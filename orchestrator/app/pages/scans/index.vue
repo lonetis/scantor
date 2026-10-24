@@ -1,25 +1,26 @@
 <script setup lang="ts">
 // Scans list (docs/ui.md §5.11): state and task filters (and "Only mine" for admins), the scans table with row
-// actions, "Load more", a 10 s poll. Filters are remembered in the UI prefs.
+// actions, "Load more", a 10 s poll. Filters are remembered in the UI prefs; `?task=` and `?state=` preselect them.
 useHead({ title: 'Scans · scantor' })
 
 const api = useApi()
+const route = useRoute()
+const router = useRouter()
 const { isAdmin, user } = useAuth()
 const prefs = useUiPrefs()
 
-interface StoredFilters extends Record<string, unknown> {
-  state: ScanState[]
-  task: string | null
-  onlyMine: boolean
-}
-
-const stored = prefs.getFilters<StoredFilters>('scans')
-const stateFilter = ref<ScanState[]>(Array.isArray(stored.state) ? stored.state.filter((state) => (SCAN_STATES as readonly string[]).includes(state)) : [])
-const taskFilter = ref<string | null>(typeof stored.task === 'string' ? stored.task : null)
-const onlyMine = ref(stored.onlyMine === true)
+// `?task=` and `?state=` preselect the filters (the taskInUse toast links to the active scans of a task).
+const initial = initialScanFilters(route.query, prefs.getFilters<StoredScanFilters>('scans'))
+const stateFilter = ref<ScanState[]>(initial.state)
+const taskFilter = ref<string | null>(initial.task)
+const onlyMine = ref(initial.onlyMine)
 
 watch([stateFilter, taskFilter, onlyMine], () => {
   prefs.setFilters('scans', { state: stateFilter.value, task: taskFilter.value, onlyMine: onlyMine.value })
+  // Once the filters change, the query no longer describes them; drop it so a reload shows the remembered ones.
+  if (route.query.task !== undefined || route.query.state !== undefined) {
+    void router.replace({ query: { ...route.query, task: undefined, state: undefined } })
+  }
 }, { deep: true })
 
 const filters = computed<ScanListFilters>(() => ({

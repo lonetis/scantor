@@ -106,7 +106,7 @@ async function remove(): Promise<void> {
       color: 'error',
       icon: 'i-lucide-circle-alert',
       actions: apiError.code === 'taskInUse'
-        ? [{ label: 'Show active scans', color: 'neutral', variant: 'outline', onClick: () => void navigateTo(`/scans?task=${taskId.value}`) }]
+        ? [{ label: 'Show active scans', color: 'neutral', variant: 'outline', onClick: () => void navigateTo({ path: '/scans', query: { task: taskId.value, state: ACTIVE_SCAN_STATES.join(',') } }) }]
         : undefined,
     })
   } finally {
