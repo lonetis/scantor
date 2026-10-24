@@ -260,7 +260,7 @@ Mechanisms: [api](../docs/api.md) §4.11, [tasks](../docs/tasks.md) §11.
 - **TRUN-007** [api, cli] `GET /api/test-runs/{id}/stream` is `text/event-stream` with the events `state`, `log {seq, stream, text, at}`, `analysis`, `error` and `end` (the run without analyses) and ends after `end`; for a finished run it replays the state, analyses and errors and then ends.
 - **TRUN-008** [api] `POST /api/test-runs/{id}/cancel` moves a queued, building or running run to `cancelled` and removes its `scantor-t-<id>` container; a cancelled run returns 200 unchanged and a completed or failed one 409 `invalidState`; deleting the task cancels its running test runs.
 - **TRUN-009** [api] `GET /api/test-runs/{id}/files/{fileId}` returns a `FileDownload` (302 with `?redirect=true`) whose presigned URL serves the exact content; an unknown file id returns 404.
-- **TRUN-010** [e2e, security] A test run of a privileged task runs unprivileged and needs no `canRunPrivileged`.
+- **TRUN-010** [e2e, security] A test run of a privileged task runs unprivileged (no Docker-in-Docker, no added capabilities), and like a publish it needs the owner's `canRunPrivileged`: without it the test run fails at `static` with `privileged tasks require the canRunPrivileged permission`.
 - **TRUN-011** [security] The test-run container `scantor-t-<id>` runs on `scantor-egress` with the worker hardening profile, never privileged and without `SCANTOR_DIND`; a `netprobe` test run reaches no MongoDB, registry, RabbitMQ or orchestrator.
 - **TRUN-012** [e2e] A test run that references a list upload and the `tranco` and `crux` templates gets the upload's lines and the data from inside the test-run container.
 
