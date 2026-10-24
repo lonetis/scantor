@@ -60,10 +60,10 @@ const valueObject = computed<Record<string, unknown>>(() =>
   typeof model.value === 'object' && model.value !== null && !Array.isArray(model.value) ? model.value : {},
 )
 
-function validate(): FormError[] {
+const validate = settledValidator((): FormError[] => {
   if (jsonMode.value && jsonParseError.value) return [{ name: undefined, message: `Invalid JSON: ${jsonParseError.value}` }]
   return validateValue(model.value)
-}
+})
 
 const jsonErrors = computed(() => (jsonMode.value && !jsonParseError.value ? validateValue(model.value) : []))
 

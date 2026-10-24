@@ -720,7 +720,10 @@ config and analysis config (scan form, test-run panel, template estimate).
 `Validator` (draft `2020-12`, all errors reported; defaults are never filled; `discriminator` is an
 annotation it ignores; the server is authoritative) and returns `FormError[]` with dot paths derived from
 each error's `instanceLocation` (`#/headers/0` → `taskConfig.headers.0`). Validators are cached per
-schema hash. The validator interprets the schema instead of generating code, so it runs under the
+schema hash. `validate` waits for the next tick (`settledValidator`): the `UForm` validates on "change" and
+"blur" in the tick of the edit, before the parent passes the edited value back as `modelValue`, and a
+number field commits its text only on blur, so an immediate validation would report the previous value
+("is required") until the next one. The validator interprets the schema instead of generating code, so it runs under the
 production CSP; ajv, which compiles validators with `new Function`, would need `'unsafe-eval'` (§13).
 
 ### 6.2 Widgets

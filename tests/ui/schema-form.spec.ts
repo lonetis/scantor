@@ -551,17 +551,9 @@ test.describe('schema forms', () => {
     },
   )
 
-  // product bug: a required number field shows "is required" for a moment when it loses the focus after typing
-  test.fail(
+  test(
     'leaving a required number field right after typing keeps the form still, so the click on "Start test run" starts the run',
-    {
-      tag: ['@UI-FORM-013'],
-      annotation: {
-        type: 'issue',
-        description:
-          'NumberField.vue (UInputNumber) commits the typed text on blur, but the UFormField validates on blur first: "is required" shows for ~300 ms until the input validation clears it, the form below moves by one line, and the mouseup of a click that caused the blur misses its button',
-      },
-    },
+    { tag: ['@UI-FORM-013'] },
     async ({ page, user, openapi }) => {
       const throws = await sharedTask(user, openapi, 'throws')
       await gotoApp(page, `/tasks/${throws.task.id}?tab=test`)

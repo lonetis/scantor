@@ -1,5 +1,5 @@
 import { type OutputUnit, type Schema, Validator } from '@cfworker/json-schema'
-import { computed, type MaybeRefOrGetter, toValue } from 'vue'
+import { computed, type MaybeRefOrGetter, nextTick, toValue } from 'vue'
 import { type FieldError, parsePointer, segmentsToDotPath } from '../utils/json-pointer'
 import { isFormRenderable, type JsonSchema } from '../utils/schema-subset'
 
@@ -173,6 +173,18 @@ export function validateAgainstSchema(schema: JsonSchema, value: unknown): Field
     // For example a $ref the validator cannot resolve: the server still validates on submit.
     warnUnavailable(error)
     return []
+  }
+}
+
+/**
+ * A UForm `validate` that runs once the edit has settled. The UForm validates on "change" and "blur" in the tick of
+ * the edit, before the parent has passed the edited value back as `modelValue`; validated then, a required number
+ * field (which commits its text on blur) was still empty and showed "is required" until the next validation.
+ */
+export function settledValidator<E>(validate: () => E[]): () => Promise<E[]> {
+  return async () => {
+    await nextTick()
+    return validate()
   }
 }
 
