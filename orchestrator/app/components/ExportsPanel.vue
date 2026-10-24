@@ -75,7 +75,7 @@ const columns: TableColumn<Export>[] = [
     <div class="flex flex-wrap items-center justify-between gap-2">
       <p class="text-xs text-muted">Background exports of this scan; files expire after the retention period.</p>
       <div class="flex items-center gap-2">
-        <RefreshButton label="Refresh exports" :loading="exports.loading.value" @click="exports.refresh()" />
+        <RefreshButton label="Refresh exports" :loading="exports.loading.value || exports.refreshing.value" @click="exports.refresh()" />
         <UButton label="New export" icon="i-lucide-file-down" size="sm" :disabled="!canExport" @click="newExport" />
       </div>
     </div>

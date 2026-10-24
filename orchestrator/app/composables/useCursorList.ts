@@ -1,5 +1,8 @@
+import { computed, ref, shallowRef, type Ref } from 'vue'
+
 // "Load more" over cursor-paginated lists (docs/api.md §1.8, docs/ui.md §7). Filter changes call reset();
-// an epoch guard drops responses that belong to an older filter.
+// an epoch guard drops responses that belong to an older filter. `loading` covers reset() and loadMore();
+// `refreshing` covers refresh(), which polls and "Refresh" buttons use.
 
 export interface CursorPage<T> {
   items: T[]
@@ -22,6 +25,9 @@ export function useCursorList<T>(fetchPage: (cursor: string | null) => Promise<C
   const loaded = ref(false)
   const error = shallowRef<unknown>(null)
   const pages = ref(0)
+  // A counter, so overlapping refreshes (a poll tick and a click) keep `refreshing` until the last one ends.
+  const refreshesInFlight = ref(0)
+  const refreshing = computed(() => refreshesInFlight.value > 0)
   let epoch = 0
 
   const limitReached = computed(() => options.maxItems !== undefined && items.value.length >= options.maxItems)
@@ -68,12 +74,17 @@ export function useCursorList<T>(fetchPage: (cursor: string | null) => Promise<C
     const pageCount = Math.max(1, Math.min(pages.value, options.maxRefreshPages ?? 5))
     const collected: T[] = []
     let cursor: string | null = null
-    for (let page = 0; page < pageCount; page++) {
-      const result = await fetchPage(cursor)
-      if (started !== epoch) return
-      collected.push(...result.items)
-      cursor = result.nextCursor ?? null
-      if (cursor === null) break
+    refreshesInFlight.value++
+    try {
+      for (let page = 0; page < pageCount; page++) {
+        const result = await fetchPage(cursor)
+        if (started !== epoch) return
+        collected.push(...result.items)
+        cursor = result.nextCursor ?? null
+        if (cursor === null) break
+      }
+    } finally {
+      refreshesInFlight.value--
     }
     items.value = options.maxItems === undefined ? collected : collected.slice(0, options.maxItems)
     nextCursor.value = cursor
@@ -86,5 +97,5 @@ export function useCursorList<T>(fetchPage: (cursor: string | null) => Promise<C
     reset().catch((cause: unknown) => console.error('[list] loading the first page failed', cause))
   }
 
-  return { items, nextCursor, hasMore, limitReached, loading, loaded, error, reset, loadMore, refresh }
+  return { items, nextCursor, hasMore, limitReached, loading, refreshing, loaded, error, reset, loadMore, refresh }
 }

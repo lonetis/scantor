@@ -56,7 +56,7 @@ async function refreshAll(): Promise<void> {
           <UDashboardSidebarCollapse />
         </template>
         <template #right>
-          <RefreshButton :loading="jobs.loading.value" @click="refreshAll" />
+          <RefreshButton :loading="jobs.loading.value || jobs.refreshing.value || healthPoll.running.value" @click="refreshAll" />
         </template>
       </UDashboardNavbar>
     </template>

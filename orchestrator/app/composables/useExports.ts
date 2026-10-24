@@ -149,6 +149,7 @@ export function useExports(scanId: MaybeRefOrGetter<string | null | undefined> =
     items,
     hasMore: list.hasMore,
     loading: list.loading,
+    refreshing: list.refreshing,
     loaded: list.loaded,
     loadMore: list.loadMore,
     reset,

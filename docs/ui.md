@@ -769,7 +769,7 @@ field, on the nearest rendered ancestor, or as a form-level alert when no field 
 | `useInstance()` | singleton: `getInstanceInfo` once per page load and `getSetupStatus`; exposes `features`, `limits`, URLs, `cliImage`, `version` |
 | `useApiFetch(path, opts)` | `useFetch` with `$fetch: $api`, typed by `#shared/types`; `opts.toast` (default true) |
 | `usePoll(fn, {intervalMs, enabled})` | polling with visibility pause, in-flight skip and error backoff (§9) |
-| `useCursorList(fetchPage)` | generic `Load more` / infinite loading over `nextCursor` or `afterSeq`, with reset on filter change and an epoch guard against stale responses |
+| `useCursorList(fetchPage)` | generic `Load more` / infinite loading over `nextCursor` or `afterSeq`, with reset on filter change and an epoch guard against stale responses; `loading` covers the first page and "Load more", `refreshing` a re-read of the loaded pages (polls; the "Refresh" button spins on either) |
 | `useSidebarCounts()` | singleton poll for the Scans and Nodes badges |
 | `useScan(scanId)` / `useScanActions(scan)` | scan polling by state; action availability (`scanActions`) and calls with confirmations and toasts |
 | `useTestRunStream(testRunId)` | `EventSource` lifecycle, event reducer, polling fallback |

@@ -35,7 +35,7 @@ const hasFilters = computed(() => Boolean(debouncedSearch.value.trim()) || langu
           <UDashboardSidebarCollapse />
         </template>
         <template #right>
-          <RefreshButton :loading="tasks.loading.value" @click="tasks.refresh()" />
+          <RefreshButton :loading="tasks.loading.value || tasks.refreshing.value" @click="tasks.refresh()" />
           <UButton to="/tasks/new" label="New task" icon="i-lucide-plus" size="sm" />
         </template>
       </UDashboardNavbar>
