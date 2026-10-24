@@ -965,10 +965,12 @@ API, export and MCP response, and only `GET /api/runtime/bootstrap` (and the loc
 run) carries the plaintext ([security](security.md)). User code receives the real value. Secrets in the
 analysis config or result are masked in responses the same way.
 
-describe removes `default` from every `writeOnly` property: pydantic exports the default of a `SecretStr`
-field masked (`"**********"`), and filling defaults would store that string as the secret. An omitted
-secret therefore stays absent from the effective config and the connector's native default applies
-(Go: the zero value).
+describe removes every `default` that carries a secret: the default of a `writeOnly` property, also when
+`writeOnly` sits in one of its `anyOf`/`oneOf` branches or a referenced definition (pydantic `SecretStr |
+None`), and the default of an object or array whose value contains a `writeOnly` member. Connectors
+export such defaults masked (pydantic: `"**********"`) or as `null`, and filling defaults would store that
+value as the secret. An omitted secret therefore stays absent from the effective config and the
+connector's native default applies (Go: the zero value).
 
 ### 6.6 `x-scantor` annotations
 

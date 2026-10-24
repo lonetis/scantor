@@ -415,35 +415,101 @@ func sameJSON(a, b any) bool {
 	return err1 == nil && err2 == nil && string(ca) == string(cb)
 }
 
-// normalise sets $schema, drops $id and drops `default` from writeOnly properties (docs/tasks.md §6.5,
+// normalise sets $schema, drops $id and drops every default that carries a secret (docs/tasks.md §6.5,
 // §7 step 3).
 func normalise(s map[string]any) map[string]any {
 	delete(s, "$id")
 	s["$schema"] = SchemaURL
-	dropWriteOnlyDefaults(s, 0)
+	dropSecretDefaults(s, s, 0)
 	return s
 }
 
-func dropWriteOnlyDefaults(v any, depth int) {
+var (
+	// instanceKeywords hold instance values, not subschemas.
+	instanceKeywords = map[string]bool{"default": true, "examples": true, "const": true, "enum": true}
+	// namedSubschemas map names to subschemas; the map itself is not a schema, so a property named
+	// "default" is a subschema like any other.
+	namedSubschemas = map[string]bool{"properties": true, "patternProperties": true, "$defs": true, "definitions": true, "dependentSchemas": true}
+)
+
+// dropSecretDefaults removes `default` from every schema node below v whose default carries a secret
+// (carriesSecret). Connectors export such defaults masked (pydantic: "**********") or as null, and
+// filling them in would make that value the secret. Every keyword is searched, also those outside the
+// supported subset.
+func dropSecretDefaults(root map[string]any, v any, depth int) {
 	if depth > walkDepth {
 		return
 	}
 	switch t := v.(type) {
 	case map[string]any:
-		if t["writeOnly"] == true {
+		if def, ok := t["default"]; ok && carriesSecret(root, t, def, 0, map[string]bool{}) {
 			delete(t, "default")
 		}
 		for k, child := range t {
-			if k == "default" || k == "examples" || k == "const" || k == "enum" {
-				continue // instance values, not subschemas
+			switch {
+			case instanceKeywords[k]:
+			case namedSubschemas[k]:
+				named, _ := child.(map[string]any)
+				for _, sub := range named {
+					dropSecretDefaults(root, sub, depth+1)
+				}
+			default:
+				dropSecretDefaults(root, child, depth+1)
 			}
-			dropWriteOnlyDefaults(child, depth+1)
 		}
 	case []any:
 		for _, child := range t {
-			dropWriteOnlyDefaults(child, depth+1)
+			dropSecretDefaults(root, child, depth+1)
 		}
 	}
+}
+
+// carriesSecret reports whether value, as an instance of schema s, is or contains a writeOnly value: s
+// itself, one of its anyOf/oneOf branches or a $ref target is writeOnly (pydantic puts writeOnly into a
+// branch of `SecretStr | None`), or a property, additional property or array item of value is. refs holds
+// the references already followed for this value, so cycles and shared definitions are visited once.
+func carriesSecret(root map[string]any, s, value any, depth int, refs map[string]bool) bool {
+	m, ok := s.(map[string]any)
+	if !ok || depth > walkDepth {
+		return false
+	}
+	if m["writeOnly"] == true {
+		return true
+	}
+	if ref, ok := m["$ref"].(string); ok && !refs[ref] {
+		refs[ref] = true
+		if target, ok := lookupRef(root, ref); ok && carriesSecret(root, target, value, depth+1, refs) {
+			return true
+		}
+	}
+	for _, k := range []string{"anyOf", "oneOf"} {
+		branches, _ := m[k].([]any)
+		for _, b := range branches {
+			if carriesSecret(root, b, value, depth+1, refs) {
+				return true
+			}
+		}
+	}
+	switch inst := value.(type) {
+	case map[string]any:
+		props, _ := m["properties"].(map[string]any)
+		for name, child := range inst {
+			sub, listed := props[name]
+			if !listed {
+				sub = m["additionalProperties"]
+			}
+			if carriesSecret(root, sub, child, depth+1, map[string]bool{}) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range inst {
+			if carriesSecret(root, m["items"], child, depth+1, map[string]bool{}) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Keywords of the supported subset (docs/tasks.md §6.4); x- keywords are annotations.

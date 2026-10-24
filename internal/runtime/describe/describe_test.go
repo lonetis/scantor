@@ -91,6 +91,52 @@ func TestDeriveEcho(t *testing.T) {
 	}
 }
 
+func TestDeriveDropsSecretDefaults(t *testing.T) {
+	task := `{"type":"object","additionalProperties":false,"properties":{
+		"greeting":{"type":"string","default":"Hello"},
+		"nullable":{"anyOf":[{"type":"string","format":"password","writeOnly":true},{"type":"null"}],"default":null},
+		"masked":{"anyOf":[{"type":"string","format":"password","writeOnly":true},{"type":"null"}],"default":"**********"},
+		"referenced":{"$ref":"#/$defs/Token","default":"**********"},
+		"creds":{"$ref":"#/$defs/Creds","default":{"user":"u","token":"**********"}},
+		"credsWithoutToken":{"$ref":"#/$defs/Creds","default":{"user":"u"}},
+		"optionalCreds":{"anyOf":[{"$ref":"#/$defs/Creds"},{"type":"null"}],"default":null},
+		"tokens":{"type":"array","items":{"$ref":"#/$defs/Token"},"default":["**********"]},
+		"noTokens":{"type":"array","items":{"$ref":"#/$defs/Token"},"default":[]},
+		"keyed":{"type":"object","additionalProperties":{"type":"string","writeOnly":true},"default":{"a":"**********"}},
+		"default":{"type":"string","writeOnly":true,"default":"**********"},
+		"chain":{"$ref":"#/$defs/Node","default":{"next":{"next":null}}}
+	},"$defs":{
+		"Token":{"type":"string","writeOnly":true},
+		"Creds":{"type":"object","properties":{"user":{"type":"string"},"token":{"$ref":"#/$defs/Token"}},"additionalProperties":false},
+		"Node":{"type":"object","properties":{"next":{"anyOf":[{"$ref":"#/$defs/Node"},{"type":"null"}]}},"additionalProperties":false}
+	}}`
+	out, errs := Derive(input(task, closed, closed, `{"type":"object"}`, single))
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	validateOutput(t, out)
+	var ts map[string]any
+	_ = json.Unmarshal(out.Schemas.TaskConfig, &ts)
+	props := ts["properties"].(map[string]any)
+	for name, keep := range map[string]bool{
+		"greeting": true, "nullable": false, "masked": false, "referenced": false, "creds": false, "credsWithoutToken": true,
+		"optionalCreds": true, "tokens": false, "noTokens": true, "keyed": false, "default": false, "chain": true,
+	} {
+		prop, ok := props[name].(map[string]any)
+		if !ok {
+			t.Fatalf("property %s is missing: %v", name, props)
+		}
+		if _, has := prop["default"]; has != keep {
+			t.Errorf("%s: default kept = %v, want %v (%v)", name, has, keep, prop)
+		}
+	}
+	want := []string{"/creds/token", "/credsWithoutToken/token", "/default", "/keyed/*", "/masked", "/nullable", "/optionalCreds/token", "/referenced", "/tokens/*", "/noTokens/*"}
+	slices.Sort(want)
+	if !slices.Equal(out.SecretPaths.TaskConfig, want) {
+		t.Fatalf("secret paths %v, want %v", out.SecretPaths.TaskConfig, want)
+	}
+}
+
 func TestDeriveErrors(t *testing.T) {
 	cases := map[string]Input{
 		"cannot declare a scan config": input(closed, `{"type":"object","properties":{"count":{"type":"integer","default":1}},"additionalProperties":false}`, closed, `{"type":"object"}`, single),
