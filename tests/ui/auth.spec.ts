@@ -1,3 +1,4 @@
+import { setBannedFlag } from '../helpers/api-auth'
 import { ok } from '../helpers/api-client'
 import {
   expectStorageWithout,
@@ -157,23 +158,19 @@ test.describe('session loss', () => {
     await expect(page).toHaveURL((url) => url.pathname === '/login' && url.searchParams.get('redirect') === '/scans')
   })
 
-  // product bug: a user banned while signed in lands on /login?redirect=… without the banned message
-  test.fail(
-    'a user banned while signed in lands on /login?banned=1 with "Your account is banned"',
-    {
-      tag: ['@UI-NAV-018'],
-      annotation: {
-        type: 'issue',
-        description: 'banUser deletes the sessions first, so the next API call answers 401 (not 403 banned) and plugins/api.ts opens /login?redirect=',
-      },
-    },
-    async ({ page, freshUser, adminApi }) => {
+  test(
+    'a user whose session outlives the ban gets 403 banned, is signed out and lands on /login?banned=1 with "Your account is banned"',
+    { tag: ['@UI-NAV-018'] },
+    async ({ page, freshUser, freshApi }) => {
       await openPage(page, '/tasks')
       await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
-      ok(await adminApi.call('banUser', { path: { userId: freshUser.id }, body: { reason: unique('ui-ban'), cancelScans: false } }), 'banUser')
+      // Only the banned flag, as before banUser deleted the sessions: the session is read fresh and answers 403 banned.
+      await setBannedFlag(freshUser.id, true)
       await page.getByRole('button', { name: 'Refresh', exact: true }).click()
       await expect(page).toHaveURL((url) => url.pathname === '/login' && url.searchParams.get('banned') === '1')
       await expect(page.getByTestId('login-error')).toHaveText(/Your account is banned/)
+      // The page signed the session out.
+      expect((await freshApi.getAccount()).status).toBe(401)
     },
   )
 

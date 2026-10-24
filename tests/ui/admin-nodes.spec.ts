@@ -434,10 +434,12 @@ test.describe('node actions', () => {
     }
   })
 
-  test('rotate, revoke and delete are disabled for the built-in node', { tag: ['@UI-ADMIN-005'] }, async ({ page, adminApi }) => {
+  test('rotate, revoke and delete are disabled for the built-in node, and its menu says why', { tag: ['@UI-ADMIN-005'] }, async ({ page, adminApi }) => {
     const builtin = await builtinNode(adminApi)
     await openPage(page, '/admin/nodes')
     const menu = await openActions(page, builtin.name)
+    // The explanation is a label above the actions (docs/ui.md §5.15): the button's tooltip is its name.
+    await expect(menu.getByText(BUILTIN_HINT, { exact: true })).toBeVisible()
     for (const item of ['Rotate token', 'Revoke token', 'Delete'])
       await expect(menu.getByRole('menuitem', { name: item, exact: true })).toHaveAttribute('aria-disabled', 'true')
     for (const item of ['Edit', 'Show join command'])
@@ -446,25 +448,6 @@ test.describe('node actions', () => {
     await expect(menu).toBeHidden()
     expect((await getNode(adminApi, builtin.id)).state).toBe('online')
   })
-
-  // product bug: the built-in node's explanation tooltip never shows
-  test.fail(
-    'the built-in node explains why its token actions are disabled',
-    {
-      tag: ['@UI-ADMIN-005'],
-      annotation: {
-        type: 'issue',
-        description: 'NodeTable.vue wraps UDropdownMenu (no element of its own) in UTooltip, so the tooltip trigger never reaches the actions button',
-      },
-    },
-    async ({ page, adminApi }) => {
-      const builtin = await builtinNode(adminApi)
-      await openPage(page, '/admin/nodes')
-      const button = page.getByRole('button', { name: `Node actions for ${builtin.name}` })
-      await button.hover()
-      await expect(page.getByRole('tooltip')).toHaveText(BUILTIN_HINT, { timeout: 5_000 })
-    },
-  )
 })
 
 test.describe('node page', () => {
