@@ -655,17 +655,9 @@ test.describe('results of a finished scan', () => {
     await expect(page.getByRole('toolbar', { name: 'Scan controls' }).getByRole('button', { name: 'Export results' })).toBeDisabled()
   })
 
-  // product bug: the Workers tab of a finished scan ignores changes of its state filter
-  test.fail(
+  test(
     'the workers tab of a finished scan lists stopped workers once the state filter is cleared',
-    {
-      tag: ['@UI-RES-018'],
-      annotation: {
-        type: 'issue',
-        description:
-          'pages/scans/[scanId].vue loads the workers of a terminal scan once (workers.reset() when the tab opens, default filter: non-terminal states) but passes useWorkers `enabled: workersVisible && !terminal`, and useWorkers reloads on a filter change only while enabled: clearing the state filter keeps "No workers match."',
-      },
-    },
+    { tag: ['@UI-RES-018'] },
     async ({ page, user, openapi }) => {
       const { scan } = await resultsScan(user, openapi)
       await openScanPage(page, scan.id, '?tab=workers')

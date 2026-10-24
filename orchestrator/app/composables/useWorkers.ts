@@ -1,11 +1,20 @@
-import type { MaybeRefOrGetter } from 'vue'
+import { toValue, watch, type MaybeRefOrGetter } from 'vue'
 
-// Workers of a scan (docs/ui.md §5.13.5): listScanWorkers with a state filter, "Load more", and a 5 s poll while
-// the workers tab is visible and the scan is not terminal.
+// Workers of a scan (docs/ui.md §5.13.5): listScanWorkers with a state filter and "Load more" while the workers tab
+// is visible (`enabled`). The first load and every filter change read the list from the start; a 5 s poll re-reads
+// it while the scan is `live` (not terminal). A finished scan has no poll, so reopening its tab re-reads it once.
 
 const WORKERS_POLL_MS = 5000
 
-export function useWorkers(scanId: MaybeRefOrGetter<string>, options: { state: MaybeRefOrGetter<readonly WorkerState[]>, enabled: MaybeRefOrGetter<boolean> }) {
+export interface WorkersOptions {
+  state: MaybeRefOrGetter<readonly WorkerState[]>
+  /** The workers tab is visible. */
+  enabled: MaybeRefOrGetter<boolean>
+  /** The scan is not terminal, so its workers change: poll. */
+  live: MaybeRefOrGetter<boolean>
+}
+
+export function useWorkers(scanId: MaybeRefOrGetter<string>, options: WorkersOptions) {
   const api = useApi()
   let background = false
 
@@ -19,19 +28,33 @@ export function useWorkers(scanId: MaybeRefOrGetter<string>, options: { state: M
     { immediate: false },
   )
 
-  watch([() => toValue(scanId), () => toValue(options.state).join(','), () => toValue(options.enabled)], ([, , enabled], previous) => {
-    const filterChanged = !previous || previous[0] !== toValue(scanId) || previous[1] !== toValue(options.state).join(',')
-    if (enabled && (filterChanged || !list.loaded.value)) list.reset().catch((error: unknown) => console.error('[workers] loading failed', error))
-  }, { immediate: true })
-
-  const poll = usePoll(async () => {
+  async function backgroundRefresh(): Promise<void> {
     background = true
     try {
       await list.refresh()
     } finally {
       background = false
     }
-  }, { intervalMs: WORKERS_POLL_MS, enabled: () => toValue(options.enabled) && list.loaded.value, immediate: false })
+  }
+
+  // The scan and the filter the list was last reset for.
+  let loadedFor: string | null = null
+  const filterKey = () => `${toValue(scanId)} ${toValue(options.state).join(',')}`
+  watch([filterKey, () => toValue(options.enabled)], ([key, enabled], previous) => {
+    if (!enabled) return
+    if (key !== loadedFor || !list.loaded.value) {
+      loadedFor = key
+      list.reset().catch((error: unknown) => console.error('[workers] loading failed', error))
+    } else if (previous !== undefined && !previous[1] && !toValue(options.live)) {
+      backgroundRefresh().catch((error: unknown) => console.error('[workers] refreshing failed', error))
+    }
+  }, { immediate: true })
+
+  const poll = usePoll(backgroundRefresh, {
+    intervalMs: WORKERS_POLL_MS,
+    enabled: () => toValue(options.enabled) && toValue(options.live) && list.loaded.value,
+    immediate: false,
+  })
 
   return { ...list, polling: poll.running, refresh: poll.refresh }
 }

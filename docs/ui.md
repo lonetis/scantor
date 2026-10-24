@@ -569,7 +569,9 @@ Actions: "Copy as JSON", "Query similar" (opens the query tab with `{"error.type
   state badge with `stateReason`, node name, processes `desired / applied / running`, restarts, last exit
   (code, OOM badge), runtime version, last seen, started. Row action "Logs" (aria "Show worker logs") →
   `WorkerLogsModal`: `getWorkerLogs?wait=20&tailBytes=65536` shows a `LogView` with "Collected <time>",
-  `truncated`, and "Refresh".
+  `truncated`, and "Refresh". The table loads when the tab opens and again from the start on every filter
+  change, also for a terminal scan. It polls only while the scan is not terminal (§9); a terminal scan's
+  table is read again when its tab opens again.
 - `InflightTable` from `listInflightAnalyses`: analysis id (opens the slideover), seq, attempt, round,
   running for (live duration), worker, node, progress; "updated <time>" caption.
 

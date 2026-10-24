@@ -52,10 +52,7 @@ const NON_TERMINAL_WORKER_STATES: WorkerState[] = ['pending', 'assigned', 'pulli
 const workerStateFilter = ref<WorkerState[]>([...NON_TERMINAL_WORKER_STATES])
 const workerStateItems = WORKER_STATES.map((state) => ({ label: state, value: state }))
 const workersVisible = computed(() => tab.value === 'workers' && scan.value !== null)
-const workers = useWorkers(scanId, { state: workerStateFilter, enabled: () => workersVisible.value && !terminal.value })
-watch(workersVisible, (visible) => {
-  if (visible && terminal.value) void workers.reset()
-})
+const workers = useWorkers(scanId, { state: workerStateFilter, enabled: workersVisible, live: () => !terminal.value })
 const { inflight, refresh: refreshInflight } = useInflight(scanId, () => workersVisible.value && running.value)
 const logsWorker = shallowRef<ScanWorker | null>(null)
 const logsOpen = ref(false)
