@@ -19,7 +19,14 @@ status=$?
 if [ -n "${SCANTOR_TEST_HOST_UID:-}" ] && [ -n "${SCANTOR_TEST_HOST_GID:-}" ]; then
   for path in playwright-report test-results .auth; do
     if [ -e "$path" ]; then
-      chown -R "$SCANTOR_TEST_HOST_UID:$SCANTOR_TEST_HOST_GID" "$path" || echo "could not chown $path" >&2
+      if ! errors="$(chown -R "$SCANTOR_TEST_HOST_UID:$SCANTOR_TEST_HOST_GID" "$path" 2>&1)"; then
+        # Concurrent `just test-exec` runs delete their own files (storage states, limiter locks) while this one
+        # hands the tree over; only the other errors matter.
+        errors="$(printf '%s\n' "$errors" | grep -v 'No such file or directory' || true)"
+        if [ -n "$errors" ]; then
+          printf 'could not chown %s:\n%s\n' "$path" "$errors" >&2
+        fi
+      fi
     fi
   done
 fi
