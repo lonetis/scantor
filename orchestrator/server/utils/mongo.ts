@@ -19,7 +19,7 @@ import type {
   UploadDoc,
   WorkerDoc,
 } from '../types/documents'
-import { type Config, useConfig } from './config'
+import { analyticsUserEnabled, type Config, useConfig } from './config'
 import { useKeys } from './keys'
 import { withLock } from './locks'
 import { type Logger, useLogger } from './logger'
@@ -286,6 +286,25 @@ async function ensureReadOnlyUser(client: MongoClient, appDb: string, user: stri
   return 'updated'
 }
 
+type UserConfig = Pick<Config, 'mongoDb' | 'mongoAnalyticsUser' | 'mongoAnalyticsPassword' | 'exposeMongo' | 'mongoExpressReadonly'>
+
+/**
+ * The read-only users of boot step 2: `scantor_query` always, and the analytics user while `analyticsUserEnabled`,
+ * because the MongoDB TCP router or a read-only mongo-express connects with it (docs/deployment.md §4.3, §4.7).
+ * Both passwords are applied at every boot.
+ */
+export async function ensureReadOnlyUsers(
+  client: MongoClient,
+  config: UserConfig,
+  queryPassword: string,
+): Promise<{ query: 'created' | 'updated'; analytics: 'created' | 'updated' | null }> {
+  const query = await ensureReadOnlyUser(client, config.mongoDb, QUERY_USER, queryPassword)
+  const analytics = analyticsUserEnabled(config)
+    ? await ensureReadOnlyUser(client, config.mongoDb, config.mongoAnalyticsUser, config.mongoAnalyticsPassword)
+    : null
+  return { query, analytics }
+}
+
 // ── process state ───────────────────────────────────────────────────────────
 
 interface MongoState {
@@ -333,19 +352,23 @@ export async function connectMongo(options: { timeoutMs?: number; log?: Logger }
 }
 
 /**
- * Boot step 2 after connecting: migrations under the `migrations` lock, every index, the read-only query user
- * and, when SCANTOR_EXPOSE_MONGO=true, the read-only analytics user.
+ * Boot step 2 after connecting: migrations under the `migrations` lock, every index and the read-only users
+ * (`ensureReadOnlyUsers`).
  */
 export async function prepareDatabase(log: Logger = useLogger('mongo')): Promise<void> {
   const { client, db } = useMongo()
   const config = useConfig()
   const version = await runMigrations(db, log)
   await ensureIndexes(db, config, log)
-  const query = await ensureReadOnlyUser(client, config.mongoDb, QUERY_USER, useKeys().mongoQueryPassword())
-  log.info('database ready', { schemaVersion: version, queryUser: query })
-  if (config.exposeMongo) {
-    const analytics = await ensureReadOnlyUser(client, config.mongoDb, config.mongoAnalyticsUser, config.mongoAnalyticsPassword)
-    log.info('analytics user ensured', { user: config.mongoAnalyticsUser, result: analytics })
+  const users = await ensureReadOnlyUsers(client, config, useKeys().mongoQueryPassword())
+  log.info('database ready', { schemaVersion: version, queryUser: users.query })
+  if (users.analytics) {
+    log.info('analytics user ensured', {
+      user: config.mongoAnalyticsUser,
+      result: users.analytics,
+      exposeMongo: config.exposeMongo,
+      mongoExpressReadonly: config.mongoExpressReadonly,
+    })
   }
 }
 

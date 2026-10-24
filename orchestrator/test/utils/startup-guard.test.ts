@@ -25,7 +25,7 @@ function input(overrides: Partial<StartupGuardInput> = {}): StartupGuardInput {
     bindAddress: '127.0.0.1',
     adminBindAddress: '127.0.0.1',
     composeProfiles: [],
-    exposeMongo: false,
+    analyticsUser: false,
     allowInsecureDefaults: false,
     env: strongEnv(),
     ...overrides,
@@ -96,12 +96,12 @@ describe('evaluateStartupGuard', () => {
     expect(evaluateStartupGuard(input({ publicUrl: 'https://scantor.example.com', env })).outcome).toBe('ok')
   })
 
-  it('checks the analytics password length only when MongoDB is exposed', () => {
+  it('checks the analytics password length only while the analytics user exists', () => {
     const env = { ...strongEnv(), SCANTOR_MONGO_ANALYTICS_PASSWORD: 'short' }
     expect(evaluateStartupGuard(input({ publicUrl: 'https://scantor.example.com', env })).outcome).toBe('ok')
-    const exposed = evaluateStartupGuard(input({ publicUrl: 'https://scantor.example.com', env, exposeMongo: true }))
-    expect(exposed.outcome).toBe('abort')
-    expect(exposed.offenders).toEqual(['SCANTOR_MONGO_ANALYTICS_PASSWORD'])
+    const enabled = evaluateStartupGuard(input({ publicUrl: 'https://scantor.example.com', env, analyticsUser: true }))
+    expect(enabled.outcome).toBe('abort')
+    expect(enabled.offenders).toEqual(['SCANTOR_MONGO_ANALYTICS_PASSWORD'])
   })
 
   it('warns instead of aborting with SCANTOR_ALLOW_INSECURE_DEFAULTS', () => {

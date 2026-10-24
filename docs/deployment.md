@@ -175,9 +175,11 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
   as `SCANTOR_MONGO_USER`, which is the root user, because it must create `scantor_query` and the
   analytics user.
 - `--noscripting` disables `$where`, `$function` and `$accumulator` server-wide ([api](api.md) §5.2).
-- When `SCANTOR_EXPOSE_MONGO=true`, the orchestrator also ensures a read-only analytics user
-  `SCANTOR_MONGO_ANALYTICS_USER` / `SCANTOR_MONGO_ANALYTICS_PASSWORD` (role `read` on `SCANTOR_MONGO_DB`)
-  at boot. Direct database access bypasses per-user scoping and is for admins only.
+- While `SCANTOR_EXPOSE_MONGO=true` or `SCANTOR_MONGO_EXPRESS_READONLY=true` (the shipped value), the
+  orchestrator also ensures a read-only analytics user `SCANTOR_MONGO_ANALYTICS_USER` /
+  `SCANTOR_MONGO_ANALYTICS_PASSWORD` (role `read` on `SCANTOR_MONGO_DB`) at boot. The MongoDB TCP router
+  (§7.3) and a read-only mongo-express (§4.7) connect with it. Direct database access bypasses per-user
+  scoping and is for admins only.
 - External clients need `tls=true&directConnection=true` through Traefik, and `directConnection=true` on
   the admin port.
 
@@ -268,18 +270,25 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
 
 | Aspect | Value |
 |---|---|
-| depends_on | `mongo` (`service_healthy`) |
+| command | `["mongo-express"]` |
+| entrypoint | a bash wrapper that picks the database identity: when `ME_CONFIG_OPTIONS_READONLY` is `true` (case-insensitive, as mongo-express reads it) it uses `READONLY_MONGODB_URL` with `ME_CONFIG_MONGODB_ENABLE_ADMIN=false`, otherwise `ROOT_MONGODB_URL` with `ME_CONFIG_MONGODB_ENABLE_ADMIN=true`; it unsets both URLs, exports `ME_CONFIG_MONGODB_URL` and then `exec /sbin/tini -- /docker-entrypoint.sh "$@"` |
+| depends_on | `mongo` and `orchestrator` (both `service_healthy`: the orchestrator ensures the analytics user at boot) |
 | healthcheck | `wget -qO- http://127.0.0.1:8081/status` (answers without auth), interval 30 s, 3 retries |
 | other | `container_name: scantor-mongo-express` |
 | networks | `scantor` |
 | ports | `${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081` |
-| env | `ME_CONFIG_MONGODB_URL=mongodb://${SCANTOR_MONGO_USER}:${SCANTOR_MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true`, `ME_CONFIG_BASICAUTH=true`, `ME_CONFIG_BASICAUTH_USERNAME=${SCANTOR_MONGO_EXPRESS_USER}`, `ME_CONFIG_BASICAUTH_PASSWORD=${SCANTOR_MONGO_EXPRESS_PASSWORD}`, `ME_CONFIG_SITE_COOKIESECRET=${SCANTOR_MONGO_EXPRESS_SECRET}`, `ME_CONFIG_SITE_SESSIONSECRET=${SCANTOR_MONGO_EXPRESS_SECRET}`, `ME_CONFIG_OPTIONS_READONLY=${SCANTOR_MONGO_EXPRESS_READONLY}` |
+| env | `READONLY_MONGODB_URL=mongodb://${SCANTOR_MONGO_ANALYTICS_USER}:${SCANTOR_MONGO_ANALYTICS_PASSWORD}@mongo:27017/${SCANTOR_MONGO_DB}?authSource=admin&directConnection=true`, `ROOT_MONGODB_URL=mongodb://${SCANTOR_MONGO_USER}:${SCANTOR_MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true`, `ME_CONFIG_BASICAUTH=true`, `ME_CONFIG_BASICAUTH_USERNAME=${SCANTOR_MONGO_EXPRESS_USER}`, `ME_CONFIG_BASICAUTH_PASSWORD=${SCANTOR_MONGO_EXPRESS_PASSWORD}`, `ME_CONFIG_SITE_COOKIESECRET=${SCANTOR_MONGO_EXPRESS_SECRET}`, `ME_CONFIG_SITE_SESSIONSECRET=${SCANTOR_MONGO_EXPRESS_SECRET}`, `ME_CONFIG_OPTIONS_READONLY=${SCANTOR_MONGO_EXPRESS_READONLY}` |
 | labels | HTTP router `mongo-express` with forwardAuth |
 
 It stays in the default stack (decisions §8) but is bound to the admin address, read-only by default, and
-behind forwardAuth plus its own basic auth. It is an unmaintained Node 18 app with root database
-credentials, so never publish it any other way. Secrets in the URL must be URL-safe; `just init`
-generates hex values.
+behind forwardAuth plus its own basic auth. Its own `readOnly` option only hides the write controls: its
+add-database and add-collection routes still write. Read-only therefore also means the analytics
+user (§4.3), so MongoDB itself refuses every write, and mongo-express shows only `SCANTOR_MONGO_DB`
+without server status, because that user may not run `serverStatus`. The root URL leaves the process
+environment before mongo-express starts. `SCANTOR_MONGO_EXPRESS_READONLY=false` connects it as the root
+user with every database and the server status. It is an unmaintained Node 20 app that renders
+attacker-influenced data, so never publish it any other way. Secrets in the URLs must be URL-safe;
+`just init` generates hex values.
 
 ### 4.8 traefik (profile `traefik`)
 
@@ -586,8 +595,29 @@ services:
 
   mongo-express:
     image: mongo-express:1.0.2-20-alpine3.19
+    command: ["mongo-express"]
+    # Read-only connects as the analytics user (role read, ensured by the orchestrator at boot), so no request
+    # can write; the unused URL leaves the environment before mongo-express starts.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        if [ "$${ME_CONFIG_OPTIONS_READONLY,,}" = true ]; then
+          ME_CONFIG_MONGODB_URL="$$READONLY_MONGODB_URL"
+          ME_CONFIG_MONGODB_ENABLE_ADMIN=false
+        else
+          ME_CONFIG_MONGODB_URL="$$ROOT_MONGODB_URL"
+          ME_CONFIG_MONGODB_ENABLE_ADMIN=true
+        fi
+        unset READONLY_MONGODB_URL ROOT_MONGODB_URL
+        export ME_CONFIG_MONGODB_URL ME_CONFIG_MONGODB_ENABLE_ADMIN
+        exec /sbin/tini -- /docker-entrypoint.sh "$$@"
+      - mongo-express-entrypoint
     depends_on:
       mongo:
+        condition: service_healthy
+      orchestrator:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -608,7 +638,8 @@ services:
     networks:
       - scantor
     environment:
-      - ME_CONFIG_MONGODB_URL=mongodb://${SCANTOR_MONGO_USER}:${SCANTOR_MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true
+      - READONLY_MONGODB_URL=mongodb://${SCANTOR_MONGO_ANALYTICS_USER}:${SCANTOR_MONGO_ANALYTICS_PASSWORD}@mongo:27017/${SCANTOR_MONGO_DB}?authSource=admin&directConnection=true
+      - ROOT_MONGODB_URL=mongodb://${SCANTOR_MONGO_USER}:${SCANTOR_MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true
       - ME_CONFIG_BASICAUTH=true
       - ME_CONFIG_BASICAUTH_USERNAME=${SCANTOR_MONGO_EXPRESS_USER}
       - ME_CONFIG_BASICAUTH_PASSWORD=${SCANTOR_MONGO_EXPRESS_PASSWORD}
@@ -1008,11 +1039,11 @@ Secrets that third-party images consume directly cannot be derived, so they live
 | Variable | Consumer | When it takes effect |
 |---|---|---|
 | `SCANTOR_SECRET` | orchestrator, built-in node | every start (changing it is a disaster-recovery operation, §14.4) |
-| `SCANTOR_MONGO_PASSWORD` | mongo (root), orchestrator, mongo-express | **first init only** (§14.3) |
+| `SCANTOR_MONGO_PASSWORD` | mongo (root), orchestrator, mongo-express (connects with it only when `SCANTOR_MONGO_EXPRESS_READONLY=false`) | **first init only** (§14.3) |
 | `SCANTOR_RABBITMQ_PASSWORD` | rabbitmq (admin), orchestrator | **first boot only** (§14.3) |
 | `SCANTOR_S3_SECRET_KEY` (+ `SCANTOR_S3_ACCESS_KEY`) | rustfs (root), orchestrator | every start of both |
 | `SCANTOR_MONGO_EXPRESS_PASSWORD`, `SCANTOR_MONGO_EXPRESS_SECRET` | mongo-express | every start |
-| `SCANTOR_MONGO_ANALYTICS_PASSWORD` | orchestrator (ensures the user when `SCANTOR_EXPOSE_MONGO=true`) | every orchestrator start |
+| `SCANTOR_MONGO_ANALYTICS_PASSWORD` | orchestrator (ensures the user while `SCANTOR_EXPOSE_MONGO=true` or `SCANTOR_MONGO_EXPRESS_READONLY=true`), mongo-express | every orchestrator start |
 | `SCANTOR_ADMIN_PASSWORD` (optional, may be empty) | orchestrator (first admin when no user exists) | first boot only |
 | `CF_DNS_API_TOKEN` (optional) | traefik | every start |
 
@@ -1031,7 +1062,7 @@ At boot the orchestrator exits with code 1 and logs the offending variable names
    whole `.env` through `env_file`, so this covers the infrastructure secrets it does not use itself), a
    core secret (`SCANTOR_SECRET`, `SCANTOR_MONGO_PASSWORD`, `SCANTOR_RABBITMQ_PASSWORD`,
    `SCANTOR_S3_SECRET_KEY`, `SCANTOR_MONGO_EXPRESS_PASSWORD`, `SCANTOR_MONGO_EXPRESS_SECRET`, plus
-   `SCANTOR_MONGO_ANALYTICS_PASSWORD` when `SCANTOR_EXPOSE_MONGO=true`) shorter than 16 characters, or a
+   `SCANTOR_MONGO_ANALYTICS_PASSWORD` while the analytics user exists, §4.3) shorter than 16 characters, or a
    non-empty `SCANTOR_ADMIN_PASSWORD` shorter than 16 characters.
 
 With `SCANTOR_ALLOW_INSECURE_DEFAULTS=true` it warns once per name and continues. It always exits with
@@ -1342,8 +1373,11 @@ fixed subdomains of 14, are flagged for lead review:
    host-built binary.
 8. **mongo-express** stays in the default stack (decisions §8). Its cookie and session secrets share
    `SCANTOR_MONGO_EXPRESS_SECRET`.
-9. **Analytics MongoDB user** `SCANTOR_MONGO_ANALYTICS_USER` / `_PASSWORD` is created only when
-   `SCANTOR_EXPOSE_MONGO=true`.
+9. **Analytics MongoDB user** `SCANTOR_MONGO_ANALYTICS_USER` / `_PASSWORD` is created only while
+   something connects with it: the MongoDB TCP router (`SCANTOR_EXPOSE_MONGO=true`) or a read-only
+   mongo-express (`SCANTOR_MONGO_EXPRESS_READONLY=true`, the shipped value). mongo-express's own
+   `readOnly` option only hides its write controls, so a read-only mongo-express needs a read-only
+   database user; its password is then a core secret of the startup guard (§8.2).
 10. **Automatic registry GC** with the `registryGc` lock and a push-phase handshake (§14.1), interval
     `SCANTOR_REGISTRY_GC_INTERVAL`.
 11. **Metric names** as in §13.1, the single catalogue (ingestor names and labels as in [queue](queue.md) §6.11).

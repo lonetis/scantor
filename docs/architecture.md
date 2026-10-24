@@ -177,12 +177,14 @@ Orchestrator boot order (the process exits non-zero on any failure before step 7
    `SCANTOR_ADMIN_BIND_ADDRESS` is not a loopback address. In public mode, refuse to start when **any**
    environment value ends in `-insecure-dev`, a core secret (`SCANTOR_SECRET`, `SCANTOR_MONGO_PASSWORD`,
    `SCANTOR_RABBITMQ_PASSWORD`, `SCANTOR_S3_SECRET_KEY`, `SCANTOR_MONGO_EXPRESS_PASSWORD`,
-   `SCANTOR_MONGO_EXPRESS_SECRET`, and `SCANTOR_MONGO_ANALYTICS_PASSWORD` when `SCANTOR_EXPOSE_MONGO=true`)
+   `SCANTOR_MONGO_EXPRESS_SECRET`, and `SCANTOR_MONGO_ANALYTICS_PASSWORD` while the analytics user exists)
    is shorter than 16 characters, or `SCANTOR_ADMIN_PASSWORD` is set and shorter than 16 characters, unless
    `SCANTOR_ALLOW_INSECURE_DEFAULTS=true`. Always refuse when `SCANTOR_EDITOR_URL` has the same origin as
    `SCANTOR_PUBLIC_URL`. Only variable names are logged.
 2. Connect MongoDB (replica set `rs0`, wait until primary), run migrations under the `migrations` lock,
-   ensure all indexes ([data model](data-model.md)), ensure the read-only `scantor_query` user.
+   ensure all indexes ([data model](data-model.md)), ensure the read-only `scantor_query` user and, while
+   `SCANTOR_EXPOSE_MONGO=true` or `SCANTOR_MONGO_EXPRESS_READONLY=true`, the read-only analytics user
+   ([deployment](deployment.md) §4.3).
 3. Initialise better-auth. Delete `jwks` keys that can no longer be decrypted with the current secret
    (after a `SCANTOR_SECRET` change), so the jwt plugin creates a new key. If no user exists, create the
    first admin from `SCANTOR_ADMIN_EMAIL` / `SCANTOR_ADMIN_PASSWORD`, otherwise generate the in-memory
@@ -294,7 +296,7 @@ time and recorded on the revision.
 | rabbitmq | `rabbitmq:4.4-management` | vhost `scantor` (default queue type quorum), per-scan quorum queues, native delayed delivery for retries, memory and disk limits from env, `max_message_size` 4 MiB. |
 | rustfs | `rustfs/rustfs:1.0.3` | S3 API (bucket `SCANTOR_S3_BUCKET`, private) for snapshots, build logs, files, exports, uploads; console for admins. |
 | registry | `registry:3.1.2` | CNCF distribution with native token auth (realm `${SCANTOR_PUBLIC_URL}/api/registry/token`, service `scantor-registry`, issuer `scantor`, JWKS from the shared volume), `REGISTRY_HTTP_SECRET` from the derived `http-secret` file, storage delete enabled (task deletion removes manifests; blobs are reclaimed by registry GC). |
-| mongo-express | `mongo-express:1.0.2-20-alpine3.19` | Read-only DB browser, bound to `SCANTOR_ADMIN_BIND_ADDRESS`, behind Traefik forwardAuth when Traefik is on. |
+| mongo-express | `mongo-express:1.0.2-20-alpine3.19` | Read-only DB browser, connected as the read-only analytics user (root only with `SCANTOR_MONGO_EXPRESS_READONLY=false`), bound to `SCANTOR_ADMIN_BIND_ADDRESS`, behind Traefik forwardAuth when Traefik is on ([deployment](deployment.md) §4.7). |
 | traefik | `traefik:v3.7` | Optional (compose profile `traefik`): TLS termination, HTTP routers and TCP HostSNI routers (AMQPS, optional Mongo) on :443, forwardAuth for admin GUIs ([deployment](deployment.md)). |
 | node | scantor image, command `scantor node` | The built-in node daemon (Docker socket, `SCANTOR_NODE_BUILTIN=true`). |
 | orchestrator | `scantor-orchestrator` | Docker socket (builds, helpers, editors, test runs, registry GC exec), all infra credentials; container ports 3000 (dashboard) and 3001 (editor origin). |

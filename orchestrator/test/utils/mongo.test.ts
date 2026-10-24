@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { Db } from 'mongodb'
-import { collectionsOf, ensureIndexes, indexDefinitions } from '../../server/utils/mongo'
+import type { Db, MongoClient } from 'mongodb'
+import { collectionsOf, ensureIndexes, ensureReadOnlyUsers, indexDefinitions, QUERY_USER } from '../../server/utils/mongo'
 import { useLogger } from '../../server/utils/logger'
 
 // Indexes of docs/data-model.md §4 and the idempotent ensure logic.
@@ -86,5 +86,52 @@ describe('ensureIndexes', () => {
       Object.entries(collectionsOf({ collection: (name: string) => ({ name }) } as unknown as Db)).map(([key, value]) => [key, (value as unknown as { name: string }).name]),
     )
     expect(names).toMatchObject({ testRunAnalyses: 'testRunAnalyses', authUsers: 'user', authApiKeys: 'apikey', meta: 'meta' })
+  })
+})
+
+describe('ensureReadOnlyUsers', () => {
+  /** A client whose admin database knows `existing` users and records every command. */
+  function fakeClient(existing: string[] = []) {
+    const commands: Record<string, unknown>[] = []
+    const client = {
+      db: (name: string) => {
+        expect(name).toBe('admin')
+        return {
+          command: async (command: Record<string, unknown>) => {
+            commands.push(command)
+            if ('usersInfo' in command) return { users: existing.includes(command.usersInfo as string) ? [{}] : [] }
+            return { ok: 1 }
+          },
+        }
+      },
+    }
+    return { client: client as unknown as MongoClient, commands }
+  }
+
+  const base = { mongoDb: 'scantor', mongoAnalyticsUser: 'scantor_analytics', mongoAnalyticsPassword: 'analytics-password' }
+  const writes = (commands: Record<string, unknown>[]) => commands.filter((command) => !('usersInfo' in command))
+
+  it('creates the analytics user with role read for a read-only mongo-express, without the MongoDB router', async () => {
+    const { client, commands } = fakeClient()
+    const result = await ensureReadOnlyUsers(client, { ...base, exposeMongo: false, mongoExpressReadonly: true }, 'query-password')
+    expect(result).toEqual({ query: 'created', analytics: 'created' })
+    expect(writes(commands)).toEqual([
+      { createUser: QUERY_USER, pwd: 'query-password', roles: [{ role: 'read', db: 'scantor' }] },
+      { createUser: 'scantor_analytics', pwd: 'analytics-password', roles: [{ role: 'read', db: 'scantor' }] },
+    ])
+  })
+
+  it('updates an existing analytics user while the MongoDB router is exposed', async () => {
+    const { client, commands } = fakeClient([QUERY_USER, 'scantor_analytics'])
+    const result = await ensureReadOnlyUsers(client, { ...base, exposeMongo: true, mongoExpressReadonly: false }, 'query-password')
+    expect(result).toEqual({ query: 'updated', analytics: 'updated' })
+    expect(writes(commands).map((command) => command.updateUser)).toEqual([QUERY_USER, 'scantor_analytics'])
+  })
+
+  it('ensures only the query user when nothing connects as the analytics user', async () => {
+    const { client, commands } = fakeClient()
+    const result = await ensureReadOnlyUsers(client, { ...base, exposeMongo: false, mongoExpressReadonly: false }, 'query-password')
+    expect(result).toEqual({ query: 'created', analytics: null })
+    expect(writes(commands).map((command) => command.createUser)).toEqual([QUERY_USER])
   })
 })

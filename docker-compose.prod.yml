@@ -255,8 +255,29 @@ services:
 
   mongo-express:
     image: mongo-express:1.0.2-20-alpine3.19
+    command: ["mongo-express"]
+    # Read-only connects as the analytics user (role read, ensured by the orchestrator at boot), so no request
+    # can write; the unused URL leaves the environment before mongo-express starts.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        if [ "$${ME_CONFIG_OPTIONS_READONLY,,}" = true ]; then
+          ME_CONFIG_MONGODB_URL="$$READONLY_MONGODB_URL"
+          ME_CONFIG_MONGODB_ENABLE_ADMIN=false
+        else
+          ME_CONFIG_MONGODB_URL="$$ROOT_MONGODB_URL"
+          ME_CONFIG_MONGODB_ENABLE_ADMIN=true
+        fi
+        unset READONLY_MONGODB_URL ROOT_MONGODB_URL
+        export ME_CONFIG_MONGODB_URL ME_CONFIG_MONGODB_ENABLE_ADMIN
+        exec /sbin/tini -- /docker-entrypoint.sh "$$@"
+      - mongo-express-entrypoint
     depends_on:
       mongo:
+        condition: service_healthy
+      orchestrator:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -277,7 +298,8 @@ services:
     networks:
       - scantor
     environment:
-      - ME_CONFIG_MONGODB_URL=mongodb://${SCANTOR_MONGO_USER}:${SCANTOR_MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true
+      - READONLY_MONGODB_URL=mongodb://${SCANTOR_MONGO_ANALYTICS_USER}:${SCANTOR_MONGO_ANALYTICS_PASSWORD}@mongo:27017/${SCANTOR_MONGO_DB}?authSource=admin&directConnection=true
+      - ROOT_MONGODB_URL=mongodb://${SCANTOR_MONGO_USER}:${SCANTOR_MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true
       - ME_CONFIG_BASICAUTH=true
       - ME_CONFIG_BASICAUTH_USERNAME=${SCANTOR_MONGO_EXPRESS_USER}
       - ME_CONFIG_BASICAUTH_PASSWORD=${SCANTOR_MONGO_EXPRESS_PASSWORD}

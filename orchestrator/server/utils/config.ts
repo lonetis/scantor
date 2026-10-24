@@ -66,6 +66,8 @@ export interface Config {
   domain: string | null
   trustProxy: boolean
   exposeMongo: boolean
+  // admin tools
+  mongoExpressReadonly: boolean
   // orchestrator
   imagePrefix: string
   imageTag: string
@@ -364,6 +366,8 @@ const VARIABLES = {
   trustProxy: v('SCANTOR_TRUST_PROXY', 'false', boolean(), true),
   exposeMongo: v('SCANTOR_EXPOSE_MONGO', 'false', boolean(), true),
 
+  mongoExpressReadonly: v('SCANTOR_MONGO_EXPRESS_READONLY', 'true', boolean(), true),
+
   imagePrefix: v('SCANTOR_IMAGE_PREFIX', 'ghcr.io/lonetis/', imagePrefix()),
   imageTag: v('SCANTOR_IMAGE_TAG', 'latest', imageTag()),
   components: v('SCANTOR_COMPONENTS', 'api,ingestor,reconciler', components(), true),
@@ -520,6 +524,14 @@ function crossValidate(config: Config): ConfigIssue[] {
   return issues
 }
 
+/**
+ * The read-only analytics MongoDB user exists while something connects with it: the MongoDB TCP router
+ * (SCANTOR_EXPOSE_MONGO) or a read-only mongo-express (docs/deployment.md §4.3, §4.7).
+ */
+export function analyticsUserEnabled(config: Pick<Config, 'exposeMongo' | 'mongoExpressReadonly'>): boolean {
+  return config.exposeMongo || config.mongoExpressReadonly
+}
+
 // ── process configuration ─────────────────────────────────────────────────────
 
 let cached: Config | null = null
@@ -549,7 +561,7 @@ export function loadBootConfiguration(): BootConfiguration {
     bindAddress: config.bindAddress,
     adminBindAddress: config.adminBindAddress,
     composeProfiles: config.composeProfiles,
-    exposeMongo: config.exposeMongo,
+    analyticsUser: analyticsUserEnabled(config),
     allowInsecureDefaults: config.allowInsecureDefaults,
     env: { ...process.env },
   })

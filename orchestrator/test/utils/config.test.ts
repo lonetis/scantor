@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CONFIG_VARIABLES, ConfigError, parseConfig } from '../../server/utils/config'
+import { analyticsUserEnabled, CONFIG_VARIABLES, ConfigError, parseConfig } from '../../server/utils/config'
 import { envExample } from '../helpers/repo'
 
 describe('parseConfig', () => {
@@ -59,6 +59,7 @@ describe('parseConfig', () => {
     ['SCANTOR_ALLOW_INSECURE_DEFAULTS', '1'],
     ['SCANTOR_ALLOW_INSECURE_TRANSPORT', 'yes'],
     ['SCANTOR_GIT_ALLOW_PRIVATE', 'TRUE'],
+    ['SCANTOR_MONGO_EXPRESS_READONLY', 'True'],
     ['SCANTOR_PASSKEY_RP_ID', 'not a host!'],
     ['SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS', 'http://app.example.com'],
     ['SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS', 'https://app.example.com/callback'],
@@ -110,5 +111,26 @@ describe('parseConfig', () => {
     expect(parseConfig({ SCANTOR_PUBLIC_URL: publicUrl, SCANTOR_PASSKEY_RP_ID: 'example.com' }).config.passkeyRpId).toBe('example.com')
     expect(() => parseConfig({ SCANTOR_PUBLIC_URL: publicUrl, SCANTOR_PASSKEY_RP_ID: 'other.com' })).toThrow(ConfigError)
     expect(() => parseConfig({ SCANTOR_PUBLIC_URL: publicUrl, SCANTOR_PASSKEY_RP_ID: 'com' })).toThrow(ConfigError)
+  })
+})
+
+describe('analyticsUserEnabled', () => {
+  // docs/deployment.md §4.3: the read-only analytics user exists while the MongoDB TCP router or a read-only
+  // mongo-express connects with it; mongo-express is read-only by default.
+  it('is on by default, for the read-only mongo-express', () => {
+    const { config } = parseConfig({})
+    expect(config.mongoExpressReadonly).toBe(true)
+    expect(config.exposeMongo).toBe(false)
+    expect(analyticsUserEnabled(config)).toBe(true)
+  })
+
+  it.each([
+    [false, false, false],
+    [true, false, true],
+    [false, true, true],
+    [true, true, true],
+  ])('exposeMongo=%s, mongoExpressReadonly=%s → %s', (exposeMongo, mongoExpressReadonly, expected) => {
+    const { config } = parseConfig({ SCANTOR_EXPOSE_MONGO: String(exposeMongo), SCANTOR_MONGO_EXPRESS_READONLY: String(mongoExpressReadonly) })
+    expect(analyticsUserEnabled(config)).toBe(expected)
   })
 })

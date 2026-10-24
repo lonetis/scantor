@@ -22,7 +22,8 @@ export interface StartupGuardInput {
   bindAddress: string
   adminBindAddress: string
   composeProfiles: string[]
-  exposeMongo: boolean
+  /** the read-only analytics MongoDB user exists (config.ts `analyticsUserEnabled`) */
+  analyticsUser: boolean
   allowInsecureDefaults: boolean
   env: Record<string, string | undefined>
 }
@@ -92,7 +93,7 @@ export function evaluateStartupGuard(input: StartupGuardInput): StartupGuardResu
     if (typeof value === 'string' && value.endsWith(INSECURE_SUFFIX)) offenders.add(name)
   }
   const coreSecrets: string[] = [...CORE_SECRETS]
-  if (input.exposeMongo) coreSecrets.push('SCANTOR_MONGO_ANALYTICS_PASSWORD')
+  if (input.analyticsUser) coreSecrets.push('SCANTOR_MONGO_ANALYTICS_PASSWORD')
   for (const name of coreSecrets) {
     if ((input.env[name] ?? '').length < MIN_SECRET_LENGTH) offenders.add(name)
   }
