@@ -73,4 +73,82 @@ describe('useCursorList', () => {
     expect(list.refreshing.value).toBe(false)
     expect(list.items.value).toEqual([3])
   })
+
+  describe('a refresh that overlaps "Load more"', () => {
+    // Pages are requested by cursor: null is the first page, "2" the second.
+    function pagedList() {
+      const pending: { cursor: string | null, page: Deferred<CursorPage<string>> }[] = []
+      const list = useCursorList<string>((cursor) => {
+        const page = deferred<CursorPage<string>>()
+        pending.push({ cursor, page })
+        return page.promise
+      }, { immediate: false })
+      // Answers the pending request for `cursor`, once the list has sent it (a refresh reads its pages in turn).
+      const answer = async (cursor: string | null, result: CursorPage<string>) => {
+        for (let tick = 0; tick < 10 && !pending.some((request) => request.cursor === cursor); tick++) await Promise.resolve()
+        const index = pending.findIndex((request) => request.cursor === cursor)
+        expect(index, `a pending request for cursor ${String(cursor)}`).toBeGreaterThanOrEqual(0)
+        pending.splice(index, 1)[0]!.page.resolve(result)
+      }
+      return { list, pending, answer }
+    }
+
+    it('keeps the page that "Load more" appended while the refresh was in flight (UI-SCAN-004)', async () => {
+      const { list, pending, answer } = pagedList()
+      const first = list.reset()
+      await answer(null, { items: ['c', 'b'], nextCursor: '2' })
+      await first
+
+      const refresh = list.refresh()
+      const more = list.loadMore()
+      await answer('2', { items: ['a'], nextCursor: null })
+      await more
+      expect(list.items.value).toEqual(['c', 'b', 'a'])
+      await answer(null, { items: ['d', 'c'], nextCursor: '2' })
+      await refresh
+      expect(list.items.value).toEqual(['c', 'b', 'a'])
+      expect(list.refreshing.value).toBe(false)
+      expect(list.hasMore.value).toBe(false)
+
+      // The next refresh re-reads both pages.
+      const next = list.refresh()
+      await answer(null, { items: ['d', 'c'], nextCursor: '2' })
+      await answer('2', { items: ['b', 'a'], nextCursor: null })
+      await next
+      expect(list.items.value).toEqual(['d', 'c', 'b', 'a'])
+      expect(pending).toEqual([])
+    })
+
+    it('drops a refresh that started while "Load more" was loading and ended after it', async () => {
+      const { list, answer } = pagedList()
+      const first = list.reset()
+      await answer(null, { items: ['c', 'b'], nextCursor: '2' })
+      await first
+
+      const more = list.loadMore()
+      const refresh = list.refresh()
+      await answer('2', { items: ['a'], nextCursor: null })
+      await more
+      await answer(null, { items: ['d', 'c'], nextCursor: '2' })
+      await refresh
+      expect(list.items.value).toEqual(['c', 'b', 'a'])
+    })
+
+    it('appends a "Load more" page that arrives after the refresh ended', async () => {
+      const { list, answer } = pagedList()
+      const first = list.reset()
+      await answer(null, { items: ['c', 'b'], nextCursor: '2' })
+      await first
+
+      const more = list.loadMore()
+      const refresh = list.refresh()
+      await answer(null, { items: ['d', 'c'], nextCursor: '2' })
+      await refresh
+      expect(list.items.value).toEqual(['d', 'c'])
+      await answer('2', { items: ['b', 'a'], nextCursor: null })
+      await more
+      expect(list.items.value).toEqual(['d', 'c', 'b', 'a'])
+      expect(list.hasMore.value).toBe(false)
+    })
+  })
 })

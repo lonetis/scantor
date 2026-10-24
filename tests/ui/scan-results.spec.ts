@@ -737,15 +737,9 @@ test.describe('results of a finished scan', () => {
       }).toPass({ timeout: 30_000, intervals: [1000, 2000, 3000] })
       await expect(timeline).toContainText(latest[0]!.type)
       await expect(timeline).toContainText(latest[0]!.message)
-      // A refresh of the first page that overlaps "Load more" drops the loaded page (the product bug in scans.spec.ts):
-      // the click waits until no refresh is in flight and is repeated if one still overlapped it. The poll stops after
-      // "Load more", so nothing replaces the list afterwards.
-      const more = page.getByRole('button', { name: 'Load more' })
-      await expect.poll(() => firstPagesInFlight).toBe(0)
-      await expect(async () => {
-        if (await more.isVisible()) await more.click({ timeout: 1000 })
-        await expect(rendered).toHaveCount(6, { timeout: 2000 })
-      }).toPass({ timeout: 20_000 })
+      // "Load more" keeps its page, also when a poll of the first page overlaps it; the poll stops after "Load more".
+      await page.getByRole('button', { name: 'Load more' }).click()
+      await expect(rendered).toHaveCount(6)
       await expect.poll(() => firstPagesInFlight).toBe(0)
       await expect(rendered).toHaveCount(6)
 

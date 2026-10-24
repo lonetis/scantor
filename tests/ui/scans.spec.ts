@@ -206,67 +206,50 @@ test.describe('scans list', () => {
     const paged = page.waitForRequest((request) => request.url().includes('/api/scans?') && new URL(request.url()).searchParams.has('cursor'))
     await more.click()
     await paged
-    // A background refresh that overlaps the click drops the loaded page again (the product bug of the next test);
-    // "Load more" then loads it once more.
-    await expect(async () => {
-      if (await more.isVisible()) await more.click({ timeout: 1000 })
-      await expect(row(table, started[0]!.id)).toBeVisible({ timeout: 2000 })
-    }).toPass({ timeout: 30_000 })
+    await expect(row(table, started[0]!.id)).toBeVisible()
     await expect(row(table, started[2]!.id)).toBeVisible()
   })
 
-  // product bug: a list refresh that is in flight while "Load more" loads a page drops that page
-  test.fail(
-    '"Load more" keeps its page when a refresh of the list was in flight',
-    {
-      tag: ['@UI-SCAN-004'],
-      annotation: {
-        type: 'issue',
-        description:
-          'useCursorList.refresh() (orchestrator/app/composables/useCursorList.ts) re-reads as many pages as were loaded when it started and then replaces items, nextCursor and pages, with no guard against a loadMore() that appended a page meanwhile: the page is dropped and later polls read one page only. Every cursor list with a poll is affected (scans, events, workers, results); usePoll ticks at once when a poll becomes enabled, so the events timeline refreshes right after its first load.',
-      },
-    },
-    async ({ page, user, openapi }) => {
-      const throws = await sharedTask(user, openapi, 'throws')
-      const started: Scan[] = []
-      for (let index = 0; index < 3; index++)
-        started.push(await startOwnScan(user, openapi, { revision: throws.revision.id, name: unique(`race-${index}`), settings: PENDING_SETTINGS }))
-      // Pages of 2; the next read of the first page (the refresh) is held until "Load more" has loaded its page.
-      let holdNextFirstPage = false
-      let refreshHeld!: () => void
-      const held = new Promise<void>((resolve) => (refreshHeld = resolve))
-      let releaseRefresh!: () => void
-      const released = new Promise<void>((resolve) => (releaseRefresh = resolve))
-      await page.route('**/api/scans?*', async (route) => {
-        if (route.request().method() !== 'GET') return route.fallback()
-        const url = new URL(route.request().url())
-        if (url.searchParams.get('limit') === '50') url.searchParams.set('limit', '2')
-        if (holdNextFirstPage && !url.searchParams.has('cursor')) {
-          holdNextFirstPage = false
-          refreshHeld()
-          await released
-        }
-        await route.fallback({ url: url.toString() })
-      })
-      await gotoApp(page, '/scans')
-      const table = uTable(page, 'Scans')
-      await expect(row(table, started[1]!.id)).toBeVisible()
-      await expect(row(table, started[0]!.id)).toHaveCount(0)
+  test('"Load more" keeps its page when a refresh of the list was in flight', { tag: ['@UI-SCAN-004'] }, async ({ page, user, openapi }) => {
+    const throws = await sharedTask(user, openapi, 'throws')
+    const started: Scan[] = []
+    for (let index = 0; index < 3; index++)
+      started.push(await startOwnScan(user, openapi, { revision: throws.revision.id, name: unique(`race-${index}`), settings: PENDING_SETTINGS }))
+    // Pages of 2; the next read of the first page (the refresh) is held until "Load more" has loaded its page.
+    let holdNextFirstPage = false
+    let refreshHeld!: () => void
+    const held = new Promise<void>((resolve) => (refreshHeld = resolve))
+    let releaseRefresh!: () => void
+    const released = new Promise<void>((resolve) => (releaseRefresh = resolve))
+    await page.route('**/api/scans?*', async (route) => {
+      if (route.request().method() !== 'GET') return route.fallback()
+      const url = new URL(route.request().url())
+      if (url.searchParams.get('limit') === '50') url.searchParams.set('limit', '2')
+      if (holdNextFirstPage && !url.searchParams.has('cursor')) {
+        holdNextFirstPage = false
+        refreshHeld()
+        await released
+      }
+      await route.fallback({ url: url.toString() })
+    })
+    await gotoApp(page, '/scans')
+    const table = uTable(page, 'Scans')
+    await expect(row(table, started[1]!.id)).toBeVisible()
+    await expect(row(table, started[0]!.id)).toHaveCount(0)
 
-      holdNextFirstPage = true
-      const refreshButton = page.getByRole('button', { name: 'Refresh', exact: true })
-      await refreshButton.click()
-      await held
-      const paged = page.waitForResponse((response) => response.url().includes('/api/scans?') && new URL(response.url()).searchParams.has('cursor'))
-      await page.getByRole('button', { name: 'Load more' }).click()
-      await paged
-      await expect(row(table, started[0]!.id)).toBeVisible()
-      // The refresh ends after "Load more": the loaded page must stay.
-      releaseRefresh()
-      await expect(refreshButton).toBeEnabled()
-      await expect(row(table, started[0]!.id)).toBeVisible({ timeout: 2000 })
-    },
-  )
+    holdNextFirstPage = true
+    const refreshButton = page.getByRole('button', { name: 'Refresh', exact: true })
+    await refreshButton.click()
+    await held
+    const paged = page.waitForResponse((response) => response.url().includes('/api/scans?') && new URL(response.url()).searchParams.has('cursor'))
+    await page.getByRole('button', { name: 'Load more' }).click()
+    await paged
+    await expect(row(table, started[0]!.id)).toBeVisible()
+    // The refresh ends after "Load more": the loaded page must stay.
+    releaseRefresh()
+    await expect(refreshButton).toBeEnabled()
+    await expect(row(table, started[0]!.id)).toBeVisible({ timeout: 2000 })
+  })
 })
 
 test.describe('scans list for admins', () => {
