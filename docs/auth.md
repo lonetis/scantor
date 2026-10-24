@@ -104,7 +104,6 @@ function buildAuth(): any {
     secret: deriveKeyHex('better-auth'),        // §3
     database: mongodbAdapter(db, { client, usePlural: false }),   // transactions on (replica set rs0)
     trustedOrigins: trustedOrigins(cfg),        // §4.2
-    disabledPaths: DISABLED_PATHS,              // §2.5
     telemetry: { enabled: false },
     emailAndPassword: {
       enabled: true, disableSignUp: true, autoSignIn: false, requireEmailVerification: false,
@@ -138,6 +137,7 @@ function buildAuth(): any {
       after: createAuthMiddleware(afterHook),
     },
     plugins: [
+      authHttpAllowlist(),                      // §2.5; first, before every other plugin and endpoint
       admin({ defaultRole: 'user', adminRoles: ['admin'] }),
       apiKey([DEFAULT_KEY_CONFIG, EDITOR_KEY_CONFIG]),           // §8.1
       ...(pk.enabled ? [passkey({
@@ -175,7 +175,8 @@ function buildAuth(): any {
 ```
 
 Handlers: `orchestrator/server/api/auth/[...all].ts` and `orchestrator/server/routes/.well-known/[...path].ts`
-both call `useAuth().handler(toWebRequest(event))`. The `.well-known` catch-all must also match the bare
+both call `useAuth().handler(toWebRequest(event))`; the HTTP allowlist (§2.5) decides inside that handler which
+requests reach an endpoint. The `.well-known` catch-all must also match the bare
 path segments that MCP discovery uses (`/.well-known/oauth-protected-resource/mcp`,
 `/.well-known/oauth-authorization-server/api/auth`, `/.well-known/openid-configuration/api/auth`).
 
@@ -202,33 +203,60 @@ Raw database helpers used by scantor are all written on the adapter, never on co
 
 | Plugin | Purpose in scantor | Configuration notes |
 |---|---|---|
-| `admin()` | roles `admin`/`user`, `banned`, `banReason`, `banExpires` on `user`; banned users cannot create sessions | every `/admin/*` HTTP endpoint is disabled (§2.5). Users are managed through scantor's `/api/users` routes, which call the adapter. Impersonation is unavailable. |
+| `authHttpAllowlist()` (scantor, `server/utils/auth-policy.ts`) | the HTTP allowlist of §2.5 | listed first, so its `onRequest` runs before every other plugin's and before routing |
+| `admin()` | roles `admin`/`user`, `banned`, `banReason`, `banExpires` on `user`; banned users cannot create sessions | no `/admin/*` HTTP endpoint is reachable (§2.5). Users are managed through scantor's `/api/users` routes, which call the adapter. Impersonation is unavailable. |
 | `apiKey()` (`@better-auth/api-key`) | user API keys for the CLI, MCP clients and the editor | two configurations, `default` and `editor` (§8.1). Per-key rate limiting is **off** (its default of 10 requests/day breaks the CLI). `enableSessionForAPIKeys: true`, so `auth.api.getSession` resolves a key to its user. |
 | `passkey()` | WebAuthn sign-in and passkey-first first admin | registered only when passkeys are enabled (§4.4); `requireSession: false` so the setup flow can register without a session, with the freshness guard of §6.4 |
-| `jwt()` | signing keys (`jwks` collection) for OAuth access tokens | registered only with MCP; its `/token` endpoint is disabled |
+| `jwt()` | signing keys (`jwks` collection) for OAuth access tokens | registered only with MCP; its `/token` endpoint is not reachable (§2.5) |
 | `mcp()` | OAuth 2.1 authorization server for MCP clients (wraps `@better-auth/oauth-provider`) | registered only when MCP is enabled ([mcp](mcp.md) §3.8); DCR open but redirect URIs restricted ([mcp](mcp.md) §3.4) |
 | `cimd()` | Client ID Metadata Documents (MCP 2026-07-28 client identification) | SSRF-hardened fetcher from `@better-auth/cimd/node`; https metadata URLs only |
 
 Client plugins in the SPA (`app/composables/useAuth.ts`): `adminClient()`, `passkeyClient()`,
 `oauthProviderClient()` (forwards the signed OAuth query on `/login` and `/oauth/consent`).
 
-### 2.5 Disabled endpoints
+### 2.5 HTTP allowlist
 
-`DISABLED_PATHS` (exact matches; better-auth does not support wildcards). They are disabled for HTTP only;
-server-side `auth.api.*` calls still work.
+better-auth and its plugins register many more HTTP endpoints than scantor uses, and every plugin upgrade can add
+more. Over HTTP they are therefore **denied by default**: the scantor plugin `authHttpAllowlist()`
+(`orchestrator/server/utils/auth-policy.ts`, listed first in `plugins`) answers 404 `notFound` (JSON envelope,
+`Cache-Control: no-store`) to every request whose method and path are not on the allowlist. Its `onRequest` runs
+inside `useAuth().handler` before every other plugin and before routing, for both HTTP entries into better-auth (the
+`/api/auth/*` catch-all and the root `.well-known` route), on the URL better-auth itself routes (dot segments
+resolved). The match is exact: other methods, trailing slashes, percent-encodings and case variants are denied.
+Server-side `auth.api.*` calls never pass through it, so scantor's own routes keep calling any endpoint.
 
-| Path(s) | Reason |
-|---|---|
-| `/sign-up/email` | no self-registration; users are created by admins or the setup flow |
-| `/token` | jwt plugin session→JWT exchange; tokens are issued only through `/oauth2/token` |
-| `/api-key/create`, `/api-key/update`, `/api-key/delete`, `/api-key/get`, `/api-key/list` | API keys are managed through `/api/account/api-keys` (§8.2) |
-| `/admin/ban-user`, `/admin/create-user`, `/admin/get-user`, `/admin/has-permission`, `/admin/impersonate-user`, `/admin/list-user-sessions`, `/admin/list-users`, `/admin/remove-user`, `/admin/revoke-user-session`, `/admin/revoke-user-sessions`, `/admin/set-role`, `/admin/set-user-password`, `/admin/stop-impersonating`, `/admin/unban-user`, `/admin/update-user` | users are managed through `/api/users` (§6.3) |
-| `/delete-user`, `/delete-user/callback` | user deletion runs the `userPurge` job (`deleteUser`) |
-| `/request-password-reset`, `/reset-password`, `/send-verification-email`, `/verify-email` | no email delivery in v1 |
-| `/sign-in/social`, `/link-social`, `/unlink-account`, `/get-access-token`, `/refresh-token`, `/account-info` | no social providers |
+`isAuthHttpEndpoint(method, path)` allows exactly the endpoints of [api](api.md) §3:
 
-`tests/security/auth-endpoints.spec.ts` asserts that each listed path answers 404 and that no other
-better-auth endpoint than those in [api](api.md) §3 is reachable with a session.
+| Paths below `/api/auth` | Methods | Used by |
+|---|---|---|
+| `/sign-in/email`, `/sign-out` | POST | UI sign-in and sign-out |
+| `/get-session` | GET, POST | UI session (better-auth's session atom refreshes with POST) |
+| `/update-user`, `/change-password`, `/change-email`, `/revoke-session`, `/revoke-sessions` | POST | account page |
+| `/list-sessions` | GET | account page |
+| `/passkey/generate-register-options`, `/passkey/generate-authenticate-options`, `/passkey/list-user-passkeys` | GET | passkeys |
+| `/passkey/verify-registration`, `/passkey/verify-authentication`, `/passkey/update-passkey`, `/passkey/delete-passkey` | POST | passkeys |
+| `/oauth2/authorize`, `/oauth2/userinfo`, `/oauth2/public-client`, `/oauth2/end-session`, `/jwks` | GET | MCP OAuth |
+| `/oauth2/token`, `/oauth2/register`, `/oauth2/consent`, `/oauth2/continue`, `/oauth2/public-client-prelogin`, `/oauth2/revoke`, `/oauth2/introspect` | POST | MCP OAuth |
+| `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration` | GET, HEAD | issuer-relative discovery |
+| `/error` | GET | the page a failed OAuth authorization redirects to |
+
+At the origin root only `/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server/api/auth`
+and `/.well-known/openid-configuration/api/auth` (GET, HEAD) pass. Passkey and OAuth endpoints exist only while
+passkeys (§4.4) and MCP OAuth ([mcp](mcp.md) §3.8) are enabled; otherwise better-auth itself answers 404.
+
+Everything else is unreachable, among others: `/sign-up/email` (users are created by admins or the setup flow),
+`/token` (tokens are issued only through `/oauth2/token`), `/api-key/*` (managed through `/api/account/api-keys`,
+§8.2), `/admin/*` and `/admin/oauth2/*` (users are managed through `/api/users`, §6.3), `/delete-user*` (deletion runs
+the `userPurge` job), password reset and email verification (no email delivery in v1), social sign-in, account
+linking and `/callback/*` (no social providers), `/list-accounts`, `/update-session`, `/revoke-other-sessions`,
+`/verify-password`, `/ok`, and OAuth client and consent management (`/oauth2/get-client*`, `/oauth2/create-client`,
+`/oauth2/update-client`, `/oauth2/delete-client`, `/oauth2/client/*`, `/oauth2/*-consent*`,
+`/oauth2/end-session/confirm`; OAuth apps are managed through `/api/account/oauth-apps`). To expose another
+endpoint, add it to the allowlist and to [api](api.md) §3 together.
+
+`tests/security/auth-endpoints.spec.ts` asserts that these endpoints answer 404 with a session and that the documented
+ones keep working; `orchestrator/test/utils/auth-policy.test.ts` covers the matcher and the plugin on a real
+better-auth instance.
 
 ### 2.6 Sessions and cookies
 
@@ -469,7 +497,7 @@ parsed. Credentials of another kind are ignored, so a missing credential and a w
 | `/api/setup/*` | setup token (`GET /api/setup/status` is public) |
 | `/api/tools/forward-auth` | tools cookie (handled by the route itself, §11) |
 | `/api/health`, `/api/docs`, `/api/docs/openapi.json` | none (public; credentials are not validated) |
-| `/api/auth/*` | none by the middleware (better-auth's own handling); API-key headers rejected (§5.2) |
+| `/api/auth/*` | none by the middleware (better-auth's own handling, limited to the HTTP allowlist of §2.5); API-key headers rejected (§5.2) |
 | every other `/api/*` | internal capability, API key, session cookie |
 | `/mcp` | not handled by the middleware; `/mcp` authenticates itself ([mcp](mcp.md) §3) |
 | editor origin (`Host` = host of `SCANTOR_EDITOR_URL`) | never reaches this middleware: the dashboard listener answers 421 for the editor host, and the dedicated editor listener (container port 3001) checks `scantor_editor` itself (§12) |
@@ -941,10 +969,11 @@ Specified in [mcp](mcp.md) §3:
 |---|---|
 | `orchestrator/server/utils/config.ts` | env parsing (`publicUrl`, `editorUrl`, `domain`, `trustProxy`, `passkeyRpId`, `userMaxWorkers`, `mcpEnabled`, `mcpAllowedRedirectOrigins`, …) |
 | `orchestrator/server/utils/keys.ts` | HKDF derivations (mirror of `internal/keys`) |
-| `orchestrator/server/utils/auth.ts` | better-auth instance, plugin configurations, hooks, `DISABLED_PATHS`, `trustedOrigins`, `resolvePasskeyConfig`, `isAllowedMcpRedirect` |
+| `orchestrator/server/utils/auth.ts` | better-auth instance, plugin configurations, hooks, indexes |
+| `orchestrator/server/utils/auth-policy.ts` | pure policy: the HTTP allowlist (`isAuthHttpEndpoint`, `authHttpAllowlist`), rate limits, `trustedOrigins`, `resolvePasskeyConfig`, `resolveMcpConfig`, `isAllowedMcpRedirect` |
 | `orchestrator/server/utils/principal.ts` | principal types, credential parsers, effective role |
 | `orchestrator/server/utils/operations.ts` | operation registry and matcher |
-| `orchestrator/server/utils/authz.ts` | `requireUser`, `requireAdmin`, `requireSession`, `requireNode`, `requireWorker`, `requireTools`, `requireSetup`, `ownerFilter`, `loadOwned`, `resolveTask`, `resolveRevisionRef`, `loadOwnedScan`, `loadOwnedAnalysis`, `ownedRef` |
+| `orchestrator/server/utils/authz.ts` | `requireUser`, `requireAdmin`, `requireSession`, `requireNode`, `requireWorker`, `requireTools`, `requireSetup`, `ownerFilter`, `callerFilter`, `loadOwned`, `resolveTask`, `resolveRevisionRef`, `loadOwnedScan`, `loadOwnedAnalysis`, `ownedRef` |
 | `orchestrator/server/utils/user-cache.ts` | 30 s user cache with in-process invalidation |
 | `orchestrator/server/utils/users.ts` | user management wrappers, ban/unban/delete side effects, OAuth app listing and revocation |
 | `orchestrator/server/utils/setup.ts` | `ensureFirstAdmin`, setup token, `spk_` tokens, `resolvePasskeySetupUser`, `completePasskeySetupUser` |
@@ -1010,8 +1039,8 @@ Decisions made in this document, flagged for lead review:
 | Extension | How the design accommodates it |
 |---|---|
 | Organisations / shared tasks | Ownership goes only through `ownerFilter`/`loadOwned`; an `ownerRef {kind, id}` and a membership check replace `userId` equality there ([data model](data-model.md) §12). |
-| SSO / OIDC sign-in, social providers | better-auth `socialProviders` or `genericOAuth`; the related endpoints are only disabled in `DISABLED_PATHS`. `disableSignUp` stays, so accounts must still be provisioned or auto-provisioned by an explicit hook. |
-| Email verification and password reset | Configure `emailAndPassword.sendResetPassword` / `emailVerification` with an SMTP transport and remove the endpoints from `DISABLED_PATHS`. |
+| SSO / OIDC sign-in, social providers | better-auth `socialProviders` or `genericOAuth`; add the related endpoints to the HTTP allowlist (§2.5). `disableSignUp` stays, so accounts must still be provisioned or auto-provisioned by an explicit hook. |
+| Email verification and password reset | Configure `emailAndPassword.sendResetPassword` / `emailVerification` with an SMTP transport and add the endpoints to the HTTP allowlist (§2.5). |
 | TOTP second factor | better-auth `twoFactor` plugin; the credential invariant (§6.4) extends to "at least one primary credential". |
 | Scoped and read-only API keys | `apikey.permissions` exists in the schema; map permissions to MCP-style levels in `principal.ts` and the operation registry. |
 | `__Host-` session cookie (resist cookie tossing from sibling subdomains) | custom `advanced.cookies.session_token` naming once better-auth supports `__Host-` with secure cookies; the middleware reads the cookie only through `getSession`. |

@@ -397,21 +397,23 @@ without `key`.
 ## 3. Better-auth endpoints (not in OpenAPI)
 
 better-auth is mounted at `/api/auth/*` (catch-all handler) with discovery at the origin root. Only these
-endpoints are used by scantor clients:
+endpoints are reachable over HTTP; every other better-auth endpoint answers 404 `notFound` (deny by default,
+[auth](auth.md) §2.5):
 
 | Endpoint | Used by |
 |---|---|
-| `POST /api/auth/sign-in/email`, `POST /api/auth/sign-out`, `GET /api/auth/get-session` | UI login/logout/session |
+| `POST /api/auth/sign-in/email`, `POST /api/auth/sign-out`, `GET\|POST /api/auth/get-session` | UI login/logout/session (the session refresh uses POST) |
 | `POST /api/auth/update-user`, `POST /api/auth/change-password`, `POST /api/auth/change-email`, `GET /api/auth/list-sessions`, `POST /api/auth/revoke-session`, `POST /api/auth/revoke-sessions` | account page |
-| `GET /api/auth/passkey/generate-register-options`, `POST /api/auth/passkey/verify-registration`, `GET\|POST /api/auth/passkey/generate-authenticate-options`, `POST /api/auth/passkey/verify-authentication`, `GET /api/auth/passkey/list-user-passkeys`, `POST /api/auth/passkey/update-passkey`, `POST /api/auth/passkey/delete-passkey` | passkeys (delete guarded: not the last credential) |
-| `GET /api/auth/oauth2/authorize`, `POST /api/auth/oauth2/token`, `POST /api/auth/oauth2/register`, `POST /api/auth/oauth2/consent`, `POST /api/auth/oauth2/continue`, `GET /api/auth/oauth2/userinfo`, `GET /api/auth/oauth2/public-client`, `GET /api/auth/oauth2/public-client-prelogin`, `POST /api/auth/oauth2/revoke`, `POST /api/auth/oauth2/introspect`, `GET /api/auth/oauth2/end-session`, `GET /api/auth/jwks` | MCP OAuth ([mcp](mcp.md)) |
-| `GET /.well-known/oauth-authorization-server/api/auth`, `GET /.well-known/openid-configuration/api/auth`, `GET /.well-known/oauth-protected-resource/mcp` | MCP discovery |
+| `GET /api/auth/passkey/generate-register-options`, `POST /api/auth/passkey/verify-registration`, `GET /api/auth/passkey/generate-authenticate-options`, `POST /api/auth/passkey/verify-authentication`, `GET /api/auth/passkey/list-user-passkeys`, `POST /api/auth/passkey/update-passkey`, `POST /api/auth/passkey/delete-passkey` | passkeys (delete guarded: not the last credential) |
+| `GET /api/auth/oauth2/authorize`, `POST /api/auth/oauth2/token`, `POST /api/auth/oauth2/register`, `POST /api/auth/oauth2/consent`, `POST /api/auth/oauth2/continue`, `GET /api/auth/oauth2/userinfo`, `GET /api/auth/oauth2/public-client`, `POST /api/auth/oauth2/public-client-prelogin`, `POST /api/auth/oauth2/revoke`, `POST /api/auth/oauth2/introspect`, `GET /api/auth/oauth2/end-session`, `GET /api/auth/jwks`, `GET /api/auth/error` (the page a failed authorization redirects to) | MCP OAuth ([mcp](mcp.md)) |
+| `GET /.well-known/oauth-authorization-server/api/auth`, `GET /.well-known/openid-configuration/api/auth`, `GET /.well-known/oauth-protected-resource/mcp`; issuer-relative `GET /api/auth/.well-known/oauth-authorization-server`, `GET /api/auth/.well-known/openid-configuration` (also HEAD) | MCP discovery |
 
-`disabledPaths` (HTTP only; server-side `auth.api.*` calls still work) includes `/sign-up/email`, `/token`,
-`/api-key/create`, `/api-key/update`, `/api-key/delete`, `/api-key/get`, `/api-key/list`, every `/admin/…`
-endpoint, and the unused core endpoints (`/delete-user`, password reset, email verification, social
-sign-in). Users and API keys are managed through §4 routes. better-auth matches `disabledPaths` exactly
-(no wildcards); the full list is in [auth](auth.md) §2.5.
+The allowlist applies to HTTP only; server-side `auth.api.*` calls still reach every endpoint. Unreachable are,
+among others, `/sign-up/email`, `/token`, `/api-key/*`, every `/admin/…` endpoint, `/delete-user`, password reset,
+email verification, social sign-in and account linking, `/list-accounts`, `/update-session`,
+`/revoke-other-sessions`, `/verify-password` and better-auth's OAuth client and consent management. Users, API keys
+and OAuth apps are managed through §4 routes. Methods and paths match exactly; the full list is in
+[auth](auth.md) §2.5.
 
 ## 4. Route table
 

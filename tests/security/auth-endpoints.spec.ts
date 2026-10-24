@@ -87,7 +87,8 @@ const DISABLED: [string, string][] = [
 
 /**
  * Endpoints the configured plugins register that docs/api.md §3 does not list. Probed with empty bodies, so a
- * reachable endpoint answers a validation error (or harmless data) instead of acting.
+ * reachable endpoint answers a validation error (or harmless data) instead of acting. `GET /error` is not among them:
+ * it is the documented page a failed OAuth authorization redirects to.
  */
 const UNDOCUMENTED: [string, string][] = [
   ['GET', '/list-accounts'],
@@ -95,7 +96,8 @@ const UNDOCUMENTED: [string, string][] = [
   ['POST', '/update-session'],
   ['POST', '/verify-password'],
   ['GET', '/ok'],
-  ['GET', '/error'],
+  ['GET', '/reset-password/some-token'],
+  ['GET', '/callback/github'],
   ['GET', '/oauth2/get-clients'],
   ['GET', '/oauth2/get-client'],
   ['POST', '/oauth2/create-client'],
@@ -126,22 +128,14 @@ test.describe('better-auth endpoints', () => {
     expect(session.status).toBe(200)
   })
 
-  // product bug: better-auth endpoints outside docs/api.md §3 are reachable with a session
-  test.fail(
-    'no better-auth endpoint beyond the documented ones is reachable with a session',
-    {
-      tag: ['@AUTH-008'],
-      annotation: { type: 'issue', description: 'list-accounts, oauth2 client/consent management, verify-password, … answer with a session' },
-    },
-    async ({ api }) => {
-      const reachable: string[] = []
-      for (const [method, path] of UNDOCUMENTED) {
-        const response = await send(api.request, method, `/api/auth${path}`, method === 'GET' ? {} : { data: {} })
-        if (response.status !== 404) reachable.push(`${method} ${path} → ${response.status}`)
-      }
-      expect(reachable).toEqual([])
-    },
-  )
+  test('no better-auth endpoint beyond the documented ones is reachable with a session', { tag: ['@AUTH-008'] }, async ({ api }) => {
+    const reachable: string[] = []
+    for (const [method, path] of UNDOCUMENTED) {
+      const response = await send(api.request, method, `/api/auth${path}`, method === 'GET' ? {} : { data: {} })
+      if (response.status !== 404) reachable.push(`${method} ${path} → ${response.status}`)
+    }
+    expect(reachable).toEqual([])
+  })
 
   test('API keys are rejected on /api/auth/* with the scantor envelope', { tag: ['@AUTH-004'] }, async ({ user }) => {
     const editorShaped = `sk_scantor_editor_${'E'.repeat(64)}`

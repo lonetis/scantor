@@ -12,7 +12,8 @@ import { symmetricDecrypt } from 'better-auth/crypto'
 import { admin, jwt } from 'better-auth/plugins'
 import type { CreateIndexesOptions, Db } from 'mongodb'
 import {
-  DISABLED_PATHS,
+  AUTH_BASE_PATH,
+  authHttpAllowlist,
   isAllowedMcpRedirect,
   OAUTH_SCOPES,
   rateLimitConfig,
@@ -29,10 +30,10 @@ import { completePasskeySetupUser, resolvePasskeySetupUser } from './setup'
 import { invalidateCachedUser } from './user-cache'
 
 // The better-auth instance (docs/auth.md §2): MongoDB adapter on the shared client (transactions, plain uuid ids),
-// no self sign-up, admin + api-key + passkey + jwt/mcp/cimd plugins, scantor cookie names, rate limits and the
-// client IP header set by middleware/00.request.ts. Built lazily and initialised eagerly in boot step 3. The
-// instance is typed `any` on purpose: the nested better-call/zod types make TypeScript unusably slow; typed
-// wrappers live in server/utils/users.ts.
+// no self sign-up, the HTTP allowlist (§2.5), admin + api-key + passkey + jwt/mcp/cimd plugins, scantor cookie names,
+// rate limits and the client IP header set by middleware/00.request.ts. Built lazily and initialised eagerly in boot
+// step 3. The instance is typed `any` on purpose: the nested better-call/zod types make TypeScript unusably slow;
+// typed wrappers live in server/utils/users.ts.
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AuthInstance = any
@@ -138,11 +139,10 @@ function buildAuth(): AuthInstance {
   return betterAuth({
     appName: 'scantor',
     baseURL: config.publicUrl,
-    basePath: '/api/auth',
+    basePath: AUTH_BASE_PATH,
     secret: useKeys().betterAuthSecret(),
     database: mongodbAdapter(db, { client, usePlural: false }),
     trustedOrigins: trustedOrigins(config),
-    disabledPaths: DISABLED_PATHS,
     telemetry: { enabled: false },
     emailAndPassword: {
       enabled: true,
@@ -182,6 +182,8 @@ function buildAuth(): AuthInstance {
     },
     hooks: { before: beforeHook, after: afterHook },
     plugins: [
+      // first, so that no other plugin and no endpoint sees a request outside the HTTP allowlist
+      authHttpAllowlist(),
       admin({ defaultRole: 'user', adminRoles: ['admin'] }),
       apiKey(apiKeyConfigurations(Math.round(config.editorApiKeyTtlMs / 1000))),
       ...(passkeyConfig.enabled

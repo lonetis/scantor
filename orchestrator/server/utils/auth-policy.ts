@@ -1,4 +1,5 @@
 import { isIP } from 'node:net'
+import type { BetterAuthPlugin } from 'better-auth'
 import type { Config } from './config'
 
 // Pure authentication policy derived from the configuration (docs/auth.md §2.5, §2.7, §4, docs/mcp.md §3.4, §3.8).
@@ -8,43 +9,94 @@ export const MCP_SCOPES = ['scantor:read', 'scantor:write', 'scantor:admin'] as 
 export const OAUTH_SCOPES = ['openid', 'profile', 'email', 'offline_access', ...MCP_SCOPES]
 export const MCP_CHALLENGE_SCOPES = ['offline_access', ...MCP_SCOPES]
 
-/** better-auth endpoints disabled over HTTP (exact paths; server-side `auth.api.*` calls still work). */
-export const DISABLED_PATHS = [
-  '/sign-up/email',
-  '/token',
-  '/api-key/create',
-  '/api-key/update',
-  '/api-key/delete',
-  '/api-key/get',
-  '/api-key/list',
-  '/admin/ban-user',
-  '/admin/create-user',
-  '/admin/get-user',
-  '/admin/has-permission',
-  '/admin/impersonate-user',
-  '/admin/list-user-sessions',
-  '/admin/list-users',
-  '/admin/remove-user',
-  '/admin/revoke-user-session',
-  '/admin/revoke-user-sessions',
-  '/admin/set-role',
-  '/admin/set-user-password',
-  '/admin/stop-impersonating',
-  '/admin/unban-user',
-  '/admin/update-user',
-  '/delete-user',
-  '/delete-user/callback',
-  '/request-password-reset',
-  '/reset-password',
-  '/send-verification-email',
-  '/verify-email',
-  '/sign-in/social',
-  '/link-social',
-  '/unlink-account',
-  '/get-access-token',
-  '/refresh-token',
-  '/account-info',
-]
+/** better-auth's base path (docs/auth.md §2.2). */
+export const AUTH_BASE_PATH = '/api/auth'
+
+/**
+ * The better-auth endpoints served over HTTP (docs/api.md §3, docs/auth.md §2.5): path below AUTH_BASE_PATH → methods.
+ * Deny by default: better-auth and its plugins register many more endpoints (account listing, session updates,
+ * password verification, OAuth client and consent management, admin, API-key, sign-up, password-reset, social and
+ * email-verification endpoints, …), which scantor either manages through its own routes or does not use. Server-side
+ * `auth.api.*` calls never pass this list.
+ */
+const AUTH_HTTP_ENDPOINTS = new Map<string, readonly string[]>([
+  // UI sign-in, sign-out and session (the session atom refreshes with POST)
+  ['/sign-in/email', ['POST']],
+  ['/sign-out', ['POST']],
+  ['/get-session', ['GET', 'POST']],
+  // account page
+  ['/update-user', ['POST']],
+  ['/change-password', ['POST']],
+  ['/change-email', ['POST']],
+  ['/list-sessions', ['GET']],
+  ['/revoke-session', ['POST']],
+  ['/revoke-sessions', ['POST']],
+  // passkeys (registered only while passkeys are enabled)
+  ['/passkey/generate-register-options', ['GET']],
+  ['/passkey/verify-registration', ['POST']],
+  ['/passkey/generate-authenticate-options', ['GET']],
+  ['/passkey/verify-authentication', ['POST']],
+  ['/passkey/list-user-passkeys', ['GET']],
+  ['/passkey/update-passkey', ['POST']],
+  ['/passkey/delete-passkey', ['POST']],
+  // MCP OAuth (registered only while MCP OAuth is available)
+  ['/oauth2/authorize', ['GET']],
+  ['/oauth2/token', ['POST']],
+  ['/oauth2/register', ['POST']],
+  ['/oauth2/consent', ['POST']],
+  ['/oauth2/continue', ['POST']],
+  ['/oauth2/userinfo', ['GET']],
+  ['/oauth2/public-client', ['GET']],
+  ['/oauth2/public-client-prelogin', ['POST']],
+  ['/oauth2/revoke', ['POST']],
+  ['/oauth2/introspect', ['POST']],
+  ['/oauth2/end-session', ['GET']],
+  ['/jwks', ['GET']],
+  ['/.well-known/oauth-authorization-server', ['GET', 'HEAD']],
+  ['/.well-known/openid-configuration', ['GET', 'HEAD']],
+  // the error page better-auth redirects a failed OAuth authorization to
+  ['/error', ['GET']],
+])
+
+/** The discovery documents better-auth serves at the origin root (docs/api.md §3, docs/mcp.md §3.1). */
+const AUTH_ROOT_DISCOVERY_PATHS = new Set([
+  '/.well-known/oauth-protected-resource/mcp',
+  '/.well-known/oauth-authorization-server/api/auth',
+  '/.well-known/openid-configuration/api/auth',
+])
+
+/**
+ * Whether better-auth may answer `method pathname` over HTTP. `pathname` is the path of the URL better-auth routes
+ * (dot segments already resolved); it must match an allowed endpoint exactly, so trailing slashes, percent-encodings
+ * and other spellings are denied.
+ */
+export function isAuthHttpEndpoint(method: string, pathname: string): boolean {
+  if (pathname.startsWith(`${AUTH_BASE_PATH}/`)) {
+    return AUTH_HTTP_ENDPOINTS.get(pathname.slice(AUTH_BASE_PATH.length))?.includes(method) ?? false
+  }
+  return AUTH_ROOT_DISCOVERY_PATHS.has(pathname) && (method === 'GET' || method === 'HEAD')
+}
+
+/**
+ * The better-auth plugin that enforces {@link isAuthHttpEndpoint} (docs/auth.md §2.5). Listed first, its `onRequest`
+ * runs for every HTTP request better-auth handles (the `/api/auth/*` catch-all and the root `.well-known` route) before
+ * any other plugin and before routing, on the URL better-auth itself routes; anything else answers 404 `notFound`.
+ */
+export function authHttpAllowlist() {
+  return {
+    id: 'scantor-http-allowlist',
+    onRequest: async (request: Request) => {
+      const { pathname } = new URL(request.url)
+      if (isAuthHttpEndpoint(request.method, pathname)) return
+      return {
+        response: Response.json(
+          { error: { code: 'notFound', message: `no ${request.method} endpoint at ${pathname}` } },
+          { status: 404, headers: { 'Cache-Control': 'no-store' } },
+        ),
+      }
+    },
+  } satisfies BetterAuthPlugin
+}
 
 /** better-auth rate limits (docs/auth.md §2.7), on in every environment. */
 export const RATE_LIMIT = {
