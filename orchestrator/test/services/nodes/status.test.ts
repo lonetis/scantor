@@ -58,12 +58,24 @@ describe('planStatus', () => {
   })
 
   it('keeps a running worker running and only updates details in any active state', () => {
-    const result = plan([workerDoc(W1, { state: 'running' })], [{ workerId: W1, state: 'running', containerId: 'c1', restarts: 0, applied: { processes: 3, nanoCpus: 3e9, memoryBytes: 1 } }])
+    const known = workerDoc(W1, { state: 'running', container: { id: 'c1', name: `scantor-w-${W1}`, startedAt: T0, restarts: 0, lastExit: null, nextRestartAt: null } })
+    const result = plan([known], [{ workerId: W1, state: 'running', containerId: 'c1', restarts: 0, applied: { processes: 3, nanoCpus: 3e9, memoryBytes: 1 } }])
     expect(result.updates[0]!.set.state).toBeUndefined()
     expect(result.updates[0]!.fromStates).toContain('running')
     expect(result.updates[0]!.fromStates).toContain('draining')
     expect(result.updates[0]!.set['processes.applied']).toBe(3)
     expect(result.pulled).toEqual([])
+  })
+
+  it('counts the first container of a worker the runtime already bootstrapped as a pulled image', () => {
+    // The runtime bootstrapped (assigned → running) before the node reported the container it created.
+    const bootstrapped = plan([workerDoc(W1, { state: 'running' })], [{ workerId: W1, state: 'running', containerId: 'c1', restarts: 0 }])
+    expect(bootstrapped.pulled.map((worker) => worker._id)).toEqual([W1])
+    expect(bootstrapped.updates[0]!.set).toMatchObject({ container: { id: 'c1' } })
+    expect(bootstrapped.updates[0]!.set.state).toBeUndefined()
+    // Reports without a container never count.
+    expect(plan([workerDoc(W1, { state: 'running' })], [{ workerId: W1, state: 'running' }]).pulled).toEqual([])
+    expect(plan([workerDoc(W1, { state: 'running' })], [{ workerId: W1, state: 'error', error: { code: 'imagePullFailed', message: 'x' } }]).pulled).toEqual([])
   })
 
   it('raises a crash for a new non-zero exit, once', () => {

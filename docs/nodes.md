@@ -570,7 +570,7 @@ That is the container healthcheck in compose and in the join snippet.
 | reported `pulling` / `starting` / `backoff` | worker state transitions ([data model](data-model.md) §6.6) |
 | `applied.processes` | `workers.processes.applied` |
 | new `lastExit.at` with exit ≠ 0 or OOM | event `worker.crashed`; condition `crashLoop` |
-| `error.code = imagePullFailed` | condition `imagePullFailed` (cleared when a pull of the image succeeds on any node) |
+| `error.code = imagePullFailed` | condition `imagePullFailed` (cleared when a pull of the image succeeds on any node: a worker of the scan is reported with its first container, even when its runtime bootstrapped before that report) |
 | `info.diskFreeBytes < SCANTOR_NODE_MIN_FREE_DISK` | node excluded from new placements (`diskLow`) |
 | no status for `SCANTOR_NODE_OFFLINE_AFTER` | node `offline`, its active workers `lost` (§7.4) |
 

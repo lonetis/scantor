@@ -474,17 +474,9 @@ test.describe('image pulls', () => {
     expect(cleared.some((e) => (e.data as { type?: string } | undefined)?.type === 'imagePullFailed')).toBe(true)
   })
 
-  // product bug: imagePullFailed is never cleared when the runtime bootstraps before the node reports the container
-  test.fail(
+  test(
     'imagePullFailed clears when the runtime bootstraps before the node reports the containers',
-    {
-      tag: ['@NODE-033'],
-      annotation: {
-        type: 'issue',
-        description:
-          "the node status handler clears imagePullFailed only for workers still assigned or pulling that are reported with a container (orchestrator/server/services/nodes/status.ts plan.pulled, PRE_START); the runtime bootstrap moves a worker to running first whenever it is quicker than the node's report (orchestrator/server/services/runtime/bootstrap.ts recordBootstrap), so on a real node the condition stays on the scan in some runs",
-      },
-    },
+    { tag: ['@NODE-033'] },
     async ({ api, shared, scans, fakeNodes }) => {
       const node = await fakeNodes.start()
       const { scan, assigned } = await failedPulls(api, scans, shared, node)

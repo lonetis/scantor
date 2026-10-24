@@ -43,7 +43,11 @@ export interface StatusPlan {
   updates: WorkerUpdate[]
   crashes: CrashReport[]
   pullFailures: { worker: WorkerDoc; message: string }[]
-  /** workers whose task image arrived on the node (assigned or pulling, now created): imagePullFailed clears */
+  /**
+   * workers whose task image arrived on the node: reported with a container while still assigned or pulling, or for
+   * the first time at all (the runtime's bootstrap may have moved the worker to running before this report).
+   * imagePullFailed clears for their scans.
+   */
   pulled: WorkerDoc[]
   stopped: WorkerDoc[]
   /** worker ids reported by the node that are not active workers of it */
@@ -167,7 +171,7 @@ export function planStatus(input: {
     if (worker.state !== 'draining' && report.state === 'error' && report.error?.code === 'imagePullFailed') {
       plan.pullFailures.push({ worker, message: report.error.message })
     }
-    if (PRE_START.includes(worker.state) && CONTAINER_EXISTS.includes(report.state)) plan.pulled.push(worker)
+    if (CONTAINER_EXISTS.includes(report.state) && (PRE_START.includes(worker.state) || (report.containerId && !worker.container))) plan.pulled.push(worker)
 
     if (next) {
       set.state = next
