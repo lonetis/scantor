@@ -97,6 +97,14 @@ export function ownerFilter(principal: UserPrincipal, requestedUserId?: string):
   return { userId: principal.user.id }
 }
 
+/**
+ * The filter of the caller-only lists `listCredentials` and `listUploads` (docs/api.md §1.3): the caller's own items,
+ * for admins too, because only their owner can reference them in a create (`ownedRef`).
+ */
+export function callerFilter(principal: UserPrincipal): { userId: string } {
+  return { userId: principal.user.id }
+}
+
 export interface LoadOwnedOptions<T> {
   /** extra visibility rule (for example: tasks being deleted are invisible) */
   visible?: (doc: T) => boolean

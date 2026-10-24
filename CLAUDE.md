@@ -90,9 +90,9 @@ Run the narrowest suite first (`just test-go ./internal/taskpipe/...`, `just tes
   `${VAR}` without defaults. Dev secrets end in `-insecure-dev`.
 - **camelCase JSON** everywhere (TS, Go, Python wire, Mongo); ids are uuid v4 except analysis ids.
 - **Ownership** through `server/utils/authz.ts` only: `requireUser`/`requireAdmin`, `loadOwned`,
-  `loadOwnedScan`, `ownerFilter`, `resolveTask`. Order 401 → 404 → 403; another user's resource is 404
-  `notFound`, never 403. `userId` comes from the principal, never the body; request objects never go
-  into Mongo filters.
+  `loadOwnedScan`, `ownerFilter` (`callerFilter` for the caller-only credential and upload lists),
+  `resolveTask`. Order 401 → 404 → 403; another user's resource is 404 `notFound`, never 403. `userId` comes
+  from the principal, never the body; request objects never go into Mongo filters.
 - **Routes**: one file per method (`server/api/scans/[scanId]/pause.post.ts`), bracket names equal
   OpenAPI parameter names. The first statement is `defineRouteMeta` with a static object of plain
   literals only (no negative numbers, template literals or strings with both quote kinds;

@@ -142,7 +142,7 @@ Mechanisms: [security](../docs/security.md) §7, [auth](../docs/auth.md) §5, §
 
 - **AUTHZ-001** [authz] Every `owner`-scope operation returns 401 `unauthorized` to an anonymous request.
 - **AUTHZ-002** [authz] Every `owner`-scope operation, read or mutation, that user B calls with user A's ids (task, revision, scan, analysis, file, test run, export, upload, credential, job, API key) returns 404 `notFound`, never 403; after all of B's attempts the hash of A's GET representations is unchanged (destructive operations run last, on throwaway copies).
-- **AUTHZ-003** [authz] An admin (session or `default` key) can read and act on other users' resources by id, and list operations return every user's items.
+- **AUTHZ-003** [authz] An admin (session or `default` key) can read and act on other users' resources by id, and list operations return every user's items, except `listCredentials` and `listUploads`, which stay caller-scoped (CRED-004, UPL-004).
 - **AUTHZ-004** [authz, api] A non-admin passing `?userId=<another user>` to a list operation (tasks, scans, jobs) gets 403 `adminRequired` (their own id is accepted), while an admin passing `?userId=<A>` sees only A's items.
 - **AUTHZ-005** [authz] No list response B receives (tasks, scans, revisions, test runs, uploads, exports, jobs, credentials, API keys, OAuth apps) contains any of A's ids.
 - **AUTHZ-006** [authz] Task names and revision references (`alpha`, `alpha@1`, `alpha@latest`) resolve only among the caller's tasks: B's `alpha` is B's task, an admin's `alpha` is the admin's own task (404 when there is none), and admins reach other users' tasks only by id.

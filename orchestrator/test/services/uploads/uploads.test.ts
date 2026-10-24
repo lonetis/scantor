@@ -26,11 +26,12 @@ vi.mock('../../../server/utils/s3', () => ({
   },
 }))
 
-const { LineCounter, createUpload, uploadContentType, uploadKey } = await import('../../../server/services/uploads')
+const { LineCounter, createUpload, listUploads, uploadContentType, uploadKey } = await import('../../../server/services/uploads')
 const { ApiError } = await import('../../../server/utils/errors')
 type UserPrincipal = import('../../../server/utils/principal').UserPrincipal
 
 const user = { kind: 'user', user: { id: 'u1' }, isAdmin: false } as unknown as UserPrincipal
+const admin = { kind: 'user', user: { id: 'a1' }, isAdmin: true } as unknown as UserPrincipal
 
 /** A request-like body: `chunks` chunks of `size` bytes of `a\n` lines, produced on demand. */
 function requestBody(chunks: number, size: number): Readable & { produced: number } {
@@ -52,6 +53,15 @@ beforeEach(() => {
   store.uploads.docs.length = 0
   s3.stored.clear()
   s3.deleted.length = 0
+})
+
+describe('listUploads', () => {
+  it('lists only the caller’s own uploads, admins included (docs/api.md §1.3)', async () => {
+    const mine = await createUpload(user, { body: requestBody(1, 10), contentType: 'text/plain', name: 'mine.txt', kind: 'list', maxBytes: 100 })
+    const own = await createUpload(admin, { body: requestBody(1, 20), contentType: 'text/plain', name: 'own.txt', kind: 'list', maxBytes: 100 })
+    expect((await listUploads(user, {})).items.map((item) => item.id)).toEqual([mine.upload.id])
+    expect((await listUploads(admin, {})).items.map((item) => item.id)).toEqual([own.upload.id])
+  })
 })
 
 describe('createUpload', () => {

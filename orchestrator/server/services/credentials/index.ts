@@ -3,7 +3,7 @@ import type { CreateCredentialBody, UpdateCredentialBody } from '#shared/schemas
 import type { Credential } from '#shared/types/credentials'
 import type { CredentialDoc } from '../../types/documents'
 import type { UserPrincipal } from '../../utils/principal'
-import { loadOwned, ownedRef } from '../../utils/authz'
+import { callerFilter, loadOwned, ownedRef } from '../../utils/authz'
 import { apiError } from '../../utils/errors'
 import { useCollections } from '../../utils/mongo'
 import { decryptSecret, encryptSecret, SecretDecryptionError } from '../../utils/secrets'
@@ -40,7 +40,7 @@ function isDuplicateKey(error: unknown): boolean {
 }
 
 export async function listCredentials(principal: UserPrincipal): Promise<{ items: Credential[] }> {
-  const docs = await useCollections().credentials.find({ userId: principal.user.id }).sort({ name: 1 }).toArray()
+  const docs = await useCollections().credentials.find(callerFilter(principal)).sort({ name: 1 }).toArray()
   return { items: docs.map(toApiCredential) }
 }
 

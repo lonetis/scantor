@@ -28,6 +28,7 @@ const {
   loadOwnedScan,
   ownedRef,
   ownerFilter,
+  callerFilter,
   requireAdmin,
   requireSession,
   requireUser,
@@ -125,6 +126,13 @@ describe('ownerFilter', () => {
     await expectCode(() => ownerFilter(alice, BOB), 'adminRequired')
     expect(ownerFilter(admin)).toEqual({})
     expect(ownerFilter(admin, BOB)).toEqual({ userId: BOB })
+  })
+})
+
+describe('callerFilter', () => {
+  it('scopes the caller-only lists to the caller, admins included', () => {
+    expect(callerFilter(alice)).toEqual({ userId: ALICE })
+    expect(callerFilter(admin)).toEqual({ userId: admin.user.id })
   })
 })
 

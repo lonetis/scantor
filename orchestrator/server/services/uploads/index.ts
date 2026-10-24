@@ -4,7 +4,7 @@ import type { UploadKind } from '#shared/utils/enums'
 import type { Page } from '#shared/types/common'
 import type { Upload } from '#shared/types/uploads'
 import type { UploadDoc } from '../../types/documents'
-import { loadOwned } from '../../utils/authz'
+import { callerFilter, loadOwned } from '../../utils/authz'
 import { ByteCap } from '../../utils/byte-cap'
 import { apiError } from '../../utils/errors'
 import { useLogger } from '../../utils/logger'
@@ -143,7 +143,7 @@ export async function createUpload(principal: UserPrincipal, input: CreateUpload
 }
 
 export async function listUploads(principal: UserPrincipal, query: { limit?: number; cursor?: string }): Promise<Page<Upload>> {
-  return findPage(useCollections().uploads, { userId: principal.user.id }, query, toApiUpload)
+  return findPage(useCollections().uploads, callerFilter(principal), query, toApiUpload)
 }
 
 export async function getUpload(principal: UserPrincipal, uploadId: string): Promise<Upload> {

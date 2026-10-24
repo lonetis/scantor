@@ -815,6 +815,7 @@ like every API key (§5.2).
 | `requireSession(event)` | `UserPrincipal` with `via = session`, else 403 `sessionRequired` (duplicates the central `x-session-only` check) |
 | `requireNode(event)`, `requireWorker(event, { role? })`, `requireTools(event)`, `requireSetup(event)` | typed principal; worker routes pass `role: 'scheduler'` (403 `forbidden` for runners) and check the epoch (409 `staleEpoch`) |
 | `ownerFilter(p, requestedUserId?)` | `{}` for admins (or `{userId: requestedUserId}` when given); `{userId: p.user.id}` for users; a non-admin's foreign `requestedUserId` gives 403 `adminRequired` |
+| `callerFilter(p)` | `{userId: p.user.id}`, for admins too: the filter of the caller-only lists `listCredentials` and `listUploads` ([api](api.md) §1.3) |
 | `loadOwned(coll, id, p, opts?)` | validates `id` with `z.uuid()` (malformed gives 404), runs **one** query `{_id: id}` (admin) or `{_id: id, userId: p.user.id}` (user), applies `opts.visible(doc)` (for example tasks with `deletingAt` are invisible), else 404 `notFound` |
 | `resolveTask(p, ref)` | uuid → `loadOwned(tasks)`; slug → `{userId: p.user.id, name: ref, deletingAt: null}`. A name lookup never crosses users, even for admins (admins address other users' tasks by id). |
 | `resolveRevisionRef(p, ref)` | `<task>@<N>`, `<task>@latest`, `<task>`, or a uuid tried as a revision id (via `loadOwned(revisions)`) and then as a task id (`@latest`) ([api](api.md) §1.4) |
@@ -830,7 +831,9 @@ Rules:
    (derived creates); request bodies never carry it ([data model](data-model.md) §1).
 3. Request objects are never placed into MongoDB filters. Ids are parsed with zod before use. The query API
    has its own allowlist ([api](api.md) §5.2).
-4. Lists use `ownerFilter`; single resources use `loadOwned` and its variants. A handler that touches an owned
+4. Lists use `ownerFilter`; single resources use `loadOwned` and its variants. The only lists that filter by
+   the caller's own id instead, also for admins, are `listCredentials` and `listUploads` ([api](api.md) §1.3):
+   their items can only be referenced by their owner (`ownedRef`). They use `callerFilter`. A handler that touches an owned
    collection without one of these helpers is a review blocker. The authorization matrix test catches the
    effect ([security](security.md) §7).
 
