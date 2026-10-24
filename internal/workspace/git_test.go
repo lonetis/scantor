@@ -211,9 +211,19 @@ func TestGitClone(t *testing.T) {
 	if len(linked.Errors) == 0 || !strings.Contains(linked.Errors[0].Message, "symlinks are not supported") {
 		t.Fatalf("linked errors %+v", linked.Errors)
 	}
+	// A symlink is an archive-rule violation, not a manifest problem: the candidate carries it as the
+	// invalidPath error the API answers, with the path inside the task folder.
+	if r := linked.Rejection; r == nil || r.Code != CodeInvalidPath || r.Path != "alias.py" || r.Details["path"] != "alias.py" ||
+		!strings.Contains(r.Message, "symlinks are not supported in imported tasks") {
+		t.Fatalf("linked rejection %+v", linked.Rejection)
+	}
+	// An invalid manifest alone is no rejection.
+	if bad := res.Candidates[0]; bad.Valid || len(bad.Errors) == 0 || bad.Rejection != nil {
+		t.Fatalf("bad candidate %+v", bad)
+	}
 	echo := res.Candidates[1]
 	tree := filepath.Join(ws.dir, StagingDir, "c1", "tree")
-	if echo.Summary == nil || echo.Summary.PackSHA256 != packHash(t, filepath.Join(tree, "tasks", "echo")) || len(echo.Errors) != 0 {
+	if echo.Summary == nil || echo.Summary.PackSHA256 != packHash(t, filepath.Join(tree, "tasks", "echo")) || len(echo.Errors) != 0 || echo.Rejection != nil {
 		t.Fatalf("echo candidate %+v", echo)
 	}
 
@@ -295,6 +305,18 @@ func TestGitCloneFailures(t *testing.T) {
 		_, err := g.Clone(bg, GitOptions{URL: s.url("repo.git"), Staging: "c1", AllowPrivate: true})
 		wantCode(t, err, CodeWorkspaceFull)
 		mustNotExist(t, filepath.Join(ws.dir, StagingDir, "c1"))
+	})
+	t.Run("candidate over the task caps", func(t *testing.T) {
+		limits := DefaultLimits()
+		limits.MaxBytes = 1 << 20
+		g, _ := newTestGit(t, s, limits, nil)
+		res, err := g.Clone(bg, GitOptions{URL: s.url("repo.git"), Staging: "c1", AllowPrivate: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c := res.Candidates; len(c) != 1 || c[0].Valid || c[0].Rejection == nil || c[0].Rejection.Code != CodeTooLarge {
+			t.Fatalf("candidates %+v", res.Candidates)
+		}
 	})
 	t.Run("staging id taken", func(t *testing.T) {
 		g, ws := newTestGit(t, s, DefaultLimits(), nil)

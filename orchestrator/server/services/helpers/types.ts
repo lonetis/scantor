@@ -126,6 +126,8 @@ export interface GitCandidate {
   language: string
   valid: boolean
   errors: CandidateError[]
+  /** the first problem that is not about the manifest (an archive rule or cap), as a helper error; null otherwise */
+  rejection: HelperErrorPayload | null
   summary: WorkspaceSummary | null
 }
 

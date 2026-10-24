@@ -82,7 +82,12 @@ type Candidate struct {
 	Language *string          `json:"language"`
 	Valid    bool             `json:"valid"`
 	Errors   []api.BuildError `json:"errors"`
-	Summary  *Summary         `json:"summary"`
+	// Rejection is the first problem of the folder that is not about its manifest, as the helper error it
+	// is, or nil: invalidPath for a symlink, a special file or a path rule (Path relative to the folder, or
+	// to the repository root for a symlink in the folder's own path), tooManyFiles or tooLarge for a cap.
+	// Errors lists it too; the orchestrator answers it instead of manifestInvalid (docs/editor.md §9.4).
+	Rejection *ErrorBody `json:"rejection"`
+	Summary   *Summary   `json:"summary"`
 }
 
 // CloneResult is the output of git-clone.
@@ -760,13 +765,20 @@ func (g *Git) candidate(ctx context.Context, tree *os.Root, id, dir, expectName 
 			c.Errors = append(c.Errors, api.BuildError{Phase: api.BuildPhaseStatic, File: file, Message: msg})
 		}
 	}
+	reject := func(err error) {
+		werr := AsError(err)
+		addErr(werr.Path, werr.Message)
+		if c.Rejection == nil {
+			c.Rejection = &ErrorBody{Code: werr.Code, Message: werr.Message, Path: werr.Path, Details: werr.Details}
+		}
+	}
 	rel := dir
 	if rel == "." {
 		rel = ""
 	}
 	if rel != "" {
 		if err := noSymlinkComponents(tree, rel); err != nil {
-			addErr("", AsError(err).Message)
+			reject(err)
 			return c
 		}
 		if info, err := tree.Lstat(rel); err != nil || !info.IsDir() {
@@ -794,14 +806,12 @@ func (g *Git) candidate(ctx context.Context, tree *os.Root, id, dir, expectName 
 		}
 	}
 	if err := checkImportTree(ctx, root, g.ws.limits); err != nil {
-		werr := AsError(err)
-		addErr(werr.Path, werr.Message)
+		reject(err)
 	}
 	if summary, err := g.ws.summarizeDir(ctx, g.ws.abs(path.Join(stagingPath(id, "tree"), rel))); err == nil {
 		c.Summary = &summary
 	} else {
-		werr := AsError(err)
-		addErr(werr.Path, werr.Message)
+		reject(err)
 	}
 	c.Valid = len(c.Errors) == 0
 	return c

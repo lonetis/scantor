@@ -1584,7 +1584,8 @@ specified in [editor](editor.md) §9.7. The task-level semantics:
   shallow fetch of `ref` (branch, tag, full commit or `HEAD`), no submodules; every `scantor.yaml` under
   `path` (depth ≤ 6) is a candidate, validated and summarised. One valid candidate is imported; several
   return `200 {imported: [], candidates: [{path, name, language, exists}]}` until `select` names the paths.
-  Each selected folder becomes `<userId>/<name>/` (without `.git`, archive rules apply) and a task with
+  Each selected folder becomes `<userId>/<name>/` (without `.git`, archive rules apply: a symlink or special
+  file is 422 `invalidPath`, a folder over the caps 413 `payloadTooLarge`) and a task with
   `source: {kind: "git", template: null, git: {url, ref, path, credentialId?, commit, packSha256,
   pulledAt}}` (409 `alreadyExists` for a taken name); `lastSyncSha256 = packSha256`.
 - **Pull** (`POST /api/tasks/{task}/git/pull {force = false}`), fast-forward only: 409 `gitDiverged` when the

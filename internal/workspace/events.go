@@ -67,8 +67,8 @@ func (e *Events) Summary(s PackSummary) {
 	}{"summary", s})
 }
 
-// errorBody is the error object of the final error line.
-type errorBody struct {
+// ErrorBody is the error object of the final error line, and of a git candidate's rejection.
+type ErrorBody struct {
 	Code    Code           `json:"code"`
 	Message string         `json:"message"`
 	Path    string         `json:"path,omitempty"`
@@ -82,8 +82,8 @@ func (e *Events) Error(err *Error) {
 	}
 	e.write(struct {
 		Type  string    `json:"type"`
-		Error errorBody `json:"error"`
-	}{"error", errorBody{Code: err.Code, Message: e.clean(err.Error()), Path: err.Path, Details: err.Details}})
+		Error ErrorBody `json:"error"`
+	}{"error", ErrorBody{Code: err.Code, Message: e.clean(err.Error()), Path: err.Path, Details: err.Details}})
 }
 
 // Redact applies the event redaction to s (for messages that end up in other outputs).

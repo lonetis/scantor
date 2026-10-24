@@ -248,24 +248,16 @@ test.describe('import', () => {
     expect(message).toContain('[REDACTED]')
   })
 
-  // product bug: git import answers manifestInvalid instead of invalidPath for a symlink in the task folder
-  test.fail(
-    'a symlink in the selected folder is 422 invalidPath',
-    {
-      tag: ['@GIT-007'],
-      annotation: { type: 'issue', description: 'importGitTask answers 422 manifestInvalid ("./scantor.yaml is invalid: … is a symlink") instead of invalidPath' },
-    },
-    async ({ api, gitServer }) => {
-      const name = unique('link')
-      await gitServer.createRepo('symlink', { ...pythonTaskFiles(name), 'helper.py': { symlink: 'main.py' } })
-      const response = await importGit(api, { url: gitServer.url('symlink') })
-      expect((await api.getTask(name)).status).toBe(404)
-      expect(response.status).toBe(422)
-      expect(errorOf(response).message).toContain('symlinks are not supported in imported tasks')
-      expect(errorOf(response).code).toBe('invalidPath')
-      expect(errorOf(response).details?.path).toBe('helper.py')
-    },
-  )
+  test('a symlink in the selected folder is 422 invalidPath', { tag: ['@GIT-007'] }, async ({ api, gitServer }) => {
+    const name = unique('link')
+    await gitServer.createRepo('symlink', { ...pythonTaskFiles(name), 'helper.py': { symlink: 'main.py' } })
+    const response = await importGit(api, { url: gitServer.url('symlink') })
+    expect((await api.getTask(name)).status).toBe(404)
+    expect(response.status).toBe(422)
+    expect(errorOf(response).message).toContain('symlinks are not supported in imported tasks')
+    expect(errorOf(response).code).toBe('invalidPath')
+    expect(errorOf(response).details?.path).toBe('helper.py')
+  })
 
   test('a private repository imports with the caller’s credential, without .git or the token in the folder', { tag: ['@GIT-008', '@GIT-007'] }, async ({
     api,

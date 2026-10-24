@@ -133,7 +133,7 @@ describe('uploadTask', () => {
 
 describe('pullGitTask', () => {
   const git = { url: 'https://example.org/r.git', ref: 'main', path: 'echo', commit: 'c1', packSha256: 'pulled', pulledAt: new Date() }
-  const candidate = { path: 'echo', name: 'echo', language: 'python', valid: true, errors: [], summary: { packSha256: 'new', fileCount: 1, bytes: 1 } }
+  const candidate = { path: 'echo', name: 'echo', language: 'python', valid: true, errors: [], rejection: null, summary: { packSha256: 'new', fileCount: 1, bytes: 1 } }
 
   it('refuses tasks not imported from git', async () => {
     const task = await existingTask()
@@ -159,6 +159,21 @@ describe('pullGitTask', () => {
     expect(commitInput()).toMatchObject({ expect: 'pulled', from: 'echo' })
     expect(outcome.task.source.git).toMatchObject({ commit: 'c2', packSha256: 'committed' })
     expect(outcome.task.workspace.lastSyncSha256).toBe('committed')
+  })
+
+  it('answers a symlink in the pulled folder with invalidPath, without committing', async () => {
+    const task = await existingTask({ source: { kind: 'git', git } })
+    const message = '"link.py" is a symlink; symlinks are not supported in imported tasks'
+    const linked = {
+      ...candidate,
+      valid: false,
+      errors: [{ phase: 'static', file: 'link.py', message }],
+      rejection: { code: 'invalidPath', message, path: 'link.py', details: { path: 'link.py' } },
+    }
+    helper.pull = { commit: 'c2', previousCommit: 'c1', fastForward: true, changed: true, candidate: linked, current: { packSha256: 'pulled', fileCount: 1, bytes: 1 } }
+    const error = await pullGitTask(task, { force: false }).catch((cause: unknown) => cause)
+    expect(error).toMatchObject({ code: 'invalidPath', message, details: { path: 'link.py' } })
+    expect(ops().filter((op) => op === 'commit')).toEqual([])
   })
 
   it('reports an unchanged remote without committing', async () => {

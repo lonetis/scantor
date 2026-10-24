@@ -105,7 +105,12 @@ Further rules of the global middleware ([auth](auth.md) §5):
 - Top-level creates (`createTask`, `importGitTask`, `uploadTask`, `startScan`, `createUpload`,
   `createCredential`, `createApiKey`) are owned by the caller and may reference only the caller's own
   resources (revision, uploads, credential); anything else is 404.
-- List operations return the caller's resources; admins get everything and may filter with `userId`.
+- List operations return the caller's resources; admins get everything and may filter with `userId`. The
+  exceptions are `listCredentials` and `listUploads`, which return only the caller's own items, also to
+  admins: credentials and uploads are inputs that only their owner can reference (`importGitTask`,
+  `startScan`), and their representations carry no owner. Admins still reach another user's credential or
+  upload by id (`updateCredential`, `deleteCredential`, `getUpload`, `deleteUpload`). The account lists (API
+  keys, sessions, passkeys, OAuth apps) are the caller's own by definition.
 
 ### 1.4 Addressing
 
@@ -522,8 +527,8 @@ With `revision`, the S3 snapshot is streamed into a `list --archive` / `read --a
 
 | Operation | operationId | Scope | MCP | Request | Response |
 |---|---|---|---|---|---|
-| `POST /api/tasks/import-git` | `importGitTask` | owner | no | `{url (https), ref? ("HEAD"), path? ("."), credentialId?, select?: string[]}` | 201 `{imported: Task[], candidates: [{path, name, language, exists}]}` when something was imported; 200 with `imported: []` when several manifests exist and `select` is missing; 400 `badRequest` when `select` names a path without a candidate or two selected folders share a task name; 409 `alreadyExists`; 422 `gitFailed`, `manifestInvalid` |
-| `POST /api/tasks/{task}/git/pull` | `pullGitTask` | owner | no | `{force? (false)}` | `{task: Task, previousCommit, commit, changed}` (sets `source.git.{commit, packSha256, pulledAt}` and `workspace.lastSyncSha256`; never publishes); 409 `gitDiverged`; 409 `invalidState` (task not from git); 422 `gitFailed` |
+| `POST /api/tasks/import-git` | `importGitTask` | owner | no | `{url (https), ref? ("HEAD"), path? ("."), credentialId?, select?: string[]}` | 201 `{imported: Task[], candidates: [{path, name, language, exists}]}` when something was imported; 200 with `imported: []` when several manifests exist and `select` is missing; 400 `badRequest` when `select` names a path without a candidate or two selected folders share a task name; 409 `alreadyExists`; 413 `payloadTooLarge` (a folder over the task caps); 422 `gitFailed`, `invalidPath` (a symlink, special file or path-rule violation in the folder; `details.path`), `manifestInvalid` |
+| `POST /api/tasks/{task}/git/pull` | `pullGitTask` | owner | no | `{force? (false)}` | `{task: Task, previousCommit, commit, changed}` (sets `source.git.{commit, packSha256, pulledAt}` and `workspace.lastSyncSha256`; never publishes); 409 `gitDiverged`; 409 `invalidState` (task not from git); 413 `payloadTooLarge`; 422 `gitFailed`, `invalidPath`, `manifestInvalid` |
 
 ### 4.9 `uploads`
 

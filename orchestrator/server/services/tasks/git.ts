@@ -10,8 +10,8 @@ import type { UserPrincipal } from '../../utils/principal'
 import { isKnownLanguage } from '../catalog/languages'
 import { assertOwnCredential, credentialForGit } from '../credentials'
 import { commit, discard, gitClone, gitPull, type GitHelperAccess } from '../helpers/ops'
-import { HelperError, isHelperCode } from '../helpers/protocol'
-import type { GitCandidate, WorkspaceSummary } from '../helpers/types'
+import { HelperError, isHelperCode, mapHelperError } from '../helpers/protocol'
+import type { GitCandidate, HelperOp, WorkspaceSummary } from '../helpers/types'
 import { checkGitUrl } from './git-url'
 import { applyWorkspaceSummary, insertTask, newTaskDoc } from './store'
 
@@ -56,20 +56,29 @@ function manifestInvalid(candidate: Pick<GitCandidate, 'path' | 'errors'>): neve
   })
 }
 
+/**
+ * The error of an invalid candidate (docs/editor.md §9.4, §9.5): its rejection (a symlink, special file or path rule
+ * is 422 invalidPath with `details.path`, a cap 413 payloadTooLarge) mapped like a failed helper, else manifestInvalid.
+ */
+function invalidCandidate(candidate: Pick<GitCandidate, 'path' | 'errors' | 'rejection'>, op: HelperOp = 'git-clone'): never {
+  if (candidate.rejection) throw new HelperError(op, mapHelperError(op, candidate.rejection), candidate.rejection.code, '')
+  manifestInvalid(candidate)
+}
+
 /** Which candidates to import: the selected paths, or the only valid one; null = ask the caller to select. */
 export function selectCandidates(candidates: GitCandidate[], select: string[] | undefined): GitCandidate[] | null {
   if (select) {
     return select.map((path) => {
       const candidate = candidates.find((entry) => entry.path === path)
       if (!candidate) throw apiError('badRequest', `no scantor.yaml was found at ${path}`)
-      if (!candidate.valid) manifestInvalid(candidate)
+      if (!candidate.valid) invalidCandidate(candidate)
       return candidate
     })
   }
   const valid = candidates.filter((candidate) => candidate.valid)
   if (valid.length === 1) return valid
   if (valid.length > 1) return null
-  if (candidates.length > 0) manifestInvalid(candidates[0]!)
+  if (candidates.length > 0) invalidCandidate(candidates[0]!)
   throw apiError('manifestInvalid', 'no scantor.yaml was found under the path', {
     errors: [{ phase: 'static', file: 'scantor.yaml', message: 'no scantor.yaml was found under the given path' }],
   })
@@ -195,7 +204,7 @@ export async function pullGitTask(task: TaskDoc, options: { force: boolean }): P
       )
       return { task: updated ?? task, previousCommit: git.commit, commit: pulled.commit, changed: false }
     }
-    if (!pulled.candidate.valid) manifestInvalid(pulled.candidate)
+    if (!pulled.candidate.valid) invalidCandidate(pulled.candidate, 'git-pull')
     if (pulled.candidate.name !== task.name) {
       throw apiError('manifestInvalid', `the pulled manifest names task ${pulled.candidate.name}, not ${task.name}`, {
         errors: [{ phase: 'static', file: 'scantor.yaml', message: `name "${pulled.candidate.name}" does not match task "${task.name}"; task names are immutable` }],
