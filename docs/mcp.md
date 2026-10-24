@@ -46,7 +46,7 @@ masking of `writeOnly` secrets and audit logging are identical for every surface
 | capabilities | `tools` (no `listChanged`), `resources` (no `subscribe`), `instructions`; no prompts, sampling or elicitation in v1 |
 | CORS | `Access-Control-Allow-Origin: *` without credentials; allowed headers `authorization, content-type, mcp-protocol-version, mcp-session-id, x-api-key`; `OPTIONS` answered by the route |
 | cookies | ignored: `/mcp` never authenticates with the dashboard session, so it needs no CSRF protection |
-| implementation | `orchestrator/server/routes/mcp.ts` (route), `orchestrator/server/services/mcp/{server,auth,tools,bridge,resources}.ts` |
+| implementation | `orchestrator/server/routes/mcp.ts` (route), `orchestrator/server/services/mcp/{server,auth,tools,arguments,bridge,truncate,untrusted,resources}.ts` |
 
 URL canonicalisation (Traefik forwards `http://orchestrator:3000/mcp`, but tokens and DPoP proofs are bound to
 the public URL):
@@ -251,11 +251,19 @@ const generated = await generator.generateTools({
   namingStrategy: { toolNameGenerator: (_path, _method, operationId) => snakeCase(operationId!) },
 })
 // for each tool: operation = spec.paths[path][method]
-//   [name, config] = toSdkTool(tool, { fromJsonSchema })   — outputSchema is dropped (no structuredContent obligation)
+//   patch the `wait` input property: maximum 50, description per §4.8
+//   [name, config] = toSdkTool(tool)                        — outputSchema is dropped (no structuredContent obligation)
+//   config.inputSchema = advertisedInputSchema(schema)      — lists the JSON Schema, accepts every argument object
+//   checkArguments = compileArgumentsCheck(schema)          — the validation the bridge runs (§4.3 step 2)
 //   requirement = operation['x-admin-only'] ? 'admin' : (method === 'get' || operation['x-read-only']) ? 'read' : 'write'
 //   config.annotations = annotationsFor(method, operation)          (§4.2)
-//   patch the `wait` input property: maximum 50, description per §4.8
 ```
+
+The MCP SDK validates `tools/call` arguments against the registered input schema before a tool runs and turns
+a violation into a plain-text "Input validation error". It would reject `wait: 120` before the bridge could
+clamp it (§4.8) and bypass the structured error shape (§4.7). So the SDK only advertises the schema
+(`services/mcp/arguments.ts`), and the bridge validates the clamped arguments against the same schema, with
+the settings of the SDK's default validator (ajv draft 2020-12, ajv-formats, all errors).
 
 `snakeCase(s) = s.replace(/([a-z0-9])([A-Z])/g, '$1_$2').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').toLowerCase()`.
 
@@ -277,17 +285,20 @@ request's level (`read < write < admin`).
 `callApiTool(tool, input, principal)` in `orchestrator/server/services/mcp/bridge.ts`:
 
 1. Clamp `wait` to 50 (§4.8).
-2. `buildHttpRequest(tool, input, { baseUrl: 'http://127.0.0.1:3000' })`. If it throws, return the
+2. Validate the arguments against the tool's input schema (§4.1). A violation returns the structured error
+   `validationFailed` with `details.issues: [{path, message}]` (dot paths, as in [api](api.md) §1.5), and no
+   request is made.
+3. `buildHttpRequest(tool, input, { baseUrl: 'http://127.0.0.1:3000' })`. If it throws, return the
    structured error `validationFailed` (§4.7).
-3. Mint a capability `sic_<43 chars>` (32 random bytes) in the in-memory map with `{principal snapshot (user,
+4. Mint a capability `sic_<43 chars>` (32 random bytes) in the in-memory map with `{principal snapshot (user,
    via mcp, level, clientId or apiKey), method, pathname, operationId, expiresAt: now + 60 s}`
    ([auth](auth.md) §5.2).
-4. `fetch(url, { method, headers: { ...headers, 'x-scantor-internal-auth': cap, 'x-request-id': <mcp request
+5. `fetch(url, { method, headers: { ...headers, 'x-scantor-internal-auth': cap, 'x-request-id': <mcp request
    id> }, body, redirect: 'manual' })` against the loopback listener. The REST middleware accepts the
    capability only from a loopback peer, only for the bound method and path, and only once.
-5. Read the body through a stream reader capped at 16 MiB. Above that, cancel and return the structured error
+6. Read the body through a stream reader capped at 16 MiB. Above that, cancel and return the structured error
    `payloadTooLarge` with a hint to narrow the request.
-6. Map the response (§4.4), wrap untrusted data (§4.6), apply the cap (§4.5), and return the
+7. Map the response (§4.4), wrap untrusted data (§4.6), apply the cap (§4.5), and return the
    `CallToolResult`.
 
 The client's OAuth token is never forwarded to REST routes: it is audience-bound (and possibly DPoP-bound) to
@@ -360,8 +371,9 @@ A non-2xx REST response becomes:
 
 as the single `text` block of a result with `isError: true`. `code`, `message` and `details` are copied from
 the REST envelope ([api](api.md) §1.7). A `Retry-After` header adds `"retryAfterSeconds"`. Bridge-side
-failures use the same shape: argument errors give `httpStatus: 400, code: "validationFailed"`, an unreachable
-loopback gives `httpStatus: 503, code: "unavailable"`, and an oversized response gives
+failures use the same shape: arguments that violate the tool's input schema (a missing or malformed
+`scanId`, an unknown field) give `httpStatus: 400, code: "validationFailed"` with `details.issues`, never the
+SDK's plain-text "Input validation error" (§4.1); an unreachable loopback gives `httpStatus: 503, code: "unavailable"`, and an oversized response gives
 `httpStatus: 413, code: "payloadTooLarge"`.
 
 Failures that are not HTTP errors stay in the success result. A failed revision (`state: "failed"`,

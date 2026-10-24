@@ -2,6 +2,7 @@ import type { CallToolResult } from '@modelcontextprotocol/server'
 import { buildHttpRequest } from 'mcp-from-openapi'
 import { INTERNAL_AUTH_HEADER, mintInternalCapability } from '../../utils/internal-auth'
 import type { UserPrincipal } from '../../utils/principal'
+import { clampWait } from './arguments'
 import { type CatalogueTool, MCP_MAX_WAIT_SECONDS } from './tools'
 import { capJson, capText } from './truncate'
 import { wrapUntrusted } from './untrusted'
@@ -115,8 +116,16 @@ export async function callApiTool(
   requestId: string,
   loopbackOrigin: string,
 ): Promise<CallToolResult> {
-  const args = { ...input }
-  if (typeof args.wait === 'number' && args.wait > MCP_MAX_WAIT_SECONDS) args.wait = MCP_MAX_WAIT_SECONDS
+  const args = clampWait(input, MCP_MAX_WAIT_SECONDS)
+  const issues = tool.checkArguments(args)
+  if (issues.length > 0) {
+    return errorResult({
+      httpStatus: 400,
+      code: 'validationFailed',
+      message: `invalid arguments for ${tool.name}: ${issues.map((issue) => (issue.path ? `${issue.path} ${issue.message}` : issue.message)).join('; ')}`,
+      details: { issues },
+    })
+  }
   let request: ReturnType<typeof buildHttpRequest>
   try {
     request = buildHttpRequest(tool.tool, args, { baseUrl: loopbackOrigin })

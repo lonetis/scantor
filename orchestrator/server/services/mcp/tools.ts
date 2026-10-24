@@ -1,12 +1,14 @@
-import { fromJsonSchema, type JsonSchemaType, type StandardSchemaWithJSON, type ToolAnnotations } from '@modelcontextprotocol/server'
+import type { JsonSchemaType, StandardSchemaWithJSON, ToolAnnotations } from '@modelcontextprotocol/server'
 import { type McpOpenAPITool, OpenAPIToolGenerator, toSdkTool } from 'mcp-from-openapi'
 import type { McpLevel } from '#shared/utils/enums'
 import { loadOpenApiDocument, type OpenApiDocument } from '../../utils/operations'
+import { advertisedInputSchema, type ArgumentsCheck, compileArgumentsCheck } from './arguments'
 import { UNTRUSTED_NOTE, UNTRUSTED_PATHS } from './untrusted'
 
 // The MCP tool catalogue (docs/mcp.md §4.1, §4.2): generated once per process from the runtime OpenAPI document,
 // opt-in by `x-mcp: true`, named `snake_case(operationId)`. Each tool records the level it needs (read for GET and
-// x-read-only, admin for x-admin-only, write otherwise) and its annotations; `wait` is clamped to 50 s.
+// x-read-only, admin for x-admin-only, write otherwise), its annotations and the check of its arguments, which the
+// bridge runs after clamping `wait` to 50 s (the SDK only advertises the input schema, services/mcp/arguments.ts).
 
 export const MCP_MAX_WAIT_SECONDS = 50
 export const WAIT_DESCRIPTION = 'Seconds to wait for the resource to settle (0–50). Call again if it has not settled yet.'
@@ -18,6 +20,8 @@ export interface CatalogueTool {
   path: string
   requirement: McpLevel
   tool: McpOpenAPITool
+  /** validates clamped arguments against the advertised input schema (docs/mcp.md §4.3 step 2) */
+  checkArguments: ArgumentsCheck
   config: {
     title?: string
     description: string
@@ -53,7 +57,7 @@ export function requirementFor(method: string, operation: Record<string, unknown
   return 'write'
 }
 
-/** Clamps the advertised `wait` input to 50 s (in place). */
+/** Advertises the `wait` input with a maximum of 50 s (in place); the bridge clamps larger values. */
 function patchWait(schema: Record<string, unknown>): void {
   const properties = schema.properties as Record<string, Record<string, unknown>> | undefined
   const wait = properties?.wait
@@ -78,7 +82,8 @@ export async function generateCatalogue(spec: OpenApiDocument): Promise<Catalogu
     const operation = (spec.paths?.[tool.metadata.path]?.[String(tool.metadata.method).toLowerCase()] ?? {}) as Record<string, unknown>
     patchWait(tool.inputSchema as Record<string, unknown>)
     const operationId = String(operation.operationId ?? tool.metadata.operationId ?? tool.name)
-    const [name, sdk] = toSdkTool(tool, { fromJsonSchema: (schema) => fromJsonSchema(schema as JsonSchemaType) })
+    const [name, sdk] = toSdkTool(tool)
+    const inputSchema = sdk.inputSchema as JsonSchemaType
     const description = UNTRUSTED_PATHS[operationId] ? `${sdk.description}\n\n${UNTRUSTED_NOTE}` : sdk.description
     return {
       name,
@@ -87,10 +92,11 @@ export async function generateCatalogue(spec: OpenApiDocument): Promise<Catalogu
       path: tool.metadata.path,
       requirement: requirementFor(method, operation),
       tool,
+      checkArguments: compileArgumentsCheck(inputSchema),
       config: {
         ...(sdk.title ? { title: sdk.title } : {}),
         description,
-        inputSchema: sdk.inputSchema,
+        inputSchema: advertisedInputSchema(inputSchema),
         annotations: annotationsFor(method, operation, typeof operation.summary === 'string' ? operation.summary : sdk.title),
       },
     }

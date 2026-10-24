@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { createServer, request as httpRequest, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createApp, createRouter, defineEventHandler, type H3Event, readBody, send, setResponseStatus, toNodeListener } from 'h3'
+import { createApp, createRouter, defineEventHandler, getQuery, type H3Event, readBody, send, setResponseStatus, toNodeListener } from 'h3'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import authMiddleware from '../../../server/middleware/10.auth'
 import { callApiTool } from '../../../server/services/mcp/bridge'
@@ -47,7 +47,10 @@ const spec = {
         description: 'Returns one scan.',
         'x-scantor-scope': 'owner',
         'x-mcp': true,
-        parameters: [{ name: 'scanId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+        parameters: [
+          { name: 'scanId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+          { name: 'wait', in: 'query', required: false, schema: { type: 'integer', minimum: 0, maximum: 120 } },
+        ],
         responses: { 200: { description: 'scan' } },
       },
     },
@@ -91,7 +94,7 @@ function createTestApp() {
     const user = event.context.principal as UserPrincipal
     return { via: user.via, userId: user.user.id, operationId: user.mcp?.operationId, path: event.path }
   }
-  router.get('/api/scans/:scanId', defineEventHandler((event) => seen(event)))
+  router.get('/api/scans/:scanId', defineEventHandler((event) => ({ ...seen(event), query: getQuery(event) })))
   router.post('/api/scans/:scanId/analyses/query', defineEventHandler(async (event) => ({ ...seen(event), body: await readBody(event) })))
   app.use(router)
   return app
@@ -147,7 +150,29 @@ describe('MCP tool calls over the loopback listener', () => {
       userId: USER.id,
       operationId: 'getScan',
       path: `/api/scans/${SCAN_ID}`,
+      query: {},
     })
+  })
+
+  it('clamps wait to 50 seconds before the call (docs/mcp.md §4.8)', async () => {
+    const result = await callApiTool(tools.get('getScan')!, { scanId: SCAN_ID, wait: 120 }, principal, 'req-3', await useLoopbackOrigin())
+    expect(result.isError).toBeUndefined()
+    expect(JSON.parse((result.content[0] as { text: string }).text)).toMatchObject({ path: `/api/scans/${SCAN_ID}?wait=50`, query: { wait: '50' } })
+  })
+
+  it('answers arguments that violate the input schema with the structured validationFailed, without a request', async () => {
+    const call = (input: Record<string, unknown>) => callApiTool(tools.get('getScan')!, input, principal, 'req-4', 'http://127.0.0.1:1')
+    for (const [input, issues] of [
+      [{}, [{ path: 'scanId', message: 'is required' }]],
+      [{ scanId: 'not-a-uuid' }, [{ path: 'scanId', message: 'must match format "uuid"' }]],
+      [{ scanId: SCAN_ID, wait: -1 }, [{ path: 'wait', message: 'must be >= 0' }]],
+    ] as const) {
+      const result = await call(input)
+      expect(result.isError).toBe(true)
+      expect(JSON.parse((result.content[0] as { text: string }).text)).toEqual({
+        error: { httpStatus: 400, code: 'validationFailed', message: expect.stringMatching(/^invalid arguments for get_scan: /), details: { issues } },
+      })
+    }
   })
 
   it('runs a tool with a JSON body', async () => {

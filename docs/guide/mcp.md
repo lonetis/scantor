@@ -111,10 +111,10 @@ that do not read resources, the tool `get_authoring_guide` returns the authoring
 
 | Topic | Rule |
 |---|---|
-| waiting | `test_task`, `get_test_run`, `publish_revision`, `get_revision`, `get_scan`, `export_scan` and `get_export` take `wait` (0–50 seconds). The result has `_wait: "settled"` or `"timeout"`; call again on `timeout`. |
+| waiting | `test_task`, `get_test_run`, `publish_revision`, `get_revision`, `get_scan`, `export_scan` and `get_export` take `wait` (0–50 seconds; a larger value is clamped to 50). The result has `_wait: "settled"` or `"timeout"`; call again on `timeout`. |
 | response size | results are capped at 256 KiB. Longer lists are cut and marked with `_truncated` and a note; narrow the request with `limit`, `projection`, `fields`, `filter` or `afterSeq`. `query_analyses` returns 20 documents unless `limit` says otherwise. |
 | untrusted data | results, analysis configs, errors, log tails, task descriptions, manifests and file contents are wrapped as `{"untrusted_data": …}` because they come from scanned targets or third-party code |
-| errors | a failed call returns `isError` with `{"error": {"httpStatus", "code", "message", "details"}}` and, when the server asks to wait, `retryAfterSeconds`. The codes are listed in [errors and retries](errors-and-retries.md#build-test-run-and-request-errors). |
+| errors | a failed call returns `isError` with `{"error": {"httpStatus", "code", "message", "details"}}` and, when the server asks to wait, `retryAfterSeconds`. Arguments that do not match the tool's input schema give `400 validationFailed` with `details.issues`. The codes are listed in [errors and retries](errors-and-retries.md#build-test-run-and-request-errors). |
 | failed builds and test runs | not tool errors: a revision or test run with `state: "failed"` is a normal result with `errors[]` |
 | secrets | secret config values come back as `"***"` |
 | not found | 404 `notFound` means the resource does not exist **or** belongs to someone else |

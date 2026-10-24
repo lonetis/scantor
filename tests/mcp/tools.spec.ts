@@ -303,23 +303,17 @@ test.describe('MCP tool calls', () => {
     expect(elapsed).toBeLessThan(30_000)
   })
 
-  // Product bug: the generated input schema (maximum 50) is enforced by the MCP SDK before the bridge can clamp, so
-  // `wait: 120` fails with "Input validation error … must be <= 50" instead of waiting 50 s (docs/mcp.md §4.8).
-  test.fail(
-    'a wait above 50 is clamped to 50 seconds',
-    { tag: ['@MCP-003'], annotation: { type: 'issue', description: 'wait > 50 is rejected by the SDK input validation instead of clamped' } },
-    async ({ mcpKey, sharedTasks, sharedScans }) => {
-      const scan = await pendingScan(sharedTasks, sharedScans)
+  test('a wait above 50 is clamped to 50 seconds', { tag: ['@MCP-003'] }, async ({ mcpKey, sharedTasks, sharedScans }) => {
+    const scan = await pendingScan(sharedTasks, sharedScans)
 
-      const startedAt = Date.now()
-      const call = await callTool<{ state: string; _wait: string }>(mcpKey, 'get_scan', { scanId: scan.id, wait: 120 })
-      const elapsed = Date.now() - startedAt
-      expect(call.result.isError, call.texts.join('\n')).toBeFalsy()
-      expect(call.json?._wait).toBe('timeout')
-      expect(elapsed).toBeGreaterThanOrEqual(45_000)
-      expect(elapsed).toBeLessThan(90_000)
-    },
-  )
+    const startedAt = Date.now()
+    const call = await callTool<{ state: string; _wait: string }>(mcpKey, 'get_scan', { scanId: scan.id, wait: 120 })
+    const elapsed = Date.now() - startedAt
+    expect(call.result.isError, call.texts.join('\n')).toBeFalsy()
+    expect(call.json?._wait).toBe('timeout')
+    expect(elapsed).toBeGreaterThanOrEqual(45_000)
+    expect(elapsed).toBeLessThan(90_000)
+  })
 
   test('REST errors become structured tool errors with status, code, message and details', { tag: ['@MCP-004'] }, async ({ mcpKey }) => {
     const invalid = await callToolError(mcpKey, 'list_scans', { state: 'bogus' })
@@ -330,18 +324,12 @@ test.describe('MCP tool calls', () => {
     expect(missing).toMatchObject({ httpStatus: 404, code: 'notFound', message: expect.any(String) })
   })
 
-  // Product bug: arguments that violate a tool's input schema are rejected by the MCP SDK with a plain-text "Input
-  // validation error" instead of the structured {error: {httpStatus: 400, code: "validationFailed"}} (docs/mcp.md §4.7).
-  test.fail(
-    'arguments that violate the input schema give the structured 400 validationFailed error',
-    { tag: ['@MCP-004'], annotation: { type: 'issue', description: 'schema-invalid tool arguments return a plain-text SDK error' } },
-    async ({ mcpKey }) => {
-      const missingArgument = await callToolError(mcpKey, 'get_scan', {})
-      expect(missingArgument).toMatchObject({ httpStatus: 400, code: 'validationFailed' })
-      const malformed = await callToolError(mcpKey, 'get_scan', { scanId: 'not-a-uuid' })
-      expect(malformed).toMatchObject({ httpStatus: 400, code: 'validationFailed' })
-    },
-  )
+  test('arguments that violate the input schema give the structured 400 validationFailed error', { tag: ['@MCP-004'] }, async ({ mcpKey }) => {
+    const missingArgument = await callToolError(mcpKey, 'get_scan', {})
+    expect(missingArgument).toMatchObject({ httpStatus: 400, code: 'validationFailed', details: { issues: [{ path: 'scanId', message: expect.any(String) }] } })
+    const malformed = await callToolError(mcpKey, 'get_scan', { scanId: 'not-a-uuid' })
+    expect(malformed).toMatchObject({ httpStatus: 400, code: 'validationFailed', details: { issues: [{ path: 'scanId', message: expect.any(String) }] } })
+  })
 
   test(
     'values derived from targets and task code are wrapped as untrusted data, absent and null values are not',
