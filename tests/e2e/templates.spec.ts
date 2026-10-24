@@ -7,7 +7,7 @@ import { scantor } from '../helpers/cli'
 import { FlakyDataSource } from '../helpers/e2e-runtime-datasource'
 import { extendRuntime } from '../helpers/e2e-runtime-fixtures'
 import { removeGeneratedTask, writeGeneratedTask } from '../helpers/e2e-runtime-tasks'
-import { FIXTURES_URL } from '../helpers/fixtures-server'
+import { FIXTURES_URL, fixturesRequests, type FixturesRequest } from '../helpers/fixtures-server'
 import { expect, test as base } from '../fixtures'
 
 // Templates end to end (docs/templates.md §2–§9): every template runs natively (unwrapped) in a real scan on the
@@ -61,6 +61,18 @@ async function latestCruxMonth(path: string): Promise<string> {
 /** The `n`-th origin (1-based) of a fixture CrUX list: https except every tenth. */
 function cruxOrigin(n: number, host: string): string {
   return `${n % 10 === 0 ? 'http' : 'https'}://site${n}.${host}`
+}
+
+/**
+ * Asserts that the fixtures server logged requests matching `which` since `since`, all with the User-Agent of scantor's
+ * data-source client, `scantor/<version> (+https://github.com/lonetis/scantor)` (docs/templates.md §7.2). The spec's own
+ * fetches of the fixtures server (Node's User-Agent) never match: they read metadata and probe with HEAD only.
+ */
+async function expectScantorRequests(api: ApiClient, since: Date, what: string, which: (request: FixturesRequest) => boolean): Promise<void> {
+  const { version } = ok(await api.getHealth(), 'getHealth')
+  const requests = (await fixturesRequests(since)).filter(which)
+  expect(requests.length, `${what}: no such request in the fixtures server log since ${since.toISOString()}`).toBeGreaterThan(0)
+  expect([...new Set(requests.map((r) => r.userAgent))], what).toEqual([`scantor/${version} (+https://github.com/lonetis/scantor)`])
 }
 
 async function createListUpload(api: ApiClient, content: string): Promise<Upload> {
@@ -187,6 +199,7 @@ test.describe('template repeat', () => {
 test.describe('template tranco', () => {
   test('resolves latest to a list id and yields the window in rank order', { tag: ['@TPL-005', '@TPL-008', '@TPL-010'] }, async ({ api, shared, scans }) => {
     const { revision } = await shared.generated('tpl-tranco')
+    const since = new Date(Date.now() - 1000)
     const latest = await trancoMetadata('/api/lists/date/latest?subdomains=false')
     expect(ok(await estimateTemplate(api, 'tranco', { offset: 2, limit: 3 }), 'estimateTemplate')).toMatchObject({ expectedTotal: 3, exact: true })
 
@@ -216,6 +229,8 @@ test.describe('template tranco', () => {
       { domain: 'site4.example', rank: 4 },
       { domain: 'site5.example', rank: 5 },
     ])
+    // The scheduler downloaded the window itself, with the platform's User-Agent.
+    await expectScantorRequests(api, since, "the scheduler's Tranco download", (r) => r.path === `/tranco/download/${latest.list_id}/5`)
   })
 
   test('resolves a date and a list id', { tag: ['@TPL-005'] }, async ({ api, shared, scans }) => {
@@ -459,6 +474,7 @@ test.describe('resolution on resume', () => {
 test.describe('test runs and template data', () => {
   test('a test run reads a list upload and fetches Tranco and CrUX data itself', { tag: ['@TRUN-012', '@TPL-008'] }, async ({ api, shared }) => {
     const [list, tranco, crux] = await Promise.all([shared.generated('tpl-list'), shared.generated('tpl-tranco'), shared.generated('tpl-crux')])
+    const since = new Date(Date.now() - 1000)
     const upload = await createListUpload(api, 'first\nsecond\nthird\n')
     const [listRun, trancoRun, cruxRun] = await Promise.all([
       testRun(api, list.task.name, { scanConfig: { upload: upload.id }, limit: 5 }),
@@ -475,6 +491,14 @@ test.describe('test runs and template data', () => {
     expect(configs(trancoRun)).toEqual([1, 2, 3].map((rank) => ({ domain: `site${rank}.example`, rank })))
     expect(configs(cruxRun)).toEqual([1, 2, 3].map((n) => ({ origin: cruxOrigin(n, 'us.example'), rank: 1000 })))
     for (const run of [listRun, trancoRun, cruxRun]) expect(run.analyses!.every((a) => a.status === 'succeeded')).toBe(true)
+    // The test runs fetched the data themselves, with the platform's User-Agent.
+    await expectScantorRequests(api, since, "the test run's Tranco download", (r) => /^\/tranco\/download\/[0-9A-Z]+\/3$/.test(r.path))
+    await expectScantorRequests(
+      api,
+      since,
+      "the test run's CrUX download",
+      (r) => r.method === 'GET' && /^\/crux\/data\/country\/us\/\d{6}\.csv\.gz$/.test(r.path),
+    )
   })
 })
 

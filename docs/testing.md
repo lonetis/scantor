@@ -552,7 +552,7 @@ choose (git imports of the fixture repositories, `git-*`) repeat within a worker
 | `helpers/tar.ts` | `loadTarCorpus()`, `buildCaseArchive(case)`, `buildTarGz(entries)`: hostile archives (traversal, absolute, symlink, hardlink, device, FIFO, backslash, too many files, gzip bomb, PAX records) from `corpora/tar-slip/cases.json`; zip cases and `nameBase64` names are refused (the Go and vitest suites cover them) |
 | `helpers/ui.ts` | `gotoWithRetry` (retries only on `net::ERR_NETWORK_CHANGED`), `expectToast(page, text)` (an open item of the "Notifications" region), `openTab(page, name)` |
 | `helpers/cli.ts` | `scantor(args, {token, cwd, env, image, input})`: the runner's own `scantor` binary (built from the checkout into the runner image) against the stack and the inner dockerd, or with `image: true` the `scantor:dev` image through the shim pattern (working directory mounted at the same path, the inner Docker socket); always with `SCANTOR_URL`, the empty image prefix and tag `dev`, the test CA and the fixture data sources (`FIXTURE_DATA_SOURCES`); returns `{exitCode, stdout, stderr, json}` (`json` = parsed JSON or NDJSON output) |
-| `helpers/fixtures-server.ts` | `FIXTURES_URL`, `GIT_URL`, `GIT_REPOS` (`single`, `multi`, `private`, `diverge`), `PRIVATE_GIT_CREDENTIAL`, `copyGitRepo(request, from)` and `moveGitMain(request, url, branch)` for per-test pull scenarios (§7.9) |
+| `helpers/fixtures-server.ts` | `FIXTURES_URL`, `GIT_URL`, `GIT_REPOS` (`single`, `multi`, `private`, `diverge`), `PRIVATE_GIT_CREDENTIAL`, `copyGitRepo(request, from)` and `moveGitMain(request, url, branch)` for per-test pull scenarios (§7.9), `fixturesRequests(since)` (the server's request log since a time, through `docker logs --since`) |
 | `helpers/debug.ts` | (added with `e2e/debug.spec.ts`) minimal attach clients that resume a debuggee waiting for its debugger: DAP for debugpy (`initialize`, `attach`, `configurationDone`), the Chrome DevTools protocol for Node (`Runtime.runIfWaitingForDebugger`), delve's JSON-RPC API v2 (`RPCServer.Command {name: "continue"}`) |
 
 ### 7.9 Fixture tasks and fixtures server
@@ -586,6 +586,9 @@ choose (git imports of the fixture repositories, `git-*`) repeat within a worker
   - `POST /control/repos {"from": "<name>"}` → 201 `{"name"}` copies a repository for one test (copies of
     `private` stay private); `POST /control/repos/<name>/main {"branch"}` → 204 points its `main` at a branch,
     so pull tests (fast-forward, `gitDiverged`) never share state.
+  - every request is logged to stdout as one JSON line (`method`, `host`, `path` without the query, `status`,
+    `userAgent`, `ms`), so specs can assert what schedulers and test runs fetched and with which User-Agent
+    (TPL-008).
 
 ## 8. Suites
 

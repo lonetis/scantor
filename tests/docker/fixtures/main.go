@@ -72,12 +72,16 @@ func main() {
 	}
 }
 
+// logRequests writes one JSON line per request to the container log. Specs read it with `docker logs`
+// (tests/helpers/fixtures-server.ts), for example to assert the User-Agent of the data-source requests
+// that schedulers and test runs make (TPL-008).
 func logRequests(log *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
-		log.Info("request", "method", r.Method, "host", r.Host, "path", r.URL.Path, "status", rec.status, "ms", time.Since(start).Milliseconds())
+		log.Info("request", "method", r.Method, "host", r.Host, "path", r.URL.Path, "status", rec.status,
+			"userAgent", r.UserAgent(), "ms", time.Since(start).Milliseconds())
 	})
 }
 

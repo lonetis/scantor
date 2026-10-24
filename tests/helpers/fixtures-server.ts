@@ -1,9 +1,11 @@
 import type { APIRequestContext } from '@playwright/test'
+import { CONTAINERS, docker } from './docker'
 import { env } from './env'
 
 // The fixtures server of the test stack (tests/docker/fixtures, docs/testing.md §7.9): Tranco and CrUX fakes on
 // http://fixtures.<domain>:8089 and read-only git repositories on https://git.<domain> (through Traefik with the test
-// CA). Pull tests copy a repository per test and move the copy's main branch through the control API.
+// CA). Pull tests copy a repository per test and move the copy's main branch through the control API. The server logs
+// every request as one JSON line, which `fixturesRequests` reads back.
 
 export const FIXTURES_URL = `http://fixtures.${env.domain}:8089`
 export const GIT_URL = `https://git.${env.domain}`
@@ -36,4 +38,26 @@ export async function moveGitMain(request: APIRequestContext, repoUrl: string, b
   const name = new URL(repoUrl).pathname.replace(/^\//, '').replace(/\.git$/, '')
   const response = await request.post(`${FIXTURES_URL}/control/repos/${name}/main`, { data: { branch } })
   if (response.status() !== 204) throw new Error(`moving main of ${name} failed: ${response.status()} ${await response.text()}`)
+}
+
+/** One request of the fixtures server's log (logRequests in tests/docker/fixtures/main.go). */
+export interface FixturesRequest {
+  time: string
+  method: string
+  host: string
+  /** the URL path without the query */
+  path: string
+  status: number
+  /** empty when the client sent none */
+  userAgent: string
+}
+
+/** The requests the fixtures server logged since `since`, oldest first (`docker logs --since` of its container). */
+export async function fixturesRequests(since: Date): Promise<FixturesRequest[]> {
+  const { stdout } = await docker(['logs', '--since', since.toISOString(), CONTAINERS.fixtures])
+  return stdout
+    .split('\n')
+    .filter((line) => line.startsWith('{'))
+    .map((line) => JSON.parse(line) as FixturesRequest & { msg: string })
+    .filter((entry) => entry.msg === 'request')
 }
