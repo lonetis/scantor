@@ -298,8 +298,8 @@ request's level (`read < write < admin`).
    capability only from a loopback peer, only for the bound method and path, and only once.
 6. Read the body through a stream reader capped at 16 MiB. Above that, cancel and return the structured error
    `payloadTooLarge` with a hint to narrow the request.
-7. Map the response (§4.4), wrap untrusted data (§4.6), apply the cap (§4.5), and return the
-   `CallToolResult`.
+7. Map the response (§4.4), apply the cap (§4.5) to the value with untrusted data wrapped (§4.6), and return
+   the `CallToolResult`.
 
 The client's OAuth token is never forwarded to REST routes: it is audience-bound (and possibly DPoP-bound) to
 `/mcp`. Loopback HTTP is used instead of Nitro `localFetch`, which buffers whole bodies on the event loop.
@@ -319,12 +319,18 @@ No tool returns binary content in v1: exports return presigned download URLs, no
 ### 4.5 Response cap and truncation
 
 Every tool result's text is limited to **256 KiB** (UTF-8 bytes; MCP only, REST is unchanged). For a larger
-JSON response the bridge truncates deterministically:
+JSON response the bridge truncates deterministically. It truncates the REST value and measures the text as
+rendered, with the `untrusted_data` wrapping (§4.6) and `_wait` (§4.8), so the wrapping counts against the cap
+while the cursor reads the kept items themselves (`capJson(value, { present, seqCursor })` in
+`services/mcp/truncate.ts`):
 
 1. If the top-level object has an array field `items`, `analyses`, `entries` or `lines`, keep the longest
    prefix of that array that fits, found by binary search. Then add a top-level field
-   `"_truncated": {"field": "items", "returned": k, "total": n}`. When the response is paginated by `seq`,
-   `nextCursor` is set to the `seq` of the last returned element, so `afterSeq` continues exactly there.
+   `"_truncated": {"field": "items", "returned": k, "total": n}`. When the response is paginated by `seq`
+   (`query_analyses` without `sort`), `nextCursor` is set to the `seq` of the last returned element, so
+   `afterSeq` continues exactly there. An element without `seq` (a projection that omits it) gives the seq
+   suffix of its id `<scanId>-<seq>`; `nextCursor` is `null` when no element is returned or none of these is
+   present. Other lists keep the `nextCursor` of the REST response (with `sort`, `null`).
 2. If it is still too large, shorten every string longer than 4 KiB to 4 KiB plus `"…[truncated <n> bytes]"`;
    then repeat with 1 KiB.
 3. If it is still too large, cut the serialised text at the cap on a UTF-8 boundary. The result is then not

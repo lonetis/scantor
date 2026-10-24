@@ -98,16 +98,10 @@ test.describe('MCP response cap', () => {
     },
   )
 
-  // Product bug: the bridge wraps query_analyses items as {untrusted_data: …} before the cap runs, so the cap finds no
-  // `seq` on the last kept item and leaves nextCursor as REST returned it (null when the REST page held every item).
-  test.fail(
-    'a truncated query sets nextCursor to the seq of the last returned analysis',
-    { tag: ['@MCP-006'], annotation: { type: 'issue', description: 'MCP truncation leaves nextCursor unchanged because items are wrapped before the cap' } },
-    async ({ mcpKey, sharedTasks, sharedScans }) => {
-      const scanId = await largeResultScan(sharedTasks, sharedScans, ITEMS, ITEM_BYTES)
-      const page = await callOk<QueryPage>(mcpKey, 'query_analyses', { scanId, filter: {}, limit: 30 })
-      expect(page._truncated?.returned).toBeLessThan(30)
-      expect(page.nextCursor).toBe(String(seqOf(page.items.at(-1), 'last item')))
-    },
-  )
+  test('a truncated query sets nextCursor to the seq of the last returned analysis', { tag: ['@MCP-006'] }, async ({ mcpKey, sharedTasks, sharedScans }) => {
+    const scanId = await largeResultScan(sharedTasks, sharedScans, ITEMS, ITEM_BYTES)
+    const page = await callOk<QueryPage>(mcpKey, 'query_analyses', { scanId, filter: {}, limit: 30 })
+    expect(page._truncated?.returned).toBeLessThan(30)
+    expect(page.nextCursor).toBe(String(seqOf(page.items.at(-1), 'last item')))
+  })
 })

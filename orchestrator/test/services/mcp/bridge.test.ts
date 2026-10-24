@@ -56,6 +56,17 @@ describe('toToolResult', () => {
     expect(JSON.parse(texts(result)[0]!)).toEqual({ redirect: 'https://s3/x' })
   })
 
+  it('sets the cursor of a truncated query_analyses page from the last returned analysis', async () => {
+    const items = Array.from({ length: 30 }, (_, index) => ({ id: `s-${index + 1}`, seq: index + 1, result: { text: 'x'.repeat(20_000) } }))
+    const result = await toToolResult(json({ items, nextCursor: null }), 'queryAnalyses', { filter: {}, limit: 30 })
+    const page = JSON.parse(texts(result)[0]!) as { items: { untrusted_data: { seq: number } }[]; nextCursor: string | null }
+    expect(page.items.length).toBeLessThan(30)
+    expect(page.nextCursor).toBe(String(page.items.at(-1)?.untrusted_data.seq))
+
+    const sorted = await toToolResult(json({ items, nextCursor: null }), 'queryAnalyses', { filter: {}, sort: { seq: -1 } })
+    expect((JSON.parse(texts(sorted)[0]!) as { nextCursor: string | null }).nextCursor).toBeNull()
+  })
+
   it('adds the truncation note as a second block', async () => {
     const items = Array.from({ length: 5000 }, (_, seq) => ({ seq, data: 'x'.repeat(100) }))
     const result = await toToolResult(json({ items, nextCursor: null }), 'listAnalyses')

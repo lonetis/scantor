@@ -4,7 +4,7 @@ import { INTERNAL_AUTH_HEADER, mintInternalCapability } from '../../utils/intern
 import type { UserPrincipal } from '../../utils/principal'
 import { clampWait } from './arguments'
 import { type CatalogueTool, MCP_MAX_WAIT_SECONDS } from './tools'
-import { capJson, capText } from './truncate'
+import { capJson, capText, isSeqPaginated } from './truncate'
 import { wrapUntrusted } from './untrusted'
 
 // Tool execution (docs/mcp.md §4.3–§4.7): every call goes through the real REST route over loopback HTTP (the
@@ -62,8 +62,8 @@ function mediaType(response: Response): string {
   return (response.headers.get('content-type') ?? '').split(';')[0]!.trim().toLowerCase()
 }
 
-/** Maps a REST response onto a tool result (docs/mcp.md §4.4). */
-export async function toToolResult(response: Response, operationId: string): Promise<CallToolResult> {
+/** Maps a REST response onto a tool result (docs/mcp.md §4.4); `args` are the (clamped) tool arguments. */
+export async function toToolResult(response: Response, operationId: string, args: Record<string, unknown> = {}): Promise<CallToolResult> {
   const body = await readBodyCapped(response, MAX_BRIDGE_BODY_BYTES)
   if (!body) {
     return errorResult({
@@ -95,12 +95,15 @@ export async function toToolResult(response: Response, operationId: string): Pro
     } catch {
       return textResult(capText(body.toString('utf8')))
     }
-    let wrapped = wrapUntrusted(operationId, parsed)
     const wait = response.headers.get('scantor-wait')
-    if (wait && wrapped !== null && typeof wrapped === 'object' && !Array.isArray(wrapped)) {
-      wrapped = { ...(wrapped as Record<string, unknown>), _wait: wait }
+    // The cap truncates the REST value (its cursor reads the kept items) and measures it as rendered.
+    const present = (value: unknown): unknown => {
+      const wrapped = wrapUntrusted(operationId, value)
+      return wait && wrapped !== null && typeof wrapped === 'object' && !Array.isArray(wrapped)
+        ? { ...(wrapped as Record<string, unknown>), _wait: wait }
+        : wrapped
     }
-    return textResult(capJson(wrapped))
+    return textResult(capJson(parsed, { present, seqCursor: isSeqPaginated(operationId, args) }))
   }
   return textResult(capText(body.toString('utf8')))
 }
@@ -146,7 +149,7 @@ export async function callApiTool(
       body: request.body as BodyInit | undefined,
       redirect: 'manual',
     })
-    return await toToolResult(response, tool.operationId)
+    return await toToolResult(response, tool.operationId, args)
   } catch (error) {
     return errorResult({ httpStatus: 503, code: 'unavailable', message: `the REST API is unreachable: ${(error as Error).message}` })
   }
