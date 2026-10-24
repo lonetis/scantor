@@ -297,11 +297,28 @@ describe('JobsRunner', () => {
         { $set: { state: 'running', attempts, lease: { owner: 'dead-runner', expiresAt: new Date(Date.now() - JOB_LEASE_MS) } } },
       )
     }
-    const instance = runner([['scanDelete', { component: 'reconciler', concurrency: 0, async handler() {} }]])
+    const failures: string[] = []
+    const instance = runner([
+      [
+        'scanDelete',
+        {
+          component: 'reconciler',
+          concurrency: 0,
+          async handler() {},
+          async onFailed(failed, error) {
+            failures.push(`${failed.subject.id}:${error.code}`)
+          },
+        },
+      ],
+    ])
     instance.start()
     await vi.waitFor(() => expect([job(stale._id).state, job(exhausted._id).state]).toEqual(['queued', 'failed']))
     expect(job(stale._id).lease).toBeNull()
     expect(job(exhausted._id).error).toEqual({ code: 'leaseExpired', message: 'the job lease expired too often' })
+    // The final failure runs the kind's hook (a revision fails instead of staying building), once.
+    await vi.waitFor(() => expect(failures).toEqual(['exhausted:leaseExpired']))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(failures).toEqual(['exhausted:leaseExpired'])
   })
 
   it('requeues running jobs when it stops', async () => {

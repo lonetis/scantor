@@ -255,11 +255,14 @@ export class JobsRunner {
         $set: { state: 'failed', active: false, lease: null, error: failure, finishedAt: now, updatedAt: now, expiresAt: new Date(now.getTime() + JOB_RETENTION_MS) },
       },
     )
-    if (result.matchedCount > 0 && definition.onFailed) {
-      await definition.onFailed(job, failure, { log, config: this.options.config }).catch((hookError: unknown) =>
-        log.error('job onFailed hook failed', { err: hookError }),
-      )
-    }
+    if (result.matchedCount > 0) await this.failed(job, definition, failure)
+  }
+
+  /** Runs the kind's onFailed hook once a job ended `failed` (attempts exhausted, fatal error); errors are logged. */
+  private async failed(job: JobDoc, definition: JobKindDefinition | undefined, failure: { code: string; message: string }): Promise<void> {
+    if (!definition?.onFailed) return
+    const log = this.options.log.child({ jobId: job._id, jobKind: job.kind, userId: job.userId ?? undefined })
+    await definition.onFailed(job, failure, { log, config: this.options.config }).catch((error: unknown) => log.error('job onFailed hook failed', { err: error }))
   }
 
   /** Renews the leases of running jobs and requeues (or fails) jobs whose lease expired. */
@@ -283,6 +286,7 @@ export class JobsRunner {
       const expired = await this.options.jobs.find({ state: 'running', kind: { $in: kinds }, 'lease.expiresAt': { $lt: now } }).toArray()
       for (const job of expired) {
         const exhausted = job.attempts >= job.maxAttempts
+        const failure = { code: 'leaseExpired', message: 'the job lease expired too often' }
         const result = await this.options.jobs.updateOne(
           { _id: job._id, state: 'running', 'lease.expiresAt': { $lt: now } },
           exhausted
@@ -291,7 +295,7 @@ export class JobsRunner {
                   state: 'failed',
                   active: false,
                   lease: null,
-                  error: { code: 'leaseExpired', message: 'the job lease expired too often' },
+                  error: failure,
                   finishedAt: now,
                   updatedAt: now,
                   expiresAt: new Date(now.getTime() + JOB_RETENTION_MS),
@@ -301,7 +305,8 @@ export class JobsRunner {
         )
         if (result.modifiedCount === 0) continue
         this.options.log.warn(exhausted ? 'job failed after lease expiry' : 'requeued job after lease expiry', { jobId: job._id, jobKind: job.kind })
-        if (!exhausted) await this.requeued(job, this.definitionOf(job.kind))
+        if (exhausted) await this.failed(job, this.definitionOf(job.kind), failure)
+        else await this.requeued(job, this.definitionOf(job.kind))
       }
     } catch (error) {
       this.options.log.warn('sweeping expired job leases failed', { err: error })
