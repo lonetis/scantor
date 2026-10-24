@@ -24,9 +24,12 @@ export default defineNuxtPlugin(() => {
   let leaving = false
 
   function copyRequestId(requestId: string): void {
-    navigator.clipboard.writeText(requestId).then(
+    writeClipboard(requestId).then(
       () => toast.add({ title: 'Copied', icon: 'i-lucide-check', color: 'success', duration: 2000 }),
-      (error: unknown) => console.error('[api] copying the request id failed', error),
+      (error: unknown) => {
+        console.error('[api] copying the request id failed', error)
+        toast.add({ title: 'Copy failed', description: 'The browser did not allow access to the clipboard.', color: 'error', icon: 'i-lucide-circle-alert' })
+      },
     )
   }
 

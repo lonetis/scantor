@@ -1,9 +1,6 @@
-import { useClipboard } from '@vueuse/core'
-
-/** Copies text to the clipboard and confirms with a "Copied" toast (docs/ui.md §7). */
+/** Copies text to the clipboard and confirms with a "Copied" toast, or "Copy failed" when the browser refuses (docs/ui.md §7). */
 export function useCopy() {
   const toast = useToast()
-  const { copy: writeClipboard, copied, isSupported } = useClipboard({ copiedDuring: 1500, legacy: true })
 
   async function copy(text: string): Promise<boolean> {
     try {
@@ -17,5 +14,5 @@ export function useCopy() {
     return true
   }
 
-  return { copy, copied, isSupported }
+  return { copy }
 }

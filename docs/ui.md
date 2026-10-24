@@ -19,7 +19,7 @@ this document never redefines them.
 | Tables | `UTable` (TanStack) with server-side cursor loading (`Load more`), `sticky`, `virtualize` for result tables |
 | Forms | `UForm` + `UFormField`; static forms validate with zod schemas from `#shared/schemas`; JSON-Schema forms validate with `@cfworker/json-schema` through `UForm`'s `validate` prop (§6) |
 | Auth client | `better-auth/vue` `createAuthClient` with `passkeyClient()` and `oauthProviderClient()` |
-| Helpers | `@vueuse/core` (explicit dependency): `useIntervalFn`, `useDocumentVisibility`, `useClipboard`, `useInfiniteScroll`, `useDebounceFn` |
+| Helpers | `@vueuse/core` (explicit dependency): `useIntervalFn`, `useDocumentVisibility`, `useInfiniteScroll`, `useDebounceFn` |
 | JSON Schema | `@cfworker/json-schema` (draft 2020-12): an interpreter that generates no code, so the production CSP needs no `'unsafe-eval'` (§13). The server validates with ajv ([tasks](tasks.md) §6.3) and stays authoritative. |
 | Icons | `@iconify-json/lucide` only, bundled (§12) |
 | Type checking | `nuxt typecheck` with `vue-tsc` and TypeScript `~6.0.3` (not 7, [development](development.md) §11) |
@@ -74,7 +74,8 @@ orchestrator/app/
 ├── components/                   flat, PascalCase, role suffixes (§2.1)
 ├── composables/                  use<Resource> data composables, use<Thing> UI composables (§7)
 └── utils/                        auto-imported pure helpers: status.ts, format.ts, errors.ts,
-                                  json-pointer.ts, ansi.ts, navigation.ts, schema-subset.ts, download.ts
+                                  json-pointer.ts, ansi.ts, navigation.ts, schema-subset.ts, download.ts,
+                                  clipboard.ts
 ```
 
 Types and validation schemas are shared with the server, never duplicated in `app/`:
@@ -776,7 +777,7 @@ field, on the nearest rendered ancestor, or as a form-level alert when no field 
 | `useBuildLog(taskId, revision)` | incremental build-log reader (`afterLine`) |
 | `useSchemaForm(schema)` | subset detection, validator cache (`@cfworker/json-schema`), error mapping |
 | `useUiPrefs()` | versioned localStorage store (§14) |
-| `useCopy()` | `useClipboard` + toast "Copied" |
+| `useCopy()` | `writeClipboard` (`utils/clipboard.ts`: the Clipboard API, then an `execCommand('copy')` fallback whose result is checked) + toast "Copied", or "Copy failed" when both refuse (VueUse's `useClipboard` never reports a refusal) |
 
 ## 8. Central fetch wrapper and errors
 
