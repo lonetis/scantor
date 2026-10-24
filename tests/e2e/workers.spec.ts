@@ -127,16 +127,17 @@ test.describe('crash loops and memory', () => {
     { tag: ['@NODE-026'] },
     async ({ api, docker, shared, scans }) => {
       const { revision } = await shared.generated('probe')
-      // Three analyses of 3 s on one runner; SIGTERM makes its runtime drain (finish the analysis in flight) and exit 0.
-      const scan = await scans.start({ revision: revision.ref, taskConfig: { mode: 'sleep', seconds: 3 }, scanConfig: { times: 3 } })
+      // Five analyses of 3 s on one runner; SIGTERM makes its runtime drain (finish the analysis in flight) and exit 0. The
+      // worker is restarted only while the scan still has work, and the in-flight view lags by up to one state poll (5 s),
+      // so the runner may be two analyses further than it shows: killing it while seq 0 or 1 shows leaves at least one
+      // analysis for the restarted worker. Seqs 0 and 1 run for 6 s, so some state poll always reports one of them.
+      const total = 5
+      const scan = await scans.start({ revision: revision.ref, taskConfig: { mode: 'sleep', seconds: 3 }, scanConfig: { times: total } })
       const busy = await pollUntil(
-        'an analysis in flight',
+        'seq 0 or 1 in flight',
         () => inflight(api, scan.id),
-        (state) => state.items.length === 1,
-        {
-          timeoutMs: 90_000,
-          intervalMs: 500,
-        },
+        (state) => state.items.length === 1 && state.items[0]!.seq <= 1,
+        { timeoutMs: 90_000, intervalMs: 500 },
       )
       const workerId = busy.items[0]!.workerId
       const [container] = await workerContainers(scan.id, { workerId })
@@ -170,7 +171,7 @@ test.describe('crash loops and memory', () => {
       expect(await workerContainers(scan.id, { workerId, all: true })).toEqual([container])
 
       await scans.wait(scan.id, { timeoutMs: 120_000 })
-      expect(await scans.counts(scan.id)).toEqual({ succeeded: 3 })
+      expect(await scans.counts(scan.id)).toEqual({ succeeded: total })
       // A clean exit is never a crash.
       expect(await scanEvents(api, scan.id, 'worker.crashed')).toEqual([])
       expect(findCondition(await getScan(api, scan.id), 'crashLoop')).toBeUndefined()
