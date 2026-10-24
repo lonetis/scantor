@@ -15,8 +15,8 @@ their tests in [security](security.md).
 ```
 request
   │
+  ├─ request hook       security headers on every response, public assets included (ui §13)
   ├─ 00.request         request id, client IP header (x-scantor-client-ip), 421 for the editor host
-  ├─ 01.security-headers
   ├─ 02.body-limit      SCANTOR_MAX_REQUEST_BYTES / per-route caps
   ├─ 10.auth            (/api/* only)
   │     ├─ route prefix  → which credential kind is parsed (§5.3)

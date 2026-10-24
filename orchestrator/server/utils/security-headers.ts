@@ -1,14 +1,18 @@
+import { setResponseHeaders, type H3Event } from 'h3'
 import type { Config } from './config'
 
 // Dashboard security headers (security.md HDR-1..HDR-3, docs/ui.md §13). The policy depends on runtime origins
-// (editor and S3 public URLs), so it is built once from the configuration. `scriptSources` admits the SPA shell's
-// inline scripts; server/plugins/csp.ts adds a per-response nonce to the shell and its header.
+// (editor and S3 public URLs) and HSTS on the scheme of SCANTOR_PUBLIC_URL, so both are built once from the
+// configuration. server/plugins/security-headers.ts applies them to every response in Nitro's `request` hook and
+// adds a per-response nonce to the SPA shell; `scriptSources` admits the shell's inline scripts.
 
 /** Pages that must never be framed and never cached. */
 export const NO_FRAME_PAGES = ['/login', '/setup', '/oauth/consent']
 
 export const PERMISSIONS_POLICY =
   'camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)'
+
+export const HSTS = 'max-age=31536000'
 
 export interface CspOptions {
   editorOrigin: string
@@ -63,4 +67,48 @@ export function cspOptionsFrom(config: Pick<Config, 'editorUrl' | 's3PublicUrl'>
 
 export function isNoFramePage(path: string): boolean {
   return NO_FRAME_PAGES.some((page) => path === page || path.startsWith(`${page}/`))
+}
+
+/** The header values of one deployment. */
+export interface SecurityPolicies {
+  normal: string
+  noFrame: string
+  docs: string
+  /** SCANTOR_PUBLIC_URL is https */
+  hsts: boolean
+}
+
+export function securityPoliciesFrom(config: Pick<Config, 'publicUrl' | 'editorUrl' | 's3PublicUrl'>, dev: boolean): SecurityPolicies {
+  const options = cspOptionsFrom(config, dev)
+  return {
+    normal: buildCsp(options),
+    noFrame: buildCsp({ ...options, frameAncestors: "'none'" }),
+    docs: buildDocsCsp(),
+    hsts: config.publicUrl.startsWith('https://'),
+  }
+}
+
+/** The required headers of the response to `path` and the `frame-ancestors` source that its shell CSP keeps. */
+export function securityHeadersFor(path: string, policies: SecurityPolicies): { headers: Record<string, string>; frameAncestors: string } {
+  const noFrame = isNoFramePage(path)
+  const headers: Record<string, string> = {
+    'Content-Security-Policy': path === '/api/docs' ? policies.docs : noFrame ? policies.noFrame : policies.normal,
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'same-origin',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+    'Permissions-Policy': PERMISSIONS_POLICY,
+  }
+  if (policies.hsts) headers['Strict-Transport-Security'] = HSTS
+  if (noFrame || path.startsWith('/api/')) headers['Cache-Control'] = 'no-store'
+  return { headers, frameAncestors: noFrame ? "'none'" : "'self'" }
+}
+
+/**
+ * Sets the required headers before any handler runs, so static assets, the SPA shell, `/api` answers and errors all
+ * carry them. The shell's nonce policy (render:html) reads `event.context.cspFrameAncestors`.
+ */
+export function applySecurityHeaders(event: H3Event, policies: SecurityPolicies): void {
+  const { headers, frameAncestors } = securityHeadersFor(event.path.split('?')[0] ?? '/', policies)
+  setResponseHeaders(event, headers)
+  event.context.cspFrameAncestors = frameAncestors
 }

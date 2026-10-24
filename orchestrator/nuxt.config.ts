@@ -8,18 +8,6 @@ const buildVersion = process.env.BUILD_VERSION || 'dev'
 // to Nuxt's own error handler.
 const apiErrorHandler = fileURLToPath(new URL('./server/utils/error-handler.ts', import.meta.url))
 
-// Static security headers (security.md HDR-1..3, ui.md §13). Nitro serves public assets before server
-// middleware runs, so the configuration-independent values are repeated here; the full CSP, HSTS and the
-// per-page overrides are added by server/middleware/01.security-headers.ts.
-const staticSecurityHeaders = {
-  'Content-Security-Policy': "frame-ancestors 'self'; object-src 'none'; base-uri 'self'",
-  'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'same-origin',
-  'Cross-Origin-Opener-Policy': 'same-origin',
-  'Permissions-Policy':
-    'camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)',
-}
-
 // `nuxt dev` only (docker-compose.dev.yml): Vite answers 403 to every request whose Host it does not know, its guard
 // against DNS rebinding. localhost, *.localhost and IP addresses always pass; the dev stack also reaches the server
 // by the host of SCANTOR_INTERNAL_URL (the built-in node dials http://orchestrator:3000), of SCANTOR_PUBLIC_URL (a
@@ -62,10 +50,6 @@ export default defineNuxtConfig({
     server: {
       allowedHosts: devServerAllowedHosts([process.env.SCANTOR_INTERNAL_URL, process.env.SCANTOR_PUBLIC_URL]),
     },
-  },
-
-  routeRules: {
-    '/**': { headers: staticSecurityHeaders },
   },
 
   nitro: {

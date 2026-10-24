@@ -40,7 +40,6 @@ export default defineNuxtConfig({
     localApiEndpoint: '/_icons',              // outside /api, see §12
   },
   experimental: { emitRouteChunkError: 'automatic-immediate' },  // re-verify on Nuxt 4.6 before keeping
-  routeRules: { /* static security headers, §13 */ },
   compatibilityDate: '2026-10-01',
 })
 ```
@@ -933,8 +932,8 @@ of the contract:
 
 ## 13. Security headers and CSP
 
-**Required headers** on every dashboard response ([security](security.md) HDR-1 to HDR-3), set by the
-`01.security-headers` server middleware. These are never relaxed:
+**Required headers** on every dashboard response ([security](security.md) HDR-1 to HDR-3), set in Nitro's
+`request` hook by `server/plugins/security-headers.ts`. These are never relaxed:
 
 | Header | Value |
 |---|---|
@@ -946,10 +945,11 @@ of the contract:
 | `Strict-Transport-Security` | `max-age=31536000` when `SCANTOR_PUBLIC_URL` is https |
 | `Cache-Control` | `no-store` on `/login`, `/setup`, `/oauth/consent` and every `/api/*` response |
 
-The values that do not depend on configuration are repeated in `routeRules` (`nuxt.config.ts`), because
-Nitro serves public assets before server middleware runs.
+The hook runs before every handler, so static assets (`/_nuxt/*`, which Nitro serves before any server
+middleware runs), the SPA shell, `/api` answers and errors all carry these headers, HSTS included; there
+is no second copy in `routeRules`.
 
-**Full policy.** The middleware extends the CSP with defence-in-depth directives. They depend on runtime
+**Full policy.** The hook extends the CSP with defence-in-depth directives. They depend on runtime
 origins (`SCANTOR_EDITOR_URL`, `SCANTOR_S3_PUBLIC_URL`), so the policy is built once at boot (option 1
 below adds a per-response value):
 
@@ -973,7 +973,7 @@ first option that works reliably in Nuxt 4 SPA mode, as verified by `ui/headers.
 violation on any page):
 
 1. a per-request nonce, added to the shell's inline scripts by a Nitro `render:html` hook
-   (`server/plugins/csp.ts`) and to the header for that response;
+   (`server/plugins/security-headers.ts`) and to the header for that response;
 2. SHA-256 hashes of the shell's inline scripts, computed by the same hook from the rendered shell
    (constant per deployment);
 3. `'unsafe-inline'`, in `script-src` only.
@@ -1026,10 +1026,11 @@ result strings are never linkified, file downloads use presigned URLs with force
    `validate` prop (an interpreter: no `'unsafe-eval'` in the production CSP; the server's ajv stays
    authoritative); static forms use zod schemas shared with the server (`#shared/schemas`).
 6. **Results table projects fields** (`fields=…`) and loads full analyses only in the slideover.
-7. **CSP is set by the `01.security-headers` middleware** from env-derived origins. The static
-   headers and `frame-ancestors`, `object-src 'none'` and `base-uri 'self'` are required; the inline SPA
-   scripts are admitted by a nonce only if that works reliably in Nuxt 4 SPA mode, otherwise by hashes or
-   a minimal `'unsafe-inline'` (§13). CSP never breaks the app.
+7. **Security headers and the CSP are set in Nitro's `request` hook** (`server/plugins/security-headers.ts`)
+   from env-derived origins, so public assets get them too. The static headers and `frame-ancestors`,
+   `object-src 'none'` and `base-uri 'self'` are required; the inline SPA scripts are admitted by a nonce
+   only if that works reliably in Nuxt 4 SPA mode, otherwise by hashes or a minimal `'unsafe-inline'`
+   (§13). CSP never breaks the app.
 8. **`@nuxt/fonts` disabled** (`ui.fonts: false`) and the icon endpoint moved to `/_icons` with
    `fallbackToApi: false`: the UI makes no third-party requests at build or run time.
 9. **The editor is embedded as an iframe of the separate editor origin** on `/editor`, plus "Open in new

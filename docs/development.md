@@ -296,9 +296,8 @@ orchestrator/
 │   ├── routes/                   mcp.ts (/mcp), .well-known/[...path].ts (never editor routes: the editor origin is
 │   │                             its own listener)
 │   ├── middleware/               ordered by prefix (auth §1): 00.request (request id, x-scantor-client-ip,
-│   │                             421 for the editor host), 01.security-headers (static headers and CSP, ui §13),
-│   │                             02.body-limit, 10.auth (prefixes, principals, operation registry, scopes, bans,
-│   │                             CSRF), 11.passkey-guard
+│   │                             421 for the editor host), 02.body-limit, 10.auth (prefixes, principals,
+│   │                             operation registry, scopes, bans, CSRF), 11.passkey-guard
 │   ├── plugins/                  Nitro plugins in file-name order: 00.boot (resets the registries, registers the
 │   │                             foundation boot steps, architecture §4.1), 10.components (foundation component
 │   │                             tasks: the jobs runners, userPurge), 20–89 domain plugins that only register
@@ -306,9 +305,10 @@ orchestrator/
 │   │                             I/O at load): 20.editor-listener (editor origin on container port 3001,
 │   │                             editor §8.1), 30.tasks, 40.scans, 50.results, 60.nodes (also registry and
 │   │                             runtime), 70.editor (reaper, purge step, lockout hook); 99.start (runs the boot
-│   │                             steps in order, then starts the SCANTOR_COMPONENTS); csp.ts (per-response CSP
-│   │                             nonce, ui §13); openapi.ts (narrows /api/docs/openapi.json to the API
-│   │                             operations, api §1.1)
+│   │                             steps in order, then starts the SCANTOR_COMPONENTS); security-headers.ts (the
+│   │                             security headers of every response in Nitro's request hook, which runs before
+│   │                             the public assets, and the per-response CSP nonce, ui §13); openapi.ts (narrows
+│   │                             /api/docs/openapi.json to the API operations, api §1.1)
 │   ├── services/<area>/          domain logic (mappers turn documents into API representations): account,
 │   │                             analyses, catalog, configs, credentials, editor, exports, helpers, ingestor, jobs,
 │   │                             mcp, metrics, nodes, pipeline, placement, query, reconciler, registry, revisions,

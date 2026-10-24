@@ -176,6 +176,7 @@ model, api) wins and the other doc is fixed.
 - Nitro hot reload follows inodes: tools that replace files (the Edit/Write tools, `sed -i`) leave `nuxt dev` on the old server code without a log line. `touch` another server file to trigger the rebuild.
 - `nuxt typecheck` (and `npm run typecheck`) rewrites `orchestrator/.nuxt`, which the dev orchestrator mounts, so `nuxt dev` does a full reload. It does not type-check the vitest files in `orchestrator/test/`.
 - `nuxt dev` blocks unknown Host headers with 403 "Blocked request": new hostnames must go into `vite.server.allowedHosts` in `nuxt.config.ts`.
+- Nitro serves public assets (`/_nuxt/*`) before any server middleware: headers every response needs belong in the `request` hook (`server/plugins/security-headers.ts`), not in middleware or `routeRules`.
 - Import ajv as `ajv/dist/2020.js`: ajv has no exports map, and the production build fails with `ERR_MODULE_NOT_FOUND` while `nuxt dev` works.
 - MCP tool calls reach the REST routes through the private loopback listener (`server/utils/loopback.ts`) with single-use capabilities; never route them to port 3000 or `localFetch`.
 - The task pipeline prunes the host's whole BuildKit cache to `SCANTOR_BUILD_CACHE_MAX_BYTES`; the dev compose sets 0 and a native CLI prunes only when it is set. Never set it on a shared dev machine.
