@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { type ActionInput, allowedProcesses, runtimeAction } from '../../../server/services/runtime/state'
+import { type ActionInput, allowedProcesses, runtimeAction, runtimeReportFields } from '../../../server/services/runtime/state'
 import { workerDoc } from '../nodes/helpers'
 
 // The runtime state poll (docs/api.md §8.2, docs/runtime.md §5.1, docs/nodes.md §12.6): the action table and the
@@ -53,5 +53,20 @@ describe('allowedProcesses', () => {
   it('falls back to the assigned value before the node reported, and clamps to the maximum', () => {
     expect(allowedProcesses(workerDoc('w', { processes: { desired: 3, assigned: 3, applied: null, running: null } }), 64)).toBe(3)
     expect(allowedProcesses(workerDoc('w', { processes: { desired: 100, assigned: 100, applied: 100, running: 1 } }), 64)).toBe(64)
+  })
+})
+
+describe('runtimeReportFields', () => {
+  const now = new Date('2026-10-24T12:00:00.000Z')
+  const counters = { published: 20_008, confirmed: 20_000, nacked: 8, backpressure: true }
+
+  it('stores the publish counters a scheduler reports, so its refused publishes stay visible after it stopped', () => {
+    expect(runtimeReportFields('scheduler', { scheduler: counters }, now)).toEqual({ lastSeenAt: now, scheduler: counters })
+  })
+
+  it('keeps the last counters when a poll has none, and never stores counters for a runner', () => {
+    expect(runtimeReportFields('scheduler', { scheduler: null }, now)).toEqual({ lastSeenAt: now })
+    expect(runtimeReportFields('scheduler', {}, now)).toEqual({ lastSeenAt: now })
+    expect(runtimeReportFields('runner', { scheduler: counters }, now)).toEqual({ lastSeenAt: now })
   })
 })

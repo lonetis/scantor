@@ -4,7 +4,7 @@ import type { Document } from 'mongodb'
 // inside null. Updates of runtime fields therefore use this aggregation expression, which starts from an empty
 // runtime object.
 
-const EMPTY_RUNTIME = { version: null, protocolVersion: null, bootstrappedAt: null, lastSeenAt: null, lastError: null }
+const EMPTY_RUNTIME = { version: null, protocolVersion: null, bootstrappedAt: null, lastSeenAt: null, lastError: null, scheduler: null }
 
 /**
  * Pipeline expression: the current `runtime` (or an empty one) with `fields` merged in. Every value is wrapped in

@@ -249,47 +249,6 @@ export function scanQueue(scanId: string): Promise<ScanQueue | null> {
   return management<ScanQueue>(`/queues/${VHOST}/${encodeURIComponent(`scantor.scan.${scanId}`)}`)
 }
 
-export interface BrokerChannel {
-  name: string
-  user: string
-  confirm: boolean
-  /** publishes the broker has neither confirmed nor refused yet */
-  messages_unconfirmed?: number
-  connection_details?: { name?: string }
-  message_stats?: { publish?: number; confirm?: number; return_unroutable?: number; drop_unroutable?: number }
-}
-
-/** The open channels of the scan's RabbitMQ user `scan-<scanId>`. */
-export async function scanChannels(scanId: string): Promise<BrokerChannel[]> {
-  const channels = (await management<BrokerChannel[]>(`/channels?columns=name,user,confirm,messages_unconfirmed,connection_details,message_stats`)) ?? []
-  return channels.filter((channel) => channel.user === `scan-${scanId}`)
-}
-
-/** The open connections of the scan's RabbitMQ user with the runtime's role (`scantor-runtime/<role>/<workerId>`). */
-export async function scanConnections(scanId: string): Promise<{ name: string; role: string; workerId: string }[]> {
-  const connections =
-    (await management<{ name: string; user: string; user_provided_name?: string }[]>('/connections?columns=name,user,user_provided_name')) ?? []
-  return connections
-    .filter((connection) => connection.user === `scan-${scanId}`)
-    .map((connection) => {
-      const [, role = '', workerId = ''] = /^scantor-runtime\/([^/]+)\/(.+)$/.exec(connection.user_provided_name ?? '') ?? []
-      return { name: connection.name, role, workerId }
-    })
-}
-
-/**
- * The publishes of the scan's scheduler that the broker refused so far (nacks), from its channels' counters:
- * published − confirmed − still unconfirmed. RabbitMQ counts no nacks itself; the management statistics refresh every
- * few seconds, so the value lags. Null while the scheduler has no open channel.
- */
-export async function schedulerNacks(scanId: string): Promise<number | null> {
-  const [connections, channels] = await Promise.all([scanConnections(scanId), scanChannels(scanId)])
-  const scheduler = new Set(connections.filter((connection) => connection.role === 'scheduler').map((connection) => connection.name))
-  const own = channels.filter((channel) => channel.confirm && scheduler.has(channel.connection_details?.name ?? ''))
-  if (own.length === 0) return null
-  return own.reduce((sum, c) => sum + (c.message_stats?.publish ?? 0) - (c.message_stats?.confirm ?? 0) - (c.messages_unconfirmed ?? 0), 0)
-}
-
 // ── worker containers (read-only) ─────────────────────────────────────────────────────────────────────
 
 /** Ids of the containers (running unless `all`) of a scan's workers on the built-in node, optionally of one worker. */

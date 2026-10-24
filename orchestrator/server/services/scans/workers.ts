@@ -41,6 +41,7 @@ export function toApiWorker(doc: WorkerDoc, nodeNames: ReadonlyMap<string, strin
           bootstrappedAt: isoDateOrNull(doc.runtime.bootstrappedAt),
           lastSeenAt: isoDateOrNull(doc.runtime.lastSeenAt),
           lastError: doc.runtime.lastError ? toApiError(doc.runtime.lastError) : null,
+          scheduler: doc.runtime.scheduler ?? null,
         }
       : null,
     logs: doc.logs

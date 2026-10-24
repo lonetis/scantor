@@ -287,7 +287,7 @@ Every `nextPollMs` of the last response (initially `intervals.statePollMs`) ± `
 | `clockOffsetMs` | current offset (§5.2), rounded |
 | `tmpFreeBytes` | free bytes of the filesystem holding `/tmp/scantor` |
 | `counters` | cumulative since start: `succeeded`, `failed` (final failed results), `retried` (attempt events), `redeliveredSkipped` |
-| `scheduler` | scheduler only: `{published, confirmed, nacked, backpressure}` |
+| `scheduler` | scheduler only: `{published, confirmed, nacked, backpressure}`, cumulative; the orchestrator keeps the latest as the worker's `runtime.scheduler` |
 
 Response handling:
 

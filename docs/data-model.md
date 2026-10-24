@@ -521,7 +521,7 @@ Indexes:
 | `spec` | object | ✓ | `{repository, digest, resources: {cpus, memoryMiB}, privileged, dindMode: null\|"sysbox"\|"privileged", specHash}` |
 | `processes` | object | ✓ | `{desired, assigned, applied, running}`: desired = `settings.processes` of the scan for runners, always 1 for the scheduler (at most one connector process); assigned = value sent to the node; applied = node-reported limits; running = runtime-reported open slots |
 | `container` | object \| null | ✓ | `{id, name, startedAt, restarts, lastExit: {exitCode, oomKilled, at, logTail} \| null, nextRestartAt}` |
-| `runtime` | object \| null | ✓ | `{version, protocolVersion, bootstrappedAt, lastSeenAt, lastError: ScantorError \| null}` |
+| `runtime` | object \| null | ✓ | `{version, protocolVersion, bootstrappedAt, lastSeenAt, lastError: ScantorError \| null, scheduler}`; `scheduler` is `{published, confirmed, nacked, backpressure}` from the latest state poll of a scheduler (its last poll follows its final confirms), null for runners |
 | `logs` | object \| null | ✓ | on-demand tail: `{requestId, requestedAt, tailBytes, text, collectedAt, truncated}` |
 | `createdAt`, `assignedAt`, `startedAt`, `stoppedAt`, `updatedAt` | Date \| null | ✓ | |
 | `expiresAt` | Date | – | set on `stopped`/`lost` to `stoppedAt + 7 days` (TTL) |

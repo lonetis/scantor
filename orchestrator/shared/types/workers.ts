@@ -28,12 +28,23 @@ export interface WorkerContainer {
   nextRestartAt: IsoDate | null
 }
 
+/** A scheduler's cumulative publish counters from its latest state poll (docs/runtime.md §5.1). */
+export interface WorkerSchedulerCounters {
+  published: number
+  confirmed: number
+  /** publishes the full scan queue refused (`x-overflow: reject-publish`), republished later */
+  nacked: number
+  backpressure: boolean
+}
+
 export interface WorkerRuntime {
   version: string | null
   protocolVersion: number | null
   bootstrappedAt: IsoDate | null
   lastSeenAt: IsoDate | null
   lastError: ScantorError | null
+  /** schedulers only: the publish counters of the latest state poll (null for runners and before the first poll) */
+  scheduler: WorkerSchedulerCounters | null
 }
 
 export interface Worker {

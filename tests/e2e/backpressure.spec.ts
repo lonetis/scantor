@@ -1,7 +1,7 @@
 import type { Analysis } from '#shared/types/analyses'
 import type { Scan } from '#shared/types/scans'
 import { stackEnv } from '../helpers/docker'
-import { allAnalyses, backoff, findCondition, pollScan, scanQueue, schedulerNacks, settings, sleep, type ScanQueue } from '../helpers/e2e-runtime'
+import { allAnalyses, backoff, findCondition, pollScan, scanQueue, scanWorkers, settings, sleep, type ScanQueue } from '../helpers/e2e-runtime'
 import { extendRuntime } from '../helpers/e2e-runtime-fixtures'
 import { TERMINAL_STATES } from '../helpers/scans'
 import type { ProbeConfig } from '../helpers/e2e-runtime-tasks'
@@ -28,17 +28,16 @@ const MAX_READY = 500
 /** The scheduler's share of the scan queue: half of x-max-length (amqp.maxLength). */
 const SHARE = MAX_READY / 2
 
-/** Samples the scan's queue and the publishes the broker refused its scheduler, every second until `done` resolves. */
+/** Samples the scan's queue every second until `done` resolves. */
 function observeQueue(scanId: string, done: Promise<unknown>) {
-  const samples: { at: number; queue: ScanQueue | null; nacks: number | null }[] = []
+  const samples: { at: number; queue: ScanQueue | null }[] = []
   let finished = false
   void done.finally(() => {
     finished = true
   })
   const sampling = (async () => {
     while (!finished) {
-      const [queue, nacks] = await Promise.all([scanQueue(scanId), schedulerNacks(scanId)])
-      samples.push({ at: Date.now(), queue, nacks })
+      samples.push({ at: Date.now(), queue: await scanQueue(scanId) })
       await sleep(1000)
     }
   })()
@@ -68,8 +67,8 @@ test.describe('backpressure', () => {
       const { samples, sampling } = observeQueue(scan.id, completed)
       const final = await completed
       await sampling
-      await test.info().attach('queue samples [at, ready, nacks]', {
-        body: JSON.stringify(samples.map((s) => [s.at, s.queue?.messages_ready ?? null, s.nacks])),
+      await test.info().attach('queue samples [at, ready]', {
+        body: JSON.stringify(samples.map((s) => [s.at, s.queue?.messages_ready ?? null])),
         contentType: 'application/json',
       })
 
@@ -82,8 +81,14 @@ test.describe('backpressure', () => {
       const ready = samples.map((s) => s.queue?.messages_ready ?? 0)
       expect(Math.max(...ready), 'the scheduler ran ahead of the runners').toBeGreaterThanOrEqual(SHARE / 2)
       expect(Math.max(...ready), "the scheduler's share of the queue").toBeLessThanOrEqual(SHARE + 4)
-      const nacks = Math.max(0, ...samples.map((s) => s.nacks ?? 0))
-      expect(nacks, 'publishes of the scheduler refused by the full queue').toBe(0)
+      // The scheduler counts the publishes the full queue refused itself; its last state poll follows its final confirms
+      // and stays on its worker (runtime.scheduler).
+      const schedulers = (await scanWorkers(api, scan.id)).filter((worker) => worker.role === 'scheduler')
+      expect(schedulers).toHaveLength(1)
+      const counters = schedulers[0]!.runtime?.scheduler
+      expect(counters, "the scheduler's publish counters").toMatchObject({ nacked: 0 })
+      expect(counters!.confirmed, 'every publish confirmed').toBe(counters!.published)
+      expect(counters!.confirmed, 'the counters of the last state poll').toBeGreaterThanOrEqual(20_000)
 
       expect(final.scheduling).toMatchObject({ state: 'done', confirmed: 20_000, restarts: 0 })
       expect(await scans.counts(scan.id)).toEqual({ succeeded: 20_000 })

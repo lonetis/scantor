@@ -415,6 +415,8 @@ export interface WorkerDoc {
     bootstrappedAt: Date | null
     lastSeenAt: Date | null
     lastError: ScantorErrorDoc | null
+    /** schedulers: the publish counters of the latest state poll (missing before the first one) */
+    scheduler?: { published: number; confirmed: number; nacked: number; backpressure: boolean } | null
   } | null
   logs: {
     requestId: string

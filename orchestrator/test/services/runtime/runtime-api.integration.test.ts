@@ -182,6 +182,18 @@ describe.skipIf(!integrationEnabled)('runtime API against MongoDB and RustFS', (
       expect(await useCollections().workers.findOne({ _id: runnerId })).toMatchObject({ processes: { running: 2 }, runtime: { version: '1.3.9' } })
     })
 
+    it('stores the publish counters of a scheduler on its worker, and none for a runner', async () => {
+      const counters = { published: 42_100, confirmed: 42_000, nacked: 3, backpressure: true }
+      const report = { processes: { running: 1, busy: 1 }, busy: [], consuming: false, clockOffsetMs: 0, tmpFreeBytes: 1, scheduler: counters }
+      await handleRuntimeState(await principal(schedulerId), report, config, log)
+      expect((await useCollections().workers.findOne({ _id: schedulerId }))?.runtime?.scheduler).toEqual(counters)
+      // A poll without counters keeps the last ones.
+      await handleRuntimeState(await principal(schedulerId), { ...report, scheduler: null }, config, log)
+      expect((await useCollections().workers.findOne({ _id: schedulerId }))?.runtime?.scheduler).toEqual(counters)
+      await handleRuntimeState(await principal(runnerId), { ...report, processes: { running: 2, busy: 0 } }, config, log)
+      expect((await useCollections().workers.findOne({ _id: runnerId }))?.runtime?.scheduler ?? null).toBeNull()
+    })
+
     it('drains on pause', async () => {
       const { scans } = useCollections()
       await scans.updateOne({ _id: scanId }, { $set: { state: 'paused' } })

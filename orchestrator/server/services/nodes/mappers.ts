@@ -73,6 +73,7 @@ export function toApiWorker(doc: WorkerDoc, refs: { node: { id: string; name: st
           bootstrappedAt: isoDateOrNull(doc.runtime.bootstrappedAt),
           lastSeenAt: isoDateOrNull(doc.runtime.lastSeenAt),
           lastError: doc.runtime.lastError ? toApiScantorError(doc.runtime.lastError) : null,
+          scheduler: doc.runtime.scheduler ?? null,
         }
       : null,
     logs: doc.logs

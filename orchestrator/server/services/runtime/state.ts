@@ -1,3 +1,4 @@
+import type { WorkerSchedulerCounters } from '#shared/types/workers'
 import type { ScanState, SchedulingState, WorkerRole, WorkerState } from '#shared/utils/enums'
 import type { ScanDoc, WorkerDoc } from '../../types/documents'
 import type { Logger } from '../../utils/logger'
@@ -8,7 +9,8 @@ import { clearScanCondition } from './conditions'
 import { mergeRuntime } from './worker-runtime'
 
 // POST /api/runtime/state (docs/api.md §8.2, docs/runtime.md §5): the runtime's heartbeat. `busy[]` feeds the
-// in-memory in-flight store; `runtime.lastSeenAt` and `processes.running` are stored. The response tells the runtime
+// in-memory in-flight store; `runtime.lastSeenAt`, a scheduler's publish counters (`runtime.scheduler`) and
+// `processes.running` are stored. The response tells the runtime
 // what to do (`run`, `drain`, `stop`) and how many processes it may run: min(desired, node-applied) while scaling
 // up, the desired value at once while scaling down (docs/nodes.md §12.6). A poll of the current scheduler that
 // reports a schedule run in progress (`processes.busy` 1) clears the condition schedulerRestarting.
@@ -76,7 +78,18 @@ export interface StateReport {
   clockOffsetMs: number
   tmpFreeBytes: number
   counters?: Record<string, number>
-  scheduler?: Record<string, unknown> | null
+  scheduler?: WorkerSchedulerCounters | null
+}
+
+/**
+ * The `runtime` fields a state poll stores: `lastSeenAt`, and for a scheduler its cumulative publish counters, so
+ * the publishes a full scan queue refused (`nacked`) stay visible after the scheduler stopped (its last poll comes
+ * after its outstanding confirms, docs/runtime.md §14.1). Runners report none.
+ */
+export function runtimeReportFields(role: WorkerRole, report: Pick<StateReport, 'scheduler'>, now: Date): Record<string, unknown> {
+  if (role !== 'scheduler' || !report.scheduler) return { lastSeenAt: now }
+  const { published, confirmed, nacked, backpressure } = report.scheduler
+  return { lastSeenAt: now, scheduler: { published, confirmed, nacked, backpressure } }
 }
 
 type PolledScan = Pick<ScanDoc, '_id' | 'state' | 'scheduling' | 'userId' | 'conditions'>
@@ -96,7 +109,7 @@ export async function handleRuntimeState(principal: WorkerPrincipal, report: Sta
   const [worker, scan] = await Promise.all([
     workers.findOneAndUpdate(
       { _id: identity.id },
-      [{ $set: { runtime: mergeRuntime({ lastSeenAt: now }), 'processes.running': report.processes.running, updatedAt: now } }],
+      [{ $set: { runtime: mergeRuntime(runtimeReportFields(identity.role, report, now)), 'processes.running': report.processes.running, updatedAt: now } }],
       { returnDocument: 'after' },
     ),
     scans.findOne({ _id: identity.scanId }, { projection: { state: 1, scheduling: 1, userId: 1, conditions: 1 } }) as Promise<PolledScan | null>,
