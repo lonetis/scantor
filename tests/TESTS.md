@@ -885,6 +885,7 @@ None.
 - `internal/templates/tranco`
 - `internal/version`
 - `internal/workspace`
+- `tests/docker/fixtures`
 
 ### Orchestrator (vitest)
 

@@ -854,8 +854,9 @@ runbook) and a generated index between `<!-- BEGIN GENERATED: test-index -->` an
 - per project: spec files, their top-level `describe` titles and test counts;
 - per FEATURES.md id: a one-line summary and the tests that cover it;
 - uncovered ids and unknown tags (the `--check` mode fails on either);
-- unit suites by location (Go packages with tests, vitest files, connector test directories), without
-  counts.
+- unit suites by location, without counts: the packages of the root Go module with tests (as `go test ./...`
+  finds them, `tests/docker/fixtures` included), vitest files, connector test directories (`connectors/go` is a
+  module of its own).
 
 `just test-index` runs `tests/scripts/test-index.mjs` in the Playwright image: it calls
 `npx playwright test --list --reporter=json` (no stack needed) and parses FEATURES.md, failing on a line that

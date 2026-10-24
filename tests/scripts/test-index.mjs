@@ -131,15 +131,33 @@ function walk(dir, accept, skip = new Set(['node_modules', '.git', 'testdata']))
   return out.sort()
 }
 
+// Directories without packages of the root module besides those Go itself ignores: dependency trees and the
+// Playwright outputs.
+const NOT_GO_PACKAGES = new Set(['node_modules', 'playwright-report', 'test-results'])
+
+/**
+ * The packages of the module at `root` that have Go tests, as `go test ./...` there runs them: relative directories
+ * (`.` for the root), sorted. Like Go it skips `testdata` and names starting with `.` or `_`, and it stops at nested
+ * modules (a `go.mod` of their own, such as connectors/go).
+ */
+export function goTestPackages(root) {
+  const packages = []
+  const visit = (dir) => {
+    const entries = readdirSync(dir, { withFileTypes: true })
+    if (entries.some((entry) => entry.isFile() && entry.name.endsWith('_test.go'))) packages.push(relative(root, dir) || '.')
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name === 'testdata' || /^[._]/.test(entry.name) || NOT_GO_PACKAGES.has(entry.name)) continue
+      const path = join(dir, entry.name)
+      if (!existsSync(join(path, 'go.mod'))) visit(path)
+    }
+  }
+  visit(root)
+  return packages.sort()
+}
+
 /** Unit suites by location, without counts. */
 function unitSuites() {
-  const goPackages = [
-    ...new Set(
-      walk(repo, (n) => n.endsWith('_test.go'), new Set(['node_modules', '.git', 'testdata', 'tests', 'orchestrator', 'connectors'])).map(
-        (f) => relative(repo, resolve(f, '..')) || '.',
-      ),
-    ),
-  ].sort()
+  const goPackages = goTestPackages(repo)
   const vitest = walk(join(repo, 'orchestrator', 'test'), (n) => n.endsWith('.test.ts')).map((f) => relative(repo, f))
   const connectors = ['connectors/python/tests', 'connectors/js/test', 'connectors/go'].filter((d) => existsSync(join(repo, d)))
   return { goPackages, vitest, connectors }
