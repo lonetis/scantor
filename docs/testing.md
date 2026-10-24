@@ -830,6 +830,10 @@ Flake avoidance (agentor's pitfalls):
 11. The UI never uses native dialogs, so tests never handle `dialog` events.
 12. Colors are compared after normalization (production builds minify hex values).
 13. Retries are 0 locally; CI allows one retry for diagnostics but fails on flaky tests.
+14. RabbitMQ management statistics lag by seconds and omit a new queue's counts until their first collection,
+    so helpers never read a missing count as 0 (`statsReported` in `helpers/api-scans-broker.ts`). A check of
+    what a queue holds right now reads the broker itself (`innerDocker.rabbitmqQueues()`, rabbitmqctl); only the
+    delayed count needs the management API.
 
 ## 10. `FEATURES.md` and `TESTS.md`
 
