@@ -34,10 +34,10 @@ const advancedOpen = ref(false)
   <div class="space-y-3">
     <div class="grid gap-3 sm:grid-cols-2">
       <UFormField label="Runner workers" name="settings.workers" :hint="limits ? `1–${limits.maxWorkersPerScan}` : undefined">
-        <UInputNumber v-model="settings.workers" :min="1" :max="limits?.maxWorkersPerScan" class="w-full" />
+        <NumberInput v-model="settings.workers" :min="1" :max="limits?.maxWorkersPerScan" class="w-full" />
       </UFormField>
       <UFormField label="Processes per worker" name="settings.processes" :hint="limits ? `1–${limits.maxProcessesPerWorker}` : undefined">
-        <UInputNumber v-model="settings.processes" :min="1" :max="limits?.maxProcessesPerWorker" class="w-full" />
+        <NumberInput v-model="settings.processes" :min="1" :max="limits?.maxProcessesPerWorker" class="w-full" />
       </UFormField>
     </div>
     <p class="text-xs text-muted tabular-nums">
@@ -57,31 +57,31 @@ const advancedOpen = ref(false)
       <template #content>
         <div class="grid gap-3 pt-2 sm:grid-cols-2 xl:grid-cols-3">
           <UFormField label="Timeout per analysis (seconds)" name="settings.timeoutMs" hint="1–86400">
-            <UInputNumber v-model="timeoutSeconds" :min="1" :max="86400" class="w-full" />
+            <NumberInput v-model="timeoutSeconds" :min="1" :max="86400" class="w-full" />
           </UFormField>
           <UFormField label="Attempts per analysis" name="settings.maxAttempts" hint="1–20">
-            <UInputNumber v-model="settings.maxAttempts" :min="1" :max="20" class="w-full" />
+            <NumberInput v-model="settings.maxAttempts" :min="1" :max="20" class="w-full" />
           </UFormField>
           <UFormField label="Analyses per process before recycling" name="settings.maxAnalysesPerProcess">
-            <UInputNumber v-model="settings.maxAnalysesPerProcess" :min="1" :max="1000000" class="w-full" />
+            <NumberInput v-model="settings.maxAnalysesPerProcess" :min="1" :max="1000000" class="w-full" />
           </UFormField>
           <UFormField label="Backoff: first delay (ms)" name="settings.backoff.initialMs">
-            <UInputNumber v-model="settings.backoff.initialMs" :min="1000" :max="86400000" :step="1000" class="w-full" />
+            <NumberInput v-model="settings.backoff.initialMs" :min="1000" :max="86400000" :step="1000" class="w-full" />
           </UFormField>
           <UFormField label="Backoff: factor" name="settings.backoff.factor" hint="1–10">
-            <UInputNumber v-model="settings.backoff.factor" :min="1" :max="10" :step="0.5" class="w-full" />
+            <NumberInput v-model="settings.backoff.factor" :min="1" :max="10" :step="0.5" class="w-full" />
           </UFormField>
           <UFormField label="Backoff: longest delay (ms)" name="settings.backoff.maxMs">
-            <UInputNumber v-model="settings.backoff.maxMs" :min="1000" :max="86400000" :step="1000" class="w-full" />
+            <NumberInput v-model="settings.backoff.maxMs" :min="1000" :max="86400000" :step="1000" class="w-full" />
           </UFormField>
           <UFormField label="Backoff jitter" name="settings.backoff.jitter">
             <USwitch v-model="settings.backoff.jitter" label="Randomize retry delays" />
           </UFormField>
           <UFormField label="CPUs per process" name="settings.resources.cpus" hint="0.1–64">
-            <UInputNumber v-model="settings.resources.cpus" :min="0.1" :max="64" :step="0.1" class="w-full" />
+            <NumberInput v-model="settings.resources.cpus" :min="0.1" :max="64" :step="0.1" class="w-full" />
           </UFormField>
           <UFormField label="Memory per process (MiB)" name="settings.resources.memoryMiB" hint="64–65536">
-            <UInputNumber v-model="settings.resources.memoryMiB" :min="64" :max="65536" :step="64" class="w-full" />
+            <NumberInput v-model="settings.resources.memoryMiB" :min="64" :max="65536" :step="64" class="w-full" />
           </UFormField>
           <UFormField label="Node pool" name="settings.nodeSelector.pool">
             <UInput v-model="settings.nodeSelector.pool" class="w-full font-mono" />

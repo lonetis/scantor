@@ -26,7 +26,10 @@ function close(): void {
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="title" :dismissible="false" :close="{ onClick: close }" :ui="{ content: 'sm:max-w-2xl' }">
+  <UModal v-model:open="open" :title="title" :dismissible="false" :ui="{ content: 'sm:max-w-2xl' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" @click="close" />
+    </template>
     <template #body>
       <div class="space-y-4" data-testid="secret-reveal">
         <UAlert color="warning" variant="subtle" icon="i-lucide-triangle-alert" :description="warning" />

@@ -10,7 +10,7 @@ const { templates, loading, error, load } = useTemplates()
     <template #header>
       <UDashboardNavbar title="Templates">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #right>
           <RefreshButton :loading="loading" @click="load({ force: true })" />

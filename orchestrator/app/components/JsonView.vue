@@ -83,15 +83,17 @@ function childPath(key: string | number): string {
   <div v-else class="font-mono text-xs leading-relaxed">
     <template v-if="isObject">
       <span class="inline-flex items-center gap-0.5">
-        <button
-          type="button"
-          class="-ms-1 inline-flex items-center rounded px-0.5 text-[var(--code-muted)] hover:bg-[var(--code-border)]/40"
-          :aria-expanded="expanded"
-          :aria-label="`${expanded ? 'Collapse' : 'Expand'} ${label}`"
-          @click="expanded = !expanded"
-        >
-          <UIcon :name="expanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3" />
-        </button>
+        <UTooltip :text="`${expanded ? 'Collapse' : 'Expand'} ${label}`">
+          <button
+            type="button"
+            class="-ms-1 inline-flex items-center rounded px-0.5 text-[var(--code-muted)] hover:bg-[var(--code-border)]/40"
+            :aria-expanded="expanded"
+            :aria-label="`${expanded ? 'Collapse' : 'Expand'} ${label}`"
+            @click="expanded = !expanded"
+          >
+            <UIcon :name="expanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3" />
+          </button>
+        </UTooltip>
         <span v-if="propertyKey !== null" class="text-[var(--code-key)]">{{ typeof propertyKey === 'number' ? propertyKey : `"${propertyKey}"` }}</span>
         <span v-if="propertyKey !== null" class="text-[var(--code-muted)]">:&nbsp;</span>
         <span class="text-[var(--code-muted)]">{{ isArray ? '[' : '{' }}</span>

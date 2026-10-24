@@ -204,13 +204,16 @@ const columns: TableColumn<ApiKey>[] = [
     </div>
 
     <UModal v-model:open="createOpen" title="Create API key" description="The key is shown once after creation." :ui="{ content: 'sm:max-w-md' }">
+      <template #close="{ ui }">
+        <CloseButton :class="ui.close()" />
+      </template>
       <template #body>
         <UForm id="create-api-key-form" :schema="createApiKeyBody" :state="createState" class="space-y-3" @submit="submitCreate">
           <UFormField label="Name" name="name" required hint="1–32 characters">
             <UInput v-model="createState.name" maxlength="32" placeholder="laptop CLI" class="w-full" autofocus />
           </UFormField>
           <UFormField label="Expires in (days)" name="expiresInDays" required hint="1–365">
-            <UInputNumber v-model="createState.expiresInDays" :min="1" :max="365" class="w-40" />
+            <NumberInput v-model="createState.expiresInDays" :min="1" :max="365" class="w-40" />
           </UFormField>
           <p v-if="createError" class="text-xs text-error" role="alert">{{ createError }}</p>
         </UForm>

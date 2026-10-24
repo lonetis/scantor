@@ -37,16 +37,19 @@ function submit(): void {
 
 <template>
   <UModal v-model:open="open" title="Restart scan" description="Creates a new scan of the same revision with the same configuration." :ui="{ content: 'sm:max-w-md' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" />
+    </template>
     <template #body>
       <UForm id="restart-form" :schema="restartScanBody" :state="formState" class="space-y-3" @submit="submit">
         <UFormField label="Name" name="name" hint="at most 100 characters">
           <UInput v-model="state.name" :maxlength="100" class="w-full" />
         </UFormField>
         <UFormField label="Runner workers" name="settings.workers" :hint="limits ? `1–${limits.maxWorkersPerScan}` : undefined">
-          <UInputNumber v-model="state.workers" :min="1" :max="limits?.maxWorkersPerScan" class="w-full" />
+          <NumberInput v-model="state.workers" :min="1" :max="limits?.maxWorkersPerScan" class="w-full" />
         </UFormField>
         <UFormField label="Processes per worker" name="settings.processes" :hint="limits ? `1–${limits.maxProcessesPerWorker}` : undefined">
-          <UInputNumber v-model="state.processes" :min="1" :max="limits?.maxProcessesPerWorker" class="w-full" />
+          <NumberInput v-model="state.processes" :min="1" :max="limits?.maxProcessesPerWorker" class="w-full" />
         </UFormField>
       </UForm>
     </template>

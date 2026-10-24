@@ -185,7 +185,7 @@ function setNull(checked: boolean | 'indeterminate'): void {
           :disabled="disabled"
           @update:model-value="setNull"
         />
-        <UTooltip v-if="isSet && field.hasDefault" :text="`Reset ${labelText} to its default`">
+        <UTooltip v-if="isSet && field.hasDefault" :text="`Reset ${labelText}`">
           <UButton
             icon="i-lucide-rotate-ccw"
             color="neutral"

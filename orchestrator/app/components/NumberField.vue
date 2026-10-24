@@ -33,7 +33,7 @@ function onUpdate(next: number | null | undefined): void {
 </script>
 
 <template>
-  <UInputNumber
+  <NumberInput
     :model-value="value"
     :min="min"
     :max="max"

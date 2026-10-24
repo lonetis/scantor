@@ -114,7 +114,7 @@ function rowName(row: Row, index: number): string {
           :disabled="disabled"
           @update:model-value="setValue(row, $event)"
         />
-        <UInputNumber
+        <NumberInput
           v-else-if="valueType === 'number' || valueType === 'integer'"
           :model-value="typeof row.value === 'number' ? row.value : null"
           :step="valueType === 'integer' ? 1 : undefined"

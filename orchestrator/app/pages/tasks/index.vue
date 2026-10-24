@@ -32,7 +32,7 @@ const hasFilters = computed(() => Boolean(debouncedSearch.value.trim()) || langu
     <template #header>
       <UDashboardNavbar title="Tasks">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #right>
           <RefreshButton :loading="tasks.loading.value || tasks.refreshing.value" @click="tasks.refresh()" />

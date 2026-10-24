@@ -34,13 +34,16 @@ function submit(): void {
 
 <template>
   <UModal v-model:open="open" title="Scale scan" :ui="{ content: 'sm:max-w-md' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" />
+    </template>
     <template #body>
       <UForm id="scale-form" :schema="scaleScanBody" :state="state" class="space-y-3" @submit="submit">
         <UFormField label="Runner workers" name="workers" :hint="limits ? `1–${limits.maxWorkersPerScan}` : undefined">
-          <UInputNumber v-model="state.workers" :min="1" :max="limits?.maxWorkersPerScan" class="w-full" />
+          <NumberInput v-model="state.workers" :min="1" :max="limits?.maxWorkersPerScan" class="w-full" />
         </UFormField>
         <UFormField label="Processes per worker" name="processes" :hint="limits ? `1–${limits.maxProcessesPerWorker}` : undefined">
-          <UInputNumber v-model="state.processes" :min="1" :max="limits?.maxProcessesPerWorker" class="w-full" />
+          <NumberInput v-model="state.processes" :min="1" :max="limits?.maxProcessesPerWorker" class="w-full" />
         </UFormField>
         <p class="text-xs text-muted tabular-nums">
           {{ plural(state.workers * state.processes, 'concurrent analysis', 'concurrent analyses') }}; per worker {{ perWorker }}

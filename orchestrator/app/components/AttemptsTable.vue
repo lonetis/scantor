@@ -79,16 +79,17 @@ const columns: TableColumn<AttemptRow>[] = [
         <span v-else class="text-dimmed">–</span>
       </template>
       <template #log-cell="{ row }">
-        <UButton
-          v-if="row.original.logTail"
-          :icon="expanded[row.original.key] ? 'i-lucide-chevron-up' : 'i-lucide-scroll-text'"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          :aria-expanded="Boolean(expanded[row.original.key])"
-          :aria-label="`${expanded[row.original.key] ? 'Hide' : 'Show'} log of attempt ${row.original.attempt} round ${row.original.round}`"
-          @click="toggle(row.original.key)"
-        />
+        <UTooltip v-if="row.original.logTail" :text="`${expanded[row.original.key] ? 'Hide' : 'Show'} log of attempt ${row.original.attempt} round ${row.original.round}`">
+          <UButton
+            :icon="expanded[row.original.key] ? 'i-lucide-chevron-up' : 'i-lucide-scroll-text'"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            :aria-expanded="Boolean(expanded[row.original.key])"
+            :aria-label="`${expanded[row.original.key] ? 'Hide' : 'Show'} log of attempt ${row.original.attempt} round ${row.original.round}`"
+            @click="toggle(row.original.key)"
+          />
+        </UTooltip>
       </template>
     </UTable>
     <template v-for="row in rows" :key="row.key">

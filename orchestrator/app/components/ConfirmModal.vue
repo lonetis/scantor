@@ -20,7 +20,10 @@ function submit(): void {
 </script>
 
 <template>
-  <UModal :title="title" :description="description" :close="{ onClick: () => emit('close', false) }" :ui="{ content: 'sm:max-w-md' }">
+  <UModal :title="title" :description="description" :ui="{ content: 'sm:max-w-md' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" @click="emit('close', false)" />
+    </template>
     <template #body>
       <form id="confirm-modal-form" class="space-y-3" @submit.prevent="submit">
         <slot />

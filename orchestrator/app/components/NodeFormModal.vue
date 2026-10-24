@@ -87,6 +87,9 @@ async function submit(event: FormSubmitEvent<NodeForm>): Promise<void> {
 
 <template>
   <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-lg' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" />
+    </template>
     <template #body>
       <UForm id="node-form" :schema="schema" :state="state" class="space-y-3" @submit="submit">
         <UFormField label="Name" name="name" required hint="lowercase letters, digits, hyphens" :help="builtIn ? 'The built-in node keeps its name.' : undefined">
@@ -106,7 +109,7 @@ async function submit(event: FormSubmitEvent<NodeForm>): Promise<void> {
           />
         </UFormField>
         <UFormField label="Worker limit" name="maxWorkers" help="Caps the node below its reported capacity. Empty = no limit.">
-          <UInputNumber
+          <NumberInput
             :model-value="state.maxWorkers"
             :min="0"
             :max="100000"

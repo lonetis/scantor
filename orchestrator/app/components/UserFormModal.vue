@@ -137,12 +137,15 @@ async function submitPassword(event: FormSubmitEvent<z.output<typeof passwordSch
       <USwitch v-model="profile.canRunPrivileged" label="Can run privileged tasks" />
     </UFormField>
     <UFormField label="Worker limit" name="maxWorkers" help="Active workers across all scans of this user; 0 = unlimited. Empty uses the instance default.">
-      <UInputNumber :model-value="profile.maxWorkers ?? null" :min="0" :max="100000" class="w-40" placeholder="default" @update:model-value="profile.maxWorkers = $event ?? undefined" />
+      <NumberInput :model-value="profile.maxWorkers ?? null" :min="0" :max="100000" class="w-40" placeholder="default" @update:model-value="profile.maxWorkers = $event ?? undefined" />
     </UFormField>
     <p v-if="error" class="text-xs text-error" role="alert">{{ error }}</p>
   </DefineProfileFields>
 
   <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-lg' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" />
+    </template>
     <template #body>
       <UForm v-if="mode === 'password'" id="user-form" :schema="passwordSchema" :state="passwordState" class="space-y-3" @submit="submitPassword">
         <UFormField label="New password" name="password" required hint="8–128 characters">

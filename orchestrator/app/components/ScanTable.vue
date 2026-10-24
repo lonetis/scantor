@@ -126,7 +126,9 @@ function open(_event: Event, row: TableRow<ScanSummary>): void {
     </template>
     <template #actions-cell="{ row }">
       <UDropdownMenu :items="actionsFor(row.original)" :content="{ align: 'end' }">
-        <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" size="xs" :aria-label="`Scan actions for ${name(row.original)}`" @click.stop />
+        <UTooltip :text="`Scan actions for ${name(row.original)}`">
+          <UButton icon="i-lucide-ellipsis-vertical" color="neutral" variant="ghost" size="xs" :aria-label="`Scan actions for ${name(row.original)}`" @click.stop />
+        </UTooltip>
       </UDropdownMenu>
     </template>
   </UTable>

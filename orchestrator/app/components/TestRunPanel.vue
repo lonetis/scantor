@@ -212,13 +212,13 @@ function outcome(analysis: TestRunAnalysis): string {
         </div>
         <div class="flex flex-wrap gap-3">
           <UFormField v-if="mode === 'schedule'" label="Limit" name="limit" hint="1–50">
-            <UInputNumber v-model="limit" :min="1" :max="50" class="w-24" />
+            <NumberInput v-model="limit" :min="1" :max="50" class="w-24" />
           </UFormField>
           <UFormField label="Max attempts" name="maxAttempts" hint="1–5">
-            <UInputNumber v-model="maxAttempts" :min="1" :max="5" class="w-24" />
+            <NumberInput v-model="maxAttempts" :min="1" :max="5" class="w-24" />
           </UFormField>
           <UFormField label="Timeout (s)" name="timeout" :hint="manifestTimeoutMs ? `default ${Math.round(manifestTimeoutMs / 1000)}` : 'manifest default'">
-            <UInputNumber v-model="timeoutSeconds" :min="1" :max="86400" class="w-32" placeholder="default" />
+            <NumberInput v-model="timeoutSeconds" :min="1" :max="86400" class="w-32" placeholder="default" />
           </UFormField>
         </div>
         <UAlert v-if="startError" color="error" variant="subtle" icon="i-lucide-circle-alert" title="The test run could not start" :description="startError" />

@@ -4,7 +4,7 @@ import type { ScantorNode } from '#shared/types/nodes'
 
 // Nodes list of /admin/nodes (docs/ui.md §5.15): state, cordon, pool, labels, capacity and warnings per node, with
 // row actions. Rotate, revoke and delete are disabled for the built-in node, whose token is derived from
-// SCANTOR_SECRET.
+// SCANTOR_SECRET; its menu says so above them.
 const props = withDefaults(defineProps<{
   nodes: ScantorNode[]
   loading?: boolean
@@ -47,6 +47,8 @@ function actionsFor(node: ScantorNode): DropdownMenuItem[][] {
       { label: 'Show join command', icon: 'i-lucide-terminal', onSelect: () => emit('join', node) },
     ],
     [
+      // The explanation sits in the menu, next to the disabled actions: the actions button's tooltip is its name.
+      ...(builtIn ? [{ type: 'label' as const, label: BUILTIN_HINT, class: 'max-w-64 whitespace-normal font-normal text-muted' }] : []),
       { label: 'Rotate token', icon: 'i-lucide-key-round', disabled: builtIn, onSelect: () => emit('rotate', node) },
       { label: 'Revoke token', icon: 'i-lucide-shield-off', color: 'warning', disabled: builtIn || node.state === 'revoked', onSelect: () => emit('revoke', node) },
       { label: 'Delete', icon: 'i-lucide-trash-2', color: 'error', disabled: builtIn, onSelect: () => emit('delete', node) },
@@ -151,8 +153,8 @@ const hasWarnings = computed(() => props.nodes.some((node) => warnings(node).len
       </div>
     </template>
     <template #actions-cell="{ row }">
-      <UTooltip :text="row.original.builtIn ? BUILTIN_HINT : 'Node actions'" :content="{ side: 'left' }">
-        <UDropdownMenu :items="actionsFor(row.original)" :content="{ align: 'end' }">
+      <UDropdownMenu :items="actionsFor(row.original)" :content="{ align: 'end' }">
+        <UTooltip :text="`Node actions for ${row.original.name}`" :content="{ side: 'left' }">
           <UButton
             icon="i-lucide-ellipsis-vertical"
             color="neutral"
@@ -160,8 +162,8 @@ const hasWarnings = computed(() => props.nodes.some((node) => warnings(node).len
             size="xs"
             :aria-label="`Node actions for ${row.original.name}`"
           />
-        </UDropdownMenu>
-      </UTooltip>
+        </UTooltip>
+      </UDropdownMenu>
     </template>
   </UTable>
 </template>

@@ -22,6 +22,9 @@ async function download(file: FileRef): Promise<void> {
 
 <template>
   <USlideover v-model:open="open" :title="analysis ? `Analysis ${analysis.seq}` : 'Analysis'" :ui="{ content: 'sm:max-w-2xl' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" />
+    </template>
     <template #body>
       <div v-if="analysis" class="space-y-4" data-testid="analysis-slideover">
         <div class="flex flex-wrap items-center gap-2">

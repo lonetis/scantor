@@ -57,6 +57,9 @@ const checklist = computed(() => [
   </SecretRevealModal>
 
   <UModal v-else v-model:open="open" :title="`Join command of ${nodeName}`" :ui="{ content: 'sm:max-w-2xl' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" />
+    </template>
     <template #body>
       <div class="space-y-4">
         <p class="text-xs text-muted">

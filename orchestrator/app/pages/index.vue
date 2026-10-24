@@ -83,7 +83,7 @@ const nodeStats = computed(() => {
     <template #header>
       <UDashboardNavbar title="Overview">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #right>
           <RefreshButton :loading="poll.running.value" @click="poll.refresh()" />

@@ -86,7 +86,7 @@ async function restart(values: { name?: string, settings?: { workers?: number, p
     <template #header>
       <UDashboardNavbar title="Scans">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #right>
           <RefreshButton :loading="scans.polling.value" @click="scans.refresh()" />

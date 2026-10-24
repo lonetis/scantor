@@ -124,7 +124,7 @@ function dismissCreated(): void {
     <template #header>
       <UDashboardNavbar>
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #title>
           <TaskHeader v-if="task" :task="task" />

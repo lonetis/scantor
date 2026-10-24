@@ -134,7 +134,7 @@ async function stopEditor(): Promise<void> {
     <template #header>
       <UDashboardNavbar title="Editor">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #trailing>
           <StatusBadge v-if="state" kind="editor" :state="state" />

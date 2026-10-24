@@ -21,7 +21,7 @@ onMounted(() => {
     <template #header>
       <UDashboardNavbar title="Account">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #right>
           <UButton label="CLI & MCP access" icon="i-lucide-terminal" color="neutral" variant="ghost" size="sm" to="/account/access" />

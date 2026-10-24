@@ -14,7 +14,7 @@ onMounted(() => {
     <template #header>
       <UDashboardNavbar title="CLI & MCP access">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
       </UDashboardNavbar>
     </template>

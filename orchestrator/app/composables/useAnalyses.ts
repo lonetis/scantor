@@ -51,6 +51,15 @@ export function analysisStatusesOf(value: unknown): AnalysisStatus[] {
   return ANALYSIS_STATUSES.filter((status) => raw.includes(status))
 }
 
+/**
+ * The name of a file chip's download button: "Download <file> of analysis <seq>". The analysis distinguishes the
+ * chips of different result rows, which often carry files of the same name (docs/ui.md §11 rule 1).
+ */
+export function fileDownloadLabel(fileName: string, analysisId: string): string {
+  const seq = /-(\d+)$/.exec(analysisId)?.[1]
+  return seq === undefined ? `Download ${fileName}` : `Download ${fileName} of analysis ${seq}`
+}
+
 export function analysisIdOf(scanId: string, seq: number): string {
   return `${scanId}-${seq}`
 }

@@ -11,7 +11,7 @@ const initialRevision = computed(() => (typeof route.query.revision === 'string'
     <template #header>
       <UDashboardNavbar title="New scan">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
       </UDashboardNavbar>
     </template>

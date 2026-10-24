@@ -20,6 +20,8 @@ const downloading = ref(false)
 const previewInfo = shallowRef<FileDownload | null>(null)
 const previewFailed = ref(false)
 const isImage = computed(() => ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(props.file.contentType.split(';')[0]!.trim().toLowerCase()))
+// Every result row has its own chips, so the name carries the analysis (docs/ui.md §11 rule 1).
+const downloadLabel = computed(() => fileDownloadLabel(props.file.name, props.analysisId))
 
 async function download(): Promise<void> {
   downloading.value = true
@@ -60,14 +62,14 @@ watch(() => [props.analysisId, props.file.id, props.preview], () => {
       </UTooltip>
       <BytesText :bytes="file.size" class="text-muted" />
       <span v-if="!compact" class="truncate text-dimmed">{{ file.contentType }}</span>
-      <UTooltip :text="`Download ${file.name}`">
+      <UTooltip :text="downloadLabel">
         <UButton
           icon="i-lucide-download"
           color="neutral"
           variant="ghost"
           size="xs"
           :loading="downloading"
-          :aria-label="`Download ${file.name}`"
+          :aria-label="downloadLabel"
           @click.stop="download"
         />
       </UTooltip>

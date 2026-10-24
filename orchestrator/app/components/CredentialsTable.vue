@@ -62,17 +62,21 @@ const columns: TableColumn<GitCredential>[] = [
     </template>
     <template #actions-cell="{ row }">
       <div class="flex items-center justify-end gap-1">
-        <UButton icon="i-lucide-pencil" size="xs" color="neutral" variant="ghost" :aria-label="`Edit credential ${row.original.name}`" @click="emit('edit', row.original)" />
-        <UButton
-          :icon="armed === row.original.id ? 'i-lucide-check' : 'i-lucide-trash-2'"
-          :label="armed === row.original.id ? 'Confirm' : undefined"
-          size="xs"
-          color="error"
-          :variant="armed === row.original.id ? 'soft' : 'ghost'"
-          :aria-label="armed === row.original.id ? `Confirm deleting credential ${row.original.name}` : `Delete credential ${row.original.name}`"
-          @click="remove(row.original)"
-          @blur="armed = null"
-        />
+        <UTooltip :text="`Edit credential ${row.original.name}`">
+          <UButton icon="i-lucide-pencil" size="xs" color="neutral" variant="ghost" :aria-label="`Edit credential ${row.original.name}`" @click="emit('edit', row.original)" />
+        </UTooltip>
+        <UTooltip :text="armed === row.original.id ? `Confirm deleting credential ${row.original.name}` : `Delete credential ${row.original.name}`">
+          <UButton
+            :icon="armed === row.original.id ? 'i-lucide-check' : 'i-lucide-trash-2'"
+            :label="armed === row.original.id ? 'Confirm' : undefined"
+            size="xs"
+            color="error"
+            :variant="armed === row.original.id ? 'soft' : 'ghost'"
+            :aria-label="armed === row.original.id ? `Confirm deleting credential ${row.original.name}` : `Delete credential ${row.original.name}`"
+            @click="remove(row.original)"
+            @blur="armed = null"
+          />
+        </UTooltip>
       </div>
     </template>
   </UTable>

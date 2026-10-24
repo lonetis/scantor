@@ -99,6 +99,9 @@ async function querySimilar(): Promise<void> {
     side="right"
     :ui="{ content: 'sm:max-w-3xl' }"
   >
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" />
+    </template>
     <template #body>
       <div data-testid="analysis-slideover" class="space-y-6">
         <div v-if="loading" class="space-y-2">

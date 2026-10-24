@@ -26,7 +26,7 @@ const sourceUrl = computed(() => `/api/tasks/${encodeURIComponent(taskId.value)}
     <template #header>
       <UDashboardNavbar>
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #title>
           <div class="flex min-w-0 items-center gap-2">

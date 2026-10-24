@@ -92,7 +92,7 @@ const eventColumns: TableColumn<ScantorEvent>[] = [
     <template #header>
       <UDashboardNavbar :title="node?.name ?? 'Node'">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #title>
           <div class="flex items-center gap-2">

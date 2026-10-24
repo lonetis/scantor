@@ -91,7 +91,7 @@ async function refresh(): Promise<void> {
     <template #header>
       <UDashboardNavbar title="Users">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #right>
           <RefreshButton :loading="users.loading.value || purgePoll.running.value" @click="refresh" />

@@ -97,8 +97,8 @@ Pages call their composables directly; there is no event relaying through layout
 
 | Area | Components |
 |---|---|
-| Shell | `AppSidebar`, `AppLogo`, `ThemeToggle`, `UserMenu`, `RefreshButton` |
-| Common | `StatusBadge` (kind + state → color/icon/label from `utils/status.ts`), `IdChip` (short id + copy), `CopyButton`, `RelativeTime`, `DurationText`, `BytesText`, `JsonView` (text-only, collapsible, long-string truncation), `InlineCodeText` (template and schema descriptions with Markdown code spans as `<code>`, everything else plain text), `CodeBlock`, `LogView` (ANSI-stripped, follow toggle), `EmptyState`, `ConfirmModal`, `SecretRevealModal` (token/key shown once), `KeyValueEditor`, `FileDropZone`, `LoadMoreButton` |
+| Shell | `AppSidebar`, `AppLogo`, `ThemeToggle`, `UserMenu`, `RefreshButton`, `SidebarCollapseButton` |
+| Common | `StatusBadge` (kind + state → color/icon/label from `utils/status.ts`), `IdChip` (short id + copy), `CopyButton`, `RelativeTime`, `DurationText`, `BytesText`, `JsonView` (text-only, collapsible, long-string truncation), `InlineCodeText` (template and schema descriptions with Markdown code spans as `<code>`, everything else plain text), `CodeBlock`, `LogView` (ANSI-stripped, follow toggle), `EmptyState`, `ConfirmModal`, `SecretRevealModal` (token/key shown once), `KeyValueEditor`, `FileDropZone`, `LoadMoreButton`, `NumberInput` (`UInputNumber` whose increment and decrement buttons have tooltips; used instead of it everywhere), `CloseButton` (the `#close` slot of every `UModal` and `USlideover`, with its tooltip) |
 | Schema forms | `SchemaForm`, `SchemaField` (dispatcher), `StringField`, `NumberField`, `BooleanField`, `EnumField`, `ArrayField`, `ObjectField`, `MapField`, `UnionField` (discriminated unions), `UploadField`, `JsonField`, `SchemaTable` (read-only schema viewer) |
 | Tasks | `TaskTable`, `TaskHeader`, `TaskWorkspaceCard`, `TaskFilesBrowser`, `RevisionTable`, `RevisionFacts`, `BuildLog`, `BuildErrors`, `DescribeView`, `PublishModal`, `TestRunPanel`, `TestRunAnalysisSlideover`, `WizardSourceStep`, `WizardLanguageStep`, `WizardTemplateStep`, `WizardNameStep`, `WizardGitStep`, `WizardUploadStep` |
 | Scans | `ScanTable`, `ScanHeader`, `ScanControls`, `ScanProgress`, `ScanStats`, `ScanHealth`, `ConditionItem`, `ScanSettingsCard`, `ScanResultsTable`, `ResultsFilterBar`, `AnalysisSlideover`, `AttemptsTable`, `FileChip`, `QueryConsole`, `ExportsPanel`, `ExportModal`, `ScaleModal`, `RestartModal`, `WorkersTable`, `InflightTable`, `WorkerLogsModal`, `EventTimeline`, `NewScanForm`, `RevisionPicker`, `SettingsFields`, `EstimateBadge` |
@@ -132,7 +132,8 @@ Pages call their composables directly; there is no event relaying through layout
 
 - `layouts/default.vue` renders `UDashboardGroup` → `AppSidebar` + `<slot/>`. Every page renders one
   `UDashboardPanel` with `id` = route name; the `#header` slot holds `UDashboardNavbar` (title,
-  `#leading` = `UDashboardSidebarCollapse`, `#right` = page actions) and optionally a `UDashboardToolbar`
+  `#leading` = `SidebarCollapseButton`, which is `UDashboardSidebarCollapse` with its name as tooltip,
+  `#right` = page actions) and optionally a `UDashboardToolbar`
   with page tabs.
 - On screens below `lg`, the sidebar becomes a drawer opened by `UDashboardSidebarToggle` (aria-label
   "Open navigation").
@@ -606,7 +607,8 @@ A note links to the authoring guides ([templates](templates.md) is the internal 
   command (`getNodeJoin`, token placeholder `${SCANTOR_NODE_TOKEN}`), Rotate token (`ConfirmModal` →
   `rotateNodeToken` → `SecretRevealModal`), Revoke token (`ConfirmModal`, "Its workers are rescheduled" →
   `revokeNodeToken`), Delete (`ConfirmModal` → `deleteNode`). Rotate, revoke and delete are disabled for
-  the built-in node (tooltip "The built-in node's token is derived from SCANTOR_SECRET").
+  the built-in node; its menu explains why in a label above them ("The built-in node's token is derived from
+  SCANTOR_SECRET"). The actions button's tooltip is its name, "Node actions for <name>" (§11 rule 1).
 - Node detail: info `dl` (all `info` fields, instance version and start, lease), workers on the node
   (`listNodeWorkers`: scan link, role, state, processes, restarts), node events (`listNodeEvents`).
 
@@ -884,7 +886,10 @@ of the contract:
 
 1. Every icon-only button has an `aria-label`; the same text is its tooltip. Buttons with visible text use
    that text as their name. No two buttons in the same region share a name (row actions include the row
-   name, for example "Remove passkey MacBook").
+   name, for example "Remove passkey MacBook"; file chips "Download <file> of analysis <seq>"). Nuxt UI's
+   own icon-only buttons get their tooltip from `SidebarCollapseButton`, `NumberInput` and `CloseButton`;
+   a menu trigger nests the tooltip inside the menu (`UDropdownMenu` > `UTooltip` > `UButton`), because
+   `UDropdownMenu` renders no element that could carry the tooltip trigger.
 2. Canonical names (tests depend on them): "Refresh", "Open navigation", "Collapse sidebar", "Use system
    theme", "Use light theme", "Use dark theme", "Sign in", "Sign in with passkey", "Sign out", "New task",
    "New scan", "Open in editor", "Publish revision", "Start scan", "Pull from git", "Download workspace",

@@ -34,7 +34,7 @@ async function remove(credential: GitCredential): Promise<void> {
     <template #header>
       <UDashboardNavbar title="Git credentials">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #right>
           <RefreshButton :loading="store.loading.value" @click="store.load()" />

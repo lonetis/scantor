@@ -117,13 +117,15 @@ const columns: TableColumn<User>[] = [
     </template>
     <template #actions-cell="{ row }">
       <UDropdownMenu :items="actionsFor(row.original)" :content="{ align: 'end' }">
-        <UButton
-          icon="i-lucide-ellipsis-vertical"
-          color="neutral"
-          variant="ghost"
-          size="xs"
-          :aria-label="`User actions for ${row.original.email}`"
-        />
+        <UTooltip :text="`User actions for ${row.original.email}`">
+          <UButton
+            icon="i-lucide-ellipsis-vertical"
+            color="neutral"
+            variant="ghost"
+            size="xs"
+            :aria-label="`User actions for ${row.original.email}`"
+          />
+        </UTooltip>
       </UDropdownMenu>
     </template>
   </UTable>

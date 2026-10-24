@@ -94,9 +94,11 @@ async function submit(): Promise<void> {
     v-model:open="open"
     :title="`Export results of ${scan.name || shortId(scan.id)}`"
     description="A background export writes a file you can download for the retention period."
-    :close="{ onClick: () => finish(null) }"
     :ui="{ content: 'sm:max-w-xl' }"
   >
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" @click="finish(null)" />
+    </template>
     <template #body>
       <form id="export-modal-form" class="space-y-4" @submit.prevent="submit">
         <UFormField label="Format" name="format">

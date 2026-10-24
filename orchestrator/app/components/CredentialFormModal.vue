@@ -77,6 +77,9 @@ async function submit(event: FormSubmitEvent<{ name: string; host: string; usern
 
 <template>
   <UModal v-model:open="open" :title="editing ? `Edit ${credential?.name}` : 'New credential'" :ui="{ content: 'sm:max-w-lg' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" />
+    </template>
     <template #body>
       <UForm id="credential-form" :schema="schema" :state="state" class="space-y-3" @submit="submit">
         <UFormField label="Name" name="name" required>
@@ -91,15 +94,17 @@ async function submit(event: FormSubmitEvent<{ name: string; host: string; usern
         <UFormField label="Token" name="token" :required="!editing" :help="editing ? 'Leave empty to keep the stored token.' : 'Shown never again after saving.'">
           <UInput v-model="state.token" :type="showToken ? 'text' : 'password'" autocomplete="new-password" class="w-full font-mono">
             <template #trailing>
-              <UButton
-                :icon="showToken ? 'i-lucide-eye-off' : 'i-lucide-eye'"
-                size="xs"
-                color="neutral"
-                variant="link"
-                aria-label="Show value of token"
-                :aria-pressed="showToken"
-                @click="showToken = !showToken"
-              />
+              <UTooltip text="Show value of token">
+                <UButton
+                  :icon="showToken ? 'i-lucide-eye-off' : 'i-lucide-eye'"
+                  size="xs"
+                  color="neutral"
+                  variant="link"
+                  aria-label="Show value of token"
+                  :aria-pressed="showToken"
+                  @click="showToken = !showToken"
+                />
+              </UTooltip>
             </template>
           </UInput>
         </UFormField>

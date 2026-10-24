@@ -117,7 +117,7 @@ async function remove(node: ScantorNode): Promise<void> {
     <template #header>
       <UDashboardNavbar title="Nodes">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #right>
           <RefreshButton :loading="nodes.refreshing.value" @click="nodes.refresh()" />

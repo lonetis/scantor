@@ -43,6 +43,9 @@ async function submit(event: FormSubmitEvent<z.output<typeof banUserBody>>): Pro
 
 <template>
   <UModal v-model:open="open" :title="`Ban ${user?.email ?? 'user'}`" description="Signs the user out everywhere and revokes their API keys and app authorizations." :ui="{ content: 'sm:max-w-md' }">
+    <template #close="{ ui }">
+      <CloseButton :class="ui.close()" />
+    </template>
     <template #body>
       <UForm id="ban-user-form" :schema="banUserBody" :state="state" class="space-y-3" @submit="submit">
         <UFormField label="Reason" name="reason" hint="optional, shown to admins">

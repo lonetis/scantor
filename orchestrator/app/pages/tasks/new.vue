@@ -89,7 +89,7 @@ watch(source, () => {
     <template #header>
       <UDashboardNavbar title="New task">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
       </UDashboardNavbar>
     </template>

@@ -117,10 +117,10 @@ watch(() => route.query.filter, async (raw) => {
       </div>
       <div class="flex flex-wrap gap-3">
         <UFormField label="Limit" name="limit">
-          <UInputNumber v-model="inputs.limit" :min="1" :max="QUERY_MAX_LIMIT" size="sm" class="w-32" />
+          <NumberInput v-model="inputs.limit" :min="1" :max="QUERY_MAX_LIMIT" size="sm" class="w-32" />
         </UFormField>
         <UFormField label="After seq" name="afterSeq" hint="optional">
-          <UInputNumber v-model="inputs.afterSeq" :min="-1" size="sm" class="w-36" placeholder="–" />
+          <NumberInput v-model="inputs.afterSeq" :min="-1" size="sm" class="w-36" placeholder="–" />
         </UFormField>
       </div>
     </template>
@@ -129,7 +129,7 @@ watch(() => route.query.filter, async (raw) => {
         <UTextarea v-model="inputs.pipeline" :rows="5" autoresize class="w-full font-mono text-xs" spellcheck="false" />
       </UFormField>
       <UFormField label="Limit" name="aggregateLimit" hint="optional">
-        <UInputNumber v-model="inputs.aggregateLimit" :min="1" size="sm" class="w-32" placeholder="max" />
+        <NumberInput v-model="inputs.aggregateLimit" :min="1" size="sm" class="w-32" placeholder="max" />
       </UFormField>
     </template>
 

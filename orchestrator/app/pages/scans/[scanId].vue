@@ -85,7 +85,7 @@ async function refreshAll(): Promise<void> {
     <template #header>
       <UDashboardNavbar :title="scan?.name || (scan ? `Scan ${shortId(scan.id)}` : 'Scan')">
         <template #leading>
-          <UDashboardSidebarCollapse />
+          <SidebarCollapseButton />
         </template>
         <template #right>
           <RefreshButton :loading="polling" @click="refreshAll()" />
