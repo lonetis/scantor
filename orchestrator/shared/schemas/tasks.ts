@@ -163,13 +163,40 @@ export const deleteTaskFileQuery = z.strictObject({
 
 // ── git (§4.8) ──────────────────────────────────────────────────────────────
 
+/**
+ * Why the syntax of a git URL is rejected (docs/editor.md §9.7, security.md WS-6), or null: `https://` only, no
+ * userinfo (not even an empty one), no leading `-` and a host. The server additionally checks the host's addresses
+ * (`server/services/tasks/git-url.ts`); the import form validates with the same rule, so such URLs never leave the
+ * browser.
+ */
+export function gitUrlProblem(raw: string): string | null {
+  const value = raw.trim()
+  if (value.startsWith('-')) return 'must not start with "-"'
+  if (!/^https:\/\//i.test(value)) return 'must be an https:// URL'
+  let url: URL
+  try {
+    url = new URL(value)
+  } catch {
+    return 'is not a valid URL'
+  }
+  if (url.protocol !== 'https:') return 'must be an https:// URL'
+  const authority = value.slice('https://'.length).split(/[/?#\\]/, 1)[0] ?? ''
+  if (url.username || url.password || authority.includes('@')) return 'must not contain credentials; use a git credential instead'
+  if (!url.hostname) return 'must name a host'
+  if (url.hostname.startsWith('-')) return 'the host must not start with "-"'
+  return null
+}
+
 export const gitUrl = () =>
   z
     .string()
     .trim()
     .min(1)
     .max(2048)
-    .refine((value) => value.toLowerCase().startsWith('https://'), 'must be an https:// URL')
+    .superRefine((value, ctx) => {
+      const problem = gitUrlProblem(value)
+      if (problem) ctx.addIssue({ code: 'custom', message: problem })
+    })
 
 export const importGitBody = z.strictObject({
   url: gitUrl(),

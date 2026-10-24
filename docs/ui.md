@@ -304,7 +304,7 @@ scaffold", "Import from git", "Upload a folder".
 "Create task" → `createTask {name, language, template, description}` → `/tasks/:id` with a success
 banner offering "Open in editor", "Start test run" and "Publish". `409 alreadyExists` → inline under name.
 
-**Import from git**: `url` (https only, zod), `ref` (default `HEAD`), `path` (default `.`), credential
+**Import from git**: `url` (https only, no userinfo, no leading `-`: zod with the request schema's `gitUrl`, so such URLs are rejected before any request), `ref` (default `HEAD`), `path` (default `.`), credential
 (`USelect` from `listCredentials` + "None", link "Add a credential" → `/account/credentials` in a new
 tab) → `importGitTask`. A 200 with `imported: []` and `candidates` adds a step "Select tasks": checkbox
 list (name, language, path, "already exists" badge disables the row) → `importGitTask` with `select`. One

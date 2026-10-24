@@ -31,10 +31,22 @@ describe('parseGitUrl', () => {
     'ext::sh -c touch% /tmp/pwned',
     'https://user:token@example.org/r.git',
     'https://token@example.org/r.git',
+    'https://@example.org/r.git',
     '-uhttps://example.org/r.git',
     'not a url',
   ])('rejects %s', (url) => {
     expect(() => parseGitUrl(url)).toThrow(ApiError)
+  })
+
+  it('reports the shared rule at path url', () => {
+    try {
+      parseGitUrl('https://user:secret@example.org/r.git')
+      expect.unreachable()
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError)
+      expect((error as ApiError).code).toBe('validationFailed')
+      expect(JSON.stringify((error as ApiError).details)).toContain('must not contain credentials')
+    }
   })
 })
 

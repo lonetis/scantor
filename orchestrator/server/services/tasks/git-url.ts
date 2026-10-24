@@ -1,5 +1,6 @@
 import { lookup } from 'node:dns/promises'
 import { BlockList, isIP } from 'node:net'
+import { gitUrlProblem } from '#shared/schemas/tasks'
 import { apiError, validationError } from '../../utils/errors'
 
 // The git URL pre-check (docs/editor.md §9.7, security.md WS-6), applied by the orchestrator before it starts a git
@@ -62,20 +63,12 @@ function urlIssue(message: string) {
   return validationError([{ path: 'url', message }], `invalid git URL: ${message}`)
 }
 
-/** Validates the syntax of a git URL (no network). */
+/** Validates the syntax of a git URL (no network) with the rule the request schema and the UI share. */
 export function parseGitUrl(raw: string): CheckedGitUrl & { hostname: string } {
   const value = raw.trim()
-  if (value.startsWith('-')) throw urlIssue('must not start with "-"')
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    throw urlIssue('is not a valid URL')
-  }
-  if (url.protocol !== 'https:') throw urlIssue('must use https://')
-  if (url.username || url.password) throw urlIssue('must not contain credentials; use a git credential instead')
-  if (!url.hostname) throw urlIssue('must name a host')
-  if (url.hostname.startsWith('-')) throw urlIssue('the host must not start with "-"')
+  const problem = gitUrlProblem(value)
+  if (problem) throw urlIssue(problem)
+  const url = new URL(value)
   const hostname = url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname
   return { url: value, host: url.host.toLowerCase(), hostname }
 }
