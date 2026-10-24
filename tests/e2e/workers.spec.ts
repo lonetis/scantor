@@ -15,6 +15,7 @@ import {
   scanWorkers,
   settings,
   sleep,
+  waitForAnalysis,
   withTimeline,
   workerContainers,
 } from '../helpers/e2e-runtime'
@@ -158,8 +159,16 @@ test.describe('crash loops and memory', () => {
       const delayMs = Date.parse(backoff.container!.nextRestartAt!) - Date.parse(exit.at)
       expect(delayMs).toBeGreaterThanOrEqual(9000)
       expect(delayMs).toBeLessThanOrEqual(12_000)
-      // The analysis in flight finished during the drain.
-      expect(await analysisBySeq(api, scan.id, busy.items[0]!.seq)).toMatchObject({ status: 'succeeded', attempt: 1 })
+      // The analysis in flight finished during the drain, before the container exited. The runtime only waits for the
+      // broker's confirm of its result, and the ingestor writes it up to a flush interval later, so the document can
+      // still be missing when the node reports the exit.
+      const drained = await waitForAnalysis(api, scan.id, busy.items[0]!.seq, (analysis) => analysis.status === 'succeeded' || analysis.status === 'failed', {
+        timeoutMs: 30_000,
+        intervalMs: 250,
+        what: 'the result of the analysis in flight at the SIGTERM',
+      })
+      expect(drained).toMatchObject({ status: 'succeeded', attempt: 1 })
+      expect(Date.parse(drained.timings!.finishedAt!), 'finished before the container exited').toBeLessThanOrEqual(Date.parse(exit.at))
 
       const restarted = await pollUntil(
         'the same container running again',
@@ -253,9 +262,14 @@ test.describe('drain and stop', () => {
         (ids) => ids.length === 0,
         { timeoutMs: 60_000 },
       )
-      const finished = await analysisBySeq(api, scan.id, drainedSeqs[0]!)
+      // Its result reaches the ingestor on its own schedule (see the clean-exit case above).
+      const finished = await waitForAnalysis(api, scan.id, drainedSeqs[0]!, (analysis) => analysis.status === 'succeeded' || analysis.status === 'failed', {
+        timeoutMs: 30_000,
+        intervalMs: 250,
+        what: 'the result of the drained analysis',
+      })
       expect(finished).toMatchObject({ status: 'succeeded', attempt: 1, workerId: victim!.id })
-      expect(finished!.attempts).toHaveLength(1)
+      expect(finished.attempts).toHaveLength(1)
 
       await scans.wait(scan.id, { timeoutMs: 120_000 })
       expect(await scans.counts(scan.id)).toEqual({ succeeded: 4 })

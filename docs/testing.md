@@ -838,6 +838,9 @@ Flake avoidance (agentor's pitfalls):
     another container can take it, and the restarted one gets a new address. Helpers that reach a container by
     IP read it again after a restart (`ThrowawayOrchestrator.restart()`); otherwise the test talks to another
     test's container.
+16. A worker's lifecycle and its results travel separately: the runtime exits once the broker confirmed a result,
+    and the ingestor writes it up to a flush interval later. After a worker drained, exited or stopped, wait for
+    the analysis document (`waitForAnalysis`) instead of reading it once.
 
 ## 10. `FEATURES.md` and `TESTS.md`
 
