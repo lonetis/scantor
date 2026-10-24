@@ -677,8 +677,16 @@ still have a stored `config` (lost documents converted from `pending`/`retrying`
 §9); gap-filled `lost` documents without a config and all `cancelled` analyses are not retried (the user
 restarts the scan instead):
 
-1. `materialize` (only for scans that were cancelled): walk `{scanId, seq}` and insert `cancelled` documents
-   (no config) for missing seqs `< scheduling.confirmed`, so they are visible and countable.
+1. `materialize` (only for scans that were cancelled): first let round R settle. The retry makes the scan
+   `running`, so the topology loop recreates its user with the same password, and a runner whose connection the
+   kill switch closed can reconnect instead of being refused, finish the analyses it was running and publish
+   their round-R results. The job therefore waits until no runner has reported an analysis of an earlier round
+   in its `busy[]` (in-memory state polls; a slot keeps it there until its results are confirmed) for the settle
+   delay of §6.3 (`2 × SCANTOR_INGEST_FLUSH_INTERVAL + 10 s`), and at least that long after the cancel
+   (`params.cancelledAt`). Otherwise such an analysis would be materialized as `cancelled` and then turned into a
+   round-R failure by its late result, which this retry never runs. Then walk `{scanId, seq}` and insert
+   `cancelled` documents (no config) for missing seqs `< scheduling.confirmed`, so they are visible and
+   countable.
 2. `reset`: in batches of 1000 by seq, `updateMany({scanId, status: {$in: ["failed", "lost"]}, round: {$lte: R},
    config: {$exists: true}, seq: {$gt: afterSeq, $lte: batchEnd}}, {$set: {status: "pending", round: R + 1,
    attempt: 0, updatedAt}})`; then a recount.

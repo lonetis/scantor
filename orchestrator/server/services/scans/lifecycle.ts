@@ -173,13 +173,15 @@ export async function retryFailedAnalyses(scan: ScanDoc): Promise<{ scan: ScanDo
   }
 
   const round = scan.round + 1
+  const cancelled = scan.state === 'cancelled'
   // The job is created first (the partial unique index allows one active retry per scan) and starts a moment
   // later; its handler checks that the scan really entered `retrying` for this round before it touches anything.
+  // The cancel time lets the job wait for the cancelled round to settle (retry-failed.ts settleEarlierRounds).
   const { job, created } = await createJob({
     kind: 'scanRetryFailed',
     userId: scan.userId,
     subject: { kind: 'scan', id: scan._id },
-    params: { round, materialize: scan.state === 'cancelled' },
+    params: { round, materialize: cancelled, ...(cancelled ? { cancelledAt: scan.completedAt ?? new Date() } : {}) },
     notBefore: new Date(Date.now() + 2000),
   })
   if (!created) throw apiError('invalidState', 'a retry of failed analyses is already running', { state: scan.state })

@@ -747,7 +747,7 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 | `revisionBuild` | api | revision | `{revisionId}` | `{phase: "build"\|"push"\|"waitRegistry"\|"finalize"}`, set as in [tasks](tasks.md) §9.7; registry GC waits while any job has `phase: "push"` ([deployment](deployment.md) §14.1); restarts from scratch (from the stored snapshot) after a lease expiry | `SCANTOR_BUILD_CONCURRENCY` (shared with test-run builds), FIFO |
 | `testRun` | api | testRun | `{testRunId}` | `{phase}` | `SCANTOR_TEST_RUN_CONCURRENCY` |
 | `scanDelete` | reconciler | scan | `{}` | `{phase, afterSeq}` | 2 |
-| `scanRetryFailed` | reconciler | scan | `{round, materialize}` (`materialize`: the scan was cancelled, so never-run seqs are first inserted as `cancelled`) | `{phase: "materialize"\|"reset"\|"publish"\|"finish", afterSeq}` | 2 |
+| `scanRetryFailed` | reconciler | scan | `{round, materialize, cancelledAt?}` (`materialize`: the scan was cancelled, so the job lets the cancelled round settle from `cancelledAt`, then inserts never-run seqs as `cancelled`, [queue](queue.md) §8) | `{phase: "materialize"\|"reset"\|"publish"\|"finish", afterSeq}` | 2 |
 | `export` | reconciler | export | `{exportId}` | `{afterSeq, part}` | `SCANTOR_USER_MAX_CONCURRENT_QUERIES` per user |
 | `taskDelete` | reconciler | task | `{}` | `{phase}` | 2 |
 | `userPurge` | reconciler | user | `{}` | `{phase, scanId?}` | 1 |

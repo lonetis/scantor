@@ -553,9 +553,11 @@ describe.skipIf(!enabled)('scans against MongoDB, RabbitMQ and RustFS', () => {
   it('retry-failed resets failed and lost analyses with a config and publishes them with backpressure', async () => {
     await useCollections().revisions.insertOne(revisionDoc({ _id: `rr-${suffix}`, taskId: `t-rr-${suffix}` }))
     const failedSeqs = Array.from({ length: 25 }, (_, index) => index + 10)
+    // Cancelled a minute ago and no runner in flight: the cancelled round has settled (settleEarlierRounds).
+    const cancelledAt = new Date(Date.now() - 60_000)
     const scan = await insertScan({
       state: 'cancelled',
-      completedAt: new Date(),
+      completedAt: cancelledAt,
       revision: { ...scanDoc().revision, id: `rr-${suffix}` },
       scheduling: { state: 'done', confirmed: 40 },
     })
@@ -573,7 +575,7 @@ describe.skipIf(!enabled)('scans against MongoDB, RabbitMQ and RustFS', () => {
 
     const { scan: retrying, job } = await retryFailedAnalyses(scan)
     expect(retrying).toMatchObject({ state: 'running', round: 2, scheduling: { state: 'retrying' }, completedAt: null })
-    expect(job).toMatchObject({ kind: 'scanRetryFailed', params: { round: 2, materialize: true } })
+    expect(job).toMatchObject({ kind: 'scanRetryFailed', params: { round: 2, materialize: true, cancelledAt } })
     await expect(retryFailedAnalyses(retrying)).rejects.toMatchObject({ data: { code: 'invalidState' } })
     await topology().reconcile()
 

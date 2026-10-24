@@ -7,17 +7,20 @@ import type { Logger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
 import { RABBITMQ_VHOST, useRabbitmqManagement } from '../../utils/rabbitmq-management'
 import { scantorVersion } from '../../utils/version'
+import { getScanInflight } from '../inflight'
 import { recordAnalysesCompleted } from '../metrics/catalogue'
 import { recountScan, tryCompleteScan } from './completion'
+import { settleDelayMs } from './delete'
 import { writeEvent } from './events'
 import { publishAnalyses } from './publisher'
 
 /*
  * The `scanRetryFailed` job (reconciler component, concurrency 2; docs/queue.md §8 "retry-failed publisher",
- * docs/data-model.md §6.3). `params = {round: R + 1, materialize}`, cursor `{phase, afterSeq}`:
+ * docs/data-model.md §6.3). `params = {round: R + 1, materialize, cancelledAt?}`, cursor `{phase, afterSeq}`:
  *
- *   materialize  only for scans that were cancelled: insert `cancelled` documents (no config) for missing seqs
- *                below scheduling.confirmed, so never-run analyses are visible and countable
+ *   materialize  only for scans that were cancelled: first let round R settle (settleEarlierRounds), then insert
+ *                `cancelled` documents (no config) for missing seqs below scheduling.confirmed, so never-run
+ *                analyses are visible and countable
  *   reset        batches of 1000 by seq: failed and lost analyses with a stored config → pending, round R + 1,
  *                attempt 0; then a recount and the event scan.retryFailed
  *   publish      wait for the scan queue, then publish the pending configs of round R + 1 with the nack-and-wait
@@ -33,6 +36,8 @@ export type RetryPhase = (typeof RETRY_PHASES)[number]
 const QUEUE_POLL_MS = 5000
 /** How long the job tolerates a scan that has not entered `retrying` yet (the API writes the scan after the job). */
 const SCAN_SETTLE_MS = 60_000
+/** How often a retry of a cancelled scan looks at the analyses its runners report in flight. */
+export const INFLIGHT_POLL_MS = 1000
 
 const LOST_OR_FAILED = ['failed', 'lost'] as const
 
@@ -44,6 +49,65 @@ interface RetryCursor {
 function readCursor(job: JobDoc, materialize: boolean): RetryCursor {
   const phase = (RETRY_PHASES as readonly string[]).includes(job.cursor.phase as string) ? (job.cursor.phase as RetryPhase) : materialize ? 'materialize' : 'reset'
   return { phase, afterSeq: typeof job.cursor.afterSeq === 'number' ? job.cursor.afterSeq : -1 }
+}
+
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    signal.throwIfAborted()
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(signal.reason)
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+export interface SettleOptions {
+  /** the round of the retry (R + 1) */
+  round: number
+  /** when the scan was cancelled (ms) */
+  cancelledAt: number
+  /** the ingestor's settle delay (settleDelayMs) */
+  settleMs: number
+  signal: AbortSignal
+  /** rounds of the analyses the scan's runners report in flight (state polls, services/inflight.ts) */
+  inflightRounds: () => number[]
+  now?: () => number
+  sleep?: (ms: number, signal: AbortSignal) => Promise<void>
+}
+
+/**
+ * Waits until round R of a cancelled scan can no longer change an analysis (docs/queue.md §8 "retry-failed
+ * publisher" step 1). The retry makes the scan `running` again, so the topology loop recreates the scan user with
+ * the same password: a runner whose connection the cancel's kill switch closed reconnects instead of being refused,
+ * finishes the analyses it was running and publishes their round-R results. Materializing or resetting before
+ * those are written would record such an analysis as `cancelled` (never run) and then let its late failure turn it
+ * into a round-R failure that this retry never runs. So the job waits until no runner has reported an analysis of an
+ * earlier round (a slot reports one until its results are confirmed by the broker) for the ingestor's settle delay,
+ * and at least that long after the cancel, for results already on their way to the ingestor.
+ */
+export async function settleEarlierRounds(options: SettleOptions): Promise<void> {
+  const now = options.now ?? Date.now
+  const wait = options.sleep ?? sleep
+  let quietSince = options.cancelledAt
+  for (;;) {
+    options.signal.throwIfAborted()
+    const at = now()
+    if (options.inflightRounds().some((round) => round < options.round)) quietSince = at
+    const remaining = quietSince + options.settleMs - at
+    if (remaining <= 0) return
+    await wait(Math.min(remaining, INFLIGHT_POLL_MS), options.signal)
+  }
+}
+
+function cancelledAtOf(job: JobDoc): number {
+  const value = job.params.cancelledAt
+  const at = value instanceof Date ? value.getTime() : typeof value === 'string' ? Date.parse(value) : Number.NaN
+  return Number.isFinite(at) ? at : job.createdAt.getTime()
 }
 
 /** Missing seqs in (afterSeq, afterSeq + batch] below `limit`, given the sorted seqs that exist. */
@@ -226,7 +290,16 @@ export const scanRetryFailedJobKind: JobKindDefinition = {
       }
       switch (phase) {
         case 'materialize':
-          if (job.params.materialize === true) await materialize(scan, round, cursor, ctx)
+          if (job.params.materialize === true) {
+            await settleEarlierRounds({
+              round,
+              cancelledAt: cancelledAtOf(job),
+              settleMs: settleDelayMs(ctx.config),
+              signal: ctx.signal,
+              inflightRounds: () => getScanInflight(scan._id).items.map((item) => item.round),
+            })
+            await materialize(scan, round, cursor, ctx)
+          }
           break
         case 'reset': {
           const count = await reset(scan, round, cursor, ctx)
