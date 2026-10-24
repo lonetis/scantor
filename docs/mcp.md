@@ -68,13 +68,19 @@ The authorization server is better-auth's `mcp()` plugin (built on `@better-auth
 | Endpoint | URL |
 |---|---|
 | protected resource metadata (RFC 9728) | `GET /.well-known/oauth-protected-resource/mcp` → `{resource: "<public>/mcp", authorization_servers: ["<public>/api/auth"], scopes_supported, bearer_methods_supported: ["header"], resource_name: "scantor"}` |
-| authorization server metadata (RFC 8414) | `GET /.well-known/oauth-authorization-server/api/auth` (also `/.well-known/openid-configuration/api/auth`) |
+| authorization server metadata (RFC 8414) | `GET /.well-known/oauth-authorization-server/api/auth` |
+| OpenID provider metadata | `GET /.well-known/openid-configuration/api/auth` (path insertion, which MCP clients try) and `GET /api/auth/.well-known/openid-configuration` (appended, OpenID Connect Discovery 1.0): the same document |
 | registration (RFC 7591, anonymous) | `POST /api/auth/oauth2/register` |
 | authorize | `GET /api/auth/oauth2/authorize` |
 | consent | SPA page `/oauth/consent` → `POST /api/auth/oauth2/consent` |
 | token | `POST /api/auth/oauth2/token` |
 | JWKS | `GET /api/auth/jwks` |
 | revoke / introspect | `POST /api/auth/oauth2/revoke`, `POST /api/auth/oauth2/introspect` |
+
+The root discovery documents go through `orchestrator/server/routes/.well-known/[...path].ts` to better-auth
+(`services/mcp/discovery.ts`). better-auth serves the OpenID metadata only appended to the issuer, so the route
+answers the path-insertion URL with that document, and it adds `resource_name`, which better-auth's
+protected-resource metadata lacks.
 
 1. `POST /mcp` without a credential → 401 with
    `WWW-Authenticate: Bearer resource_metadata="<public>/.well-known/oauth-protected-resource/mcp", scope="offline_access scantor:read scantor:write scantor:admin"`.

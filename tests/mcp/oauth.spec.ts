@@ -115,27 +115,17 @@ test.describe('MCP OAuth discovery', () => {
     })
   })
 
-  // Product bug: the documented OpenID metadata path answers 404; better-auth serves the document only at
-  // /api/auth/.well-known/openid-configuration, and the .well-known catch-all forwards the path unchanged.
-  test.fail(
-    'the OpenID metadata document is served at /.well-known/openid-configuration/api/auth',
-    { tag: ['@MCP-009'], annotation: { type: 'issue', description: 'GET /.well-known/openid-configuration/api/auth answers 404' } },
-    async ({ env, anonApi }) => {
-      const response = await anonApi.request.get('/.well-known/openid-configuration/api/auth')
-      expect(response.status()).toBe(200)
-      expect(await response.json()).toMatchObject({ issuer: `${env.publicUrl}/api/auth`, jwks_uri: `${env.publicUrl}/api/auth/jwks` })
-    },
-  )
+  test('the OpenID metadata document is served at /.well-known/openid-configuration/api/auth', { tag: ['@MCP-009'] }, async ({ env, anonApi }) => {
+    const response = await anonApi.request.get('/.well-known/openid-configuration/api/auth')
+    expect(response.status()).toBe(200)
+    expect(await response.json()).toMatchObject({ issuer: `${env.publicUrl}/api/auth`, jwks_uri: `${env.publicUrl}/api/auth/jwks` })
+  })
 
-  // Product bug: docs/mcp.md §3.1 documents `resource_name: "scantor"` in the protected-resource metadata; it is absent.
-  test.fail(
-    'the protected-resource metadata names the resource scantor',
-    { tag: ['@MCP-009'], annotation: { type: 'issue', description: 'resource_name is missing from /.well-known/oauth-protected-resource/mcp' } },
-    async ({ anonApi }) => {
-      const response = await anonApi.request.get('/.well-known/oauth-protected-resource/mcp')
-      expect(await response.json()).toMatchObject({ resource_name: 'scantor' })
-    },
-  )
+  test('the protected-resource metadata names the resource scantor', { tag: ['@MCP-009'] }, async ({ anonApi }) => {
+    const response = await anonApi.request.get('/.well-known/oauth-protected-resource/mcp')
+    expect(response.status()).toBe(200)
+    expect(await response.json()).toMatchObject({ resource_name: 'scantor' })
+  })
 })
 
 test.describe('MCP OAuth clients', () => {
