@@ -63,7 +63,7 @@ const columns: TableColumn<AttemptRow>[] = [
       <template #error-cell="{ row }">
         <div v-if="row.original.error" class="flex max-w-80 flex-col gap-0.5">
           <span class="font-mono text-error">{{ row.original.error.type }}<span class="text-dimmed"> · {{ row.original.error.phase }}</span></span>
-          <span class="line-clamp-2 whitespace-pre-wrap break-words text-muted">{{ row.original.error.message }}</span>
+          <span class="line-clamp-2 whitespace-pre-wrap break-words text-muted">{{ stripEscapes(row.original.error.message) }}</span>
         </div>
         <span v-else class="text-success">succeeded</span>
       </template>

@@ -959,17 +959,9 @@ test.describe('hostile task output', () => {
     expect(pageErrors.filter((message) => message.includes('alert'))).toEqual([])
   })
 
-  // product bug: result strings and error messages keep their ANSI sequences (only logs and stacks are stripped)
-  test.fail(
+  test(
     'ANSI sequences of result strings and error messages are stripped in the results table and the drawer',
-    {
-      tag: ['@UI-SEC-004'],
-      annotation: {
-        type: 'issue',
-        description:
-          'ScanResultsTable.vue renders result cells (cellText) and error.message, AnalysisSlideover.vue error.message and AttemptsTable.vue error.message without stripAnsi (app/utils/ansi.ts), so ESC sequences of task output reach the DOM (docs/security.md HDR-5)',
-      },
-    },
+    { tag: ['@UI-SEC-004'] },
     async ({ page, user, openapi }) => {
       const { okScan, failScan } = await hostileScans(user, openapi)
       // A result string (`ansi`, `html`) in the results table.
@@ -977,6 +969,12 @@ test.describe('hostile task output', () => {
       const okRow = resultsTable(page).locator('tbody tr[data-row-id]').first()
       await expect(okRow).toContainText('bold')
       await expectNoEscapes(okRow)
+      // The same strings in the drawer's result JSON.
+      const okSeq = (await okRow.getAttribute('data-row-id'))!
+      await gotoApp(page, `/scans/${okScan.id}?tab=results&analysis=${okSeq}`)
+      const result = drawer(page, okSeq).locator('section', { has: page.getByRole('heading', { name: 'Result' }) })
+      await expect(result).toContainText('"bold"')
+      await expectNoEscapes(result)
       // The error message in the results table, the drawer's error section and the attempts table.
       await gotoApp(page, `/scans/${failScan.id}?tab=results`)
       const failedRow = resultsTable(page).locator('tbody tr[data-row-id]').first()

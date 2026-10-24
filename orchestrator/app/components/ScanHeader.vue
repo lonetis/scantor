@@ -38,6 +38,6 @@ const reason = computed(() => {
       <span v-if="scan.startedAt">Started <RelativeTime :value="scan.startedAt" /></span>
       <span v-if="scan.completedAt && scan.state !== 'running'">Finished <RelativeTime :value="scan.completedAt" /></span>
     </div>
-    <p v-if="scan.stateReason?.message && reason && scan.stateReason.code !== 'user'" class="text-xs text-muted">{{ scan.stateReason.message }}</p>
+    <p v-if="scan.stateReason?.message && reason && scan.stateReason.code !== 'user'" class="text-xs text-muted">{{ stripEscapes(scan.stateReason.message) }}</p>
   </header>
 </template>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { stripAnsi, toLogLines } from '../../app/utils/ansi'
+import { stripAnsi, stripEscapes, toLogLines } from '../../app/utils/ansi'
 
 describe('stripAnsi', () => {
   it('removes color and cursor sequences', () => {
@@ -31,3 +31,16 @@ describe('toLogLines', () => {
     expect(toLogLines('')).toEqual([])
   })
 })
+
+describe('stripEscapes', () => {
+  it('removes escape sequences and control characters of single values', () => {
+    expect(stripEscapes('\u001B[1mbold\u001B[0m')).toBe('bold')
+    expect(stripEscapes('\u001B]8;;https://evil.example\u0007click\u001B]8;;\u0007 \u009B31mred\u0000')).toBe('click red')
+  })
+
+  it('keeps the whole text: tabs, newlines and carriage returns stay', () => {
+    expect(stripEscapes('progress 10%\rprogress 100%\r\nnext\tcol')).toBe('progress 10%\rprogress 100%\r\nnext\tcol')
+    expect(stripEscapes('<img src=x onerror=alert(1)>')).toBe('<img src=x onerror=alert(1)>')
+  })
+})
+

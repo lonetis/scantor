@@ -1,3 +1,5 @@
+import { stripEscapes } from './ansi'
+
 // Display formatting (docs/ui.md §10). Pure functions; the locale is fixed so output is stable.
 
 const LOCALE = 'en-US'
@@ -126,4 +128,14 @@ export function splitCodeSpans(text: string): TextPart[] {
   }
   if (rest) parts.push({ text: rest, code: false })
   return parts
+}
+
+/**
+ * A short text of a value for a table cell (FEATURES UI-RES-004): strings without escape sequences, other values as
+ * compact JSON, both cut at `maxLength` characters.
+ */
+export function valuePreview(value: unknown, maxLength = 200): string {
+  if (value === undefined || value === null) return ''
+  const text = typeof value === 'string' ? stripEscapes(value) : JSON.stringify(value)
+  return text.length > maxLength ? `${text.slice(0, maxLength)}…` : text
 }

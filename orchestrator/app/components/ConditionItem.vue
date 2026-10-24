@@ -43,8 +43,9 @@ const meta = computed(() => statusMeta('conditionSeverity', props.condition.seve
 const details = computed(() => (props.condition.details ?? {}) as Record<string, unknown>)
 const title = computed(() => TITLES[props.condition.type] ?? props.condition.type)
 
+/** A detail as plain text: task output can carry ANSI sequences (docs/security.md HDR-5). */
 function text(value: unknown): string {
-  return typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value)
+  return stripEscapes(typeof value === 'string' ? value : value === null || value === undefined ? '' : String(value))
 }
 function num(value: unknown): number | null {
   return typeof value === 'number' ? value : null
@@ -67,7 +68,7 @@ const alarms = computed(() => (Array.isArray(details.value.alarms) ? details.val
       <span class="font-mono text-xs text-dimmed">{{ condition.reason }}</span>
       <span class="ms-auto text-xs text-dimmed">since <RelativeTime :value="condition.since" /></span>
     </div>
-    <p class="text-sm text-muted">{{ condition.message }}</p>
+    <p class="text-sm text-muted">{{ stripEscapes(condition.message) }}</p>
 
     <template v-if="condition.type === 'workersPending'">
       <p class="text-xs text-muted">{{ plural(num(details.count) ?? 0, 'worker') }} pending</p>

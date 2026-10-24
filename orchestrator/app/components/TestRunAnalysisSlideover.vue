@@ -34,8 +34,8 @@ async function download(file: FileRef): Promise<void> {
         </div>
         <div v-if="analysis.error" class="space-y-1">
           <p class="section-label">Error</p>
-          <UAlert color="error" variant="subtle" :title="`${analysis.error.type}: ${analysis.error.message}`" />
-          <CodeBlock v-if="analysis.error.stack" :code="analysis.error.stack" label="Stack" />
+          <UAlert color="error" variant="subtle" :title="`${analysis.error.type}: ${stripEscapes(analysis.error.message)}`" />
+          <CodeBlock v-if="analysis.error.stack" :code="stripAnsi(analysis.error.stack)" label="Stack" />
         </div>
         <div v-if="analysis.config" class="space-y-1">
           <p class="section-label">Analysis config</p>
@@ -73,7 +73,7 @@ async function download(file: FileRef): Promise<void> {
               <div class="flex items-center gap-2 text-xs">
                 <span class="font-mono">#{{ attempt.attempt }}</span>
                 <DurationText :ms="attempt.durationMs" />
-                <span v-if="attempt.error" class="text-error">{{ attempt.error.type }}: {{ attempt.error.message }}</span>
+                <span v-if="attempt.error" class="text-error">{{ attempt.error.type }}: {{ stripEscapes(attempt.error.message) }}</span>
               </div>
             </li>
           </ul>

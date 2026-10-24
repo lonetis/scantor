@@ -178,7 +178,7 @@ async function querySimilar(): Promise<void> {
               <span class="text-muted">attempt {{ analysis.error.attempt }}</span>
               <RelativeTime :value="analysis.error.at" class="text-dimmed" />
             </div>
-            <p class="whitespace-pre-wrap break-words rounded-md bg-muted px-3 py-2 font-mono text-xs">{{ analysis.error.message }}</p>
+            <p class="whitespace-pre-wrap break-words rounded-md bg-muted px-3 py-2 font-mono text-xs">{{ stripEscapes(analysis.error.message) }}</p>
             <JsonView v-if="analysis.error.details" :value="analysis.error.details" />
             <div v-if="analysis.error.stack">
               <UButton

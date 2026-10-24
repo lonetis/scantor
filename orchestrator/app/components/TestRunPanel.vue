@@ -168,7 +168,7 @@ const historyColumns: TableColumn<TestRun>[] = [
 ]
 
 function outcome(analysis: TestRunAnalysis): string {
-  if (analysis.error) return `${analysis.error.type}: ${analysis.error.message}`
+  if (analysis.error) return `${analysis.error.type}: ${stripEscapes(analysis.error.message)}`
   return analysis.result ? JSON.stringify(analysis.result) : ''
 }
 </script>

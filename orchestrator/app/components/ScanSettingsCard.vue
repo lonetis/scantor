@@ -72,7 +72,7 @@ function provenanceEntries(provenance: Record<string, unknown>): [string, string
       variant="subtle"
       icon="i-lucide-circle-x"
       title="Scheduling failed"
-      :description="`${scan.scheduling.error.type} in ${scan.scheduling.error.phase}: ${scan.scheduling.error.message}`"
+      :description="`${scan.scheduling.error.type} in ${scan.scheduling.error.phase}: ${stripEscapes(scan.scheduling.error.message)}`"
     />
   </section>
 </template>

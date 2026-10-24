@@ -46,7 +46,7 @@ const items = computed<EventItem[]>(() =>
     </template>
     <template #description="{ item }">
       <div class="space-y-1" :data-row-id="item.event.id">
-        <p class="text-sm text-default">{{ item.event.message }}</p>
+        <p class="text-sm text-default">{{ stripEscapes(item.event.message) }}</p>
         <UButton
           v-if="item.event.data"
           :label="expanded.has(item.event.id) ? 'Hide data' : 'Show data'"

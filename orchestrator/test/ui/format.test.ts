@@ -11,6 +11,7 @@ import {
   plural,
   shortId,
   splitCodeSpans,
+  valuePreview,
 } from '../../app/utils/format'
 
 const NOW = Date.parse('2026-10-21T12:00:00.000Z')
@@ -139,3 +140,24 @@ describe('splitCodeSpans', () => {
     expect(splitCodeSpans('')).toEqual([])
   })
 })
+
+describe('valuePreview', () => {
+  it('shows result strings without escape sequences (FEATURES UI-RES-004, UI-SEC-004)', () => {
+    expect(valuePreview('\u001B[1mbold\u001B[0m')).toBe('bold')
+    expect(valuePreview('<img src=x onerror=alert(1)>\u001B[31mred\u001B[0m')).toBe('<img src=x onerror=alert(1)>red')
+  })
+
+  it('shows other values as compact JSON, whose escapes are text', () => {
+    expect(valuePreview({ ansi: '\u001B[1m', n: 1 })).toBe('{"ansi":"\\u001b[1m","n":1}')
+    expect(valuePreview(false)).toBe('false')
+    expect(valuePreview(null)).toBe('')
+    expect(valuePreview(undefined)).toBe('')
+  })
+
+  it('cuts long values after the escapes are gone', () => {
+    expect(valuePreview(`${'\u001B[31m'.repeat(50)}${'a'.repeat(200)}`)).toBe('a'.repeat(200))
+    expect(valuePreview('a'.repeat(201))).toBe(`${'a'.repeat(200)}…`)
+    expect(valuePreview('abcdef', 3)).toBe('abc…')
+  })
+})
+

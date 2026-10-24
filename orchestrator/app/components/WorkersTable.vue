@@ -48,7 +48,7 @@ const columns: TableColumn<ScanWorker>[] = [
     <template #state-cell="{ row }">
       <div class="space-y-0.5">
         <StatusBadge kind="worker" :state="row.original.state" />
-        <p v-if="row.original.stateReason" class="max-w-56 truncate text-xs text-muted" :title="row.original.stateReason.message">{{ row.original.stateReason.message }}</p>
+        <p v-if="row.original.stateReason" class="max-w-56 truncate text-xs text-muted" :title="stripEscapes(row.original.stateReason.message)">{{ stripEscapes(row.original.stateReason.message) }}</p>
       </div>
     </template>
     <template #node-cell="{ row }">

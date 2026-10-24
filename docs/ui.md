@@ -995,9 +995,11 @@ the only exception to `script-src`/`style-src`/`font-src`: it additionally allow
 origin and the font origin that bundle loads from (`https://fonts.scalar.com`). The editor host has its own headers ([editor](editor.md) §8.8).
 
 Rendering rules that keep untrusted content harmless: no `v-html` anywhere (lint
-rule `vue/no-v-html` as an error), logs are ANSI-stripped text, JSON is rendered by `JsonView` as text,
-result strings are never linkified, file downloads use presigned URLs with forced
-`Content-Disposition`/`Content-Type` ([architecture](architecture.md) §11.5).
+rule `vue/no-v-html` as an error), logs are ANSI-stripped text (`stripAnsi`, which also applies bare
+carriage returns), result strings, JSON keys and strings, and error, event and condition messages are shown
+without escape sequences and control characters (`stripEscapes` in `utils/ansi.ts`, which keeps the rest of
+the text), JSON is rendered by `JsonView` as text, result strings are never linkified, file downloads use
+presigned URLs with forced `Content-Disposition`/`Content-Type` ([architecture](architecture.md) §11.5).
 
 ## 14. Local UI state
 

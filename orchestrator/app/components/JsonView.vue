@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // Read-only JSON tree rendered strictly as text (docs/ui.md §10, docs/security.md HDR-5): collapsible nodes,
-// long strings truncated, masked secrets ("***") shown as a lock. Values are never linkified.
+// long strings truncated, masked secrets ("***") shown as a lock. Values are never linkified, and keys and strings
+// are shown without ANSI sequences (task output carries them); "Copy JSON" copies the value unchanged.
 
 defineOptions({ name: 'JsonView' })
 
@@ -44,7 +45,8 @@ const summary = computed(() => {
   const count = entries.value.length
   return isArray.value ? `${count} ${count === 1 ? 'item' : 'items'}` : `${count} ${count === 1 ? 'key' : 'keys'}`
 })
-const stringValue = computed(() => (typeof props.value === 'string' ? props.value : ''))
+const stringValue = computed(() => (typeof props.value === 'string' ? stripEscapes(props.value) : ''))
+const keyText = computed(() => (typeof props.propertyKey === 'number' ? String(props.propertyKey) : `"${stripEscapes(props.propertyKey ?? '')}"`))
 const truncated = computed(() => stringValue.value.length > props.maxStringLength && !showFullString.value)
 const displayedString = computed(() => (truncated.value ? `${stringValue.value.slice(0, props.maxStringLength)}…` : stringValue.value))
 const serialized = computed(() => {
@@ -94,7 +96,7 @@ function childPath(key: string | number): string {
             <UIcon :name="expanded ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="size-3" />
           </button>
         </UTooltip>
-        <span v-if="propertyKey !== null" class="text-[var(--code-key)]">{{ typeof propertyKey === 'number' ? propertyKey : `"${propertyKey}"` }}</span>
+        <span v-if="propertyKey !== null" class="text-[var(--code-key)]">{{ keyText }}</span>
         <span v-if="propertyKey !== null" class="text-[var(--code-muted)]">:&nbsp;</span>
         <span class="text-[var(--code-muted)]">{{ isArray ? '[' : '{' }}</span>
         <template v-if="!expanded">
@@ -121,7 +123,7 @@ function childPath(key: string | number): string {
     </template>
 
     <template v-else>
-      <span v-if="propertyKey !== null" class="text-[var(--code-key)]">{{ typeof propertyKey === 'number' ? propertyKey : `"${propertyKey}"` }}</span>
+      <span v-if="propertyKey !== null" class="text-[var(--code-key)]">{{ keyText }}</span>
       <span v-if="propertyKey !== null" class="text-[var(--code-muted)]">:&nbsp;</span>
       <span v-if="value === SECRET_MASK" class="inline-flex items-center gap-1 text-[var(--code-muted)]" title="Secret value, not shown">
         <UIcon name="i-lucide-lock" class="size-3" aria-hidden="true" />secret

@@ -160,13 +160,6 @@ function resultValue(row: AnalysisRow, column: string): unknown {
   return row.result?.[column]
 }
 
-/** A short single-line text of a result value (objects as compact JSON). */
-function cellText(value: unknown): string {
-  if (value === undefined || value === null) return ''
-  const text = typeof value === 'string' ? value : JSON.stringify(value)
-  return text.length > 200 ? `${text.slice(0, 200)}…` : text
-}
-
 const limitMessage = computed(() => (list.limitReached.value ? `Showing the first ${formatCount(RESULTS_MAX_ROWS)} rows. Use the query console or an export for more.` : null))
 </script>
 
@@ -216,7 +209,7 @@ const limitMessage = computed(() => (list.limitReached.value ? `Showing the firs
       <template #error-cell="{ row }">
         <div v-if="row.original.error" class="flex max-w-72 items-center gap-1.5">
           <code class="shrink-0 font-mono text-error">{{ row.original.error.type }}</code>
-          <span class="truncate text-muted">{{ row.original.error.message }}</span>
+          <span class="truncate text-muted">{{ stripEscapes(row.original.error.message ?? '') }}</span>
         </div>
         <span v-else class="text-dimmed">–</span>
       </template>
@@ -227,7 +220,7 @@ const limitMessage = computed(() => (list.limitReached.value ? `Showing the firs
           :analysis-id="row.original.id"
           compact
         />
-        <span v-else class="block max-w-56 truncate font-mono">{{ cellText(resultValue(row.original, column)) }}</span>
+        <span v-else class="block max-w-56 truncate font-mono">{{ valuePreview(resultValue(row.original, column)) }}</span>
       </template>
       <template #finishedAt-cell="{ row }">
         <RelativeTime :value="row.original.timings?.finishedAt" />

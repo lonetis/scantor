@@ -171,7 +171,7 @@ const eventColumns: TableColumn<ScantorEvent>[] = [
             <UBadge :label="row.original.role" color="neutral" variant="soft" size="xs" />
           </template>
           <template #state-cell="{ row }">
-            <StatusBadge kind="worker" :state="row.original.state" :detail="row.original.stateReason?.message ?? null" />
+            <StatusBadge kind="worker" :state="row.original.state" :detail="row.original.stateReason ? stripEscapes(row.original.stateReason.message) : null" />
           </template>
           <template #processes-cell="{ row }">
             <span class="tabular-nums text-xs" title="desired / applied / running">
@@ -216,7 +216,7 @@ const eventColumns: TableColumn<ScantorEvent>[] = [
             <span class="font-mono text-xs">{{ row.original.type }}</span>
           </template>
           <template #message-cell="{ row }">
-            <span class="whitespace-pre-wrap break-words">{{ row.original.message }}</span>
+            <span class="whitespace-pre-wrap break-words">{{ stripEscapes(row.original.message) }}</span>
           </template>
         </UTable>
         <LoadMoreButton :has-more="detail.events.hasMore.value" :loading="detail.events.loading.value" @load="detail.events.loadMore()" />
