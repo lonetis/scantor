@@ -1,6 +1,7 @@
 import type { Scan } from '#shared/types/scans'
 import type { Worker } from '#shared/types/workers'
 import { ok, type ApiClient } from '../helpers/api-client'
+import { stackEnv } from '../helpers/docker'
 import {
   allAnalyses,
   backoff,
@@ -125,8 +126,11 @@ test.describe('checkpoint and resume', () => {
     { tag: ['@SCHED-003', '@SCHED-005'] },
     async ({ api, shared, scans }) => {
       const { revision } = await shared.generated('probe')
-      // 700 analyses of 50 ms on one process: the scheduler reaches the queue limit (500) at once and stays in
-      // backpressure while the runner works through the queue, so it is still publishing when the scan is paused.
+      // 700 analyses of 50 ms on one process: the scheduler fills its share of the scan queue (half of the limit of
+      // 500, docs/runtime.md §11.4) at once and stays in backpressure while the runner works through the queue, so
+      // it is still publishing when the scan is paused. It refills only once a fifth of its share is free.
+      const share = Number(stackEnv().SCANTOR_SCAN_QUEUE_MAX_READY) / 2
+      expect(share).toBe(250)
       const scan = await scans.start({
         revision: revision.ref,
         scanConfig: { times: 700 },
@@ -134,9 +138,9 @@ test.describe('checkpoint and resume', () => {
         settings: settings({ resources: { cpus: 0.1, memoryMiB: 128 } }),
       })
       await pollUntil(
-        'a full scan queue',
+        'the scheduler’s share of the scan queue in use',
         () => scanQueue(scan.id),
-        (queue) => queue !== null && queue.messages_ready + queue.messages_unacknowledged >= 480,
+        (queue) => queue !== null && queue.messages_ready >= share - share / 5,
         { timeoutMs: 120_000, intervalMs: 250 },
       )
       const full = await getScan(api, scan.id)
