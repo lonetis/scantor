@@ -21,7 +21,7 @@ async function download(file: FileRef): Promise<void> {
 </script>
 
 <template>
-  <USlideover v-model:open="open" :title="analysis ? `Analysis ${analysis.seq}` : 'Analysis'" :ui="{ content: 'sm:max-w-2xl' }">
+  <USlideover v-model:open="open" :title="analysis ? `Analysis ${analysis.seq}` : 'Analysis'" :ui="{ content: 'sm:max-w-2xl' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />
     </template>

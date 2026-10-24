@@ -26,7 +26,7 @@ function close(): void {
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="title" :dismissible="false" :ui="{ content: 'sm:max-w-2xl' }">
+  <UModal v-model:open="open" :title="title" :dismissible="false" :ui="{ content: 'sm:max-w-2xl' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" @click="close" />
     </template>

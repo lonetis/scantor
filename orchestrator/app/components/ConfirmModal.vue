@@ -20,7 +20,7 @@ function submit(): void {
 </script>
 
 <template>
-  <UModal :title="title" :description="description" :ui="{ content: 'sm:max-w-md' }">
+  <UModal :title="title" :description="description" :ui="{ content: 'sm:max-w-md' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" @click="emit('close', false)" />
     </template>

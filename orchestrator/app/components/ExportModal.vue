@@ -95,6 +95,7 @@ async function submit(): Promise<void> {
     :title="`Export results of ${scan.name || shortId(scan.id)}`"
     description="A background export writes a file you can download for the retention period."
     :ui="{ content: 'sm:max-w-xl' }"
+    :content="dialogContent"
   >
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" @click="finish(null)" />

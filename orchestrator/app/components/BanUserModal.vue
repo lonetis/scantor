@@ -42,7 +42,7 @@ async function submit(event: FormSubmitEvent<z.output<typeof banUserBody>>): Pro
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="`Ban ${user?.email ?? 'user'}`" description="Signs the user out everywhere and revokes their API keys and app authorizations." :ui="{ content: 'sm:max-w-md' }">
+  <UModal v-model:open="open" :title="`Ban ${user?.email ?? 'user'}`" description="Signs the user out everywhere and revokes their API keys and app authorizations." :ui="{ content: 'sm:max-w-md' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />
     </template>

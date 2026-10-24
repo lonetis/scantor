@@ -918,7 +918,10 @@ of the contract:
    `motion-safe:`.
 5. Modals and slideovers have a title (`UModal`/`USlideover` `title` or an `aria-labelledby` heading),
    trap focus and return focus on close; `ConfirmModal`'s destructive button names the action ("Delete
-   scan"), never just "OK".
+   scan"), never just "OK". When they open they focus themselves (`:content="dialogContent"`,
+   `app/utils/dialog.ts`), not their first control: that is the header's `CloseButton`, whose tooltip would
+   open on the focus as the topmost layer and take the first Escape. A field with `autofocus` still takes
+   the focus, and Tab enters the controls.
 6. Tables have an `aria-label`, and it is the accessible name of the `<table>` element. `UTable` puts
    the attribute on its wrapper `<div>`, so `useTableRowIds` labels the `<table>` with `aria-labelledby`
    pointing at that wrapper (the label is not repeated, so `[aria-label="<label>"]` still matches one

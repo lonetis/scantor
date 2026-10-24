@@ -98,6 +98,7 @@ async function querySimilar(): Promise<void> {
     description="Configuration, result, error, attempts and logs of one analysis."
     side="right"
     :ui="{ content: 'sm:max-w-3xl' }"
+    :content="dialogContent"
   >
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />

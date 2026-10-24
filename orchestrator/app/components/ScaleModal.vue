@@ -33,7 +33,7 @@ function submit(): void {
 </script>
 
 <template>
-  <UModal v-model:open="open" title="Scale scan" :ui="{ content: 'sm:max-w-md' }">
+  <UModal v-model:open="open" title="Scale scan" :ui="{ content: 'sm:max-w-md' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />
     </template>

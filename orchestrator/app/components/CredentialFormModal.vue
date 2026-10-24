@@ -76,7 +76,7 @@ async function submit(event: FormSubmitEvent<{ name: string; host: string; usern
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="editing ? `Edit ${credential?.name}` : 'New credential'" :ui="{ content: 'sm:max-w-lg' }">
+  <UModal v-model:open="open" :title="editing ? `Edit ${credential?.name}` : 'New credential'" :ui="{ content: 'sm:max-w-lg' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />
     </template>

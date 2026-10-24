@@ -203,7 +203,7 @@ const columns: TableColumn<ApiKey>[] = [
       </ul>
     </div>
 
-    <UModal v-model:open="createOpen" title="Create API key" description="The key is shown once after creation." :ui="{ content: 'sm:max-w-md' }">
+    <UModal v-model:open="createOpen" title="Create API key" description="The key is shown once after creation." :ui="{ content: 'sm:max-w-md' }" :content="dialogContent">
       <template #close="{ ui }">
         <CloseButton :class="ui.close()" />
       </template>

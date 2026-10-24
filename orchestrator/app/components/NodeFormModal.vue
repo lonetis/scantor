@@ -86,7 +86,7 @@ async function submit(event: FormSubmitEvent<NodeForm>): Promise<void> {
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-lg' }">
+  <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-lg' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />
     </template>

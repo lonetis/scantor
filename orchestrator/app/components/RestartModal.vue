@@ -36,7 +36,7 @@ function submit(): void {
 </script>
 
 <template>
-  <UModal v-model:open="open" title="Restart scan" description="Creates a new scan of the same revision with the same configuration." :ui="{ content: 'sm:max-w-md' }">
+  <UModal v-model:open="open" title="Restart scan" description="Creates a new scan of the same revision with the same configuration." :ui="{ content: 'sm:max-w-md' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />
     </template>

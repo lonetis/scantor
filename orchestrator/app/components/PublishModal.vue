@@ -50,7 +50,13 @@ async function publish(): Promise<void> {
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="`Publish ${task.name}`" description="Snapshot the workspace and build a new revision." :ui="{ content: 'sm:max-w-lg' }">
+  <UModal
+    v-model:open="open"
+    :title="`Publish ${task.name}`"
+    description="Snapshot the workspace and build a new revision."
+    :ui="{ content: 'sm:max-w-lg' }"
+    :content="dialogContent"
+  >
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />
     </template>

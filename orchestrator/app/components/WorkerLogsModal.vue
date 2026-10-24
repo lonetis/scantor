@@ -39,7 +39,7 @@ const title = computed(() => (props.worker ? `Logs of ${props.worker.role} ${sho
 </script>
 
 <template>
-  <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-4xl' }">
+  <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-4xl' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />
     </template>

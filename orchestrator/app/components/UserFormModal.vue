@@ -142,7 +142,7 @@ async function submitPassword(event: FormSubmitEvent<z.output<typeof passwordSch
     <p v-if="error" class="text-xs text-error" role="alert">{{ error }}</p>
   </DefineProfileFields>
 
-  <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-lg' }">
+  <UModal v-model:open="open" :title="title" :ui="{ content: 'sm:max-w-lg' }" :content="dialogContent">
     <template #close="{ ui }">
       <CloseButton :class="ui.close()" />
     </template>
