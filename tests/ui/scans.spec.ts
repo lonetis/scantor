@@ -480,32 +480,20 @@ test.describe('new scan form', () => {
     },
   )
 
-  // product bug: the confirmation checkbox keeps the accessible name of the count it was first rendered with
-  test.fail(
-    'the confirmation checkbox is named after the current estimate',
-    {
-      tag: ['@UI-SCAN-011'],
-      annotation: {
-        type: 'issue',
-        description:
-          'the UCheckbox "I want to start about N analyses" of NewScanForm.vue keeps aria-label="I want to start about <first N> analyses" while its visible label follows the estimate',
-      },
-    },
-    async ({ page, user, openapi }) => {
-      const sleep = await sharedTask(user, openapi, 'sleep')
-      await gotoApp(page, `/scans/new?revision=${sleep.task.name}@latest`)
-      const size = formSection(page, '6 · Size')
-      const times = page.getByRole('spinbutton', { name: 'times' })
-      await times.fill('1500')
-      await times.blur()
-      await expect(page.getByRole('checkbox', { name: 'I want to start about 1,500 analyses' })).toBeVisible()
-      await times.fill('2000')
-      await times.blur()
-      await expect(size).toContainText('exactly 2,000 analyses')
-      await expect(size.getByText('I want to start about 2,000 analyses')).toBeVisible()
-      await expect(page.getByRole('checkbox', { name: 'I want to start about 2,000 analyses' })).toBeVisible({ timeout: 5000 })
-    },
-  )
+  test('the confirmation checkbox is named after the current estimate', { tag: ['@UI-SCAN-011'] }, async ({ page, user, openapi }) => {
+    const sleep = await sharedTask(user, openapi, 'sleep')
+    await gotoApp(page, `/scans/new?revision=${sleep.task.name}@latest`)
+    const size = formSection(page, '6 · Size')
+    const times = page.getByRole('spinbutton', { name: 'times' })
+    await times.fill('1500')
+    await times.blur()
+    await expect(page.getByRole('checkbox', { name: 'I want to start about 1,500 analyses' })).toBeVisible()
+    await times.fill('2000')
+    await times.blur()
+    await expect(size).toContainText('exactly 2,000 analyses')
+    await expect(size.getByText('I want to start about 2,000 analyses')).toBeVisible()
+    await expect(page.getByRole('checkbox', { name: 'I want to start about 2,000 analyses' })).toBeVisible({ timeout: 5000 })
+  })
 
   test(
     'custom schedules explain that their size is known later; estimates that are no exact count show "≈"',

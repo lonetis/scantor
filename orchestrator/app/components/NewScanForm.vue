@@ -112,6 +112,7 @@ watch([() => JSON.stringify(state.scanConfig), () => revision.value?.id], () => 
 
 const needsConfirmation = computed(() => estimate.value?.confirmationRequired === true || confirmTotal.value !== null)
 const confirmCount = computed(() => confirmTotal.value ?? estimate.value?.expectedTotal ?? null)
+const confirmLabel = computed(() => `I want to start about ${confirmCount.value === null ? 'this many' : formatCount(confirmCount.value)} analyses`)
 
 const blocked = computed(() => picker.value?.blocked === true)
 const canStart = computed(
@@ -240,7 +241,7 @@ onMounted(() => {
         <h2 id="new-scan-estimate" class="section-label">6 · Size</h2>
         <EstimateBadge :schedule-kind="scheduleKind" :estimate="estimate" :loading="estimating" :error="estimateError" />
         <UFormField v-if="needsConfirmation" name="confirm">
-          <UCheckbox v-model="state.confirm" :label="`I want to start about ${confirmCount === null ? 'this many' : formatCount(confirmCount)} analyses`" required />
+          <UCheckbox v-model="state.confirm" :label="confirmLabel" :aria-label="confirmLabel" required />
         </UFormField>
       </section>
 

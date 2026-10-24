@@ -918,6 +918,10 @@ of the contract:
    pointing at that wrapper (the label is not repeated, so `[aria-label="<label>"]` still matches one
    element). Sortable headers expose `aria-sort`.
 7. No native `confirm()`/`prompt()`/`alert()`.
+8. A `UCheckbox` or `USwitch` whose `label` changes also binds that text as `aria-label` (for example the
+   confirmation "I want to start about N analyses"): reka-ui names the control once from the text of its
+   `<label for>` and does not follow later changes. A static check in `test/ui/toggle-labels.test.ts`
+   enforces it.
 
 ## 12. Icons
 
