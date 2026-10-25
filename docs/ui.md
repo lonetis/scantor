@@ -75,7 +75,8 @@ orchestrator/app/
 ├── composables/                  use<Resource> data composables, use<Thing> UI composables (§7)
 └── utils/                        auto-imported pure helpers: status.ts, format.ts, errors.ts,
                                   json-pointer.ts, ansi.ts, navigation.ts, schema-subset.ts, download.ts,
-                                  clipboard.ts
+                                  clipboard.ts, consent.ts (OAuth consent access levels), dialog.ts (modal
+                                  focus), ui-prefs.ts (§14 store shape)
 ```
 
 Types and validation schemas are shared with the server, never duplicated in `app/`:
@@ -373,7 +374,9 @@ Tabs (`?tab=`):
   prefixed with the seq), `analysis` appends/updates a row, `error` adds a `BuildErrors` entry, `end` closes
   the stream and replaces the summary. On stream error the panel falls back to polling `getTestRun` every
   2 s until the run settles.
-- Files of test-run analyses render as `FileChip`s using `getTestRunFileDownload`.
+- Files of test-run analyses render in `TestRunAnalysisSlideover` as buttons "Download <name>" with the
+  size: `getTestRunFileDownload` returns a presigned link, opened in a new tab (`noopener`; the forced
+  attachment makes it a download). There is no image preview; scan results use `FileChip` (§5.13.3).
 - Cancel (aria "Cancel test run") → `cancelTestRun`.
 - Unsent inputs are kept per task in UI prefs (§14) **without** `writeOnly` fields. Which values are secret
   is known only from a description, so while the forms have none (no revision, no described test run) only
@@ -808,7 +811,7 @@ field, on the nearest rendered ancestor, or as a form-level alert when no field 
 |---|---|
 | `useAuth()` | better-auth client singleton (`passkeyClient`, `oauthProviderClient`), `session`, `user`, `isAdmin`, `signIn`, `signOut` (hard reload) |
 | `useInstance()` | singleton: `getInstanceInfo` once per page load and `getSetupStatus`; exposes `features`, `limits`, URLs, `cliImage`, `version` |
-| `useApiFetch(path, opts)` | `useFetch` with `$fetch: $api`, typed by `#shared/types`; `opts.toast` (default true) |
+| `useApiFetch(path, opts)` | a small reactive GET over `$api` (not `useFetch`), typed by `#shared/types`: `data`, `error`, `pending`, `refresh`; refetches when `path` or `opts.query` change (a null path loads nothing) and drops the answers of superseded requests; `opts.toast` (default true) |
 | `usePoll(fn, {intervalMs, enabled})` | polling with visibility pause, in-flight skip and error backoff (§9) |
 | `useCursorList(fetchPage)` | generic `Load more` / infinite loading over `nextCursor` or `afterSeq`, with reset on filter change and an epoch guard against stale responses; `loading` covers the first page and "Load more", `refreshing` a re-read of the loaded pages (polls; the "Refresh" button spins on either); a re-read that a "Load more" page overtakes is dropped, so the page stays and the next poll re-reads all pages; a re-read covers at most `maxRefreshPages` pages, and the items loaded beyond them stay behind the re-read ones (joined by `key`, default `id`) with the cursor |
 | `useTaskChoices()` | items of a searchable task select (new-scan picker, scans-list task filter): `listTasks?q=<typed text>` debounced 300 ms, the chosen task kept as an item, `resolve(idOrName)` through `getTask` |
@@ -1052,7 +1055,7 @@ presigned URLs with forced `Content-Disposition`/`Content-Type` ([architecture](
 | `resultColumns.<taskId>` | chosen result columns | 200 tasks, LRU |
 | `queries.<scanId>` | recent query console inputs | 20 per scan, 50 scans, LRU |
 | `testRunDrafts.<taskId>` | last test-run inputs **without** `writeOnly` fields; configs only while their schemas are known, reduced to the declared properties (§5.8) | 50 tasks, LRU |
-| `filters.<page>` | last list filters (state, language, "Only mine") | – |
+| `filters.scans` | last scans-list filters (state, task, "Only mine", §5.11); other lists start unfiltered | – |
 
 - Never stored: tokens, API keys, node tokens, passwords, `writeOnly` values, results. The only exception
   is the setup token, which stays in `sessionStorage` during setup and is removed afterwards (§5.2).
