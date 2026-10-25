@@ -16,7 +16,7 @@ import threading
 from collections.abc import Awaitable, Mapping
 from typing import Any, BinaryIO
 
-from scantor._json import describe_exception, encode_line
+from scantor._json import encode_line, internal_error_object
 from scantor._request import ActiveRequest, CallHandler, Limits
 from scantor._version import __version__
 
@@ -238,6 +238,4 @@ class Connector:
         self.send({"type": "error", "id": request_id, "error": dict(error)})
 
     def internal_error(self, request_id: str, exc: BaseException) -> None:
-        self.reply_error(
-            request_id, {"type": "taskError", "message": f"internal connector error: {describe_exception(exc)}"}
-        )
+        self.reply_error(request_id, internal_error_object(exc))

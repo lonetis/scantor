@@ -80,6 +80,29 @@ def test_error_classification(start_connector: StartConnector, ctx_factory: Any,
             assert "scantor/_handlers.py" not in error["stack"]
 
 
+def test_non_finite_retry_delay_fails_where_it_is_raised(start_connector: StartConnector, ctx_factory: Any) -> None:
+    runtime = start_connector("retry_delays.py")
+    runtime.run("r1", ctx_factory("r1"), {"mode": "nan"})
+    error = runtime.recv_type("error")["error"]
+    assert error["type"] == "taskError"
+    assert error["message"] == "ValueError: Retry delay must be a finite number of seconds, not nan"
+    assert "retry_delays.py" in error["stack"]
+
+
+def test_connector_failures_still_end_the_request(start_connector: StartConnector, ctx_factory: Any) -> None:
+    runtime = start_connector("retry_delays.py")
+    runtime.run("r1", ctx_factory("r1"), {"mode": "broken"})
+    error = runtime.recv_type("error")
+    assert error["id"] == "r1"
+    assert error["error"]["type"] == "taskError"
+    assert error["error"]["message"].startswith("internal connector error: RuntimeError: broken classification")
+    assert len(error["error"]["message"]) == 4096
+    # The scope closed with the reply: a thread's late log no longer names the request.
+    assert runtime.recv_type("log") == {"type": "log", "parent": None, "level": "info", "message": "late"}
+    runtime.run("r2", ctx_factory("r2"), {"mode": "ok"})
+    assert runtime.recv_type("result")["result"] == {"text": "ok"}
+
+
 def test_oversized_result_is_one_valid_line(start_connector: StartConnector, ctx_factory: Any) -> None:
     runtime = start_connector("echo.py")
     runtime.run("r1", ctx_factory("r1"), {"mode": "oversized", "bytes": 2 * 1024 * 1024})

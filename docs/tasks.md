@@ -369,7 +369,10 @@ In `schedule`: `Fatal` fails scheduling (the scan ends `failed` after the publis
 `Retry` and other exceptions restart the scheduler after the delay or backoff, at most
 `SCANTOR_SCHEDULER_MAX_RESTARTS` times; `validation` errors fail scheduling. Retry delay units: Python
 seconds (`float` or `datetime.timedelta`), TypeScript/JavaScript milliseconds, Go `time.Duration`;
-milliseconds on the wire. Classification and the full `ScantorError` are owned by the runtime
+milliseconds on the wire. A delay that cannot be sent fails where the `Retry` is created, so the error
+points at task code: Python raises `TypeError` for a non-number and `ValueError` for NaN or ±infinity
+(a negative delay counts as 0), TypeScript/JavaScript throw a `RangeError` for a negative or non-finite
+delay. Classification and the full `ScantorError` are owned by the runtime
 ([runtime](runtime.md), [protocol](protocol.md) §7).
 
 ### 5.5 Sync and async

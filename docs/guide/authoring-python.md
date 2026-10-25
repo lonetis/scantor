@@ -334,7 +334,7 @@ def run(ctx: scantor.Context, analysis_config: templates.list.AnalysisConfig, ta
 | `run` raises | Error type | Effect |
 |---|---|---|
 | `scantor.Fatal(message)` | `fatal` | the analysis fails now, without retries |
-| `scantor.Retry(message, delay=None)` | `retry` | another attempt after `delay` seconds (a `float` or a `datetime.timedelta`; `None` = the scan's backoff), clamped to [1 s, backoff max]; counts toward `maxAttempts` |
+| `scantor.Retry(message, delay=None)` | `retry` | another attempt after `delay` seconds (a `float` or a `datetime.timedelta`; `None` = the scan's backoff), clamped to [1 s, backoff max]; counts toward `maxAttempts`. A `delay` that is not a finite number (such as `float("nan")` from a `Retry-After` header) makes `Retry(...)` itself raise `ValueError` or `TypeError` |
 | any other exception | `taskError` | another attempt after the backoff; the traceback is kept |
 | a `scantor.ScantorError` of type `validation` (from files or templates), a `pydantic.ValidationError` | `validation` | fails now |
 | invalid config or result | `validation` | fails now; the issues name the paths |

@@ -4,7 +4,7 @@ import asyncio
 import contextlib
 import inspect
 import sys
-from collections.abc import AsyncIterable, Iterable, Mapping
+from collections.abc import AsyncIterable, Callable, Iterable, Mapping
 from typing import Any, cast
 
 import pydantic
@@ -17,6 +17,7 @@ from scantor._json import (
     describe_exception,
     encode_line,
     format_stack,
+    internal_error_object,
     not_json_error,
     truncate,
     validation_error,
@@ -111,14 +112,26 @@ def describe(task: Task[Any, Any, Any, Any]) -> dict[str, Any]:
 
 
 def handle_run(connector: Connector, task: Task[Any, Any, Any, Any], message: Mapping[str, Any]) -> None:
-    request = _begin(connector, message, "run")
-    reply = _run(connector, task, request, message)
-    _end(connector, request, reply)
+    _handle(connector, message, "run", lambda request: _run(connector, task, request, message))
 
 
 def handle_schedule(connector: Connector, task: Task[Any, Any, Any, Any], message: Mapping[str, Any]) -> None:
-    request = _begin(connector, message, "schedule")
-    reply = _schedule(connector, task, request, message)
+    _handle(connector, message, "schedule", lambda request: _schedule(connector, task, request, message))
+
+
+def _handle(
+    connector: Connector,
+    message: Mapping[str, Any],
+    kind: RequestKind,
+    serve: Callable[[ActiveRequest], dict[str, Any]],
+) -> None:
+    request = _begin(connector, message, kind)
+    try:
+        reply = serve(request)
+    except Exception as exc:
+        # A failure of the connector itself still ends the request (deadline timer, template streams,
+        # scope) and answers it.
+        reply = {"type": "error", "id": request.id, "error": internal_error_object(exc)}
     _end(connector, request, reply)
 
 

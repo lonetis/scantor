@@ -226,3 +226,9 @@ def describe_exception(exc: BaseException) -> str:
     text = str(exc)
     name = type(exc).__name__
     return truncate(f"{name}: {text}" if text else name, MAX_ERROR_MESSAGE)
+
+
+def internal_error_object(exc: BaseException) -> dict[str, Any]:
+    """Protocol error object for a failure of the connector itself (not of task code)."""
+    message = truncate(f"internal connector error: {describe_exception(exc)}", MAX_ERROR_MESSAGE)
+    return {"type": "taskError", "message": message}

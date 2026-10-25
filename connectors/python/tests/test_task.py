@@ -118,6 +118,21 @@ def test_retry_delay_units() -> None:
     assert scantor.Retry("x", 1.5).delay_ms == 1500
     assert scantor.Retry("x", datetime.timedelta(minutes=1)).delay_ms == 60000
     assert scantor.Retry("x", -3).delay_ms == 0
+    longest = (2**63 - 1) // 1_000_000  # milliseconds of a Go time.Duration, the runtime's type
+    assert scantor.Retry("x", 1e300).delay_ms == longest
+    assert scantor.Retry("x", 10**400).delay_ms == longest
+
+
+@pytest.mark.parametrize("delay", [float("nan"), float("inf"), float("-inf")])
+def test_retry_rejects_non_finite_delays(delay: float) -> None:
+    with pytest.raises(ValueError, match="finite"):
+        scantor.Retry("rate limited", delay)
+
+
+@pytest.mark.parametrize("delay", ["60", True, [1]])
+def test_retry_rejects_non_numeric_delays(delay: object) -> None:
+    with pytest.raises(TypeError, match="seconds"):
+        scantor.Retry("rate limited", delay)  # pyright: ignore[reportArgumentType]
 
 
 def test_file_ref_serialises_content_type_as_camel_case() -> None:
