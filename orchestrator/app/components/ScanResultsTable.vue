@@ -100,6 +100,8 @@ const list = useCursorList<AnalysisRow>(fetchPage, {
   immediate: false,
   maxItems: RESULTS_MAX_ROWS,
   maxRefreshPages: Math.ceil(RESULTS_REFRESH_ROWS / RESULTS_PAGE_SIZE),
+  // An advanced filter's projection may leave out the id; every row has its seq.
+  key: (row) => row.seq,
 })
 
 function reload(): void {

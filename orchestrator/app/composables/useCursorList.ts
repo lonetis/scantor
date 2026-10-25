@@ -4,23 +4,34 @@ import { computed, ref, shallowRef, type Ref } from 'vue'
 // an epoch guard drops responses that belong to an older filter. `loading` covers reset() and loadMore();
 // `refreshing` covers refresh(), which polls and "Refresh" buttons use. A refresh re-reads the pages that were
 // loaded when it started, so it is dropped when a "Load more" page arrived meanwhile: swapping it in would remove
-// that page (the next poll re-reads all of them).
+// that page (the next poll re-reads all of them). A refresh re-reads at most `maxRefreshPages` pages; the items
+// loaded beyond them stay (with their last loaded values) behind the re-read ones, and so does the cursor.
 
 export interface CursorPage<T> {
   items: T[]
   nextCursor?: string | null
 }
 
-export interface CursorListOptions {
+export interface CursorListOptions<T> {
   /** Load the first page right away (default true). */
   immediate?: boolean
   /** Keep at most this many items in memory; loading stops there. */
   maxItems?: number
   /** At most this many pages are re-read by refresh() (default 5). */
   maxRefreshPages?: number
+  /** The identity of an item, to join a bounded refresh with the items loaded beyond it (default: its `id`, else the item). */
+  key?: (item: T) => unknown
 }
 
-export function useCursorList<T>(fetchPage: (cursor: string | null) => Promise<CursorPage<T>>, options: CursorListOptions = {}) {
+function defaultKey(item: unknown): unknown {
+  return typeof item === 'object' && item !== null && 'id' in item ? (item as { id: unknown }).id : item
+}
+
+export function useCursorList<T>(
+  fetchPage: (cursor: string | null) => Promise<CursorPage<T>>,
+  options: CursorListOptions<T> = {},
+) {
+  const key = options.key ?? defaultKey
   const items = shallowRef<T[]>([]) as Ref<T[]>
   const nextCursor = ref<string | null>(null)
   const loading = ref(false)
@@ -43,8 +54,7 @@ export function useCursorList<T>(fetchPage: (cursor: string | null) => Promise<C
     try {
       const page = await fetchPage(cursor)
       if (started !== epoch) return
-      const merged = mode === 'append' ? [...items.value, ...page.items] : page.items
-      items.value = options.maxItems === undefined ? merged : merged.slice(0, options.maxItems)
+      items.value = cap(mode === 'append' ? [...items.value, ...page.items] : page.items)
       nextCursor.value = page.nextCursor ?? null
       pages.value = mode === 'append' ? pages.value + 1 : 1
       if (mode === 'append') appended++
@@ -73,11 +83,16 @@ export function useCursorList<T>(fetchPage: (cursor: string | null) => Promise<C
     await load(nextCursor.value, 'append')
   }
 
-  /** Re-reads the loaded pages (bounded) and swaps them in atomically; used by polls and "Refresh". */
+  /**
+   * Re-reads the loaded pages (at most `maxRefreshPages`) and swaps them in atomically; used by polls and "Refresh".
+   * When more pages are loaded than it re-reads, the items after the last re-read one stay, and so do the cursor and
+   * the page count, so a poll never truncates what the user scrolled through.
+   */
   async function refresh(): Promise<void> {
     const started = epoch
     const appendedBefore = appended
-    const pageCount = Math.max(1, Math.min(pages.value, options.maxRefreshPages ?? 5))
+    const loadedPages = pages.value
+    const pageCount = Math.max(1, Math.min(loadedPages, options.maxRefreshPages ?? 5))
     const collected: T[] = []
     let cursor: string | null = null
     refreshesInFlight.value++
@@ -92,11 +107,28 @@ export function useCursorList<T>(fetchPage: (cursor: string | null) => Promise<C
     } finally {
       refreshesInFlight.value--
     }
-    items.value = options.maxItems === undefined ? collected : collected.slice(0, options.maxItems)
-    nextCursor.value = cursor
-    pages.value = pageCount
+    if (cursor !== null && loadedPages > pageCount) {
+      items.value = cap([...collected, ...tailAfter(items.value, collected)])
+    } else {
+      items.value = cap(collected)
+      nextCursor.value = cursor
+      pages.value = pageCount
+    }
     error.value = null
     loaded.value = true
+  }
+
+  /** The loaded items after the last re-read one (or after as many items as were re-read), without the re-read ones. */
+  function tailAfter(current: readonly T[], reread: readonly T[]): T[] {
+    const seen = new Set(reread.map(key))
+    const last = reread.at(-1)
+    const boundary = last === undefined ? -1 : current.findIndex((item) => key(item) === key(last))
+    const tail = boundary >= 0 ? current.slice(boundary + 1) : current.slice(reread.length)
+    return tail.filter((item) => !seen.has(key(item)))
+  }
+
+  function cap(list: T[]): T[] {
+    return options.maxItems === undefined ? list : list.slice(0, options.maxItems)
   }
 
   if (options.immediate !== false) {

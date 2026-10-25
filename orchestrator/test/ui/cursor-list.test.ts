@@ -151,4 +151,65 @@ describe('useCursorList', () => {
       expect(list.hasMore.value).toBe(false)
     })
   })
+
+  describe('a refresh bounded by maxRefreshPages (docs/ui.md §5.13.2)', () => {
+    interface Row { id: string, version: number }
+    // Pages of two rows; the cursor is the index of the page's first row.
+    function boundedList(rows: { ids: string[], version: number }) {
+      const list = useCursorList<Row>(async (cursor) => {
+        const start = cursor === null ? 0 : Number(cursor)
+        const end = start + 2
+        return {
+          items: rows.ids.slice(start, end).map((id) => ({ id, version: rows.version })),
+          nextCursor: end < rows.ids.length ? String(end) : null,
+        }
+      }, { immediate: false, maxRefreshPages: 2 })
+      return list
+    }
+    const ids = (list: { items: { value: Row[] } }) => list.items.value.map((row) => row.id)
+
+    it('keeps the rows loaded beyond the re-read pages, with their cursor', async () => {
+      const rows = { ids: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'], version: 0 }
+      const list = boundedList(rows)
+      await list.reset()
+      await list.loadMore()
+      await list.loadMore()
+      expect(ids(list)).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+
+      rows.version = 1
+      await list.refresh()
+      expect(ids(list)).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
+      expect(list.items.value.map((row) => row.version)).toEqual([1, 1, 1, 1, 0, 0])
+      expect(list.hasMore.value).toBe(true)
+      await list.loadMore()
+      expect(ids(list)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'])
+      expect(list.hasMore.value).toBe(false)
+    })
+
+    it('joins the kept rows after the last re-read one when new rows pushed the others down', async () => {
+      const rows = { ids: ['c', 'd', 'e', 'f', 'g', 'h', 'i'], version: 0 }
+      const list = boundedList(rows)
+      await list.reset()
+      await list.loadMore()
+      await list.loadMore()
+      expect(ids(list)).toEqual(['c', 'd', 'e', 'f', 'g', 'h'])
+
+      rows.ids = ['a', 'b', ...rows.ids]
+      await list.refresh()
+      expect(ids(list)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'])
+    })
+
+    it('replaces everything when the re-read reaches the end of the list', async () => {
+      const rows = { ids: ['a', 'b', 'c', 'd', 'e', 'f'], version: 0 }
+      const list = boundedList(rows)
+      await list.reset()
+      await list.loadMore()
+      await list.loadMore()
+
+      rows.ids = ['a', 'b', 'c']
+      await list.refresh()
+      expect(ids(list)).toEqual(['a', 'b', 'c'])
+      expect(list.hasMore.value).toBe(false)
+    })
+  })
 })

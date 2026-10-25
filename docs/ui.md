@@ -534,7 +534,8 @@ Tabs (`?tab=`): `overview` (default), `results`, `query`, `workers`, `events`, `
   so large results never load in the list. Page size 50 with "Load more" and infinite scroll
   (`afterSeq` = last seq); at most 5000 rows stay in memory, after which the table says "Use the query
   console or an export for more".
-- Auto-refresh reloads the loaded range (capped at the first 1000 rows) every 10 s.
+- Auto-refresh reloads the loaded range (capped at the first 1000 rows) every 10 s; rows loaded beyond the
+  first 1000 keep their last loaded values, so the table never shrinks under the user's scroll position.
 - Row click → `AnalysisSlideover` (`?analysis=<seq>`).
 
 #### 5.13.3 Analysis detail (`AnalysisSlideover`)
@@ -788,7 +789,7 @@ field, on the nearest rendered ancestor, or as a form-level alert when no field 
 | `useInstance()` | singleton: `getInstanceInfo` once per page load and `getSetupStatus`; exposes `features`, `limits`, URLs, `cliImage`, `version` |
 | `useApiFetch(path, opts)` | `useFetch` with `$fetch: $api`, typed by `#shared/types`; `opts.toast` (default true) |
 | `usePoll(fn, {intervalMs, enabled})` | polling with visibility pause, in-flight skip and error backoff (§9) |
-| `useCursorList(fetchPage)` | generic `Load more` / infinite loading over `nextCursor` or `afterSeq`, with reset on filter change and an epoch guard against stale responses; `loading` covers the first page and "Load more", `refreshing` a re-read of the loaded pages (polls; the "Refresh" button spins on either); a re-read that a "Load more" page overtakes is dropped, so the page stays and the next poll re-reads all pages |
+| `useCursorList(fetchPage)` | generic `Load more` / infinite loading over `nextCursor` or `afterSeq`, with reset on filter change and an epoch guard against stale responses; `loading` covers the first page and "Load more", `refreshing` a re-read of the loaded pages (polls; the "Refresh" button spins on either); a re-read that a "Load more" page overtakes is dropped, so the page stays and the next poll re-reads all pages; a re-read covers at most `maxRefreshPages` pages, and the items loaded beyond them stay behind the re-read ones (joined by `key`, default `id`) with the cursor |
 | `useSidebarCounts()` | singleton poll for the Scans and Nodes badges |
 | `useScan(scanId)` / `useScanActions(scan)` | scan polling by state; action availability (`scanActions`) and calls with confirmations and toasts |
 | `useTestRunStream(testRunId)` | `EventSource` lifecycle, event reducer, polling fallback |
