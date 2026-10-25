@@ -40,7 +40,23 @@ async function load(background: boolean): Promise<void> {
   loaded.value = true
 }
 
-const poll = usePoll(() => load(loaded.value), { intervalMs: OVERVIEW_POLL_MS })
+// The first load and the "Refresh" button report failures as toasts; the timer's ticks are background requests (§8),
+// also while the first load has not succeeded yet (for example while the orchestrator starts).
+let foreground = true
+const poll = usePoll(() => {
+  const background = !foreground
+  foreground = false
+  return load(background)
+}, { intervalMs: OVERVIEW_POLL_MS })
+
+async function refreshNow(): Promise<void> {
+  foreground = true
+  try {
+    await poll.refresh()
+  } finally {
+    foreground = false
+  }
+}
 
 const attention = computed(() => {
   const seen = new Set<string>()
@@ -86,7 +102,7 @@ const nodeStats = computed(() => {
           <SidebarCollapseButton />
         </template>
         <template #right>
-          <RefreshButton :loading="poll.running.value" @click="poll.refresh()" />
+          <RefreshButton :loading="poll.running.value" @click="refreshNow()" />
         </template>
       </UDashboardNavbar>
     </template>

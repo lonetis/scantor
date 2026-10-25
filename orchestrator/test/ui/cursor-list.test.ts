@@ -74,6 +74,26 @@ describe('useCursorList', () => {
     expect(list.items.value).toEqual([3])
   })
 
+  it('marks the pages of a poll\'s refresh as background requests, and only those (docs/ui.md §8)', async () => {
+    const requests: { cursor: string | null, background: boolean }[] = []
+    const list = useCursorList<string>(async (cursor, { background }) => {
+      requests.push({ cursor, background })
+      return cursor === null ? { items: ['a'], nextCursor: '2' } : { items: ['b'], nextCursor: null }
+    }, { immediate: false })
+    await list.reset()
+    await list.loadMore()
+    await list.refresh()
+    await list.refresh({ background: true })
+    expect(requests).toEqual([
+      { cursor: null, background: false },
+      { cursor: '2', background: false },
+      { cursor: null, background: false },
+      { cursor: '2', background: false },
+      { cursor: null, background: true },
+      { cursor: '2', background: true },
+    ])
+  })
+
   describe('a refresh that overlaps "Load more"', () => {
     // Pages are requested by cursor: null is the first page, "2" the second.
     function pagedList() {

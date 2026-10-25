@@ -4,6 +4,7 @@ import type { TableColumn, TableRow } from '@nuxt/ui'
 import type { Page } from '#shared/types/common'
 import type { Scan } from '#shared/types/scans'
 import type { AnalysisRow, ResultsFilters } from '~/composables/useAnalyses'
+import type { PageRequest } from '~/composables/useCursorList'
 
 // The results tab of a scan (docs/ui.md §5.13.2): ResultsFilterBar plus a sticky, virtualized table of projected
 // analyses (seq order, 50 per page, "Load more" and infinite scroll, at most 5000 rows in memory). Only the fields of
@@ -76,17 +77,19 @@ const advancedFilter = computed(() => {
 })
 const loadError = shallowRef<ApiError | null>(null)
 
-async function fetchPage(cursor: string | null): Promise<Page<AnalysisRow>> {
+async function fetchPage(cursor: string | null, request: PageRequest): Promise<Page<AnalysisRow>> {
   const afterSeq = cursor !== null ? Number(cursor) : startAfter.value
   const fields = resultRowFields(filters.value.columns)
+  // Poll re-reads and further pages never toast; a failed first page shows the inline alert and a toast.
+  const background = request.background || cursor !== null
   try {
     let page: Page<AnalysisRow>
     if (advancedFilter.value) {
       const projection = Object.fromEntries(fields.filter((field) => field !== 'id').map((field) => [field, 1]))
-      const result = await analyses.query({ filter: advancedFilter.value, projection, limit: RESULTS_PAGE_SIZE, ...(afterSeq === null ? {} : { afterSeq }) }, { background: cursor !== null })
+      const result = await analyses.query({ filter: advancedFilter.value, projection, limit: RESULTS_PAGE_SIZE, ...(afterSeq === null ? {} : { afterSeq }) }, { background })
       page = { items: result.items as AnalysisRow[], nextCursor: result.nextCursor }
     } else {
-      page = await analyses.list({ status: filters.value.statuses, afterSeq, limit: RESULTS_PAGE_SIZE, fields }, { background: cursor !== null })
+      page = await analyses.list({ status: filters.value.statuses, afterSeq, limit: RESULTS_PAGE_SIZE, fields }, { background })
     }
     loadError.value = null
     return page
@@ -121,7 +124,7 @@ watch(
 
 const live = computed(() => props.scan.state === 'running')
 usePoll(async () => {
-  if (list.loaded.value && !list.loading.value) await list.refresh()
+  if (list.loaded.value && !list.loading.value) await list.refresh({ background: true })
 }, {
   intervalMs: REFRESH_MS,
   enabled: () => live.value && filters.value.autoRefresh,

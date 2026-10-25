@@ -51,10 +51,9 @@ export interface ScanListFilters {
 
 export function useScans(filters: MaybeRefOrGetter<ScanListFilters>) {
   const api = useApi()
-  let background = false
 
   const list = useCursorList<ScanSummary>(
-    (cursor) => {
+    (cursor, { background }) => {
       const current = toValue(filters)
       return api<Page<ScanSummary>>('/api/scans', {
         query: apiQuery({ state: current.state, task: current.task, userId: current.userId, cursor, limit: 50 }),
@@ -69,14 +68,7 @@ export function useScans(filters: MaybeRefOrGetter<ScanListFilters>) {
     list.reset().catch((error: unknown) => console.error('[scans] loading the scans failed', error))
   }, { immediate: true })
 
-  const poll = usePoll(async () => {
-    background = true
-    try {
-      await list.refresh()
-    } finally {
-      background = false
-    }
-  }, { intervalMs: SCANS_POLL_MS, immediate: false })
+  const poll = usePoll(() => list.refresh({ background: true }), { intervalMs: SCANS_POLL_MS, immediate: false })
 
   return { ...list, polling: poll.running, refresh: poll.refresh }
 }

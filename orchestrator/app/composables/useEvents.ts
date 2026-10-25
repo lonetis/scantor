@@ -8,11 +8,10 @@ const EVENTS_POLL_MS = 10_000
 
 export function useEvents(scanId: MaybeRefOrGetter<string>, options: { type: MaybeRefOrGetter<string | null>, enabled: MaybeRefOrGetter<boolean> }) {
   const api = useApi()
-  let background = false
   const loadedMore = ref(false)
 
   const list = useCursorList<ScantorEvent>(
-    (cursor) =>
+    (cursor, { background }) =>
       api<Page<ScantorEvent>>(`/api/scans/${encodeURIComponent(toValue(scanId))}/events`, {
         query: apiQuery({ type: toValue(options.type), cursor, limit: 50 }),
         background,
@@ -29,14 +28,7 @@ export function useEvents(scanId: MaybeRefOrGetter<string>, options: { type: May
     }
   }, { immediate: true })
 
-  const poll = usePoll(async () => {
-    background = true
-    try {
-      await list.refresh()
-    } finally {
-      background = false
-    }
-  }, { intervalMs: EVENTS_POLL_MS, enabled: () => toValue(options.enabled) && list.loaded.value && !loadedMore.value, immediate: false })
+  const poll = usePoll(() => list.refresh({ background: true }), { intervalMs: EVENTS_POLL_MS, enabled: () => toValue(options.enabled) && list.loaded.value && !loadedMore.value, immediate: false })
 
   async function loadMore(): Promise<void> {
     loadedMore.value = true

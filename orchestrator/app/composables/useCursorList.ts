@@ -12,6 +12,11 @@ export interface CursorPage<T> {
   nextCursor?: string | null
 }
 
+/** How a page is requested: `background` is set for the re-reads of polls, which must never toast (docs/ui.md §8). */
+export interface PageRequest {
+  background: boolean
+}
+
 export interface CursorListOptions<T> {
   /** Load the first page right away (default true). */
   immediate?: boolean
@@ -28,7 +33,7 @@ function defaultKey(item: unknown): unknown {
 }
 
 export function useCursorList<T>(
-  fetchPage: (cursor: string | null) => Promise<CursorPage<T>>,
+  fetchPage: (cursor: string | null, request: PageRequest) => Promise<CursorPage<T>>,
   options: CursorListOptions<T> = {},
 ) {
   const key = options.key ?? defaultKey
@@ -52,7 +57,7 @@ export function useCursorList<T>(
     const started = epoch
     loading.value = true
     try {
-      const page = await fetchPage(cursor)
+      const page = await fetchPage(cursor, { background: false })
       if (started !== epoch) return
       items.value = cap(mode === 'append' ? [...items.value, ...page.items] : page.items)
       nextCursor.value = page.nextCursor ?? null
@@ -86,9 +91,10 @@ export function useCursorList<T>(
   /**
    * Re-reads the loaded pages (at most `maxRefreshPages`) and swaps them in atomically; used by polls and "Refresh".
    * When more pages are loaded than it re-reads, the items after the last re-read one stay, and so do the cursor and
-   * the page count, so a poll never truncates what the user scrolled through.
+   * the page count, so a poll never truncates what the user scrolled through. Polls pass `background: true`.
    */
-  async function refresh(): Promise<void> {
+  async function refresh({ background = false }: { background?: boolean } = {}): Promise<void> {
+    const request: PageRequest = { background }
     const started = epoch
     const appendedBefore = appended
     const loadedPages = pages.value
@@ -98,7 +104,7 @@ export function useCursorList<T>(
     refreshesInFlight.value++
     try {
       for (let page = 0; page < pageCount; page++) {
-        const result = await fetchPage(cursor)
+        const result = await fetchPage(cursor, request)
         if (started !== epoch || appended !== appendedBefore) return
         collected.push(...result.items)
         cursor = result.nextCursor ?? null

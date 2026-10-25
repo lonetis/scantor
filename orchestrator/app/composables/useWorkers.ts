@@ -18,10 +18,9 @@ export interface WorkersOptions {
 
 export function useWorkers(scanId: MaybeRefOrGetter<string>, options: WorkersOptions) {
   const api = useApi()
-  let background = false
 
   const list = useCursorList<ScanWorker>(
-    (cursor) =>
+    (cursor, { background }) =>
       api<Page<ScanWorker>>(`/api/scans/${encodeURIComponent(toValue(scanId))}/workers`, {
         query: apiQuery({ state: toValue(options.state), cursor, limit: 50 }),
         background,
@@ -31,12 +30,7 @@ export function useWorkers(scanId: MaybeRefOrGetter<string>, options: WorkersOpt
   )
 
   async function backgroundRefresh(): Promise<void> {
-    background = true
-    try {
-      await list.refresh()
-    } finally {
-      background = false
-    }
+    await list.refresh({ background: true })
   }
 
   // The scan and the filter the list was last reset for.

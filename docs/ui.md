@@ -822,9 +822,11 @@ because ofetch cannot replace the error it throws from a hook. `useApiFetch` is 
   and for 5xx a "Copy request id" action.
 - Network failures (no response) show one deduplicated toast "Cannot reach the orchestrator" at most every
   10 s.
-- Background polls (`background: true`, set by `usePoll`) never toast, not even for network failures;
-  after 3 consecutive poll failures a page-level banner "Live updates paused, retrying…" appears and
-  disappears on the next success.
+- Background polls never toast, not even for network failures: every poll tick sends its requests with
+  `background: true` (lists through `useCursorList.refresh({background: true})`, which passes the flag to
+  each page); only first loads and explicit actions such as "Refresh" may toast. After 3 consecutive poll
+  failures (`usePoll`) a page-level banner "Live updates paused, retrying…" appears and disappears on the
+  next success.
 
 Success feedback: toasts for asynchronous or off-page effects ("Scan paused", "Export ready"), no toast
 when the page visibly changes.
