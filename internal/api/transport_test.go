@@ -143,19 +143,6 @@ func TestNoRedirects(t *testing.T) {
 	}
 }
 
-func TestCheckURL(t *testing.T) {
-	p := Policy{}
-	if _, err := p.CheckURL("amqps://amqp.example.com:443/scantor", "amqps", "amqp"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.CheckURL("https://x", "amqps", "amqp"); err == nil {
-		t.Fatal("wrong scheme accepted")
-	}
-	if _, err := p.CheckURL("amqp://", "amqps", "amqp"); err == nil {
-		t.Fatal("missing host accepted")
-	}
-}
-
 func TestCheckTransport(t *testing.T) {
 	ctx := context.Background()
 	enforced := Policy{EnforcePlaintext: true}

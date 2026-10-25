@@ -76,24 +76,6 @@ func (p Policy) TLSConfig() (*tls.Config, error) {
 	return &tls.Config{RootCAs: roots, MinVersion: tls.VersionTLS12}, nil
 }
 
-// CheckURL statically checks a URL against the policy: the scheme must be one of the given secure or
-// plaintext schemes. Plaintext URLs are checked again by PlaintextDialer at connect time.
-func (p Policy) CheckURL(raw string, secureScheme, plainScheme string) (*url.URL, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
-	}
-	if u.Host == "" {
-		return nil, fmt.Errorf("invalid URL %s: missing host", u.Redacted())
-	}
-	switch u.Scheme {
-	case secureScheme, plainScheme:
-		return u, nil
-	default:
-		return nil, fmt.Errorf("invalid URL %s: the scheme must be %s or %s", u.Redacted(), secureScheme, plainScheme)
-	}
-}
-
 // Secure and plaintext URL schemes of the transport rule.
 var (
 	secureSchemes    = []string{"https", "amqps"}
