@@ -288,11 +288,16 @@ func (w *window) confirmLocked(seq int64, hash string) {
 }
 
 // backpressureLoop republishes nacked and returned items in seq order after the backpressure wait,
-// until none is left.
+// until none is left. A loop of an earlier generation exits without touching looping or backpressure: those
+// belong to the current generation, whose first nack starts its own loop (reset clears looping).
 func (w *window) backpressureLoop(gen int) {
 	for {
 		w.mu.Lock()
-		if w.gen != gen || w.held == 0 {
+		if w.gen != gen {
+			w.mu.Unlock()
+			return
+		}
+		if w.held == 0 {
 			w.looping, w.backpressure = false, false
 			w.signalLocked()
 			w.mu.Unlock()
@@ -304,14 +309,11 @@ func (w *window) backpressureLoop(gen int) {
 		select {
 		case <-time.After(wait):
 		case <-w.ctx.Done():
-			w.mu.Lock()
-			w.looping = false
-			w.mu.Unlock()
+			w.stopLoop(gen)
 			return
 		}
 		w.mu.Lock()
 		if w.gen != gen {
-			w.looping = false
 			w.mu.Unlock()
 			return
 		}
@@ -341,13 +343,20 @@ func (w *window) backpressureLoop(gen int) {
 				select {
 				case <-changed:
 				case <-w.ctx.Done():
-					w.mu.Lock()
-					w.looping = false
-					w.mu.Unlock()
+					w.stopLoop(gen)
 					return
 				}
 			}
 		}
+	}
+}
+
+// stopLoop records that the loop of generation gen ended on stop or fencing.
+func (w *window) stopLoop(gen int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.gen == gen {
+		w.looping = false
 	}
 }
 
@@ -360,7 +369,9 @@ func (w *window) reset() {
 	w.pending = map[int64]*entry{}
 	w.beyond = map[int64]string{}
 	w.bytes, w.held = 0, 0
-	w.backpressure = false
+	// A loop of the old generation may still sleep; it exits quietly, and the new generation's first nack
+	// starts its own.
+	w.backpressure, w.looping = false, false
 	w.credit, w.full = 0, false
 	w.signalLocked()
 }

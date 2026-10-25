@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -280,6 +281,45 @@ func TestBackpressureRepublishesNackedSeqs(t *testing.T) {
 	}
 	if a := h.api.snapshot(); a.done[0].Confirmed != 40 {
 		t.Fatalf("done %+v", a.done[0])
+	}
+}
+
+// nackPublisher nacks every publish while nack is set.
+type nackPublisher struct{ nack atomic.Bool }
+
+func (p *nackPublisher) Send(context.Context, amqpx.Publication) amqpx.Confirmation {
+	if p.nack.Load() {
+		return outcome(amqpx.Nacked)
+	}
+	return outcome(amqpx.Confirmed)
+}
+
+type outcome amqpx.Outcome
+
+func (o outcome) Wait(context.Context) amqpx.Outcome { return amqpx.Outcome(o) }
+
+// A restart while the backpressure loop of the old generation sleeps must not leave the new generation's nacked
+// items without a loop: the old loop exits quietly and the new one republishes them.
+func TestBackpressureSurvivesARestart(t *testing.T) {
+	const wait = 200 * time.Millisecond
+	pub := &nackPublisher{}
+	pub.nack.Store(true)
+	w := newWindow(context.Background(), pub, nil, 0, "scantor.analyses", testScan, wait, nil, slog.New(slog.DiscardHandler), api.Checkpoint{})
+	w.add(0, "h0", []byte(`{}`))
+	waitUntil(t, "backpressure", func() bool { return w.progress().Backpressure })
+	time.Sleep(wait / 10) // the old generation's loop sleeps for at least 0.8 × wait
+	w.reset()
+	w.add(0, "h0", []byte(`{}`))
+	waitUntil(t, "the item held again", func() bool { return w.progress().Nacked == 1 })
+	pub.nack.Store(false)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*wait)
+	defer cancel()
+	if !w.waitEmpty(ctx) {
+		t.Fatalf("the nacked item of the new generation was never republished: %+v", w.progress())
+	}
+	waitUntil(t, "the end of backpressure", func() bool { return !w.progress().Backpressure })
+	if p := w.progress(); p.Confirmed != 1 {
+		t.Fatalf("progress %+v", p)
 	}
 }
 
