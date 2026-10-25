@@ -2,9 +2,9 @@
   "mcpServers": {
     "scantor": {
       "type": "http",
-      "url": "${SCANTOR_URL}/mcp",
+      "url": "${SCANTOR_URL:-http://localhost:3000}/mcp",
       "headers": {
-        "Authorization": "Bearer ${SCANTOR_TOKEN}"
+        "Authorization": "Bearer ${SCANTOR_TOKEN:-}"
       }
     }
   }

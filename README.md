@@ -308,7 +308,8 @@ covers other clients, access levels, the tools and the agent loop.
 
 This repository is also a Claude Code plugin marketplace. The `scantor` plugin adds two skills, one for
 developing tasks and one for running scans and analysing results, and connects the MCP server from the
-`SCANTOR_URL` and `SCANTOR_TOKEN` environment variables:
+`SCANTOR_URL` and `SCANTOR_TOKEN` environment variables (without `SCANTOR_URL`, the dev stack at
+`http://localhost:3000`):
 
 ```sh
 export SCANTOR_URL=https://scantor.example.com SCANTOR_TOKEN=sk_scantor_…   # before starting Claude Code
