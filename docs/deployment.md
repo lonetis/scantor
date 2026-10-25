@@ -1209,7 +1209,10 @@ Plaintext is accepted automatically only for loopback, RFC 1918, CGNAT and ULA a
 | Traefik ACME (`scantor-traefik-acme`) | optional | certificates are reissued automatically (watch the Let's Encrypt rate limits) |
 
 `just backup <dir>` runs the MongoDB dump plus the volume tars in that order, stopping and starting
-`rustfs` and `registry` around their tars. Restore: bring up an empty stack with the **same `.env`**,
+`rustfs` and `registry` around their tars. It creates a missing `<dir>` with mode 0700 and writes every file
+with mode 0600, owned by the invoking user: the dump holds live session tokens (better-auth stores them in
+clear), password hashes and encrypted credentials, and the tars hold every user's files and exports. Keep
+manual copies just as private (`umask 077`). Restore: bring up an empty stack with the **same `.env`**,
 stop `orchestrator` and `node`, run `mongorestore --oplogReplay --archive --gzip --drop`, untar the
 volumes, start everything. Scans that were running continue from their scheduler checkpoints.
 

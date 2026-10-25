@@ -677,13 +677,16 @@ registry-gc env="dev":
 backup dir:
     #!/usr/bin/env bash
     set -euo pipefail
+    # The dump holds live session tokens and password hashes, the volume tars every user's files: only
+    # the invoking user may read them (a new directory is 0700, every file 0600).
+    umask 077
     mkdir -p "$1"
     dir="$(cd "$1" && pwd)"
     stamp="$(date +%F)"
     owner="$(id -u):$(id -g)"
     archive() { # volume file
       docker run --rm -v "$1:/data:ro" -v "$dir:/backup" {{alpine_image}} \
-        sh -euc 'tar -czf "/backup/$1" -C /data . && chown "$2" "/backup/$1"' sh "$2" "$owner"
+        sh -euc 'umask 077; tar -czf "/backup/$1" -C /data . && chown "$2" "/backup/$1"' sh "$2" "$owner"
     }
     archive_stopped() { # container volume file
       echo "==> Stopping $1"

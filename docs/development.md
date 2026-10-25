@@ -155,7 +155,7 @@ Conventions for recipes:
 | `prune` | `compose down -v` of the dev stack (with `--env-file .env.example` when `.env` is missing); remove containers labelled `scantor.managed=true`, `scantor.dev=true` or `scantor.test=true`; remove app-created networks; remove the volumes `scantor-workspaces` and `scantor-editor-home` that the orchestrator creates at boot; delete `bin/` and `.test-images/`. Keeps tool caches, the test cache and images. |
 | `purge` | `prune` + `test-clean` + remove the dev cache volumes and every `scantor*:dev` and `scantor*:test` image |
 | `registry-gc env="dev"` | stop the orchestrator (the only pusher) of the `dev` or `prod` compose stack, run `registry garbage-collect --delete-untagged /etc/distribution/config.yml` inside `scantor-registry`, start the orchestrator again ([deployment](deployment.md) §14.1) |
-| `backup dir` | MongoDB dump plus the volume tars into `dir`, stopping and starting `rustfs` and `registry` around their tars ([deployment](deployment.md) §12) |
+| `backup dir` | MongoDB dump plus the volume tars into `dir` (created with mode 0700, files 0600), stopping and starting `rustfs` and `registry` around their tars ([deployment](deployment.md) §12) |
 | `deps-outdated` | report outdated dependencies (`npm outdated` per package, `go list -m -u all`, connector constraints) without changing anything |
 | **Release** | |
 | `release version` | validate `X.Y.Z`, require a clean `main` that equals `origin/main` and an unused tag, create the annotated tag `vX.Y.Z` and push it (§14) |
