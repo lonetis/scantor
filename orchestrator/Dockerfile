@@ -10,7 +10,7 @@
 # Build arguments (set by docker-bake.hcl): VERSION, COMMIT, IMAGE_PREFIX.
 
 # ── scantor binary ──────────────────────────────────────────────────────────────
-FROM golang:1.27-alpine AS scantor
+FROM golang:1.27.3-alpine3.24 AS scantor
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # ── dependencies ────────────────────────────────────────────────────────────────
 # Lifecycle scripts are skipped: the root postinstall (`nuxt prepare`) needs the sources, and no dependency needs
 # its own script on linux (native tools ship as platform packages; ssh2's optional crypto build is not used).
-FROM node:26-alpine AS deps
+FROM node:26.12.1-alpine3.24 AS deps
 WORKDIR /app/orchestrator
 COPY orchestrator/package.json orchestrator/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
@@ -44,7 +44,7 @@ RUN --mount=type=cache,target=/root/.npm \
 # ── dev image ───────────────────────────────────────────────────────────────────
 # docker-compose.dev.yml mounts the repository at /app and a named volume at /app/orchestrator/node_modules; the
 # volume is seeded from this image on first use, and `npm install` at container start keeps it current.
-FROM node:26-alpine AS dev
+FROM node:26.12.1-alpine3.24 AS dev
 WORKDIR /app/orchestrator
 COPY --from=scantor /out/scantor /usr/local/bin/scantor
 COPY --from=deps /app/orchestrator/node_modules ./node_modules
@@ -61,7 +61,7 @@ ARG VERSION=dev
 RUN BUILD_VERSION="${VERSION}" npx nuxt build
 
 # ── production image (final stage) ──────────────────────────────────────────────
-FROM node:26-alpine
+FROM node:26.12.1-alpine3.24
 WORKDIR /app
 COPY --from=scantor /out/scantor /usr/local/bin/scantor
 COPY --from=build /app/orchestrator/.output ./.output

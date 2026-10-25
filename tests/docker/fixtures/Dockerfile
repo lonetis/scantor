@@ -4,7 +4,7 @@
 # with fixture tasks. Build context: the repository root (docker-bake.hcl target test-fixtures),
 # filtered by Dockerfile.dockerignore next to this file.
 
-FROM golang:1.27-alpine AS build
+FROM golang:1.27.3-alpine3.24 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

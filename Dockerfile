@@ -3,7 +3,7 @@
 # It serves the CLI, the node daemon, the workspace helpers and the runtime source for injection.
 # Build arguments (set by docker-bake.hcl): VERSION, COMMIT, IMAGE_PREFIX.
 
-FROM golang:1.27-alpine AS build
+FROM golang:1.27.3-alpine3.24 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
