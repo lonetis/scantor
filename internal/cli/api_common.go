@@ -59,7 +59,7 @@ func (kv *apiKV) add(key, value string) {
 func (kv *apiKV) write(w io.Writer) error {
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	for _, r := range kv.rows {
-		value := strings.ReplaceAll(r[1], "\n", "\n\t")
+		value := strings.ReplaceAll(normaliseNewlines(r[1]), "\n", "\n\t")
 		if _, err := fmt.Fprintf(tw, "%s\t%s\n", r[0], value); err != nil {
 			return err
 		}

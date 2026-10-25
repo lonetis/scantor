@@ -257,6 +257,7 @@ func TestDevPrinterLocal(t *testing.T) {
 		`{"type":"start","at":"2026-10-21T09:10:01.020Z","runtimeVersion":"1.4.0","language":"python","protocolVersion":1,"connector":{"language":"python","version":"1.4.0"},"schedule":{"kind":"template","template":"single"},"limit":5,"processes":1}`,
 		`{"type":"scheduled","at":"2026-10-21T09:10:01.030Z","seq":0,"config":{}}`,
 		`{"type":"log","at":"2026-10-21T09:10:01.035Z","seq":0,"attempt":1,"stream":"stderr","text":"[info] greeting Hi"}`,
+		`{"type":"log","at":"2026-10-21T09:10:01.036Z","seq":0,"attempt":1,"stream":"stdout","text":"\u001b]52;c;aGk=\u0007title"}`,
 		`{"type":"attempt","at":"2026-10-21T09:10:01.040Z","seq":1,"attempt":1,"error":{"type":"taskError","message":"boom","retryable":true,"phase":"run","attempt":1,"at":"2026-10-21T09:10:01.040Z"},"nextAttemptAt":"2026-10-21T09:10:03.040Z"}`,
 		`{"type":"result","at":"2026-10-21T09:10:01.071Z","seq":0,"status":"succeeded","attempt":1,"config":{},"result":{"text":"Hi"},"error":null,"files":[{"id":"f1","name":"a.txt","size":3,"sha256":"x","contentType":"text/plain","path":"files/0/f1/a.txt"}],"logTail":"","attempts":[],"timings":{"scheduledAt":null,"startedAt":null,"finishedAt":null,"durationMs":40}}`,
 		`{"type":"error","at":"2026-10-21T09:10:01.080Z","error":{"type":"validation","message":"bad scan config","retryable":false,"phase":"schedule","attempt":1,"at":"2026-10-21T09:10:01.080Z"}}`,
@@ -270,6 +271,7 @@ func TestDevPrinterLocal(t *testing.T) {
 	want := "started: python connector 1.4.0, schedule template single, limit 5, 1 process(es)\n" +
 		"[#0] scheduled {}\n" +
 		"[#0] stderr: [info] greeting Hi\n" +
+		"[#0] stdout: \\x1b]52;c;aGk=\\x07title\n" +
 		"[#1] attempt 1 failed: taskError: boom; retrying\n" +
 		"[#0] succeeded (attempt 1, 40ms): {\"text\":\"Hi\"}\n" +
 		"    file a.txt (3 B) → " + filepath.Join("/tmp/out", "files", "0", "f1", "a.txt") + "\n" +

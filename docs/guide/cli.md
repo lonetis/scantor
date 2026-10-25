@@ -9,7 +9,9 @@ single binary (release downloads for Linux and macOS) and also runs through the 
   UI). The other variables the CLI reads are listed in the CLI section of `.env.example`.
 - **Output**: human-readable by default; `-o json` prints JSON on stdout (one document, or one object per line
   for streams such as `scans watch` and `revisions logs`). Progress and errors go to stderr; in JSON mode
-  errors are printed as `{"error": {code, message, exitCode, …}}`.
+  errors are printed as `{"error": {code, message, exitCode, …}}`. Human output shows control characters
+  escaped (`\x1b`), so task-controlled text cannot drive the terminal; raw content (`tasks files cat`,
+  `scans worker logs`) keeps its exact bytes in a pipe or file, and `-o json` always carries the exact text.
 - **Exit codes**:
 
 | Code | Meaning |
@@ -2265,7 +2267,7 @@ Print the log tail of a worker
 
 ### Synopsis
 
-Ask the worker's node for a fresh tail of the worker container's log and print it. The command waits up to --max-wait (at most 30s) for the node to answer; if it does not, the last tail collected earlier is printed with a warning.
+Ask the worker's node for a fresh tail of the worker container's log and print it. The command waits up to --max-wait (at most 30s) for the node to answer; if it does not, the last tail collected earlier is printed with a warning. On a terminal, control characters in the log are shown escaped (\x1b); into a pipe or file the bytes are unchanged.
 
 ```
 scantor scans worker logs <scan> <worker> [flags]
@@ -2477,7 +2479,7 @@ Print a file of a task's workspace or of a revision
 
 ### Synopsis
 
-Print one file of the task's workspace, or of a published revision with --revision. Binary content is written as raw bytes. The API returns at most 1 MiB of a file. With -o json the response object (with base64 content for binary files) is printed instead.
+Print one file of the task's workspace, or of a published revision with --revision. The content is written as raw bytes into a pipe or file; on a terminal, control characters are shown escaped (\x1b). The API returns at most 1 MiB of a file. With -o json the response object (with base64 content for binary files) is printed instead.
 
 ```
 scantor tasks files cat <task> <path> [flags]

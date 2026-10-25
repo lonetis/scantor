@@ -140,7 +140,7 @@ func templatesReject(app *App, issues []templates.Issue) error {
 	if !out.JSON() {
 		_, _ = fmt.Fprintln(out.Err, "Error: the scan config is invalid")
 		for _, is := range issues {
-			_, _ = fmt.Fprintf(out.Err, "  %s\n", is.String())
+			_, _ = fmt.Fprintf(out.Err, "  %s\n", TerminalSafe(is.String()))
 		}
 	}
 	return SilentExit(ExitValidation)

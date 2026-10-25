@@ -145,7 +145,9 @@ single binary (release downloads for Linux and macOS) and also runs through the 
   UI). The other variables the CLI reads are listed in the CLI section of ` + "`.env.example`" + `.
 - **Output**: human-readable by default; ` + "`-o json`" + ` prints JSON on stdout (one document, or one object per line
   for streams such as ` + "`scans watch`" + ` and ` + "`revisions logs`" + `). Progress and errors go to stderr; in JSON mode
-  errors are printed as ` + "`{\"error\": {code, message, exitCode, …}}`" + `.
+  errors are printed as ` + "`{\"error\": {code, message, exitCode, …}}`" + `. Human output shows control characters
+  escaped (` + "`\\x1b`" + `), so task-controlled text cannot drive the terminal; raw content (` + "`tasks files cat`" + `,
+  ` + "`scans worker logs`" + `) keeps its exact bytes in a pipe or file, and ` + "`-o json`" + ` always carries the exact text.
 - **Exit codes**:
 
 | Code | Meaning |

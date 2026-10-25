@@ -352,9 +352,10 @@ func newTasksFilesCatCommand(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cat <task> <path>",
 		Short: "Print a file of a task's workspace or of a revision",
-		Long: "Print one file of the task's workspace, or of a published revision with --revision. Binary " +
-			"content is written as raw bytes. The API returns at most 1 MiB of a file. With -o json the response " +
-			"object (with base64 content for binary files) is printed instead.",
+		Long: "Print one file of the task's workspace, or of a published revision with --revision. The content " +
+			"is written as raw bytes into a pipe or file; on a terminal, control characters are shown escaped " +
+			"(\\x1b). The API returns at most 1 MiB of a file. With -o json the response object (with base64 " +
+			"content for binary files) is printed instead.",
 		Example: `  scantor tasks files cat echo main.py
   scantor tasks files cat echo scantor.yaml --revision latest`,
 		Args: cobra.ExactArgs(2),
@@ -377,7 +378,7 @@ func newTasksFilesCatCommand(app *App) *cobra.Command {
 					return PlatformError(fmt.Errorf("decode %s: %w", file.Path, err))
 				}
 			}
-			if _, err := out.Out.Write(data); err != nil {
+			if _, err := io.WriteString(out.Out, out.TerminalText(string(data))); err != nil {
 				return PlatformError(fmt.Errorf("write output: %w", err))
 			}
 			if file.Truncated {

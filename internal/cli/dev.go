@@ -479,8 +479,9 @@ func newDevPrinter(app *App, outDir string) *devPrinter {
 	return &devPrinter{out: out, nd: out.NDJSON(), outDir: outDir}
 }
 
+// line writes one terminal-safe line: logs, errors and results come from task code and scanned data.
 func (p *devPrinter) line(format string, args ...any) {
-	if _, err := fmt.Fprintf(p.out.Out, format+"\n", args...); err != nil {
+	if _, err := io.WriteString(p.out.Out, TerminalSafe(fmt.Sprintf(format, args...))+"\n"); err != nil {
 		p.failed = true
 	}
 }

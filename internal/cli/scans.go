@@ -948,7 +948,8 @@ func newScansWorkerLogsCommand(app *App) *cobra.Command {
 		Short: "Print the log tail of a worker",
 		Long: "Ask the worker's node for a fresh tail of the worker container's log and print it. The command " +
 			"waits up to --max-wait (at most 30s) for the node to answer; if it does not, the last tail collected " +
-			"earlier is printed with a warning.",
+			"earlier is printed with a warning. On a terminal, control characters in the log are shown escaped " +
+			"(\\x1b); into a pipe or file the bytes are unchanged.",
 		Example: "  scantor scans worker logs 5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f 9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d --tail-bytes 262144",
 		Args:    cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -975,7 +976,7 @@ func newScansWorkerLogsCommand(app *App) *cobra.Command {
 			if out.JSON() {
 				return out.PrintJSON(logs)
 			}
-			if _, err := io.WriteString(out.Out, logs.Text); err != nil {
+			if _, err := io.WriteString(out.Out, out.TerminalText(logs.Text)); err != nil {
 				return PlatformError(fmt.Errorf("write output: %w", err))
 			}
 			if logs.Text != "" && !strings.HasSuffix(logs.Text, "\n") {

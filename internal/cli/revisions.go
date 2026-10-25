@@ -330,7 +330,7 @@ func apiFollowBuildLog(ctx context.Context, app *App, client *api.Client, task, 
 			if out.JSON() {
 				err = nd.Write(line)
 			} else {
-				_, err = fmt.Fprintln(out.Out, apiFormatBuildLogLine(line))
+				_, err = fmt.Fprintln(out.Out, TerminalSafe(apiFormatBuildLogLine(line)))
 			}
 			if err != nil {
 				return PlatformError(fmt.Errorf("write output: %w", err))
