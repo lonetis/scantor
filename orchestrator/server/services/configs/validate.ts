@@ -1,5 +1,7 @@
 import Ajv2020, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js'
+import type { RegExpEngine, RegExpLike } from 'ajv/dist/types/index.js'
 import addFormats, { type FormatName } from 'ajv-formats'
+import { RE2JS } from 're2js'
 import type { ValidationIssue } from '#shared/types/common'
 import type { DescriptionDoc } from '../../types/documents'
 import { apiError } from '../../utils/errors'
@@ -20,7 +22,7 @@ import {
 /*
  * Effective configs (docs/tasks.md §6.3, §6.5; docs/data-model.md §1 "Encrypted values"): the task, scan and analysis
  * configs of a request are validated with ajv (draft 2020-12, `useDefaults`, `discriminator`, ajv-formats for the
- * asserted formats, unknown formats ignored) against the revision's describe schemas. The result is the effective
+ * asserted formats, unknown formats ignored, patterns matched by RE2) against the revision's describe schemas. The result is the effective
  * config (defaults filled, but a secret only ever from the request, never from a default and never as the mask "***"),
  * its `writeOnly` values encrypted by JSON pointer (HKDF label `config-secrets`, AAD
  * `<collection>:<_id>:/<configKind><pointer>`) and the masked config that is stored and returned ("***").
@@ -81,6 +83,33 @@ const MAX_CACHED_VALIDATORS = 256
  */
 export const ASSERTED_FORMATS: readonly FormatName[] = ['date', 'date-time', 'time', 'duration', 'email', 'hostname', 'ipv4', 'ipv6', 'uri', 'uuid', 'regex']
 
+class Re2Pattern implements RegExpLike {
+  private readonly compiled: RE2JS
+
+  constructor(private readonly source: string) {
+    this.compiled = RE2JS.compile(RE2JS.translateRegExp(source))
+  }
+
+  test(input: string): boolean {
+    return this.compiled.test(input)
+  }
+
+  /** ajv keys its shared pattern scope by toString(), so it must identify the pattern. */
+  toString(): string {
+    return `re2:${this.source}`
+  }
+}
+
+/**
+ * ajv's engine for `pattern` and `patternProperties` (security.md RES-13): RE2 in linear time instead of V8's
+ * backtracking RegExp, because the schemas come from task code and run on the orchestrator's event loop, where one
+ * nested quantifier (`^(a+)+$`) against a short config string would block every component. It also gives the
+ * patterns the RE2 semantics of the Go validator (docs/tasks.md §6.4); a pattern RE2 cannot compile (lookarounds,
+ * backreferences) makes ajv's compile throw, so the schema is reported as unusable. `code` names the engine only for
+ * ajv's standalone code generation, which is not used.
+ */
+export const linearRegExp: RegExpEngine = Object.assign((pattern: string): RegExpLike => new Re2Pattern(pattern), { code: 'linearRegExp' })
+
 function createAjv(discriminator: boolean): Ajv2020 {
   const log = useLogger('configs')
   const ajv = new Ajv2020({
@@ -89,6 +118,7 @@ function createAjv(discriminator: boolean): Ajv2020 {
     useDefaults: true,
     discriminator,
     validateFormats: true,
+    code: { regExp: linearRegExp },
     logger: { log: () => {}, warn: (...args: unknown[]) => log.debug('ajv warning', { warning: args.map(String).join(' ') }), error: (...args: unknown[]) => log.warn('ajv error', { error: args.map(String).join(' ') }) },
   })
   addFormats(ajv, { mode: 'full', formats: [...ASSERTED_FORMATS], keywords: false })

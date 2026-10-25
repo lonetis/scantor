@@ -923,7 +923,7 @@ The scan stores only effective configs, and every connector call receives comple
 
 | Where | Validator | Defaults |
 |---|---|---|
-| scan start (`startScan`), test runs | orchestrator: ajv (`ajv/dist/2020`) with `ajv-formats`, `useDefaults: true`, `discriminator: true`, unknown formats ignored | filled |
+| scan start (`startScan`), test runs | orchestrator: ajv (`ajv/dist/2020`) with `ajv-formats`, `useDefaults: true`, `discriminator: true`, unknown formats ignored, patterns matched by RE2 (`re2js`) | filled |
 | UI forms (browser, feedback only) | `@cfworker/json-schema` ([ui](ui.md) §6.1) | not filled |
 | `scantor dev run`, local mode input | Go: `santhosh-tekuri/jsonschema/v6` with format assertions, plus `internal/schema.ApplyDefaults` | filled |
 | wrapped template calls | runtime: canonical template schema | filled |
@@ -961,7 +961,7 @@ all `{const, title?}` is rendered like `enum` with the titles as labels.
 |---|---|
 | `type`: `object`, `string`, `number`, `integer`, `boolean`, `array`; `null` only in nullable unions (`type: [X, "null"]` or `anyOf: [X, {type: null}]`) | |
 | object: `properties`, `required`, `additionalProperties` (`false`, `true` or a schema for maps), `propertyNames` (a string schema for map keys) | |
-| string: `minLength`, `maxLength`, `pattern` (ECMA-262 subset that is also valid RE2), `format` | asserted formats: `date`, `date-time`, `time`, `duration`, `email`, `hostname`, `ipv4`, `ipv6`, `uri`, `uuid`, `regex`; other formats (e.g. pydantic's `password`) are annotations |
+| string: `minLength`, `maxLength`, `pattern` (ECMA-262 subset that is also valid RE2), `format` | asserted formats: `date`, `date-time`, `time`, `duration`, `email`, `hostname`, `ipv4`, `ipv6`, `uri`, `uuid`, `regex`; other formats (e.g. pydantic's `password`) are annotations. The orchestrator matches `pattern` with RE2 in linear time (as the Go validator does, [security](security.md) RES-13): a pattern RE2 cannot compile (lookarounds, backreferences), which describe only warns about, makes the schema unusable, and scan starts and test runs fail with 422 `configInvalid` |
 | number/integer: `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` | integers outside ±(2^53 − 1) are not portable (warning) |
 | `enum`, `const`; `oneOf`/`anyOf` whose members are all `{const, title?}` (titled options) | |
 | array: `items`, `minItems`, `maxItems`, `uniqueItems` | `prefixItems` (tuples) → warning |

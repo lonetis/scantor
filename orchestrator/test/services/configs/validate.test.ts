@@ -172,6 +172,47 @@ describe('validateConfigs: issues', () => {
   })
 })
 
+describe('validateConfig: patterns (security.md RES-13)', () => {
+  const stringWith = (pattern: string) => ({ type: 'object', properties: { v: { type: 'string', pattern } } })
+
+  it('matches a nested-quantifier pattern in linear time', () => {
+    const started = performance.now()
+    const result = validateConfig('scanConfig', stringWith('^(a+)+$'), { v: `${'a'.repeat(5000)}!` })
+    // V8's backtracking RegExp needs seconds for 30 characters of this input; RE2 needs milliseconds for 5000.
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(result.issues).toEqual([{ path: '/scanConfig/v', message: 'must match pattern "^(a+)+$"' }])
+    expect(validateConfig('scanConfig', stringWith('^(a+)+$'), { v: 'a'.repeat(5000) }).issues).toEqual([])
+  })
+
+  it('searches unanchored and keeps the ECMA-262 escapes of the subset', () => {
+    expect(validateConfig('scanConfig', stringWith('[0-9]{5}'), { v: 'zip 12345 x' }).issues).toEqual([])
+    expect(validateConfig('scanConfig', stringWith('^\\u0041\\d$'), { v: 'A1' }).issues).toEqual([])
+    expect(validateConfig('scanConfig', stringWith('^\\p{L}+$'), { v: 'äöü' }).issues).toEqual([])
+    expect(validateConfig('scanConfig', stringWith('^[^/\\\\]+$'), { v: 'a/b' }).issues).toHaveLength(1)
+  })
+
+  it('keeps patterns apart that share an ajv instance', () => {
+    expect(validateConfig('scanConfig', stringWith('^x$'), { v: 'x' }).issues).toEqual([])
+    expect(validateConfig('scanConfig', stringWith('^y$'), { v: 'x' }).issues).toHaveLength(1)
+  })
+
+  it('applies to patternProperties', () => {
+    const schema = { type: 'object', patternProperties: { '^(a+)+$': { type: 'integer' } } }
+    const started = performance.now()
+    expect(validateConfig('scanConfig', schema, { [`${'a'.repeat(5000)}!`]: 'x', aaa: 'x' }).issues).toEqual([
+      { path: '/scanConfig/aaa', message: 'must be integer' },
+    ])
+    expect(performance.now() - started).toBeLessThan(1000)
+  })
+
+  it('reports a pattern outside RE2 (lookaround, backreference) as an unusable schema', () => {
+    for (const pattern of ['^(?=a)a$', '(a)\\1']) {
+      const result = validateConfig('scanConfig', stringWith(pattern), { v: 'a' })
+      expect(result.issues).toEqual([{ path: '/scanConfig', message: expect.stringContaining("the revision's scanConfig schema is unusable") }])
+    }
+  })
+})
+
 describe('validateConfigs: discriminated unions', () => {
   const union = {
     type: 'object',

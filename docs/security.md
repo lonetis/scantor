@@ -106,7 +106,7 @@ together with its test.
 | T14 | Plaintext or unverified transport leaks node tokens, registry and AMQP credentials | A7 | TLS-1…6 |
 | T15 | Downloaded files render as HTML on a scantor origin; header injection; CSV formula injection | A3 | DL-1…5 |
 | T16 | Secrets in configs leak through APIs, exports, MCP or logs | A2, A6 | SEC-1…7 |
-| T17 | Noisy neighbour exhausts broker, database, disk, CPU or the API | A2, A4 | RES-1…12 |
+| T17 | Noisy neighbour exhausts broker, database, disk, CPU or the API | A2, A4 | RES-1…13 |
 | T18 | Clickjacking of consent and setup pages; MIME sniffing; XSS through rendered results | A1, A3 | HDR-1…6 |
 
 ## 6. Mitigations catalogue
@@ -382,6 +382,7 @@ authoritative; [architecture](architecture.md) §4.1 step 1 and [deployment](dep
 | RES-10 | auth rate limits (AUTH-6) | better-auth | `tests/security/auth-endpoints.spec.ts` |
 | RES-11 | bounded storage: events TTL, worker document TTL, log tails, conditions ≤ 16, attempts ≤ 10 ([data model](data-model.md) §8) | writers, TTL indexes | – |
 | RES-12 | circuit breaker auto-pauses failure storms; a broker alarm refuses new scans (503 `brokerAlarm`) | ingestor, API | `tests/e2e/breaker.spec.ts` |
+| RES-13 | the `pattern` and `patternProperties` of task schemas are matched by a linear-time RE2 engine (re2js) in the orchestrator, never by V8's backtracking RegExp, so a config cannot hold the event loop with a nested quantifier; a pattern RE2 cannot compile makes the schema unusable (422 `configInvalid`) | `orchestrator/server/services/configs/validate.ts` | `orchestrator/test/services/configs/validate.test.ts` |
 
 ### 6.18 Security headers and browser rendering (T18)
 
