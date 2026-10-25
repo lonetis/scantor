@@ -412,13 +412,16 @@ The `error` field of an `error` message (`common.schema.json#/$defs/error`):
 | Field | Type | Meaning |
 |---|---|---|
 | `type` | `taskError` \| `fatal` \| `retry` \| `timeout` \| `crash` \| `validation` \| `platform` \| `cancelled` | connector → runtime: `taskError`, `fatal`, `retry`, `validation`, or `cancelled` (only after `cancel` or when the connector's deadline timer fired); the runtime treats any other type as `taskError`. runtime → connector: `validation` or `platform` |
-| `message` | string ≤ 4 KiB | human-readable |
+| `message` | string ≤ 4096 characters | human-readable |
 | `retryable` | boolean (optional) | set on runtime → connector errors (exposed to user code); ignored on connector → runtime errors, whose retryability the runtime derives from the type |
 | `delayMs` | integer (optional) | only for `retry`: requested delay |
-| `stack` | string ≤ 16 KiB (optional) | stack trace of the user exception |
+| `stack` | string ≤ 16 384 characters (optional) | stack trace of the user exception |
 | `details` | object ≤ 4 KiB (optional) | e.g. `{"issues": [{"path": "/rank", "message": "…"}]}` for `validation` |
 
-The runtime truncates oversized fields (keeping the end of stacks) instead of rejecting the message.
+Connectors truncate `message` and `stack` to these bounds themselves; a longer one fails the schema, which is a
+protocol violation (§7.3). `details` has no schema bound: the runtime replaces oversized details with
+`{"truncated": true}`. The runtime then applies the bounds of the `ScantorError` ([runtime](runtime.md) §9.5,
+where a stack keeps its first and last 8 KiB).
 
 ### 7.2 Mapping to `ScantorError`
 
@@ -475,7 +478,8 @@ connector-initiated messages whose `parent` is not the in-flight request.
 | `description` | 1 MiB; each schema 256 KiB | describe error |
 | `log.message` / `log.fields` | 16 KiB / 16 KiB | truncated |
 | `progress.message` | 256 characters | truncated |
-| error `message` / `stack` / `details` | 4 KiB / 16 KiB / 4 KiB | truncated by the runtime |
+| error `message` / `stack` | 4096 / 16 384 characters | protocol violation (connectors truncate, §7.1) |
+| error `details` | 4 KiB as compact JSON | replaced by `{"truncated": true}` by the runtime |
 | ids | 64 characters | protocol violation |
 | template credit per message | 65 536 | protocol violation |
 | warnings in `description` | 100 entries of ≤ 1000 characters | truncated |

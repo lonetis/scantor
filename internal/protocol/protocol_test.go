@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"path"
@@ -144,6 +145,40 @@ func TestValidatorRejects(t *testing.T) {
 	var unknown *UnknownTypeError
 	if err := v.ValidateLine(ConnectorToRuntime, []byte(`{"type":"frobnicate","id":"z1"}`)); !errors.As(err, &unknown) {
 		t.Errorf("unknown type error = %v", err)
+	}
+}
+
+// Connectors truncate error messages and stacks themselves; longer ones fail the schema (a protocol violation).
+// Details have no schema bound: the runtime replaces oversized details (docs/protocol.md §7.1, §9).
+func TestErrorFieldBounds(t *testing.T) {
+	v, err := DefaultValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := func(field string, value any) []byte {
+		e := map[string]any{"type": "taskError", "message": "boom"}
+		e[field] = value
+		b, err := json.Marshal(map[string]any{"type": "error", "id": "r1", "error": e})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	for _, tc := range []struct {
+		field string
+		value any
+		ok    bool
+	}{
+		{"message", strings.Repeat("é", 4096), true},
+		{"message", strings.Repeat("x", 4097), false},
+		{"stack", strings.Repeat("x", 16384), true},
+		{"stack", strings.Repeat("x", 16385), false},
+		{"details", map[string]any{"blob": strings.Repeat("x", 8192)}, true},
+	} {
+		err := v.ValidateLine(ConnectorToRuntime, line(tc.field, tc.value))
+		if (err == nil) != tc.ok {
+			t.Errorf("%s of %d: err = %v", tc.field, len(fmt.Sprint(tc.value)), err)
+		}
 	}
 }
 
