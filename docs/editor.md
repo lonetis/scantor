@@ -587,7 +587,7 @@ docker run -i --name scantor-h-<uuid> \
 | user | `1000:1000` | `init`, `purge`: `0:0` with `--cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER` |
 | network | `none` | `git-clone`, `git-pull`: `scantor-egress` |
 | mounts | `scantor-workspaces` subpath `<userId>` at `/workspace` | `list --archive`, `read --archive`: no mount. `init`, `purge`: whole `scantor-workspaces` at `/volumes/workspaces` and whole `scantor-editor-home` at `/volumes/editor-home`. |
-| limits | `SCANTOR_HELPER_MEMORY_LIMIT`, `SCANTOR_HELPER_PIDS_LIMIT`, 1 CPU, wall clock `SCANTOR_HELPER_TIMEOUT` (the runner kills and removes on expiry) | – |
+| limits | `SCANTOR_HELPER_MEMORY_LIMIT`, `SCANTOR_HELPER_PIDS_LIMIT`, 1 CPU, wall clock `SCANTOR_HELPER_TIMEOUT` (the runner kills and removes on expiry, and when its caller is cancelled, such as the snapshot of a cancelled test run) | – |
 | logging | driver `none`; the output is read through attach | – |
 | removal | always removed explicitly after `wait`, or after the timeout kill. `AutoRemove` is not used (it races with `wait`). The boot sweep removes leftover `scantor.kind=helper` containers. | – |
 

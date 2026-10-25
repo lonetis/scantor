@@ -75,7 +75,7 @@ async function runContainer(rt: HelperRuntime, op: HelperOp, options: HelperRunO
   })
   let release: () => void
   try {
-    release = await rt.slots.acquire({ timeoutMs: SLOT_WAIT_MS })
+    release = await rt.slots.acquire({ timeoutMs: SLOT_WAIT_MS, signal: options.signal })
   } catch (error) {
     if (error instanceof SemaphoreTimeoutError) {
       throw apiError('unavailable', 'no workspace helper slot became free within 30 s; retry later')
@@ -92,6 +92,7 @@ async function runContainer(rt: HelperRuntime, op: HelperOp, options: HelperRunO
       stdin: options.stdin,
       stdoutSink: stream?.stdout,
       timeoutMs: rt.config.helperTimeoutMs,
+      signal: options.signal,
       log: rt.log,
     })
     rt.log.debug('workspace helper finished', { op, userId: options.userId, exitCode: result.exitCode, durationMs: Date.now() - started })

@@ -109,6 +109,26 @@ describe('runHelperContainer', () => {
     expect(fake.calls.at(-1)).toBe('remove')
   })
 
+  it('kills and removes a helper when the signal aborts, and stops forwarding to the sink', async () => {
+    const fake = fakeDocker({ hang: true })
+    const abort = new AbortController()
+    const sink = new PassThrough()
+    const running = runHelperContainer({ docker: fake.docker, spec: {}, stdoutSink: sink, timeoutMs: 5000, signal: abort.signal, log, attach })
+    setTimeout(() => abort.abort(new Error('cancelled')), 10)
+    await expect(running).rejects.toThrow('cancelled')
+    expect(fake.calls).toContain('kill')
+    expect(fake.calls.at(-1)).toBe('remove')
+    expect(sink.writableEnded).toBe(false)
+  })
+
+  it('does not create a container for an aborted signal', async () => {
+    const fake = fakeDocker({ exitCode: 0 })
+    const abort = new AbortController()
+    abort.abort(new Error('cancelled'))
+    await expect(runHelperContainer({ docker: fake.docker, spec: {}, timeoutMs: 5000, signal: abort.signal, log, attach })).rejects.toThrow('cancelled')
+    expect(fake.calls).toEqual([])
+  })
+
   it('fails when stdout exceeds its cap', async () => {
     const fake = fakeDocker({ stdout: Buffer.alloc(STDOUT_CAP_BYTES + 1, 0x61), exitCode: 0 })
     await expect(runHelperContainer({ docker: fake.docker, spec: {}, timeoutMs: 5000, log, attach })).rejects.toBeInstanceOf(HelperOutputTooLargeError)

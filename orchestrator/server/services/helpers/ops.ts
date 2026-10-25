@@ -10,6 +10,7 @@ import type {
   GitCloneOutput,
   GitPullOutput,
   HelperOp,
+  HelperResult,
   HelperRunOptions,
   ListOutput,
   ReadOutput,
@@ -245,16 +246,24 @@ export async function snapshotHash(userId: string, task: string): Promise<Worksp
 
 /**
  * `snapshot`: streams the deterministic pack (tar.gz) of a task folder into `sink` and returns the helper's summary
- * from its final stderr event. The sink is ended when the helper exits, also on failure; callers discard partial
+ * from its final stderr event. The sink is ended when the helper exits, also with an error exit code. When the helper
+ * does not run or does not exit (no free slot, a timeout, a Docker error, `signal` aborted), the sink is destroyed
+ * without an error, so its readers end with a premature close instead of waiting forever. Callers discard partial
  * output when this rejects.
  */
-export async function snapshotStream(userId: string, task: string, sink: Writable): Promise<SnapshotSummary> {
+export async function snapshotStream(userId: string, task: string, sink: Writable, signal?: AbortSignal): Promise<SnapshotSummary> {
   const op: HelperOp = 'snapshot'
-  const result = await executeHelper(
-    op,
-    { userId, args: ['--task', task, ...limitFlags(config(), { files: true, bytes: true, pack: true })] },
-    { stdout: sink },
-  )
+  let result: HelperResult
+  try {
+    result = await executeHelper(
+      op,
+      { userId, args: ['--task', task, ...limitFlags(config(), { files: true, bytes: true, pack: true })], signal },
+      { stdout: sink },
+    )
+  } catch (error) {
+    sink.destroy()
+    throw error
+  }
   const stderr = checkHelperResult(op, result)
   if (!stderr.summary) throw new HelperError(op, { code: 'internal', message: 'workspace snapshot reported no summary' }, null, result.stderr)
   return stderr.summary

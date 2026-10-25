@@ -1401,8 +1401,9 @@ automatically inside the editor where `SCANTOR_DEV_MODE=remote`; the UI test-run
 5. `completed` when local mode finishes (whatever the analysis outcomes), `failed` on build, describe,
    config, schedule or platform errors and on the total timeout `SCANTOR_TEST_RUN_TIMEOUT`, `cancelled` by
    `cancelTestRun` or the deletion of the task. A cancel stops the job at whatever step it is in: the
-   test-run container is removed when it was not started yet (also during its creation, the injection
-   copy or the start) and killed otherwise. `wait` returns at these states.
+   snapshot helper is killed (a waiting one gives up its slot wait), and the test-run container is removed
+   when it was not started yet (also during its creation, the injection copy or the start) and killed
+   otherwise. `wait` returns at these states.
 
 Inputs: `taskConfig`, `scanConfig`, `analysisConfig` (when given, `run` is called once with it and
 `schedule` is skipped), `limit` (1–50, default 5), `maxAttempts` (1–5, default 1), `timeoutMs` (per

@@ -9,7 +9,7 @@ import type { HelperResult } from './types'
 // Runs one helper container through the Engine API (docs/editor.md §9.2): create with an attachable stdin, attach
 // before start (so no output is lost), start, write stdin and half-close it, read the demultiplexed stdout and
 // stderr, wait, and always remove the container explicitly (AutoRemove races with wait). On the wall-clock timeout
-// the container is killed and removed.
+// or when the caller's signal aborts, the container is killed and removed.
 
 export class HelperTimeoutError extends Error {
   constructor(readonly timeoutMs: number) {
@@ -67,6 +67,8 @@ export interface RunContainerOptions {
   /** when set, stdout is streamed here instead of being collected (no cap) */
   stdoutSink?: NodeJS.WritableStream
   timeoutMs: number
+  /** kills the helper and rejects with the signal's reason when it aborts */
+  signal?: AbortSignal
   log: Logger
   /** test seam: how the stdio stream is opened */
   attach?: AttachFn
@@ -141,17 +143,27 @@ function writeStdin(stream: NodeJS.ReadWriteStream, stdin: Readable | Buffer | u
   stdin.pipe(stream as unknown as NodeJS.WritableStream)
 }
 
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new Error('aborted')
+}
+
 /** Creates, runs and removes one helper container and returns its exit code and output. */
 export async function runHelperContainer(options: RunContainerOptions): Promise<HelperResult> {
-  const { docker, log } = options
+  const { docker, log, signal } = options
+  if (signal?.aborted) throw abortReason(signal)
   const container = await docker.createContainer(options.spec)
   let timer: NodeJS.Timeout | null = null
+  let onAbort: (() => void) | null = null
+  let streamed: PassThrough | null = null
   try {
     const stream = await (options.attach ?? hijackedAttach)(docker, container)
     const stdout = new CappedCollector(STDOUT_CAP_BYTES, 'head')
     const stderr = new CappedCollector(STDERR_CAP_BYTES, 'tail')
-    const stdoutTarget = options.stdoutSink ? new PassThrough() : stdout
-    if (options.stdoutSink) (stdoutTarget as PassThrough).pipe(options.stdoutSink as NodeJS.WritableStream)
+    if (options.stdoutSink) {
+      streamed = new PassThrough()
+      streamed.pipe(options.stdoutSink as NodeJS.WritableStream)
+    }
+    const stdoutTarget = streamed ?? stdout
     const ended = new Promise<void>((resolve) => {
       stream.once('end', resolve)
       stream.once('close', resolve)
@@ -164,26 +176,37 @@ export async function runHelperContainer(options: RunContainerOptions): Promise<
     await container.start()
     writeStdin(stream, options.stdin, log)
 
-    const timeout = new Promise<never>((_, reject) => {
+    const stopped = new Promise<never>((_, reject) => {
       timer = setTimeout(() => reject(new HelperTimeoutError(options.timeoutMs)), options.timeoutMs)
+      if (signal) {
+        onAbort = () => reject(abortReason(signal))
+        signal.addEventListener('abort', onAbort, { once: true })
+        if (signal.aborted) onAbort()
+      }
     })
     let exitCode: number
     try {
-      const waited = (await Promise.race([container.wait(), timeout])) as { StatusCode: number }
+      const waited = (await Promise.race([container.wait(), stopped])) as { StatusCode: number }
       exitCode = waited.StatusCode
     } catch (error) {
-      if (error instanceof HelperTimeoutError) {
-        await container.kill().catch((killError: unknown) => log.debug('killing a timed-out helper failed', { err: killError }))
+      if (error instanceof HelperTimeoutError || signal?.aborted) {
+        await container.kill().catch((killError: unknown) => log.debug('killing a stopped helper failed', { err: killError }))
       }
       throw error
     }
     // The attach stream ends after the container exits; give it a moment to deliver the last frames.
     await Promise.race([ended, new Promise((resolve) => setTimeout(resolve, 5000))])
-    if (options.stdoutSink) (stdoutTarget as PassThrough).end()
+    if (streamed) {
+      streamed.end()
+      streamed = null
+    }
     if (stdout.overflowed) throw new HelperOutputTooLargeError(STDOUT_CAP_BYTES)
     return { exitCode, stdout: stdout.value(), stderr: stderr.value().toString('utf8') }
   } finally {
     if (timer) clearTimeout(timer)
+    if (onAbort) signal?.removeEventListener('abort', onAbort)
+    // A helper that did not exit normally sends nothing more to the sink; the caller decides what the sink sees.
+    streamed?.unpipe()
     await removeQuietly(container, log)
   }
 }

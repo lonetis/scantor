@@ -42,6 +42,8 @@ export interface HelperRunOptions {
   network?: HelperNetwork
   /** extra container environment (git credentials, SCANTOR_CA_CERT); never logged */
   env?: Record<string, string>
+  /** gives up waiting for a slot and kills a running helper when it aborts (rejecting with its reason) */
+  signal?: AbortSignal
 }
 
 export interface HelperResult {

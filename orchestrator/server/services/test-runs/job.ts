@@ -244,7 +244,7 @@ class TestRunExecution {
 
   /** Snapshot → `scantor task build -` of the draft image (static checks and describe always run). */
   private async build(task: TaskDoc, allowPrivileged: boolean): Promise<TaskBuildOutcome> {
-    this.snapshot = await snapshotToTmp(task.userId, task.name)
+    this.snapshot = await snapshotToTmp(task.userId, task.name, this.signal)
     const ref = draftImageRef(task._id, this.snapshot.packSha256)
     const cached = await imageExists(this.docker, ref)
     await this.update({ packSha256: this.snapshot.packSha256, draftImage: { ref, digest: '', cached } })

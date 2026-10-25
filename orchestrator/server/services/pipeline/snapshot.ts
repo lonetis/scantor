@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { PassThrough, Writable } from 'node:stream'
+import { type Duplex, PassThrough, Writable } from 'node:stream'
 import { createGunzip } from 'node:zlib'
 import { apiError } from '../../utils/errors'
 import { useLogger } from '../../utils/logger'
@@ -10,7 +10,8 @@ import { snapshotStream } from '../helpers/ops'
 // the deterministic pack of a task folder into a temporary object `tmp/snapshots/<uuid>.tar.gz` while the
 // orchestrator hashes the uncompressed stream and checks it against the helper's `summary.packSha256`. The pack is
 // never parsed here; only its bytes are hashed. Publishing then copies it to the content-addressed key; test runs
-// build from the temporary object and delete it.
+// build from the temporary object and delete it. Whenever the snapshot fails, the upload body is torn down before the
+// upload is awaited, so a helper that never ran or never exited cannot leave the S3 upload waiting for more bytes.
 
 export const SNAPSHOT_CONTENT_TYPE = 'application/gzip'
 
@@ -29,10 +30,10 @@ export function snapshotKey(taskId: string, packSha256: string): string {
   return `snapshots/${taskId}/${packSha256}.tar.gz`
 }
 
-/** A sink that forwards every chunk to two streams and counts the bytes. */
+/** A sink that forwards every chunk to two streams and counts the bytes; destroying it destroys both. */
 class TeeSink extends Writable {
   bytes = 0
-  constructor(private readonly targets: [NodeJS.WritableStream, NodeJS.WritableStream]) {
+  constructor(private readonly targets: [Duplex, Duplex]) {
     super()
   }
 
@@ -46,10 +47,20 @@ class TeeSink extends Writable {
     for (const target of this.targets) target.end()
     callback()
   }
+
+  override _destroy(error: Error | null, callback: (error?: Error | null) => void): void {
+    // autoDestroy also lands here after a normal finish; the ended targets must then drain. Torn down early, the
+    // targets are destroyed without an error, so their readers (the S3 upload, the hash) end with a premature close.
+    if (!this.writableFinished) for (const target of this.targets) target.destroy()
+    callback(error)
+  }
 }
 
-/** Streams a task folder's pack into a temporary S3 object and verifies its hash. */
-export async function snapshotToTmp(userId: string, taskName: string): Promise<StoredSnapshot> {
+/**
+ * Streams a task folder's pack into a temporary S3 object and verifies its hash. `signal` (a test run's job) stops
+ * the helper and the upload when it aborts.
+ */
+export async function snapshotToTmp(userId: string, taskName: string, signal?: AbortSignal): Promise<StoredSnapshot> {
   const log = useLogger('snapshots')
   const tmpKey = `tmp/snapshots/${randomUUID()}.tar.gz`
   const uploadBody = new PassThrough()
@@ -66,7 +77,7 @@ export async function snapshotToTmp(userId: string, taskName: string): Promise<S
   const uploaded = uploadStream(tmpKey, uploadBody, SNAPSHOT_CONTENT_TYPE)
   uploaded.catch(() => undefined)
   try {
-    const summary = await snapshotStream(userId, taskName, sink)
+    const summary = await snapshotStream(userId, taskName, sink, signal)
     await uploaded
     const packSha256 = await hashed.catch((error: unknown) => {
       throw apiError('internal', `the workspace snapshot is not a valid gzip stream: ${(error as Error).message}`)
@@ -77,6 +88,10 @@ export async function snapshotToTmp(userId: string, taskName: string): Promise<S
     }
     return { tmpKey, packSha256, packBytes: sink.bytes, fileCount: summary.fileCount, bytes: summary.bytes }
   } catch (error) {
+    // The body belongs to this function: destroying it makes the upload reject (and abort a multipart upload) when
+    // the helper never ended its output.
+    uploadBody.destroy()
+    gunzip.destroy()
     await uploaded.catch(() => undefined)
     await deleteObject(tmpKey).catch((deleteError: unknown) => log.warn('deleting a temporary snapshot failed', { key: tmpKey, err: deleteError }))
     throw error
