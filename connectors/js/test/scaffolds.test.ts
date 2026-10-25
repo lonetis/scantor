@@ -29,6 +29,7 @@ function renderData(language: string, template: string): RenderData {
     Version: "1.4.0",
     BaseImage: "ghcr.io/lonetis/scantor-base-js:1.4.0",
     ManifestSchemaURL: "https://raw.githubusercontent.com/lonetis/scantor/v1.4.0/schemas/task-manifest.schema.json",
+    GuideURL: `https://github.com/lonetis/scantor/blob/v1.4.0/docs/guide/authoring-${language}.md`,
   };
 }
 
@@ -140,7 +141,7 @@ for (const spec of LANGUAGES) {
 
       const agents = readFileSync(join(folder, "AGENTS.md"), "utf8");
       assert.ok(agents.startsWith(`# ${data.Name} — a scantor task (${spec.language})\n`));
-      assert.ok(agents.includes(`/blob/v1.4.0/docs/guide/authoring-${spec.language}.md`));
+      assert.ok(agents.includes(`Guide: ${data.GuideURL}\n`));
     });
 
     for (const template of ENTRIES) {

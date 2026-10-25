@@ -16,6 +16,7 @@ export interface RenderData {
   Version: string;
   BaseImage: string;
   ManifestSchemaURL: string;
+  GuideURL: string;
 }
 
 /**

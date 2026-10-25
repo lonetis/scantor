@@ -37,6 +37,7 @@ RENDER_DATA = {
     "Version": "1.4.0",
     "BaseImage": "ghcr.io/lonetis/scantor-base-python:1.4.0",
     "ManifestSchemaURL": "https://raw.githubusercontent.com/lonetis/scantor/v1.4.0/schemas/task-manifest.schema.json",
+    "GuideURL": "https://github.com/lonetis/scantor/blob/v1.4.0/docs/guide/authoring-python.md",
 }
 
 
@@ -292,7 +293,7 @@ def test_scaffold_files(tmp_path: Path) -> None:
         task["label"] for task in json.loads((folder / ".vscode/tasks.json").read_text(encoding="utf-8"))["tasks"]
     ]
     assert labels == ["scantor: validate", "scantor: dev run", "scantor: dev debug", "scantor: push"]
-    assert "authoring-python.md" in (folder / "AGENTS.md").read_text(encoding="utf-8")
+    assert f"Guide: {RENDER_DATA['GuideURL']}\n" in (folder / "AGENTS.md").read_text(encoding="utf-8")
     assert (folder / "Dockerfile").read_text(encoding="utf-8") == (
         "ARG SCANTOR_BASE\nFROM ${SCANTOR_BASE}\nCOPY requirements.txt .\n"
         "RUN pip install --no-cache-dir -r requirements.txt\nCOPY . .\n"
