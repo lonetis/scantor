@@ -69,8 +69,7 @@ func newExportCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			if o.background {
 				return o.runBackground(ctx, app, client, args[0], filter, afterSeq)
 			}
@@ -268,8 +267,7 @@ func newExportsGetCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			export, err := client.GetExport(ctx, args[0], 0)
 			if err != nil {
 				return err

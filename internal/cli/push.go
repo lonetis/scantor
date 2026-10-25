@@ -65,8 +65,7 @@ func newPushCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			out := app.Output()
 
 			var res pushResult

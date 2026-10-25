@@ -47,8 +47,7 @@ func newConformanceCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, cancel := InterruptContext(cmd.Context())
-			defer cancel()
+			ctx := cmd.Context()
 			bin, err := taskRuntimeBinary(docker, cfg).Resolve(ctx)
 			if err != nil {
 				return PlatformError(fmt.Errorf("resolve the scantor binary to inject: %w", err))

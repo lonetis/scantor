@@ -79,8 +79,7 @@ func newTaskPackCommand(app *App) *cobra.Command {
 			defer closeInput()
 			emitter := taskpipe.NewEmitter(eventsTo, format)
 			pipeline := taskpipe.New(taskPipelineConfig(cfg), emitter, nil, nil)
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 
 			var res *taskpipe.Result
 			switch output {
@@ -159,8 +158,7 @@ func newTaskCheckStaticCommand(app *App) *cobra.Command {
 			}
 			defer closeInput()
 			emitter := taskpipe.NewEmitter(app.Stdout, format)
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			res := taskpipe.New(taskPipelineConfig(cfg), emitter, nil, nil).CheckStatic(ctx, in, opts)
 			return taskOutcome(emitter, res)
 		},
@@ -220,8 +218,7 @@ func newTaskBuildCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			pipeline := taskpipe.New(taskPipelineConfig(cfg), emitter, docker, taskRuntime(docker, cfg, emitter))
 			return taskOutcome(emitter, pipeline.Build(ctx, in, opts))
 		},

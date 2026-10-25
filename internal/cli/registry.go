@@ -44,6 +44,13 @@
 //     no other code reads the environment.
 //   - app.Logger(): a redacting slog logger on stderr.
 //
+// # Interrupts
+//
+// cmd.Context() is cancelled on SIGINT or SIGTERM (InterruptContext, installed by the root for every
+// command), so pass it to every blocking call. An error returned after the signal is reported as
+// "interrupted" (exit 3); a SilentExit keeps its code. Commands that handle signals themselves (the
+// runtime roles) set the annotationOwnSignals annotation.
+//
 // # Errors and exit codes
 //
 // Return errors; never call os.Exit. Wrap them with an exit class (UsageError, ValidationError,

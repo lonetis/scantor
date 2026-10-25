@@ -87,8 +87,7 @@ func newScansStartCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			scan, err := client.StartScan(ctx, body)
 			if err != nil {
 				err = apiWithHint(err, api.CodeConfirmationRequired, "re-run with --confirm to start it anyway")
@@ -226,8 +225,7 @@ func newScansGetCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			var scan *api.Scan
 			if wait.wait {
 				scan, err = apiWaitScan(ctx, client, args[0], wait.timeout)
@@ -427,8 +425,7 @@ func newScansWatchCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			w := &apiScanWatcher{app: app, client: client, scanID: args[0], interval: interval, timeout: timeout}
 			scan, err := w.run(ctx)
 			if err != nil {
@@ -744,8 +741,7 @@ func newScansDeleteCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			res, err := client.DeleteScan(ctx, args[0])
 			if err != nil {
 				return err
@@ -963,8 +959,7 @@ func newScansWorkerLogsCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			logs, err := client.GetWorkerLogs(ctx, args[0], args[1], tailBytes, int(maxWait.Seconds()))
 			if err != nil {
 				if ctx.Err() != nil {

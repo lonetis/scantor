@@ -56,8 +56,7 @@ func newUploadsCreateCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			upload, err := client.CreateUpload(ctx, name, "text/plain", data)
 			if err != nil {
 				if ctx.Err() != nil {

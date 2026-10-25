@@ -89,8 +89,7 @@ func newRevisionsGetCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			var rev *api.Revision
 			if wait.wait {
 				rev, err = apiWaitRevision(ctx, client, task, revision, wait.timeout)
@@ -133,8 +132,7 @@ func newRevisionsPublishCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			rev, err := client.PublishRevision(ctx, args[0], body, 0)
 			if err != nil {
 				return err
@@ -298,8 +296,7 @@ func newRevisionsLogsCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			return apiRevisionRefHint(args[0], apiFollowBuildLog(ctx, app, client, task, revision, afterLine, follow))
 		},
 	}

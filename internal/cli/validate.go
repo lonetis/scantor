@@ -53,8 +53,7 @@ func newValidateCommand(app *App) *cobra.Command {
 			if cfg.DevMode == DevModeRemote {
 				return PlatformError(errors.New("validate needs local Docker; with SCANTOR_DEV_MODE=remote run 'scantor dev run' to build and test the task on the platform, or 'scantor push' to publish it with every check"))
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			emitter := taskpipe.NewEmitter(app.Stdout, devEventFormat(app))
 			res, err := localBuild(ctx, app, emitter, dir, taskpipe.BuildOptions{})
 			if err != nil {

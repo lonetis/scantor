@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -193,6 +196,92 @@ func TestRegistryErrors(t *testing.T) {
 			t.Fatal("duplicate command accepted")
 		}
 	})
+}
+
+// interruptSelf sends SIGINT to the test process and waits until ctx (which must be an InterruptContext)
+// is cancelled.
+func interruptSelf(t *testing.T, ctx context.Context) {
+	t.Helper()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(5 * time.Second):
+		t.Fatal("the command context was not cancelled by SIGINT")
+	}
+}
+
+// Every command runs with InterruptContext; an error after the signal is reported as an interrupt (exit
+// 3), a silent exit keeps its code.
+func TestInterruptIsPlatformError(t *testing.T) {
+	withRegistry(t, func() {
+		registerCommand("", func(*App) *cobra.Command {
+			return &cobra.Command{Use: "block", RunE: func(cmd *cobra.Command, _ []string) error {
+				interruptSelf(t, cmd.Context())
+				return fmt.Errorf("list scans: %w", cmd.Context().Err())
+			}}
+		})
+		registerCommand("", func(*App) *cobra.Command {
+			return &cobra.Command{Use: "summary", RunE: func(cmd *cobra.Command, _ []string) error {
+				interruptSelf(t, cmd.Context())
+				return SilentExit(ExitAnalysisFailures)
+			}}
+		})
+		app, _, errOut := testApp(nil)
+		if code := run(app, "-o", "json", "block"); code != ExitPlatform {
+			t.Fatalf("exit %d, want 3 (stderr %q)", code, errOut.String())
+		}
+		var doc struct {
+			Error struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(errOut.Bytes(), &doc); err != nil || doc.Error.Code != "platform" || doc.Error.Message != "interrupted" {
+			t.Fatalf("stderr %q: %v", errOut.String(), err)
+		}
+		app, _, errOut = testApp(nil)
+		if code := run(app, "summary"); code != ExitAnalysisFailures || errOut.Len() != 0 {
+			t.Fatalf("silent exit after an interrupt: exit %d, stderr %q", code, errOut.String())
+		}
+	})
+}
+
+// A request in flight when SIGINT arrives ends the command with exit 3 and the JSON error document,
+// for commands without a wait of their own (CLI-5).
+func TestInterruptDuringRequest(t *testing.T) {
+	f := newAPIFake(t)
+	f.on("GET", "/api/scans", func(w http.ResponseWriter, r *http.Request) {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGINT)
+		select {
+		case <-r.Context().Done():
+		case <-time.After(5 * time.Second):
+			apiFakeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "nextCursor": nil})
+		}
+	})
+	code, out, errOut := f.exec("-o", "json", "scans", "list")
+	if code != ExitPlatform || out != "" || !strings.Contains(errOut, `"message":"interrupted"`) {
+		t.Fatalf("exit %d, stdout %q, stderr %q", code, out, errOut)
+	}
+}
+
+// The runtime roles handle signals themselves; everything else runs with InterruptContext.
+func TestRuntimeOwnsSignals(t *testing.T) {
+	app, _, _ := testApp(nil)
+	root := newRootCommand(app)
+	for _, path := range [][]string{{"runtime", "worker"}, {"runtime", "local"}, {"runtime", "describe"}, {"runtime", "check"}} {
+		cmd, _, err := root.Find(path)
+		if err != nil || !ownsSignals(cmd) {
+			t.Errorf("%v: ownsSignals = false (%v)", path, err)
+		}
+	}
+	for _, path := range [][]string{{"scans", "list"}, {"node"}, {"workspace", "snapshot"}, {"dev", "run"}} {
+		cmd, _, err := root.Find(path)
+		if err != nil || ownsSignals(cmd) {
+			t.Errorf("%v: ownsSignals = true (%v)", path, err)
+		}
+	}
 }
 
 // The real registrations of every command file must assemble without errors.

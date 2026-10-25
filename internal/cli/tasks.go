@@ -198,8 +198,7 @@ func newTasksDeleteCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			ref, err := client.DeleteTask(ctx, args[0])
 			if err != nil {
 				return err

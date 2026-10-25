@@ -154,8 +154,7 @@ func devCommand(cmd *cobra.Command, app *App, args []string, opts devOptions) er
 	if len(args) == 1 {
 		dir = args[0]
 	}
-	ctx, stop := InterruptContext(cmd.Context())
-	defer stop()
+	ctx := cmd.Context()
 	printer := newDevPrinter(app, devOutDir(dir))
 	if remote {
 		return devRemote(ctx, app, cfg, dir, opts, configs, printer)

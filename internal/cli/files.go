@@ -24,8 +24,7 @@ func newFilesGetCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			dl, err := client.GetFileDownload(ctx, args[0], args[1])
 			if err != nil {
 				return err

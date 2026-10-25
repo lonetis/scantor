@@ -49,8 +49,7 @@ func newNodeCommand(app *App) *cobra.Command {
 			if err != nil {
 				return PlatformError(err)
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			if err := d.Run(ctx); err != nil {
 				var cfgErr *node.ConfigError
 				if errors.As(err, &cfgErr) {

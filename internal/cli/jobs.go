@@ -75,8 +75,7 @@ func newJobsGetCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			ctx, stop := InterruptContext(cmd.Context())
-			defer stop()
+			ctx := cmd.Context()
 			var job *api.Job
 			var outcome error
 			if wait.wait {

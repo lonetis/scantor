@@ -41,8 +41,7 @@ func init() {
 // stdout (nil: the operation wrote stdout itself), a failure as the final error event and exit 1 or 2.
 // Helpers take no positional arguments; everything is a flag.
 func wsRun(app *App, cmd *cobra.Command, args []string, op func(ctx context.Context, events *workspace.Events) (any, error)) error {
-	ctx, cancel := InterruptContext(cmd.Context())
-	defer cancel()
+	ctx := cmd.Context()
 	events := workspace.NewEvents(app.Stderr)
 	var result any
 	err := wsNoArgs(args)

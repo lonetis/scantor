@@ -141,10 +141,29 @@ func (a *App) Logger() *slog.Logger {
 	return redact.NewLogger(a.Stderr, redact.FormatText, slog.LevelInfo)
 }
 
-// InterruptContext returns a context that is cancelled on SIGINT or SIGTERM, for commands that run until
-// interrupted (long-polls, streams, local runs).
+// InterruptContext returns a context that is cancelled on SIGINT or SIGTERM. The command wrapper of
+// reportErrors runs every command with it (except those marked with annotationOwnSignals), so
+// cmd.Context() is always interruptible. After the first signal the default disposition returns: a second
+// Ctrl-C ends a command that is blocked somewhere the context does not reach (such as a stdin read).
 func InterruptContext(parent context.Context) (context.Context, context.CancelFunc) {
-	return signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
+	context.AfterFunc(ctx, stop)
+	return ctx, stop
+}
+
+// annotationOwnSignals marks a command that handles SIGINT and SIGTERM itself and must not run with
+// InterruptContext: the runtime roles drain on SIGTERM (docs/runtime.md), which a cancelled context
+// would cut short.
+const annotationOwnSignals = "scantor/own-signals"
+
+// ownsSignals reports whether cmd or one of its parents carries annotationOwnSignals.
+func ownsSignals(cmd *cobra.Command) bool {
+	for c := cmd; c != nil; c = c.Parent() {
+		if c.Annotations[annotationOwnSignals] != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // NewRootCommand builds the scantor command tree with every registered command.
@@ -186,13 +205,29 @@ func newRootCommand(app *App) *cobra.Command {
 	return root
 }
 
-// reportErrors wraps every RunE so a failing command prints its error once in the selected format and
-// cobra does not print it again. Errors raised before RunE (flag parsing, argument validation) are
+// reportErrors wraps every RunE so it runs with InterruptContext and a failing command prints its error
+// once in the selected format and cobra does not print it again. A command that fails after SIGINT or
+// SIGTERM reports Interrupted() (exit 3) whatever error the cancellation caused, unless it already
+// reported its outcome (a silent exit). Errors raised before RunE (flag parsing, argument validation) are
 // printed by cobra as "Error: …".
 func reportErrors(cmd *cobra.Command, app *App) {
 	if run := cmd.RunE; run != nil {
 		cmd.RunE = func(c *cobra.Command, args []string) error {
+			interrupted := func() bool { return false }
+			if !ownsSignals(c) {
+				parent := c.Context()
+				if parent == nil {
+					parent = context.Background()
+				}
+				ctx, stop := InterruptContext(parent)
+				defer stop()
+				c.SetContext(ctx)
+				interrupted = func() bool { return ctx.Err() != nil && parent.Err() == nil }
+			}
 			err := run(c, args)
+			if err != nil && interrupted() && !isSilent(err) {
+				err = Interrupted()
+			}
 			if err != nil {
 				app.Output().PrintError(err)
 				c.SilenceErrors = true

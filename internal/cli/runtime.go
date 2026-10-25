@@ -16,7 +16,10 @@ import (
 )
 
 // The runtime commands are hidden: scantor's own consumers start them inside task containers
-// (docs/runtime.md §2); users never call them. Flags carry inputs, never configuration.
+// (docs/runtime.md §2); users never call them. Flags carry inputs, never configuration. They keep their
+// own signal handling (annotationOwnSignals): worker and local mode receive SIGTERM and SIGINT on a
+// channel and shut down as docs/runtime.md §14 and §15.2 describe; describe and check keep the default
+// disposition.
 func init() {
 	registerGroup("", "runtime", "Run the scantor runtime inside a task container", true)
 	registerCommand("runtime", newRuntimeWorkerCommand)
@@ -43,6 +46,9 @@ func runtimeExit(code int) error {
 	return SilentExit(code)
 }
 
+// runtimeAnnotations marks a runtime command as handling signals itself.
+func runtimeAnnotations() map[string]string { return map[string]string{annotationOwnSignals: "true"} }
+
 // runtimeSignals delivers SIGTERM and SIGINT (docker-init forwards them to the runtime).
 func runtimeSignals() (<-chan os.Signal, func()) {
 	ch := make(chan os.Signal, 4)
@@ -52,10 +58,11 @@ func runtimeSignals() (<-chan os.Signal, func()) {
 
 func newRuntimeWorkerCommand(app *App) *cobra.Command {
 	return &cobra.Command{
-		Use:    "worker",
-		Short:  "Run a scan worker (scheduler or runner); started by the node daemon",
-		Hidden: true,
-		Args:   cobra.NoArgs,
+		Use:         "worker",
+		Short:       "Run a scan worker (scheduler or runner); started by the node daemon",
+		Hidden:      true,
+		Annotations: runtimeAnnotations(),
+		Args:        cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := runtimeConfig(app)
 			if err != nil {
@@ -71,10 +78,11 @@ func newRuntimeWorkerCommand(app *App) *cobra.Command {
 func newRuntimeLocalCommand(app *App) *cobra.Command {
 	var specPath string
 	cmd := &cobra.Command{
-		Use:    "local",
-		Short:  "Run a task without queue or platform (dev run, test runs)",
-		Hidden: true,
-		Args:   cobra.NoArgs,
+		Use:         "local",
+		Short:       "Run a task without queue or platform (dev run, test runs)",
+		Hidden:      true,
+		Annotations: runtimeAnnotations(),
+		Args:        cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if specPath == "" {
 				return UsageError(errors.New("--spec is required"))
@@ -100,10 +108,11 @@ func newRuntimeLocalCommand(app *App) *cobra.Command {
 func newRuntimeDescribeCommand(app *App) *cobra.Command {
 	var entry string
 	cmd := &cobra.Command{
-		Use:    "describe",
-		Short:  "Describe a task (task pipeline)",
-		Hidden: true,
-		Args:   cobra.NoArgs,
+		Use:         "describe",
+		Short:       "Describe a task (task pipeline)",
+		Hidden:      true,
+		Annotations: runtimeAnnotations(),
+		Args:        cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if entry == "" {
 				return UsageError(errors.New("--entry is required"))
@@ -122,10 +131,11 @@ func newRuntimeDescribeCommand(app *App) *cobra.Command {
 func newRuntimeCheckCommand(app *App) *cobra.Command {
 	var entry string
 	cmd := &cobra.Command{
-		Use:    "check",
-		Short:  "Type-check a task (task pipeline)",
-		Hidden: true,
-		Args:   cobra.NoArgs,
+		Use:         "check",
+		Short:       "Type-check a task (task pipeline)",
+		Hidden:      true,
+		Annotations: runtimeAnnotations(),
+		Args:        cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if entry == "" {
 				return UsageError(errors.New("--entry is required"))
