@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,21 +53,27 @@ exit 1
 	if code != ExitFailed {
 		t.Fatalf("exit %d", code)
 	}
-	var errs []map[string]any
+	// stdout and stderr are read by one goroutine each, so the two diagnostics may arrive in either order.
+	errs := map[string]map[string]any{}
 	for _, e := range events {
 		if e["type"] == "error" {
-			errs = append(errs, e["error"].(map[string]any))
-		}
-		if e["type"] == "log" && e["text"] == "checking main.py token=" {
-			continue
+			diagnostic := e["error"].(map[string]any)
+			errs[diagnostic["file"].(string)] = diagnostic
 		}
 	}
-	if len(errs) != 2 || errs[0]["file"] != "main.py" || errs[0]["line"] != float64(14) || errs[0]["column"] != float64(12) ||
-		errs[1]["file"] != "lib.go" || errs[1]["line"] != float64(6) || errs[1]["column"] != nil {
+	py, goFile := errs["main.py"], errs["lib.go"]
+	if len(errs) != 2 || py == nil || py["line"] != float64(14) || py["column"] != float64(12) ||
+		goFile == nil || goFile["line"] != float64(6) || goFile["column"] != nil {
 		t.Fatalf("errors %v", errs)
 	}
-	if events[0]["text"] != "checking main.py token=" {
-		t.Fatalf("the worker token leaked or the entry was not substituted: %v", events[0])
+	var checking []any
+	for _, e := range events {
+		if text, _ := e["text"].(string); e["type"] == "log" && strings.HasPrefix(text, "checking ") {
+			checking = append(checking, text)
+		}
+	}
+	if len(checking) != 1 || checking[0] != "checking main.py token=" {
+		t.Fatalf("the worker token leaked or the entry was not substituted: %v", checking)
 	}
 	last := events[len(events)-1]
 	if last["type"] != "result" || last["ok"] != false || last["exitCode"] != float64(1) || last["skipped"] != false {
