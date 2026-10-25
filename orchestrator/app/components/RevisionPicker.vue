@@ -34,19 +34,28 @@ function parseRef(ref: string): { task: string, revision: string } {
 }
 
 async function loadRevisions(id: string): Promise<void> {
-  revisions.value = (await api<Page<RevisionSummary>>(`/api/tasks/${encodeURIComponent(id)}/revisions`, { query: { state: 'ready', limit: LIST_LIMIT } })).items
+  const page = await api<Page<RevisionSummary>>(`/api/tasks/${encodeURIComponent(id)}/revisions`, { query: { state: 'ready', limit: LIST_LIMIT } })
+  if (id === taskId.value) revisions.value = page.items
 }
 
+/** Counts revision loads: only the answer to the latest choice of task and revision is applied. */
+let generation = 0
+
 async function loadRevision(): Promise<void> {
+  const current = ++generation
   const id = taskId.value
+  const choice = revisionChoice.value
   revision.value = null
   problem.value = null
   emit('change', null)
-  if (!id) return
+  if (!id) {
+    loadingRevision.value = false
+    return
+  }
   loadingRevision.value = true
   try {
-    const loaded = await api<Revision>(`/api/tasks/${encodeURIComponent(id)}/revisions/${encodeURIComponent(revisionChoice.value)}`, { toast: false })
-    if (id !== taskId.value) return
+    const loaded = await api<Revision>(`/api/tasks/${encodeURIComponent(id)}/revisions/${encodeURIComponent(choice)}`, { toast: false })
+    if (current !== generation) return
     if (loaded.state !== 'ready' || !loaded.description) {
       problem.value = `Revision @${loaded.number} is ${loaded.state}; only ready revisions can be scanned.`
       return
@@ -54,20 +63,27 @@ async function loadRevision(): Promise<void> {
     revision.value = loaded
     emit('change', loaded)
   } catch (cause) {
+    if (current !== generation) return
     const error = toApiError(cause)
-    problem.value = error.code === 'notFound' ? 'This task has no ready revision yet. Publish one first.' : error.message
+    if (error.code !== 'notFound') problem.value = error.message
+    else problem.value = choice === LATEST ? 'This task has no ready revision yet. Publish one first.' : `This task has no revision @${choice}.`
   } finally {
-    loadingRevision.value = false
+    if (current === generation) loadingRevision.value = false
   }
 }
 
-watch(taskId, async (id) => {
+/** The revision of `initialRef`, chosen together with its task; any other task change starts at "latest". */
+let preselectedRevision: string | null = null
+
+watch(taskId, (id) => {
   chooseTask(id)
   revisions.value = []
-  if (id) await loadRevisions(id).catch(() => {})
-  await loadRevision()
+  revisionChoice.value = preselectedRevision ?? LATEST
+  preselectedRevision = null
+  if (id) loadRevisions(id).catch((cause: unknown) => console.error('[new-scan] loading the revisions failed', cause))
 })
-watch(revisionChoice, () => void loadRevision())
+// One load per change of the task, the revision or both (a task change also resets the revision).
+watch([taskId, revisionChoice], () => void loadRevision())
 
 onMounted(async () => {
   void loadAccount().catch(() => {})
@@ -82,7 +98,7 @@ onMounted(async () => {
     problem.value = error.code === 'notFound' ? `Task ${parsed.task} was not found among your tasks.` : error.message
     return
   }
-  revisionChoice.value = /^\d+$/.test(parsed.revision) ? parsed.revision : LATEST
+  preselectedRevision = /^\d+$/.test(parsed.revision) ? parsed.revision : LATEST
   taskId.value = task.id
 })
 

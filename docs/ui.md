@@ -441,6 +441,8 @@ parts by the JSON-Schema validator, §6):
 1. **Revision**: `RevisionPicker`: task (`USelectMenu` searching `listTasks?q=<typed text>`, debounced 300
    ms; the task of `?revision=` is loaded by id or name with `getTask`) → revision (`USelect`:
    "latest" + ready revisions from `listRevisions?state=ready`) → `getRevision` loads the description.
+   Choosing another task starts at "latest" again; only the answer to the latest task and revision choice
+   is applied.
    Shows language, schedule kind (`template: tranco` / `custom`), privileged badge, and a warning when the
    user lacks `canRunPrivileged` (from `getAccount`) for a privileged revision (start disabled).
 2. **Name** (optional, ≤ 100).

@@ -309,12 +309,20 @@ test.describe('new scan form', () => {
       await expect(page.getByText('Revision @1 is failed; only ready revisions can be scanned.')).toBeVisible()
       await expect(page.getByRole('button', { name: 'Start scan' })).toHaveCount(0)
 
-      // Picking the task by hand.
+      // Picking the task by hand (the search asks the server, so every task can be found).
       await gotoApp(page, '/scans/new')
       await selectMenu(page, 'Task').click()
       await page.getByPlaceholder('Search tasks…').fill(zoo.task.name)
       await page.getByRole('option').filter({ hasText: zoo.task.name }).click()
       await expect(page.getByRole('link', { name: zoo.revision.ref })).toBeVisible()
+      // Another task starts at "latest ready revision" again, not at the number chosen for the first one.
+      await page.getByRole('combobox', { name: 'Revision' }).click()
+      await page.getByRole('option', { name: '@1' }).click()
+      await selectMenu(page, 'Task').click()
+      await page.getByPlaceholder('Search tasks…').fill(draft)
+      await page.getByRole('option').filter({ hasText: draft }).click()
+      await expect(page.getByRole('combobox', { name: 'Revision' })).toContainText('latest ready revision')
+      await expect(page.getByText('This task has no ready revision yet. Publish one first.')).toBeVisible()
     },
   )
 
