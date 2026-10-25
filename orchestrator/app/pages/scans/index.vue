@@ -31,10 +31,13 @@ const filters = computed<ScanListFilters>(() => ({
 const scans = useScans(filters)
 
 const stateItems = SCAN_STATES.map((state) => ({ label: state, value: state }))
-const tasks = shallowRef<Task[]>([])
+// The task filter searches every task (listTasks?q=); the remembered or linked task is loaded so its name shows.
+const { search: taskSearch, tasks, load: loadTasks, choose: chooseTask, resolve: resolveTask } = useTaskChoices()
 const taskItems = computed(() => [{ label: 'All tasks', value: null }, ...tasks.value.map((task) => ({ label: task.name, value: task.id }))])
-onMounted(async () => {
-  tasks.value = (await api<Page<Task>>('/api/tasks', { query: { limit: 200 }, toast: false }).catch(() => ({ items: [] as Task[], nextCursor: null }))).items
+watch(taskFilter, (taskId) => chooseTask(taskId))
+onMounted(() => {
+  loadTasks().catch((error: unknown) => console.error('[scans] loading the tasks failed', error))
+  if (taskFilter.value) resolveTask(taskFilter.value).catch((error: unknown) => console.warn('[scans] the filtered task could not be loaded', error))
 })
 
 // Owner column for admins: emails resolved once per user id.
@@ -106,8 +109,10 @@ async function restart(values: { name?: string, settings?: { workers?: number, p
           />
           <USelectMenu
             v-model="taskFilter"
+            v-model:search-term="taskSearch"
             :items="taskItems"
             value-key="value"
+            ignore-filter
             placeholder="All tasks"
             :search-input="{ placeholder: 'Search tasks…' }"
             class="w-56"

@@ -420,7 +420,9 @@ Tabs (`?tab=`):
 ### 5.11 Scans list (`/scans`)
 
 - Toolbar: state filter (`USelectMenu` multiple over scan states, default all except `deleting`/
-  `deleted`), task filter (`USelectMenu` over `listTasks`), admin "Only mine" switch. The filters are
+  `deleted`), task filter (`USelectMenu` over `listTasks?q=<typed text>`, debounced 300 ms, so every task can
+  be found; the remembered or linked task is loaded with `getTask` to show its name), admin "Only mine"
+  switch. The filters are
   remembered (§14); `?task=<taskId>` and `?state=<state,…>` take precedence over the remembered ones and are
   dropped from the URL at the first filter change.
 - `ScanTable` columns: name (or short id) + id chip, `task@N` link, state badge (+ amber triangle with
@@ -436,7 +438,8 @@ Tabs (`?tab=`):
 Sections in one `UForm` (static parts validated by `startScanBody` from `#shared/schemas/scans`, config
 parts by the JSON-Schema validator, §6):
 
-1. **Revision**: `RevisionPicker`: task (`USelectMenu` searchable, `listTasks`) → revision (`USelect`:
+1. **Revision**: `RevisionPicker`: task (`USelectMenu` searching `listTasks?q=<typed text>`, debounced 300
+   ms; the task of `?revision=` is loaded by id or name with `getTask`) → revision (`USelect`:
    "latest" + ready revisions from `listRevisions?state=ready`) → `getRevision` loads the description.
    Shows language, schedule kind (`template: tranco` / `custom`), privileged badge, and a warning when the
    user lacks `canRunPrivileged` (from `getAccount`) for a privileged revision (start disabled).
@@ -792,6 +795,7 @@ field, on the nearest rendered ancestor, or as a form-level alert when no field 
 | `useApiFetch(path, opts)` | `useFetch` with `$fetch: $api`, typed by `#shared/types`; `opts.toast` (default true) |
 | `usePoll(fn, {intervalMs, enabled})` | polling with visibility pause, in-flight skip and error backoff (§9) |
 | `useCursorList(fetchPage)` | generic `Load more` / infinite loading over `nextCursor` or `afterSeq`, with reset on filter change and an epoch guard against stale responses; `loading` covers the first page and "Load more", `refreshing` a re-read of the loaded pages (polls; the "Refresh" button spins on either); a re-read that a "Load more" page overtakes is dropped, so the page stays and the next poll re-reads all pages; a re-read covers at most `maxRefreshPages` pages, and the items loaded beyond them stay behind the re-read ones (joined by `key`, default `id`) with the cursor |
+| `useTaskChoices()` | items of a searchable task select (new-scan picker, scans-list task filter): `listTasks?q=<typed text>` debounced 300 ms, the chosen task kept as an item, `resolve(idOrName)` through `getTask` |
 | `useSidebarCounts()` | singleton poll for the Scans and Nodes badges |
 | `useScan(scanId)` / `useScanActions(scan)` | scan polling by state; action availability (`scanActions`) and calls with confirmations and toasts |
 | `useTestRunStream(testRunId)` | `EventSource` lifecycle, event reducer, polling fallback |

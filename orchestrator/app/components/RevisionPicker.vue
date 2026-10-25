@@ -1,6 +1,7 @@
 <script setup lang="ts">
-// Revision selection of the new-scan form (docs/ui.md §5.12 step 1): task → "latest" or a ready revision →
-// getRevision, then the revision's language, schedule, privileged flag and whether the caller may run it.
+// Revision selection of the new-scan form (docs/ui.md §5.12 step 1): task (searched with listTasks?q=) → "latest" or a
+// ready revision → getRevision, then the revision's language, schedule, privileged flag and whether the caller may run
+// it. The preselected task of `?revision=` is loaded by id or name (getTask).
 const props = defineProps<{
   /** a revision reference to preselect (`?revision=<task>@<N>`, `<task>@latest` or `<task>`) */
   initialRef?: string | null
@@ -12,13 +13,12 @@ const LIST_LIMIT = 200
 
 const api = useApi()
 const { account, load: loadAccount } = useCurrentUser()
+const { search: taskSearch, tasks, loading: loadingTasks, load: loadTasks, choose: chooseTask, resolve: resolveTask } = useTaskChoices()
 
-const tasks = shallowRef<Task[]>([])
 const revisions = shallowRef<RevisionSummary[]>([])
 const revision = shallowRef<Revision | null>(null)
 const taskId = ref<string | undefined>(undefined)
 const revisionChoice = ref<string>(LATEST)
-const loadingTasks = ref(false)
 const loadingRevision = ref(false)
 const problem = ref<string | null>(null)
 
@@ -31,15 +31,6 @@ const revisionItems = computed(() => [
 function parseRef(ref: string): { task: string, revision: string } {
   const at = ref.lastIndexOf('@')
   return at > 0 ? { task: ref.slice(0, at), revision: ref.slice(at + 1) || LATEST } : { task: ref, revision: LATEST }
-}
-
-async function loadTasks(): Promise<void> {
-  loadingTasks.value = true
-  try {
-    tasks.value = (await api<Page<Task>>('/api/tasks', { query: { limit: LIST_LIMIT } })).items
-  } finally {
-    loadingTasks.value = false
-  }
 }
 
 async function loadRevisions(id: string): Promise<void> {
@@ -71,6 +62,7 @@ async function loadRevision(): Promise<void> {
 }
 
 watch(taskId, async (id) => {
+  chooseTask(id)
   revisions.value = []
   if (id) await loadRevisions(id).catch(() => {})
   await loadRevision()
@@ -79,12 +71,15 @@ watch(revisionChoice, () => void loadRevision())
 
 onMounted(async () => {
   void loadAccount().catch(() => {})
-  await loadTasks().catch(() => {})
+  loadTasks().catch((cause: unknown) => console.error('[new-scan] loading the tasks failed', cause))
   if (!props.initialRef) return
   const parsed = parseRef(props.initialRef)
-  const task = tasks.value.find((candidate) => candidate.name === parsed.task || candidate.id === parsed.task)
-  if (!task) {
-    problem.value = `Task ${parsed.task} was not found among your tasks.`
+  let task: Task
+  try {
+    task = await resolveTask(parsed.task)
+  } catch (cause) {
+    const error = toApiError(cause)
+    problem.value = error.code === 'notFound' ? `Task ${parsed.task} was not found among your tasks.` : error.message
     return
   }
   revisionChoice.value = /^\d+$/.test(parsed.revision) ? parsed.revision : LATEST
@@ -101,8 +96,10 @@ defineExpose({ blocked })
       <UFormField label="Task" name="revision" required>
         <USelectMenu
           v-model="taskId"
+          v-model:search-term="taskSearch"
           :items="taskItems"
           value-key="value"
+          ignore-filter
           :loading="loadingTasks"
           placeholder="Select a task"
           :search-input="{ placeholder: 'Search tasks…' }"

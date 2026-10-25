@@ -1,4 +1,5 @@
-import type { MaybeRefOrGetter } from 'vue'
+import { refDebounced } from '@vueuse/core'
+import { computed, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import type { CreateTaskBody, ImportGitBody } from '#shared/schemas/tasks'
 
 // Tasks (docs/api.md §4.6–§4.8, docs/ui.md §5.5–§5.7, §9): the list (30 s poll), one task (10 s poll, 2 s while
@@ -8,6 +9,11 @@ import type { CreateTaskBody, ImportGitBody } from '#shared/schemas/tasks'
 export const TASKS_POLL_MS = 30_000
 export const TASK_POLL_MS = 10_000
 export const TASK_BUILDING_POLL_MS = 2000
+export const TASK_SEARCH_DEBOUNCE_MS = 300
+/** The longest `q` that listTasks accepts. */
+export const TASK_SEARCH_MAX_LENGTH = 64
+/** Matches per search: listTasks' maximum page, so an empty search still offers the newest 200 tasks. */
+const TASK_CHOICES_LIMIT = 200
 
 export interface TaskFilters {
   q?: string
@@ -59,6 +65,51 @@ export function useTask(taskId: MaybeRefOrGetter<string>) {
   })
 
   return { task, error, refreshing: poll.running, refresh: poll.refresh }
+}
+
+/**
+ * The tasks a searchable select offers (the new-scan task picker, the scans list's task filter): the matches of
+ * `listTasks?q=<typed text>` (debounced), so every task of the caller can be found, not only the newest page, plus the
+ * chosen task, which stays an item while the search shows others. `resolve` loads a task by id or name.
+ */
+export function useTaskChoices() {
+  const api = useApi()
+  const search = ref('')
+  const query = refDebounced(computed(() => search.value.trim().slice(0, TASK_SEARCH_MAX_LENGTH)), TASK_SEARCH_DEBOUNCE_MS)
+  const found = shallowRef<Task[]>([])
+  const chosen = shallowRef<Task | null>(null)
+  const loading = ref(false)
+  let generation = 0
+
+  async function load(): Promise<void> {
+    const current = ++generation
+    loading.value = true
+    try {
+      const page = await api<Page<Task>>('/api/tasks', { query: apiQuery({ q: query.value || null, limit: TASK_CHOICES_LIMIT }), toast: false })
+      if (current === generation) found.value = page.items
+    } finally {
+      if (current === generation) loading.value = false
+    }
+  }
+
+  watch(query, () => {
+    load().catch((cause: unknown) => console.error('[tasks] searching tasks failed', cause))
+  })
+
+  const tasks = computed(() => (chosen.value && !found.value.some((task) => task.id === chosen.value!.id) ? [chosen.value, ...found.value] : found.value))
+
+  /** Keeps the task with this id an item (from the current matches), or none. */
+  function choose(taskId: string | null | undefined): void {
+    chosen.value = taskId ? (tasks.value.find((task) => task.id === taskId) ?? null) : null
+  }
+
+  async function resolve(task: string): Promise<Task> {
+    const resolved = await api<Task>(`/api/tasks/${encodeURIComponent(task)}`, { toast: false })
+    chosen.value = resolved
+    return resolved
+  }
+
+  return { search, tasks, loading, load, choose, resolve }
 }
 
 /** Task mutations and on-demand reads. */
