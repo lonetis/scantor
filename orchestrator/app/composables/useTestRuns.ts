@@ -1,4 +1,4 @@
-import type { MaybeRefOrGetter } from 'vue'
+import { onScopeDispose, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import type { TestTaskBody } from '#shared/schemas/tasks'
 
 // Test runs (docs/api.md §4.11, docs/ui.md §5.8, §9): the history of a task, starting and cancelling, and the live
@@ -71,6 +71,11 @@ export function useTestRunStream() {
     for (const analysis of run.analyses ?? []) upsertAnalysis(analysis)
   }
 
+  /** Applies a late answer only while its run is still the followed one (another history row may be loaded). */
+  function applyIfFollowed(run: TestRun): void {
+    if (run.id === currentId.value) applyRun(run)
+  }
+
   function close(): void {
     source?.close()
     source = null
@@ -80,7 +85,7 @@ export function useTestRunStream() {
   const poll = usePoll(
     async () => {
       if (!currentId.value) return
-      applyRun(await actions.getTestRun(currentId.value, { background: true }))
+      applyIfFollowed(await actions.getTestRun(currentId.value, { background: true }))
     },
     { intervalMs: TEST_RUN_POLL_MS, enabled: () => currentId.value !== null && !streaming.value && isTestRunActive(state.value), immediate: false },
   )
@@ -104,7 +109,7 @@ export function useTestRunStream() {
     runLines.value = []
     applyRun(initial)
     if (!isTestRunActive(initial.state)) {
-      if (!initial.analyses) void actions.getTestRun(initial.id).then(applyRun, (cause: unknown) => console.error('[test-runs] loading the test run failed', cause))
+      if (!initial.analyses) void actions.getTestRun(initial.id).then(applyIfFollowed, (cause: unknown) => console.error('[test-runs] loading the test run failed', cause))
       return
     }
     const stream = new EventSource(`/api/test-runs/${initial.id}/stream`)
@@ -138,8 +143,8 @@ export function useTestRunStream() {
     stream.addEventListener('end', (event) => {
       const data = parse<TestRun>(event as MessageEvent)
       close()
-      if (data) applyRun({ ...data, analyses: data.analyses ?? testRun.value?.analyses })
-      void actions.getTestRun(initial.id).then(applyRun, (cause: unknown) => console.error('[test-runs] loading the final test run failed', cause))
+      if (data) applyIfFollowed({ ...data, analyses: data.analyses ?? testRun.value?.analyses })
+      void actions.getTestRun(initial.id).then(applyIfFollowed, (cause: unknown) => console.error('[test-runs] loading the final test run failed', cause))
     })
   }
 
