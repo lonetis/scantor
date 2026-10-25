@@ -730,7 +730,9 @@ command and returns the same 422 ([templates](templates.md) §2).
   rejected (as MongoDB itself refuses it); nesting depth and sort keys are bounded.
 - Secret paths: pipelines, and also filters, sorts and projection expressions, that reference a
   `writeOnly` path of the scan are rejected (400 `queryRejected`), so a filter cannot work as an oracle;
-  plain projections of secret paths are allowed and their values masked.
+  on a scan with secret paths this includes every `$getField`, `$setField`, `$unsetField` and `$jsonSchema`
+  (they address fields by name, or by none, instead of by `$path`). Plain projections of secret paths are
+  allowed and their values masked.
 - Execution on the `scantor_query` client (role `read` on the app database), `maxTimeMS` =
   `SCANTOR_QUERY_MAX_TIME` (a duration; 504 `queryTimeout`), `allowDiskUse: false`, a final `$limit` of
   `SCANTOR_QUERY_MAX_DOCS`, a streamed byte cap, and at most `SCANTOR_USER_MAX_CONCURRENT_QUERIES`

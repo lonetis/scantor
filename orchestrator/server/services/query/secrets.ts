@@ -14,8 +14,12 @@ import { apiError } from '../../utils/errors'
  * (secretUnsetPaths), so stages that pass documents through unchanged (`$facet`, `$sample`, …) cannot leak them.
  */
 
-/** Operators that address fields by literal name instead of a `$path` string; refused when a scan has secrets. */
-const FIELD_NAME_OPERATORS = new Set(['$getField', '$setField', '$unsetField'])
+/**
+ * Operators that address fields by literal name instead of a `$path` string; refused when a scan has secrets.
+ * `$jsonSchema` belongs here as a whole: `patternProperties`, `additionalProperties`, `items` and similar keywords
+ * constrain a field without naming it, so its schema cannot be reduced to the paths it tests.
+ */
+const FIELD_NAME_OPERATORS = new Set(['$getField', '$setField', '$unsetField', '$jsonSchema'])
 const ROOT_VARIABLES = ['$$ROOT', '$$CURRENT']
 
 function overlaps(reference: readonly string[], i: number, secret: readonly string[], j: number): boolean {

@@ -181,11 +181,15 @@ test.describe('secret masking', () => {
       { operation: 'queryAnalyses', body: { filter: {}, sort: { 'result.echo': 1 } } },
       { operation: 'queryAnalyses', body: { filter: {}, projection: { leak: { $concat: ['$config.key', ''] } } } },
       { operation: 'queryAnalyses', body: { filter: {}, projection: { leak: '$result' } } },
+      // $jsonSchema tests values without a `$path`, and patternProperties without naming the field.
+      { operation: 'queryAnalyses', body: { filter: { $jsonSchema: { properties: { config: { properties: { key: { pattern: '^key-' } } } } } } } },
+      { operation: 'queryAnalyses', body: { filter: { $jsonSchema: { properties: { result: { patternProperties: { '^e': { pattern: '^key-' } } } } } } } },
       { operation: 'aggregateAnalyses', body: { pipeline: [{ $group: { _id: '$result.echo', n: { $sum: 1 } } }] } },
       { operation: 'aggregateAnalyses', body: { pipeline: [{ $match: { 'config.key': { $gt: '' } } }] } },
       { operation: 'aggregateAnalyses', body: { pipeline: [{ $replaceRoot: { newRoot: '$config' } }] } },
       { operation: 'aggregateAnalyses', body: { pipeline: [{ $project: { all: '$$ROOT' } }] } },
       { operation: 'exportScan', body: { format: 'jsonl', filter: { 'config.key': { $exists: true } } } },
+      { operation: 'exportScan', body: { format: 'jsonl', filter: { $jsonSchema: { properties: { config: { properties: { key: { pattern: '^k' } } } } } } } },
     ]
     for (const { operation, body } of refused) {
       const response = await api.call(operation, { path: { scanId: scan.id }, body })

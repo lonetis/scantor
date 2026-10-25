@@ -143,6 +143,16 @@ describe('secret references', () => {
       [() => checkPipelineInput(secretScan, [{ $replaceRoot: { newRoot: '$$ROOT' } }]), 'pipeline.0.$replaceRoot.newRoot'],
       [() => checkPipelineInput(secretScan, [{ $group: { _id: '$config.items.0.token' } }]), 'pipeline.0.$group._id'],
       [() => checkPipelineInput(secretScan, [{ $addFields: { x: { $getField: { field: 'apiKey', input: '$seq' } } } }]), 'pipeline.0.$addFields.x.$getField'],
+      // $jsonSchema tests field values without a `$path`, also without naming the field (patternProperties).
+      [
+        () => checkQueryInput(secretScan, { filter: { $jsonSchema: { properties: { config: { properties: { apiKey: { pattern: '^s' } } } } } } }),
+        'filter.$jsonSchema',
+      ],
+      [
+        () => checkQueryInput(secretScan, { filter: { $jsonSchema: { properties: { config: { patternProperties: { '^api': { pattern: '^s' } } } } } } }),
+        'filter.$jsonSchema',
+      ],
+      [() => checkPipelineInput(secretScan, [{ $match: { $jsonSchema: { required: ['seq'] } } }]), 'pipeline.0.$match.$jsonSchema'],
     ]
     for (const [fn, path] of cases) {
       const error = rejection(fn)
@@ -155,6 +165,8 @@ describe('secret references', () => {
     expect(() => checkQueryInput(secretScan, { filter: { 'config.origin': 'x' }, projection: { config: 1 } })).not.toThrow()
     expect(() => checkPipelineInput(secretScan, [{ $group: { _id: '$config.origin', n: { $sum: 1 } } }])).not.toThrow()
     expect(() => checkPipelineInput(scan, [{ $replaceRoot: { newRoot: '$$ROOT' } }])).not.toThrow()
+    // Without secret paths, $jsonSchema reveals nothing that a filter could not.
+    expect(() => checkQueryInput(scan, { filter: { $jsonSchema: { properties: { config: { patternProperties: { '^api': { pattern: '^s' } } } } } } })).not.toThrow()
   })
 
   it('removes secret paths before user stages run', () => {
