@@ -91,7 +91,9 @@ const devRunLong = "Build the task folder on the local Docker daemon (as validat
 	"replaces unpublished workspace changes), then the test run is followed and its files are downloaded.\n\n" +
 	"Events are printed as they happen; with -o json one JSON object per line (local: the runtime's local-mode " +
 	"events; remote: {\"type\": <event>, \"data\": <payload>} per test-run event). Exit codes: 0 all analyses " +
-	"succeeded, 1 some failed, 2 invalid task or configs, 3 platform failure."
+	"succeeded, 1 some failed, 2 invalid task or configs, 3 platform failure. A test run reports a connector " +
+	"that cannot start, or a scan config the connector rejects, as a schedule error, so --remote exits 1 " +
+	"where a local run exits 2."
 
 func newDevRunCommand(app *App) *cobra.Command {
 	var opts devOptions
@@ -424,7 +426,9 @@ func devDownloadTestRunFiles(ctx context.Context, app *App, client *api.Client, 
 }
 
 // devTestRunOutcome maps a settled test run to the exit codes of docs/tasks.md §11.4: 0 all analyses
-// succeeded, 1 some failed (or schedule failed), 2 invalid task or configs, 3 platform failures.
+// succeeded, 1 some failed (or schedule failed), 2 invalid task or configs, 3 platform failures. The test
+// run records every local-mode error event, and a connector that failed to start, as phase `schedule`
+// without its type, so those exit 1 here where the local run exits 2 (runtime.md §15.4).
 func devTestRunOutcome(run *api.TestRun) error {
 	switch run.State {
 	case api.TestRunCompleted:

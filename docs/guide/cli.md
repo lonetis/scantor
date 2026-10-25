@@ -541,7 +541,7 @@ Build the task folder on the local Docker daemon (as validate, without the type 
 
 With --remote, or SCANTOR_DEV_MODE=remote (set in the editor), the run is a test run on the platform: outside the editor the folder is first uploaded into the task's workspace without publishing (--force replaces unpublished workspace changes), then the test run is followed and its files are downloaded.
 
-Events are printed as they happen; with -o json one JSON object per line (local: the runtime's local-mode events; remote: {"type": &lt;event&gt;, "data": &lt;payload&gt;} per test-run event). Exit codes: 0 all analyses succeeded, 1 some failed, 2 invalid task or configs, 3 platform failure.
+Events are printed as they happen; with -o json one JSON object per line (local: the runtime's local-mode events; remote: {"type": &lt;event&gt;, "data": &lt;payload&gt;} per test-run event). Exit codes: 0 all analyses succeeded, 1 some failed, 2 invalid task or configs, 3 platform failure. A test run reports a connector that cannot start, or a scan config the connector rejects, as a schedule error, so --remote exits 1 where a local run exits 2.
 
 ```
 scantor dev run [dir] [flags]

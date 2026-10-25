@@ -1461,7 +1461,9 @@ resolutions are reported as `resolved` events. A scheduling failure becomes a Bu
   rule, `--force` to override; skipped inside the editor, where the folder is the workspace), then calls
   `testTask`, follows `streamTestRun` and downloads the files.
 - Exit codes: 0 all analyses succeeded, 1 some failed, 2 validation (pipeline, config or connector
-  start), 3 platform ([runtime](runtime.md) §15.4).
+  start), 3 platform ([runtime](runtime.md) §15.4). In remote mode the test run records a connector that
+  cannot start, and a scan config the connector rejects, as a `schedule` error (§11.3), so these
+  exit 1 there.
 
 `scantor dev debug` = `dev run` with `processes=1`, `--limit 1` default, `--debug-build`, `debug: true`,
 and the debug port published on `127.0.0.1:${SCANTOR_DEBUG_PORT}` (local Docker only). Scaffold launch
