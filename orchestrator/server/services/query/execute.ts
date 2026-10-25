@@ -5,7 +5,7 @@ import type { ScanDoc } from '../../types/documents'
 import type { Config } from '../../utils/config'
 import { COLLECTION_NAMES, useQueryMongo } from '../../utils/mongo'
 import { analysisMaskPatterns, analysisSecretSegments } from '../analyses/masking'
-import { toApiDocument } from '../analyses/representation'
+import { ANALYSES_PAGE_MAX_BYTES, toApiDocument } from '../analyses/representation'
 import { mapQueryError } from './errors'
 import { assertNoSecretReference, secretUnsetPaths } from './secrets'
 import { scopedFilter, scopeStage } from './scope'
@@ -18,8 +18,8 @@ import { validateFilter, validatePipeline, validateProjection, validateSort } fr
  * streamed byte cap. Query results are masked; aggregations drop secret paths before user stages run.
  */
 
-/** Streamed response cap of one query or aggregation (serialized JSON of the returned items). */
-export const QUERY_MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+/** Streamed response cap of one query or aggregation (serialized JSON of the returned items); the listAnalyses cap. */
+export const QUERY_MAX_RESPONSE_BYTES = ANALYSES_PAGE_MAX_BYTES
 
 export type QueryLimits = Pick<Config, 'queryMaxTimeMs' | 'queryMaxDocs'>
 

@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'listAnalyses',
     summary: 'List the analyses of a scan',
     description:
-      'Lists the analyses of a scan in seq order, optionally filtered by status (comma-separated). Resume with afterSeq: nextCursor is the decimal seq of the last item, pass it as afterSeq to get the next page. With fields (comma-separated dot paths such as id,seq,status,error.type,result.title) only those fields plus id and seq are returned, which keeps large results out of tables. Secret (writeOnly) values are "***". For filters on result values use queryAnalyses.',
+      'Lists the analyses of a scan in seq order, optionally filtered by status (comma-separated). Resume with afterSeq: nextCursor is the decimal seq of the last item, pass it as afterSeq to get the next page. A page ends before limit, with nextCursor set, once its items reach 16 MiB of JSON, so page by nextCursor and not by the number of items. With fields (comma-separated dot paths such as id,seq,status,error.type,result.title) only those fields plus id and seq are returned, which keeps large results out of tables. Secret (writeOnly) values are "***". For filters on result values use queryAnalyses.',
     'x-scantor-scope': 'owner',
     'x-mcp': false,
     parameters: [

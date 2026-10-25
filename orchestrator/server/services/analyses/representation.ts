@@ -10,6 +10,13 @@ import { maskAnalysis } from './masking'
 // `config` and `result` masked. Projections (listAnalyses `fields`, queryAnalyses, exports) go through
 // toApiDocument, which applies the same rules to partial documents.
 
+/**
+ * Response cap of one page of analyses (the serialized JSON of its items): listAnalyses and queryAnalyses stream their
+ * cursor and end a page early at this size, with `nextCursor` set, so a page of large results neither holds `limit`
+ * full documents in memory nor exceeds what one response can serialize (docs/api.md §1.8).
+ */
+export const ANALYSES_PAGE_MAX_BYTES = 16 * 1024 * 1024
+
 export function toApiScantorError(error: ScantorErrorDoc): ScantorError {
   const result: ScantorError = {
     type: error.type,

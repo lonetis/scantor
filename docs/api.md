@@ -224,7 +224,10 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
   credentials, nodes, conditions, templates) return `{"items": [...]}` without a cursor.
 - Analyses sort by `seq` ascending; they accept `afterSeq` (integer) instead of `cursor` for resumable
   reads, and `nextCursor` is the decimal string of the last returned `seq`. `listAnalyses` allows
-  `limit` up to 1000; `queryAnalyses` defaults to 20 and allows up to 1000.
+  `limit` up to 1000; `queryAnalyses` defaults to 20 and allows up to 1000. Both stream their cursor and end
+  a page early once its items reach 16 MiB of JSON (always after at least one item), with `nextCursor` set
+  (`queryAnalyses` only without `sort`), so a page of large results can hold fewer than `limit` items: clients
+  page until `nextCursor` is null, never by the item count.
 
 ### 1.9 Long-polling with `wait`
 
@@ -619,7 +622,7 @@ With `revision`, the S3 snapshot is streamed into a `list --archive` / `read --a
 
 | Operation | operationId | Scope | MCP | Request | Response |
 |---|---|---|---|---|---|
-| `GET /api/scans/{scanId}/analyses` | `listAnalyses` | owner | no | `?status (list), afterSeq, limit (50, max 1000), fields (list of dot paths)` | `Page<Analysis>` sorted by `seq` |
+| `GET /api/scans/{scanId}/analyses` | `listAnalyses` | owner | no | `?status (list), afterSeq, limit (50, max 1000), fields (list of dot paths)` | `Page<Analysis>` sorted by `seq`; ends early at the 16 MiB page cap with `nextCursor` set (§1.8) |
 | `GET /api/analyses/{analysisId}` | `getAnalysis` | owner | **yes** | – | `Analysis` |
 | `POST /api/scans/{scanId}/analyses/query` | `queryAnalyses` | owner | **yes** (`x-read-only`) | `{filter: object, projection?: object, sort?: object, limit? (20, max 1000), afterSeq?: int}` | `{items: object[], nextCursor}` (`nextCursor` null when `sort` is given) |
 | `POST /api/scans/{scanId}/analyses/aggregate` | `aggregateAnalyses` | owner | **yes** (`x-read-only`) | `{pipeline: object[], limit? (≤ SCANTOR_QUERY_MAX_DOCS)}` | `{items: object[], truncated: boolean}` |
