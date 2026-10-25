@@ -35,6 +35,7 @@ type slot struct {
 
 	// Guarded by w.mu.
 	removed   bool
+	exiting   bool // the goroutine decided to end; a resize up no longer revives the slot
 	procReady bool
 	consuming bool
 	executing bool
@@ -148,11 +149,14 @@ func (s *slot) killProcess() {
 }
 
 // shouldExit reports whether the slot's goroutine should end: the worker is shutting down or the slot
-// was removed by a resize.
+// was removed by a resize. Once it reported true, the slot ends.
 func (s *slot) shouldExit() bool {
 	s.w.mu.Lock()
 	defer s.w.mu.Unlock()
-	return s.w.phase != phaseRunning || s.removed
+	if s.w.phase != phaseRunning || s.removed {
+		s.exiting = true
+	}
+	return s.exiting
 }
 
 // run is the slot loop: keep a ready process, consume while allowed, handle one delivery at a time.

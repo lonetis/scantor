@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -481,6 +482,78 @@ func TestResize(t *testing.T) {
 		h.b.Enqueue(analysisBody(int64(i), 1, `{}`))
 	}
 	h.waitPublished(runtime.TypeResult, 6)
+}
+
+// A resize up after a resize down keeps the removed slots that still finish their analysis instead of starting
+// processes next to them (docs/runtime.md §7.4).
+func TestResizeUpKeepsFinishingSlots(t *testing.T) {
+	h := newHarness(t, "ok")
+	h.start()
+	h.w.Resize(2)
+	waitFor(t, "2 slots", func() bool { p, _, _, _ := h.w.State(); return p.Running == 2 })
+	h.b.Enqueue(analysisBody(1, 1, `{"mode":"sleep","sleepMs":1500}`))
+	h.b.Enqueue(analysisBody(2, 1, `{"mode":"sleep","sleepMs":1500}`))
+	waitFor(t, "2 busy slots", func() bool { _, busy, _, _ := h.w.State(); return len(busy) == 2 })
+	spawns := h.spawner.count.Load()
+	h.w.Resize(1) // one busy slot is removed and finishes its analysis
+	h.w.Resize(2)
+	h.w.mu.Lock()
+	var indexes []int
+	for i, s := range h.w.slots {
+		if !s.removed {
+			indexes = append(indexes, i)
+		}
+	}
+	slots := len(h.w.slots)
+	h.w.mu.Unlock()
+	if slots != 2 || len(indexes) != 2 {
+		t.Fatalf("%d slots, %v active: a resize up started processes next to a finishing slot", slots, indexes)
+	}
+	h.waitPublished(runtime.TypeResult, 2)
+	waitFor(t, "2 consuming slots", func() bool { p, _, _, _ := h.w.State(); return p.Running == 2 && h.b.Consumers() == 2 })
+	if n := h.spawner.count.Load(); n != spawns {
+		t.Fatalf("%d spawns after the resizes", n-spawns)
+	}
+}
+
+// A resize up never starts processes next to slots that are still shutting theirs down: the missing slots start
+// once those ended, at the indexes they freed (docs/runtime.md §7.4).
+func TestResizeUpWaitsForEndingSlots(t *testing.T) {
+	h := newHarness(t, "ok")
+	w := h.w
+	w.mu.Lock()
+	w.target = 2
+	w.slots[0] = w.newSlotLocked(0)
+	ending := w.newSlotLocked(1)
+	ending.removed, ending.exiting = true, true
+	w.slots[1] = ending
+	w.running = 1 // the ending slot's goroutine
+	w.mu.Unlock()
+
+	w.Resize(3)
+	if got := slotIndexes(w); !slices.Equal(got, []int{0, 1, 2}) {
+		t.Fatalf("slots %v after the resize up: want the ending slot 1 and one new slot", got)
+	}
+	w.slotEnded(ending)
+	if got := slotIndexes(w); !slices.Equal(got, []int{0, 1, 2}) {
+		t.Fatalf("slots %v after the ending slot ended: want a new slot at its index", got)
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.slots[1] == ending || w.slots[1].removed || w.slots[1].gen != ending.gen+1 {
+		t.Fatal("slot 1 was not replaced by a new generation")
+	}
+}
+
+// slotIndexes returns the indexes of every slot, removed ones included.
+func slotIndexes(w *Worker) []int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	var out []int
+	for _, s := range w.slotList() {
+		out = append(out, s.index)
+	}
+	return out
 }
 
 func TestMaxAnalysesPerProcessRecycles(t *testing.T) {

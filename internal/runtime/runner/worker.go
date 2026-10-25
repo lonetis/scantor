@@ -111,6 +111,7 @@ type Worker struct {
 	mu         sync.Mutex
 	slots      map[int]*slot
 	gens       map[int]int
+	target     int // the processes of the latest resize
 	phase      phase
 	changed    chan struct{}
 	counters   api.RuntimeCounters
@@ -178,6 +179,7 @@ func (w *Worker) Start(ctx context.Context) error {
 	}
 	w.started = true
 	n := w.clampProcesses(w.cfg.Boot.Scan.Settings.Processes)
+	w.target = n
 	for i := range n {
 		w.slots[i] = w.newSlotLocked(i)
 	}
@@ -278,15 +280,23 @@ func (w *Worker) launchLocked(s *slot) {
 	w.running++
 	go func() {
 		s.run(w.runCtx)
-		w.mu.Lock()
-		w.running--
-		if w.slots[s.index] == s {
-			delete(w.slots, s.index)
-		}
-		w.gens[s.index] = s.gen + 1
-		w.notifyLocked()
-		w.mu.Unlock()
+		w.slotEnded(s)
 	}()
+}
+
+// slotEnded forgets a slot whose goroutine ended; a removed slot may leave room for a resize up.
+func (w *Worker) slotEnded(s *slot) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.running--
+	if w.slots[s.index] == s {
+		delete(w.slots, s.index)
+	}
+	w.gens[s.index] = s.gen + 1
+	if w.phase == phaseRunning && w.runCtx.Err() == nil {
+		w.fitLocked()
+	}
+	w.notifyLocked()
 }
 
 // notify wakes every slot waiting for a state change.
@@ -438,34 +448,54 @@ func (w *Worker) Resize(n int) {
 	n = w.clampProcesses(n)
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.phase != phaseRunning {
+	if w.phase != phaseRunning || n == w.target {
 		return
 	}
-	var active []*slot
+	w.target = n
+	w.fitLocked()
+	w.log.Info("resized the process pool", "processes", n)
+}
+
+// fitLocked moves the slots toward w.target. Growing first keeps the removed slots that still finish their
+// analysis, then starts new slots only as far as the slots that are already ending leave room: their processes
+// count toward the container's limits until they are gone, and the end of each one fits again (launchLocked).
+// Shrinking removes idle slots first, then busy slots whose analyses started first; the highest index breaks
+// ties.
+func (w *Worker) fitLocked() {
+	var active, finishing []*slot
+	ending := 0
 	for _, s := range w.slotList() {
-		if !s.removed {
+		switch {
+		case !s.removed:
 			active = append(active, s)
+		case !s.exiting:
+			finishing = append(finishing, s)
+		default:
+			ending++
 		}
 	}
+	n := w.target
 	switch {
 	case n > len(active):
-		added := 0
-		for i := 0; added < n-len(active); i++ {
+		kept := finishing[:min(n-len(active), len(finishing))]
+		for _, s := range kept {
+			s.removed = false
+		}
+		missing := n - len(active) - len(kept) - ending
+		for i := 0; missing > 0; i++ {
 			if _, used := w.slots[i]; used {
 				continue
 			}
 			s := w.newSlotLocked(i)
 			w.slots[i] = s
-			added++
+			missing--
 			select {
 			case <-w.runStarted:
 				w.launchLocked(s)
 			default: // Run launches every slot
 			}
 		}
-		w.log.Info("resized the process pool", "processes", n)
 	case n < len(active):
-		// Idle slots first, then busy slots whose analyses started first; the highest index breaks ties.
 		slices.SortFunc(active, func(a, b *slot) int {
 			switch {
 			case (a.busy == nil) != (b.busy == nil):
@@ -482,7 +512,6 @@ func (w *Worker) Resize(n int) {
 		for _, s := range active[:len(active)-n] {
 			s.removed = true
 		}
-		w.log.Info("resized the process pool", "processes", n)
 	default:
 		return
 	}

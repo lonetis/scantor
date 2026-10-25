@@ -506,8 +506,11 @@ process gone between analyses cancels its consumer and gives back what arrived m
 
 The target is `processes` from the latest state poll (`run` action).
 
-- **Up** (target > current slots): spawn the missing processes in parallel; each new slot opens its channel and
-  consumes after `ready`.
+- **Up** (target > current slots): keep the slots removed by an earlier resize down that are still finishing
+  their analysis first (they consume again afterwards), then spawn the rest in parallel; each new slot opens its
+  channel and consumes after `ready`. A removed slot that is already shutting its process down still counts:
+  its replacement starts once it ended, at the index it freed. So a resize up never runs more processes than
+  the target, and a new slot's `SCANTOR_PROCESS_INDEX` stays below it.
 - **Down** (target < current slots): choose slots to remove, idle slots first, then the most recently
   started analyses last (highest slot index breaks ties). An idle slot cancels its consumer, closes its
   channel and shuts down its process at once. A busy slot cancels its consumer, finishes its analysis (publish
