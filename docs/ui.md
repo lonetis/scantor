@@ -709,8 +709,9 @@ Sections (`XxxSection`, each with its own loading, error and success state, load
 `CredentialsTable` from `listCredentials`: name, host, username, token `••••<last4>`, last used, created.
 "New credential" → `CredentialFormModal` (`kind: gitToken`, name ≤ 64, host `host[:port]`, username
 default `x-access-token`, token as password input) → `createCredential`; Edit (token optional: empty keeps
-it) → `updateCredential`; Delete two-step → `deleteCredential`. Help text explains which host the token is
-sent to (exact host match) and that tokens are never shown again.
+it, but required once the host differs from the stored one, since a token is bound to its host) →
+`updateCredential`; Delete two-step → `deleteCredential`. Help text explains which host the token is sent to
+(exact host match) and that tokens are never shown again.
 
 ### 5.20 Admin tools (`/admin/tools`)
 

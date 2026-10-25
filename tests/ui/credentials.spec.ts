@@ -101,6 +101,22 @@ test.describe('git credentials page', () => {
       expect(edited).toEqual(expect.objectContaining({ name: renamed, last4: '1111' }))
       await expect(credentialRow(page, created.id).getByRole('cell').nth(0)).toHaveText(renamed)
 
+      // A new host needs the token again: the API never sends a stored token to another host.
+      await page.getByRole('button', { name: `Edit credential ${renamed}` }).click()
+      dialog = page.getByRole('dialog', { name: `Edit ${renamed}` })
+      await dialog.getByLabel('Host').fill('git2.example.test')
+      await expect(dialog.getByText('Required for a new host: the token is sent only to the host it was saved for.')).toBeVisible()
+      await dialog.getByRole('button', { name: 'Save credential' }).click()
+      await expect(dialog.getByText('required', { exact: true })).toBeVisible()
+      await dialog.getByRole('textbox', { name: 'Token' }).fill('tok-moved-3333')
+      const moved = page.waitForRequest((r) => r.method() === 'PATCH' && new URL(r.url()).pathname === `/api/credentials/${created.id}`)
+      await dialog.getByRole('button', { name: 'Save credential' }).click()
+      expect((await moved).postDataJSON()).toEqual({ host: 'git2.example.test', token: 'tok-moved-3333' })
+      await expectToast(page, `Credential ${renamed} saved`)
+      expect((await listCredentials(api)).find((credential) => credential.id === created.id)).toEqual(
+        expect.objectContaining({ host: 'git2.example.test', last4: '3333' }),
+      )
+
       // Delete in two steps.
       await page.getByRole('button', { name: `Delete credential ${renamed}` }).click()
       const confirm = page.getByRole('button', { name: `Confirm deleting credential ${renamed}` })

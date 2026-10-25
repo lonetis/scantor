@@ -919,7 +919,7 @@ Mechanisms: [ui](../docs/ui.md) §5.17–§5.19.
 - **UI-ACCT-011** [ui, mcp] The MCP section shows the endpoint (`data-testid=mcp-url`) with "Copy MCP URL", the OAuth command and client snippet when OAuth is available, and the API-key command; with MCP disabled it says "MCP is disabled on this instance."
 - **UI-ACCT-012** [ui, mcp] Authorized apps list name, client id, URI (http(s) links only, `rel="noopener noreferrer"`), scopes and time; a two-step "Revoke <app>" removes the row, and the app's next MCP call gets 401.
 - **UI-ACCT-013** [ui] The git credentials page lists name, host, username, the token as `••••<last4>`, last use and created time.
-- **UI-ACCT-014** [ui] "New credential" takes name, host (`host[:port]` without scheme), username (default `x-access-token`) and a hidden token, shows "Credential <name> saved", and reports a duplicate name; editing keeps the stored token when the field stays empty, and delete confirms in two steps.
+- **UI-ACCT-014** [ui] "New credential" takes name, host (`host[:port]` without scheme), username (default `x-access-token`) and a hidden token, shows "Credential <name> saved", and reports a duplicate name; editing keeps the stored token when the field stays empty unless the host changes (a new host requires the token again), and delete confirms in two steps.
 - **UI-ACCT-015** [ui, e2e] A saved credential is offered in the git import form and makes the import of a private repository on its host work.
 
 ## UI-SEC. Dashboard security

@@ -6,8 +6,8 @@ import type { CreateCredentialBody, UpdateCredentialBody } from '#shared/schemas
 import type { GitCredential } from '#shared/types/credentials'
 
 // Create or edit a git credential (docs/ui.md §5.19): kind gitToken, name, host[:port], username (default
-// x-access-token) and the token as a password input; when editing, an empty token keeps the stored one. Tokens are
-// never shown again.
+// x-access-token) and the token as a password input; when editing, an empty token keeps the stored one unless the
+// host changes (a token is bound to its host, so a new host needs it again). Tokens are never shown again.
 const props = defineProps<{
   credential: GitCredential | null
   actions: {
@@ -19,15 +19,26 @@ const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{ saved: [credential: GitCredential] }>()
 
 const editing = computed(() => props.credential !== null)
+const state = reactive({ name: '', host: '', username: 'x-access-token', token: '' })
+/** Editing with a host other than the stored one (compared normalised, as the API does). */
+const hostChanged = computed(() => {
+  if (!props.credential) return false
+  const parsed = credentialHost().safeParse(state.host)
+  return (parsed.success ? parsed.data : state.host.trim()) !== props.credential.host
+})
+const tokenRequired = computed(() => !editing.value || hostChanged.value)
+const tokenHelp = computed(() => {
+  if (!editing.value) return 'Shown never again after saving.'
+  return hostChanged.value ? 'Required for a new host: the token is sent only to the host it was saved for.' : 'Leave empty to keep the stored token.'
+})
 const schema = computed(() =>
   z.object({
     name: z.string().trim().min(1).max(CREDENTIAL_NAME_MAX),
     host: credentialHost(),
     username: z.string().trim().min(1).max(CREDENTIAL_USERNAME_MAX),
-    token: editing.value ? z.string().max(CREDENTIAL_TOKEN_MAX) : z.string().min(1, 'required').max(CREDENTIAL_TOKEN_MAX),
+    token: tokenRequired.value ? z.string().min(1, 'required').max(CREDENTIAL_TOKEN_MAX) : z.string().max(CREDENTIAL_TOKEN_MAX),
   }),
 )
-const state = reactive({ name: '', host: '', username: 'x-access-token', token: '' })
 const saving = ref(false)
 const error = ref<string | null>(null)
 const showToken = ref(false)
@@ -91,7 +102,7 @@ async function submit(event: FormSubmitEvent<{ name: string; host: string; usern
         <UFormField label="Username" name="username" help="Sent with the token as Basic auth; x-access-token works for GitHub and most forges.">
           <UInput v-model="state.username" autocomplete="off" class="w-full font-mono" />
         </UFormField>
-        <UFormField label="Token" name="token" :required="!editing" :help="editing ? 'Leave empty to keep the stored token.' : 'Shown never again after saving.'">
+        <UFormField label="Token" name="token" :required="tokenRequired" :help="tokenHelp">
           <UInput v-model="state.token" :type="showToken ? 'text' : 'password'" autocomplete="new-password" class="w-full font-mono">
             <template #trailing>
               <UTooltip text="Show value of token">
