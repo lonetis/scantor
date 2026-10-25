@@ -10,11 +10,14 @@ import { notifyAssignmentsChanged } from '../nodes/assignments'
 
 /*
  * Scan deletion (docs/architecture.md §11.3 "delete", docs/queue.md §6.3, §8): the `scanDelete` job (reconciler
- * component, concurrency 2) with the resumable cursor `{phase, afterSeq, settleUntil}`:
+ * component, concurrency 2) with the resumable cursor `{phase, afterSeq, settleUntil}`. Two slots bound the load that
+ * mass deletions put on MongoDB and S3; a job holds its slot only while it works, so small deletions pass quickly:
  *
  *   broker    delete the RabbitMQ user scan-<id>, then the queue (404 counts as done)
  *   workers   delete the worker documents (their nodes drop the containers)
- *   analyses  delete analyses in 10 000-document batches by seq
+ *   analyses  delete analyses in 10 000-document batches by seq; after DELETE_SLICE_MS of batches the job defers
+ *             itself (with its cursor) while other scanDelete jobs wait, so a large scan does not hold a slot for
+ *             minutes ahead of them
  *   files     delete the S3 prefix files/<scanId>/
  *   exports   delete the scan's exports (S3 objects and documents)
  *   events    delete the scan's events
@@ -27,6 +30,8 @@ import { notifyAssignmentsChanged } from '../nodes/assignments'
  */
 
 export const ANALYSES_DELETE_BATCH = 10_000
+/** How long a scanDelete job deletes analyses before it gives its slot to waiting deletions. */
+export const DELETE_SLICE_MS = 10_000
 export const DELETE_PHASES = ['broker', 'workers', 'analyses', 'files', 'exports', 'events', 'settle', 'sweep', 'finish'] as const
 export type DeletePhase = (typeof DELETE_PHASES)[number]
 
@@ -49,11 +54,14 @@ export async function deleteScanWorkers(scanId: string): Promise<void> {
   for (const nodeId of nodeIds) await notifyAssignmentsChanged(nodeId)
 }
 
-/** Deletes analyses in batches of `batch` by seq, starting after `afterSeq`; `onBatch` persists progress. */
+/**
+ * Deletes analyses in batches of `batch` by seq, starting after `afterSeq`; `onBatch` persists progress (`more`: another
+ * batch follows).
+ */
 export async function deleteScanAnalyses(
   scanId: string,
   afterSeq: number,
-  onBatch: (afterSeq: number, deleted: number) => Promise<void>,
+  onBatch: (afterSeq: number, deleted: number, more: boolean) => Promise<void>,
   signal?: AbortSignal,
   batch = ANALYSES_DELETE_BATCH,
 ): Promise<void> {
@@ -69,12 +77,12 @@ export async function deleteScanAnalyses(
       .next()
     if (!boundary) {
       const result = await analyses.deleteMany({ scanId, seq: { $gt: cursor } })
-      await onBatch(cursor, result.deletedCount)
+      await onBatch(cursor, result.deletedCount, false)
       return
     }
     const result = await analyses.deleteMany({ scanId, seq: { $gt: cursor, $lte: boundary.seq } })
     cursor = boundary.seq
-    await onBatch(cursor, result.deletedCount)
+    await onBatch(cursor, result.deletedCount, true)
   }
 }
 
@@ -126,7 +134,20 @@ function readCursor(job: JobDoc): DeleteCursor {
   }
 }
 
-async function runPhase(phase: DeletePhase, scan: ScanDoc, cursor: DeleteCursor, ctx: JobContext): Promise<void> {
+/**
+ * Defers the job (cursor saved) once it worked for DELETE_SLICE_MS while another scanDelete job is due: the runner
+ * claims due jobs in `notBefore` order, so the waiting ones run first and this one continues after them.
+ */
+export async function yieldToWaitingDeletes(job: JobDoc, startedAt: number, now = Date.now()): Promise<void> {
+  if (now - startedAt < DELETE_SLICE_MS) return
+  const waiting = await useCollections().jobs.countDocuments(
+    { state: 'queued', kind: 'scanDelete', notBefore: { $lte: new Date(now) }, _id: { $ne: job._id } },
+    { limit: 1 },
+  )
+  if (waiting > 0) throw new JobDeferredError(new Date(now), 'giving the slot to waiting scan deletions')
+}
+
+async function runPhase(phase: DeletePhase, scan: ScanDoc, cursor: DeleteCursor, ctx: JobContext, startedAt: number): Promise<void> {
   const { scans, analyses, events } = useCollections()
   switch (phase) {
     case 'broker':
@@ -137,14 +158,16 @@ async function runPhase(phase: DeletePhase, scan: ScanDoc, cursor: DeleteCursor,
       await deleteScanWorkers(scan._id)
       return
     case 'analyses': {
-      let deleted = 0
+      // A job that deferred itself between batches continues its count.
+      let deleted = typeof ctx.job.progress.done === 'number' ? ctx.job.progress.done : 0
       await deleteScanAnalyses(
         scan._id,
         cursor.afterSeq,
-        async (afterSeq, count) => {
+        async (afterSeq, count, more) => {
           deleted += count
           cursor.afterSeq = afterSeq
           await ctx.saveCursor({ ...cursor }, { done: deleted })
+          if (more) await yieldToWaitingDeletes(ctx.job, startedAt)
         },
         ctx.signal,
       )
@@ -184,12 +207,13 @@ export const scanDeleteJobKind: JobKindDefinition = {
     if (!scan || scan.state === 'deleted') return
     if (scan.state !== 'deleting') throw new FatalJobError('invalidState', `scan ${scan._id} is ${scan.state}, not deleting`)
     await cancelActiveJobs('scanRetryFailed', scan._id)
+    const startedAt = Date.now()
     const cursor = readCursor(job)
     for (let index = DELETE_PHASES.indexOf(cursor.phase); index < DELETE_PHASES.length; index++) {
       ctx.signal.throwIfAborted()
       cursor.phase = DELETE_PHASES[index]!
       await ctx.saveCursor({ ...cursor })
-      await runPhase(cursor.phase, scan, cursor, ctx)
+      await runPhase(cursor.phase, scan, cursor, ctx, startedAt)
     }
     ctx.log.info('scan deleted', { scanId: scan._id })
   },
