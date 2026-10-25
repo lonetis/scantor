@@ -215,9 +215,10 @@ built-in node `disabled`: enabling it makes every user with `canRunPrivileged` r
 | decommission | cordon the node and wait until no workers remain (`scantor nodes workers <node>`), or delete the node at once (its workers are replaced elsewhere); then stop the daemon |
 
 When the master is unreachable, the daemon keeps its workers running and retries; workers continue as
-long as they reach the message broker. When the master has not heard from a node for 60 seconds
-(instance setting), the node becomes `offline`, its workers are replaced on other nodes, and their
-unfinished analyses are processed again. The daemon removes the replaced workers when it reconnects.
+long as they reach the message broker. When the master has not heard from a node for the offline
+window (`SCANTOR_NODE_OFFLINE_AFTER`, an instance setting), the node becomes `offline`, its workers are
+replaced on other nodes, and their unfinished analyses are processed again. The daemon removes the
+replaced workers when it reconnects.
 
 `scantor nodes events <node>` shows the node's history (online, offline, token changes, conflicts).
 
