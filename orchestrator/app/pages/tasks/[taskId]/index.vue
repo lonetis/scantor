@@ -36,6 +36,19 @@ const created = computed(() => route.query.created === '1')
 
 const revisionState = ref<RevisionState | 'all'>('all')
 const revisions = useRevisions(taskId, () => (revisionState.value === 'all' ? null : revisionState.value))
+// The revision list is not polled: it is re-read whenever the polled task shows that a revision was published or
+// changed state (a push from the CLI, a build that finished), and by "Refresh".
+watch(() => revisionsVersion(task.value), (version, previous) => {
+  if (previous === null || version === previous || !revisions.loaded.value) return
+  revisions.refresh({ background: true }).catch((cause: unknown) => console.error('[tasks] reloading the revisions failed', cause))
+})
+
+async function refresh(): Promise<void> {
+  const reloadRevisions = revisions.loaded.value
+    ? revisions.refresh().catch((cause: unknown) => console.error('[tasks] reloading the revisions failed', cause))
+    : Promise.resolve()
+  await Promise.all([detail.refresh(), reloadRevisions])
+}
 const revisionStateItems = [{ label: 'All states', value: 'all' }, ...REVISION_STATES.map((state) => ({ label: state, value: state }))]
 const recentScans = useApiFetch<Page<ScanSummary>>(() => (task.value ? '/api/scans' : null), { query: () => ({ task: taskId.value, limit: 10 }), toast: false })
 const recentTestRuns = useApiFetch<Page<TestRun>>(() => (task.value ? `/api/tasks/${taskId.value}/test-runs` : null), { query: { limit: 5 }, toast: false })
@@ -131,7 +144,7 @@ function dismissCreated(): void {
           <span v-else class="font-semibold">Task</span>
         </template>
         <template #right>
-          <RefreshButton :loading="detail.refreshing.value" @click="detail.refresh()" />
+          <RefreshButton :loading="detail.refreshing.value || revisions.refreshing.value" @click="refresh()" />
           <template v-if="task">
             <UButton
               v-if="features.editor"

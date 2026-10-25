@@ -10,6 +10,16 @@ export function isRevisionActive(state: RevisionState | null | undefined): boole
   return state === 'queued' || state === 'building'
 }
 
+/**
+ * What of a task changes when one of its revisions is published or changes state: the latest and the latest ready
+ * revision and the revision count. The task page re-reads its revision list when this changes (docs/ui.md §5.7).
+ */
+export function revisionsVersion(task: Pick<Task, 'latestRevision' | 'latestReadyRevision' | 'revisionCount'> | null | undefined): string | null {
+  if (!task) return null
+  const pointer = (revision: Task['latestRevision']) => (revision ? `${revision.id}:${revision.state}` : '-')
+  return [pointer(task.latestRevision), pointer(task.latestReadyRevision), task.revisionCount].join('|')
+}
+
 export function useRevisions(taskId: MaybeRefOrGetter<string>, state: MaybeRefOrGetter<RevisionState | null>) {
   const api = useApi()
   const list = useCursorList<RevisionSummary>((cursor) =>

@@ -343,7 +343,7 @@ Tabs (`?tab=`):
 |---|---|
 | `overview` (default) | description; workspace card (files, size, pack hash short, `checkedAt`, "Check now" → `getTaskWorkspace`); latest and latest ready revision cards; source details; recent scans of this task (`listScans?task=<id>&limit=10`); recent test runs (`listTestRuns?limit=5`) |
 | `files` | `TaskFilesBrowser`: left tree from `listTaskFiles?recursive=true` (≤ 5000 entries, `truncated` notice), right read-only viewer from `readTaskFile` (UTF-8 in a mono `CodeBlock` with line numbers; base64 content shows "Binary file, N bytes"; `truncated` notice above 1 MiB). A source switch "Workspace / Revision N" passes `revision`. A prominent "Open in editor" link; the UI does not edit files itself. |
-| `revisions` | `RevisionTable` from `listRevisions` (number/ref, state badge, source kind, pack hash short, privileged, errors count, created, duration) with a state filter; row → revision page |
+| `revisions` | `RevisionTable` from `listRevisions` (number/ref, state badge, source kind, pack hash short, privileged, errors count, created, duration) with a state filter; row → revision page. The list is not polled: it is re-read when the polled task shows a published or changed revision (`latestRevision`, `latestReadyRevision` or `revisionCount` differ) and by "Refresh", which re-reads the task and the list; the files tab's source switch uses the same list |
 | `test` | `TestRunPanel` (§5.8) |
 
 ### 5.8 Test run panel (task detail, tab `test`)

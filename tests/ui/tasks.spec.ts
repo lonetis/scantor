@@ -662,14 +662,17 @@ test.describe('task page', () => {
   })
 
   test(
-    'a build shows live in the header, then the files of the revision, the revisions tab and "Start scan"',
+    'a build shows live in the header and the open revisions tab, then the files of the revision and "Start scan"',
     { tag: ['@UI-TASK-020', '@UI-TASK-022', '@UI-TASK-023', '@UI-TASK-013'] },
     async ({ page, api, tasks }) => {
       test.setTimeout(180_000)
       const name = unique('live')
       tasks.track(name)
       const task = await createScaffoldTask(api, name)
-      await openPage(page, `/tasks/${task.id}`)
+      // The revisions tab is open while the revision is published and built outside the page (as with the CLI).
+      await openPage(page, `/tasks/${task.id}?tab=revisions`)
+      const table = page.getByLabel('Revisions', { exact: true })
+      await expect(table.getByText('No revisions yet. Publish the workspace to create one.')).toBeVisible()
       const header = page.locator('[data-slot="title"]').first()
       await expect(header.getByTestId('unpublished-badge')).toBeVisible()
 
@@ -683,15 +686,17 @@ test.describe('task page', () => {
       await expect(header.getByTestId('unpublished-badge')).toHaveCount(0)
       await expect(page.getByRole('link', { name: 'Start scan' })).toHaveAttribute('href', `/scans/new?revision=${encodeURIComponent(`${task.id}@latest`)}`)
 
-      // Revisions tab: columns, state filter, empty filter result, row opens the revision. The tab's list is read when
-      // the page loads (it is not polled), so the page is opened again.
-      await openPage(page, `/tasks/${task.id}?tab=revisions`)
-      const table = page.getByLabel('Revisions', { exact: true })
+      // Revisions tab: the list followed the build without a reload (it re-reads when the polled task changes).
       const revisionRow = table.locator(`tr[data-row-id="${revision.id}"]`)
       await expect(revisionRow).toBeVisible()
       const cells = revisionRow.getByRole('cell')
       await expect(cells.nth(0)).toHaveText(`${name}@1`)
-      await expect(cells.nth(1)).toHaveText('ready')
+      await expect(cells.nth(1)).toHaveText('ready', { timeout: 15_000 })
+      // "Refresh" re-reads the list together with the task.
+      const reread = page.waitForRequest((r) => r.method() === 'GET' && new URL(r.url()).pathname === `/api/tasks/${task.id}/revisions`)
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+      await reread
+      // Columns, state filter, empty filter result, row opens the revision.
       // A revision published from the workspace has source kind `workspace`.
       expect(built.source.kind).toBe('workspace')
       await expect(cells.nth(2)).toHaveText(built.source.kind)
