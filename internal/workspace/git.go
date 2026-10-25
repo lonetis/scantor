@@ -202,6 +202,19 @@ func (g *Git) Pull(ctx context.Context, opts PullOptions) (res *PullResult, err 
 		res.Current = &current
 	}
 	res.Changed = res.Candidate.Summary == nil || res.Current == nil || res.Candidate.Summary.PackSHA256 != res.Current.PackSHA256
+	if !res.Changed {
+		// The same pack can still differ in files .dockerignore excludes (README.md, docs/).
+		candidate, err := tree.OpenRoot(orDot(sub))
+		if err != nil {
+			return nil, internalError(err, "open the candidate %s", res.Candidate.Path)
+		}
+		held, err := g.ws.taskHoldsTree(ctx, opts.Task, candidate)
+		_ = candidate.Close()
+		if err != nil {
+			return nil, err
+		}
+		res.Changed = !held
+	}
 	g.ws.events.Infof("fetched %s at %s (fast-forward %t, changed %t)", redactedURL(opts.URL), commit, fastForward, res.Changed)
 	return res, nil
 }

@@ -693,7 +693,7 @@ src := staging/<id>/tree[/<from>]; validate src (archive rules, caps)
 cur := exists(/workspace/<task>) ? pack(/workspace/<task>).sha256 : "absent"
 new := pack(src).sha256
 if --expect ∉ {any, cur} and cur != new → error workspaceDirty {details: {current: cur, expected}}
-if cur == new → changed = false (nothing moves)
+if cur == new and holds(/workspace/<task>, src) → changed = false (nothing moves)
 else:  rename /workspace/<task> → staging/<id>/old   (skipped when absent)
        rename src → /workspace/<task>                 (same filesystem: atomic)
        remove staging/<id>
@@ -711,6 +711,10 @@ else:  rename /workspace/<task> → staging/<id>/old   (skipped when absent)
   - git pull: `current.packSha256` reported by `git-pull` (`absent` when `current` is null), or `any` with
     `force=true` (§9.7).
 - A workspace identical to the new content is never a conflict (`cur == new` above).
+- Equal pack hashes say nothing about the files `.dockerignore` excludes (a `README.md` or `docs/`), so
+  `holds` compares those entries of `src` (type, execute bit, content) with the task folder. Entries only
+  the task folder has (an installed `node_modules/`) do not count, so a commit that brings nothing new
+  keeps them; a commit that changes any file replaces the whole folder.
 - After a successful upload, git import or git pull `commit`, the orchestrator sets
   `tasks.workspace.lastSyncSha256` to the committed hash. Editor and file-route writes never set it.
 - Every helper run first deletes staging directories older than 1 h, so staging left behind by crashed
@@ -751,6 +755,8 @@ git init … && fetch --filter=tree:0 --no-tags origin <ref>   // the commit gra
 fastForward := git merge-base --is-ancestor <base-commit> FETCH_HEAD    (false when base is unknown)
 checkout --detach FETCH_HEAD (trees and blobs fetched lazily); candidate := tree/<path>
 current := summary of /workspace/<task> (or null)
+changed := current is null, or candidate.packSha256 != current.packSha256,
+           or !holds(/workspace/<task>, candidate)          // a changed file .dockerignore excludes (§9.6)
 ```
 
 The orchestrator then decides ([api](api.md) §4.8):

@@ -86,6 +86,64 @@ func TestCommit(t *testing.T) {
 	}
 }
 
+// The pack leaves out what .dockerignore excludes, so equal pack hashes do not mean equal folders: a
+// commit that changes only such a file still replaces the folder, and one that adds nothing new keeps
+// the local files only the task folder has.
+func TestCommitComparesDockerignoredFiles(t *testing.T) {
+	ws := newTestWorkspace(t, DefaultLimits())
+	task := filepath.Join(ws.dir, "echo")
+	tree := func(readme string) map[string]node {
+		return map[string]node{"scantor.yaml": file(testManifest), ".dockerignore": file("README.md\ndocs/\nnode_modules/\n"), "main.py": file("x"), "README.md": file(readme), "docs/a.md": file("a")}
+	}
+	stage(t, ws, "s1", tree("old"))
+	res, err := ws.Commit(bg, CommitOptions{Staging: "s1", Task: "echo", Expect: ExpectAbsent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := res.Workspace.PackSHA256
+	writeTree(t, task, map[string]node{"node_modules/x/index.js": file("local")})
+
+	// Only README.md differs: the same pack, but the folder is replaced.
+	stage(t, ws, "s2", tree("new"))
+	res, err = ws.Commit(bg, CommitOptions{Staging: "s2", Task: "echo", Expect: hash})
+	if err != nil || !res.Changed || res.Workspace.PackSHA256 != hash {
+		t.Fatalf("commit of a changed ignored file: %+v, %v", res, err)
+	}
+	if got := readTestFile(t, filepath.Join(task, "README.md")); got != "new" {
+		t.Fatalf("README.md = %q", got)
+	}
+	mustNotExist(t, filepath.Join(task, "node_modules"))
+
+	// The same files again: nothing moves, and a local ignored folder stays.
+	writeTree(t, task, map[string]node{"node_modules/x/index.js": file("local")})
+	stage(t, ws, "s3", tree("new"))
+	if res, err := ws.Commit(bg, CommitOptions{Staging: "s3", Task: "echo", Expect: hash}); err != nil || res.Changed {
+		t.Fatalf("commit of the same files: %+v, %v", res, err)
+	}
+	if got := readTestFile(t, filepath.Join(task, "node_modules", "x", "index.js")); got != "local" {
+		t.Fatalf("node_modules/x/index.js = %q", got)
+	}
+
+	// An ignored file whose execute bit or type differs, or a missing ignored folder, is a change too.
+	for id, changed := range map[string]map[string]node{
+		"s4": {"README.md": execFile("new")},
+		"s5": {"docs/a.md": dir()},
+		"s6": {"docs/b.md": file("b")},
+	} {
+		next := tree("new")
+		if _, ok := changed["docs/a.md"]; ok {
+			delete(next, "docs/a.md")
+		}
+		for p, n := range changed {
+			next[p] = n
+		}
+		stage(t, ws, id, next)
+		if res, err := ws.Commit(bg, CommitOptions{Staging: id, Task: "echo", Expect: ExpectAny}); err != nil || !res.Changed {
+			t.Fatalf("%s: %+v, %v", id, res, err)
+		}
+	}
+}
+
 func TestCommitFromSubfolderKeepsStaging(t *testing.T) {
 	ws := newTestWorkspace(t, DefaultLimits())
 	stage(t, ws, "git1", map[string]node{

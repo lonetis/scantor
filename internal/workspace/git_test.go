@@ -453,6 +453,42 @@ func TestGitPull(t *testing.T) {
 	wantCode(t, err, CodeInvalidArgument)
 }
 
+// An upstream change of a file .dockerignore excludes keeps the pack hash but is a change.
+func TestGitPullDockerignoredChange(t *testing.T) {
+	s := newGitServer(t)
+	repo := s.newRepo(t, "repo.git")
+	a := repo.commit("a", map[string]node{"task/scantor.yaml": file(testManifest), "task/.dockerignore": file("README.md\n"), "task/main.py": file("a"), "task/README.md": file("a")})
+	g, ws := newTestGit(t, s, DefaultLimits(), nil)
+	if _, err := g.Clone(bg, GitOptions{URL: s.url("repo.git"), Path: "task", Staging: "c1", AllowPrivate: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ws.Commit(bg, CommitOptions{Staging: "c1", From: "task", Task: "echo", Expect: ExpectAbsent}); err != nil {
+		t.Fatal(err)
+	}
+	b := repo.commit("b", map[string]node{"task/README.md": file("b")})
+	res, err := g.Pull(bg, PullOptions{GitOptions: GitOptions{URL: s.url("repo.git"), Path: "task", Staging: "p1", AllowPrivate: true}, Task: "echo", BaseCommit: a})
+	if err != nil {
+		t.Fatalf("Pull: %v\n%s", err, ws.stderr)
+	}
+	if !res.Changed || res.Commit != b || res.Candidate.Summary.PackSHA256 != res.Current.PackSHA256 {
+		t.Fatalf("pull of an ignored change %+v", res)
+	}
+	committed, err := ws.Commit(bg, CommitOptions{Staging: "p1", From: "task", Task: "echo", Expect: res.Current.PackSHA256})
+	if err != nil || !committed.Changed {
+		t.Fatalf("commit %+v, %v", committed, err)
+	}
+	if got := readTestFile(t, filepath.Join(ws.dir, "echo", "README.md")); got != "b" {
+		t.Fatalf("README.md = %q", got)
+	}
+	if err := ws.Discard("p1"); err != nil {
+		t.Fatal(err)
+	}
+	res, err = g.Pull(bg, PullOptions{GitOptions: GitOptions{URL: s.url("repo.git"), Path: "task", Staging: "p2", AllowPrivate: true}, Task: "echo", BaseCommit: b})
+	if err != nil || res.Changed {
+		t.Fatalf("pull without changes %+v, %v", res, err)
+	}
+}
+
 func TestResolveURL(t *testing.T) {
 	public := netip.MustParseAddr("140.82.121.3")
 	lookups := map[string][]netip.Addr{

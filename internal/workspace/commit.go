@@ -38,9 +38,10 @@ type CommitResult struct {
 // Commit replaces the task folder atomically with a staged tree (docs/editor.md §9.6). The source is
 // validated with the archive rules (regular files and directories only, path rules, caps; .git/ and
 // .scantor/ are dropped at any depth) and its modes are normalised. When the current folder differs from
-// both the expected hash and the new content, the commit fails with workspaceDirty. Otherwise the current
-// folder is renamed into staging/<id>/old, the source is renamed into its place (one filesystem, so each
-// rename is atomic) and the old folder is deleted.
+// both the expected hash and the new content, the commit fails with workspaceDirty. When the current
+// folder has the new pack hash and already holds every staged file (holdsTree: also those .dockerignore
+// excludes), nothing moves. Otherwise the current folder is renamed into staging/<id>/old, the source is
+// renamed into its place (one filesystem, so each rename is atomic) and the old folder is deleted.
 //
 // Without From the whole staging directory is removed afterwards. With From (git imports, which may
 // commit several candidates of one checkout) the rest of the staging tree is kept for further commits;
@@ -84,8 +85,15 @@ func (w *Workspace) Commit(ctx context.Context, opts CommitOptions) (*CommitResu
 		res.PreviousPackSHA256 = &prev
 	}
 	if current == next.PackSHA256 {
-		w.events.Infof("the task folder %q already has this content", opts.Task)
-		return res, w.finishStaging(opts.Staging, opts.From)
+		held, err := w.taskHoldsTree(ctx, opts.Task, src)
+		if err != nil {
+			return nil, err
+		}
+		if held {
+			w.events.Infof("the task folder %q already has this content", opts.Task)
+			return res, w.finishStaging(opts.Staging, opts.From)
+		}
+		w.events.Infof("the task folder %q has the same pack but other files .dockerignore excludes", opts.Task)
 	}
 	wsBytes, err := w.workspaceBytes(ctx)
 	if err != nil {
@@ -100,6 +108,16 @@ func (w *Workspace) Commit(ctx context.Context, opts CommitOptions) (*CommitResu
 	res.Changed = true
 	w.events.Infof("committed %d files and directories (%d bytes) to %q", staged.Entries, staged.Bytes, opts.Task)
 	return res, w.finishStaging(opts.Staging, opts.From)
+}
+
+// taskHoldsTree reports whether the existing task folder holds every entry of the tree src (holdsTree).
+func (w *Workspace) taskHoldsTree(ctx context.Context, task string, src *os.Root) (bool, error) {
+	dst, err := w.openTask(task)
+	if err != nil {
+		return false, err
+	}
+	defer dst.Close()
+	return holdsTree(ctx, src, dst)
 }
 
 func validateExpect(expect string) error {
