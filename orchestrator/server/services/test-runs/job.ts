@@ -18,7 +18,7 @@ import { LineSplitter, platformError, type PipelineEvent } from '../pipeline/eve
 import { discardTmpSnapshot, snapshotToTmp, type StoredSnapshot } from '../pipeline/snapshot'
 import { useBuildSlots } from '../pipeline/slots'
 import { MAX_EVENT_LINE_BYTES, runTaskBuild, type TaskBuildOutcome } from '../pipeline/task-build'
-import { injectionArchive, type InjectionUpload, localSpec, OUT_DIR, removeContainer, runTestRunContainer, testRunContainerName, testRunContainerSpec } from './container'
+import { injectionArchive, type InjectionUpload, localSpec, OUT_DIR, removeContainer, runTestRunContainer, testRunContainerSpec } from './container'
 import { REQUEST_SECRET_KEY, openRequest, validatedSecretsUpdate } from './create'
 import { analysisFromResult, configIssueMessage, type LocalEvent, parseLocalEvent } from './events'
 import { cancellationFor, openTestRunChannel, publishTestRunEvent, releaseCancellation } from './live'
@@ -119,6 +119,8 @@ class TestRunExecution {
   private summary = { analyses: 0, succeeded: 0, failed: 0 }
   private endEvent: Extract<LocalEvent, { type: 'end' }> | null = null
   private snapshot: StoredSnapshot | null = null
+  /** the container this execution created; cleanup removes exactly it */
+  private container: Docker.Container | null = null
   private description: DescriptionDoc | null = null
 
   constructor(
@@ -327,6 +329,9 @@ class TestRunExecution {
       killAfterMs: remainingMs + KILL_GRACE_MS,
       signal: this.signal,
       log: this.ctx.log,
+      onCreated: (created) => {
+        this.container = created
+      },
     })
     await Promise.race([outputEnded, new Promise((resolve) => setTimeout(resolve, 5000))])
     lines.end()
@@ -465,11 +470,17 @@ class TestRunExecution {
     publishTestRunEvent(this.id, { event: 'end', data: toApiTestRun(final) })
   }
 
-  /** Removes the temporary snapshot and the container (also one created but never started). */
+  /**
+   * Removes the temporary snapshot and the container this execution created (also one created but never started), by
+   * its id and never by its `scantor-t-<id>` name: after a lost lease another runner may already run the test run in a
+   * new container of that name. Removing this execution's own container is right also then, since its run is
+   * abandoned; a container whose creation this process never saw complete is left to the gc.
+   */
   async cleanup(): Promise<void> {
     if (this.snapshot) await discardTmpSnapshot(this.snapshot)
-    await removeContainer(this.docker, testRunContainerName(this.id)).catch((error: unknown) =>
-      this.ctx.log.warn('removing the test-run container failed', { testRunId: this.id, err: error }),
+    if (!this.container) return
+    await removeContainer(this.docker, this.container.id).catch((error: unknown) =>
+      this.ctx.log.warn('removing the test-run container failed', { testRunId: this.id, containerId: this.container?.id, err: error }),
     )
   }
 }

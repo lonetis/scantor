@@ -159,9 +159,10 @@ export function injectionArchive(binaryPath: string, spec: unknown, uploads: Inj
   return Readable.from(pack)
 }
 
-export async function removeContainer(docker: Docker, name: string): Promise<void> {
+/** Force-removes a container by name or id; one that is already gone is no error. */
+export async function removeContainer(docker: Docker, nameOrId: string): Promise<void> {
   try {
-    await docker.getContainer(name).remove({ force: true, v: true })
+    await docker.getContainer(nameOrId).remove({ force: true, v: true })
   } catch (error) {
     if ((error as { statusCode?: number }).statusCode !== 404) throw error
   }
@@ -180,6 +181,8 @@ export interface TestRunContainerOptions {
   /** the run's cancellation (cancelTestRun, task deletion) and the job's own abort */
   signal: AbortSignal
   log: Pick<Logger, 'debug'>
+  /** called as soon as the container exists, so the caller can remove exactly this container later */
+  onCreated?: (container: Docker.Container) => void
 }
 
 export interface TestRunContainerExit {
@@ -196,7 +199,8 @@ export interface TestRunContainerExit {
  * copies the injection tar into it, attaches to its output, starts it and waits for it, killing it after `killAfterMs`.
  * An abort is honoured at every step (docs/tasks.md §11.1 step 5): the handler exists before the container does and
  * each step re-checks the signal. Before the start the container is removed and the call rejects with the abort
- * reason; once it is started it is killed and the call returns with `killed: 'abort'`.
+ * reason; once it is started it is killed and the call returns with `killed: 'abort'`. Only the leftover is removed
+ * by name; the container created here is removed by its id.
  */
 export async function runTestRunContainer(options: TestRunContainerOptions): Promise<TestRunContainerExit> {
   const { docker, signal, log } = options
@@ -220,6 +224,7 @@ export async function runTestRunContainer(options: TestRunContainerOptions): Pro
     await removeContainer(docker, options.create.name)
     signal.throwIfAborted()
     container = await docker.createContainer(options.create)
+    options.onCreated?.(container)
     signal.throwIfAborted()
     const archive = options.archive()
     try {
@@ -248,7 +253,7 @@ export async function runTestRunContainer(options: TestRunContainerOptions): Pro
     output?.destroy()
     // Never started: nothing may run it later, and the job's cleanup comes only after the run's final state.
     if (!started && container) {
-      await removeContainer(docker, options.create.name).catch((removeError: unknown) => log.debug('removing the test-run container failed', { err: removeError }))
+      await removeContainer(docker, container.id).catch((removeError: unknown) => log.debug('removing the test-run container failed', { err: removeError }))
     }
     throw error
   } finally {

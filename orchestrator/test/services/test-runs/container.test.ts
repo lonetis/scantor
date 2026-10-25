@@ -133,6 +133,8 @@ describe('injectionArchive', () => {
 /** A Docker client whose container steps can be held (until `release`) to cancel inside them. */
 function fakeDocker(holdAt?: 'create' | 'putArchive' | 'attach' | 'start' | 'wait') {
   const calls: string[] = []
+  /** the name or id of every removal */
+  const removed: string[] = []
   const state = { exists: false, running: false }
   let reach!: () => void
   const reached = new Promise<void>((resolve) => (reach = resolve))
@@ -149,6 +151,7 @@ function fakeDocker(holdAt?: 'create' | 'putArchive' | 'attach' | 'start' | 'wai
   }
   const notFound = () => Object.assign(new Error('no such container'), { statusCode: 404 })
   const container = {
+    id: 'c0ffee',
     async putArchive(archive: Readable, options: { abortSignal?: AbortSignal }) {
       calls.push('putArchive')
       if (holdAt !== 'putArchive') return archive.resume()
@@ -177,9 +180,10 @@ function fakeDocker(holdAt?: 'create' | 'putArchive' | 'attach' | 'start' | 'wai
     },
   }
   const docker = {
-    getContainer: () => ({
+    getContainer: (ref: string) => ({
       async remove() {
         calls.push('remove')
+        removed.push(ref)
         if (!state.exists) throw notFound()
         state.exists = false
         state.running = false
@@ -192,12 +196,12 @@ function fakeDocker(holdAt?: 'create' | 'putArchive' | 'attach' | 'start' | 'wai
     },
     modem: { demuxStream: () => {} },
   }
-  return { docker: docker as unknown as Docker, calls, state, reached, release, exit }
+  return { docker: docker as unknown as Docker, calls, removed, state, reached, release, exit }
 }
 
 describe('runTestRunContainer', () => {
   const sink = () => new Writable({ write: (_chunk, _encoding, callback) => callback() })
-  const options = (docker: Docker, signal: AbortSignal, overrides: { archive?: () => Readable; killAfterMs?: number } = {}) => ({
+  const options = (docker: Docker, signal: AbortSignal, overrides: { archive?: () => Readable; killAfterMs?: number; onCreated?: (container: Docker.Container) => void } = {}) => ({
     docker,
     create: { name: 'scantor-t-1', Image: 'draft' },
     archive: overrides.archive ?? (() => Readable.from([Buffer.from('tar')])),
@@ -206,6 +210,7 @@ describe('runTestRunContainer', () => {
     killAfterMs: overrides.killAfterMs ?? 60_000,
     signal,
     log: { debug: () => {} },
+    onCreated: overrides.onCreated,
   })
 
   it('replaces a leftover, injects, attaches, starts and returns the exit code', async () => {
@@ -227,6 +232,20 @@ describe('runTestRunContainer', () => {
     await expect(run).rejects.toThrow('test run cancelled')
     expect(fake.calls).not.toContain('start')
     expect(fake.state.exists).toBe(false)
+  })
+
+  it('removes a leftover by name but its own container only by id', async () => {
+    // A runner that lost its lease must never remove the container another runner created under the same name.
+    const fake = fakeDocker('attach')
+    const controller = new AbortController()
+    const created: string[] = []
+    const run = runTestRunContainer(options(fake.docker, controller.signal, { onCreated: (container) => created.push(container.id) }))
+    await fake.reached
+    expect(created).toEqual(['c0ffee'])
+    controller.abort(new Error('test run cancelled'))
+    fake.release()
+    await expect(run).rejects.toThrow('test run cancelled')
+    expect(fake.removed).toEqual(['scantor-t-1', 'c0ffee'])
   })
 
   it('a cancel during the injection aborts the upload and removes the container', async () => {
