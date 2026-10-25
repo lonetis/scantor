@@ -262,6 +262,41 @@ describe.skipIf(!integrationEnabled)('runtime API against MongoDB and RustFS', (
       resetStorageUsageCache()
     })
 
+    it('counts the stored files of the owner\'s test runs against the quota', async () => {
+      resetStorageUsageCache()
+      const { testRuns, testRunAnalyses } = useCollections()
+      const testRunId = randomUUID()
+      const owner = scanDoc().userId
+      await testRuns.insertOne({ _id: testRunId, userId: owner } as never)
+      // Only stored files (with a key) count; a file the job did not store does not.
+      await testRunAnalyses.insertOne({
+        _id: `${testRunId}-0`,
+        testRunId,
+        userId: owner,
+        seq: 0,
+        files: [
+          { id: randomUUID(), name: 'kept.bin', size: 60, sha256: 'e'.repeat(64), contentType: 'application/octet-stream', key: `test-runs/${testRunId}/files/0/x/kept.bin` },
+          { id: randomUUID(), name: 'dropped.bin', size: 1000, sha256: 'f'.repeat(64), contentType: 'application/octet-stream' },
+        ],
+      } as never)
+      const quota = { ...config, userStorageQuotaBytes: 100 }
+      const presign = async (size: number) =>
+        handlePresign(
+          await principal(runnerId),
+          { seq: 10, round: 1, attempt: 1, executionId, files: [{ fileId: randomUUID(), name: 'next.bin', size, sha256: 'c'.repeat(64), contentType: 'application/octet-stream' }] },
+          quota,
+        )
+      try {
+        await expectApiError(presign(50), 'quotaExceeded')
+        resetStorageUsageCache()
+        expect((await presign(40)).files).toHaveLength(1)
+      } finally {
+        await testRunAnalyses.deleteOne({ _id: `${testRunId}-0` })
+        await testRuns.deleteOne({ _id: testRunId })
+        resetStorageUsageCache()
+      }
+    })
+
     it('rejects invalid file ids and rounds newer than the scan', async () => {
       await expectApiError(
         handlePresign(await principal(runnerId), { seq: 1, round: 1, attempt: 1, executionId, files: [{ fileId: 'nope', name: 'a', size: 1, sha256: 'd'.repeat(64), contentType: 'text/plain' }] }, config),

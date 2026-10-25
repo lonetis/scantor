@@ -178,7 +178,7 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
 | `sessionRequired` | 403 | operation needs a browser session |
 | `banned` | 403 | the user is banned |
 | `privilegedNotAllowed` | 403 | privileged revision without `canRunPrivileged` |
-| `quotaExceeded` | 403 | per-user storage quota reached |
+| `quotaExceeded` | 403 | per-user storage quota reached (files of scans and test runs) |
 | `notFound` | 404 | missing, deleted or not owned; an `/api/*` path that matches no operation |
 | `methodNotAllowed` | 405 | the path matches an operation, the method does not |
 | `invalidState` | 409 | transition not allowed; `details: {state, allowed}` |

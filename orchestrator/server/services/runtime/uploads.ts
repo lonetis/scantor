@@ -68,7 +68,7 @@ export function presignProblems(input: PresignInput, scan: Pick<ScanDoc, 'round'
 export const USAGE_CACHE_MS = 60_000
 
 interface UsageEntry {
-  /** bytes measured from the analyses of the user's scans */
+  /** bytes measured from the analyses of the user's scans and test runs */
   measured: number
   /** bytes presigned in this process since the measurement */
   presigned: number
@@ -78,7 +78,7 @@ interface UsageEntry {
 const usage = new Map<string, UsageEntry>()
 
 /** Bytes of analysis files of a user's scans (files of succeeded analyses; deleted scans have none). */
-async function measureUsage(userId: string): Promise<number> {
+async function measureScanUsage(userId: string): Promise<number> {
   const { scans, analyses } = useCollections()
   const scanIds = (await scans.find({ userId, state: { $nin: ['deleting', 'deleted'] } }, { projection: { _id: 1 } }).toArray()).map((scan) => scan._id)
   if (scanIds.length === 0) return 0
@@ -92,7 +92,30 @@ async function measureUsage(userId: string): Promise<number> {
   return result?.bytes ?? 0
 }
 
-/** Reserves `bytes` of the user's quota; throws 403 quotaExceeded when it would be exceeded. 0 = unlimited. */
+/** Bytes of the stored files (those with a `key`) of a user's test runs, until their retention ends. */
+async function measureTestRunUsage(userId: string): Promise<number> {
+  const { testRuns, testRunAnalyses } = useCollections()
+  const testRunIds = (await testRuns.find({ userId }, { projection: { _id: 1 } }).toArray()).map((testRun) => testRun._id)
+  if (testRunIds.length === 0) return 0
+  const [result] = await testRunAnalyses
+    .aggregate<{ bytes: number }>([
+      { $match: { testRunId: { $in: testRunIds }, 'files.key': { $exists: true } } },
+      { $project: { bytes: { $sum: { $map: { input: { $filter: { input: '$files', cond: { $gt: ['$$this.key', null] } } }, in: '$$this.size' } } } } },
+      { $group: { _id: null, bytes: { $sum: '$bytes' } } },
+    ])
+    .toArray()
+  return result?.bytes ?? 0
+}
+
+async function measureUsage(userId: string): Promise<number> {
+  const [scanBytes, testRunBytes] = await Promise.all([measureScanUsage(userId), measureTestRunUsage(userId)])
+  return scanBytes + testRunBytes
+}
+
+/**
+ * Reserves `bytes` of the user's quota (scan file presigns, test-run file uploads); throws 403 quotaExceeded when it
+ * would be exceeded. 0 = unlimited.
+ */
 export async function reserveStorage(userId: string, bytes: number, quotaBytes: number, now = Date.now()): Promise<void> {
   if (quotaBytes <= 0) return
   let entry = usage.get(userId)

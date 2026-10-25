@@ -12,6 +12,7 @@ import { maskSecrets } from '../../utils/secrets'
 import { findAuthUser } from '../../utils/users'
 import { validateConfigs } from '../configs/validate'
 import { referencedUploadIds } from '../catalog/estimate'
+import { reserveStorage } from '../runtime/uploads'
 import { pipelineEnv, runtimeBinary } from '../pipeline/binary'
 import { LineSplitter, platformError, type PipelineEvent } from '../pipeline/events'
 import { discardTmpSnapshot, snapshotToTmp, type StoredSnapshot } from '../pipeline/snapshot'
@@ -380,30 +381,49 @@ class TestRunExecution {
     }
   }
 
-  /** CopyFromContainer of /scantor/out: uploads the files the result events listed to `test-runs/<id>/files/…`. */
+  /**
+   * CopyFromContainer of /scantor/out: uploads the files the result events listed to `test-runs/<id>/files/…`. Each
+   * file counts against the owner's SCANTOR_USER_STORAGE_QUOTA_BYTES; a file beyond the quota is not stored.
+   */
   private async collectFiles(container: Docker.Container): Promise<void> {
     if (this.expectedFiles.size === 0) return
     const archive = (await container.getArchive({ path: OUT_DIR })) as NodeJS.ReadableStream
     const extractor = tarExtract()
     const maxBytes = this.ctx.config.maxFileBytes
+    const skip = (entryStream: { on(event: 'end', listener: () => void): unknown; resume(): unknown }, next: (error?: Error) => void) => {
+      entryStream.on('end', () => next())
+      entryStream.resume()
+    }
     const done = new Promise<void>((resolve, reject) => {
       extractor.on('entry', (header, entryStream, next) => {
         const path = header.name.replace(/^out\//, '').replace(/^\.\//, '')
         const expected = header.type === 'file' ? this.expectedFiles.get(path) : undefined
-        if (!expected || header.size > maxBytes) {
-          entryStream.on('end', () => next())
-          entryStream.resume()
+        const size = header.size ?? 0
+        if (!expected || size > maxBytes) {
+          skip(entryStream, next)
           return
         }
-        const key = `test-runs/${this.id}/files/${expected.seq}/${expected.file.id}/${safeName(expected.file.name)}`
-        // tar-stream entries are streamx streams, which the S3 uploader does not accept as a body.
-        const body = Readable.from(entryStream as AsyncIterable<Buffer>, { objectMode: false })
-        uploadStream(key, body, expected.file.contentType || 'application/octet-stream', { 'file-id': expected.file.id, name: encodeURIComponent(expected.file.name) })
-          .then(() => {
-            expected.file.key = key
-            next()
-          })
-          .catch((error: unknown) => next(error as Error))
+        reserveStorage(this.doc.userId, size, this.ctx.config.userStorageQuotaBytes).then(
+          () => {
+            const key = `test-runs/${this.id}/files/${expected.seq}/${expected.file.id}/${safeName(expected.file.name)}`
+            // tar-stream entries are streamx streams, which the S3 uploader does not accept as a body.
+            const body = Readable.from(entryStream as AsyncIterable<Buffer>, { objectMode: false })
+            uploadStream(key, body, expected.file.contentType || 'application/octet-stream', { 'file-id': expected.file.id, name: encodeURIComponent(expected.file.name) })
+              .then(() => {
+                expected.file.key = key
+                next()
+              })
+              .catch((error: unknown) => next(error as Error))
+          },
+          (error: unknown) => {
+            if (!(error instanceof ApiError && error.code === 'quotaExceeded')) {
+              next(error as Error)
+              return
+            }
+            this.addError({ phase: 'platform', message: `file ${expected.file.name} of analysis ${expected.seq} was not stored: the storage quota is exhausted` })
+            skip(entryStream, next)
+          },
+        )
       })
       extractor.on('finish', resolve)
       extractor.on('error', reject)

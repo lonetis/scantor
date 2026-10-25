@@ -1093,7 +1093,7 @@ All limits are enforced at the earliest point listed. Values come from the named
 | messages per scan queue (ready and delayed) | `SCANTOR_SCAN_QUEUE_MAX_READY` | broker (`x-max-length`, reject-publish); the scheduler fills at most half of it, leaving the rest to retries ([runtime](runtime.md) §11.4) |
 | delivery limit | `SCANTOR_DELIVERY_LIMIT` | broker |
 | file size / files per analysis | `SCANTOR_MAX_FILE_BYTES` / `SCANTOR_MAX_FILES_PER_ANALYSIS` | runtime, presign |
-| storage per user | `SCANTOR_USER_STORAGE_QUOTA_BYTES` (0 = unlimited) | presign |
+| storage per user | `SCANTOR_USER_STORAGE_QUOTA_BYTES` (0 = unlimited): files of the user's scans and stored test-run files | presign, `testRun` job (a test-run file beyond it is not stored) |
 | task/scan config size | `SCANTOR_MAX_SCAN_CONFIG_BYTES` each | API |
 | request body | `SCANTOR_MAX_REQUEST_BYTES` | API middleware |
 | task upload (compressed) | `SCANTOR_TASK_MAX_PACK_BYTES` | API (streaming), `task pack` |
