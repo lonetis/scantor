@@ -153,6 +153,7 @@ export interface Config {
   // workspace helpers
   workspaceMaxBytes: number
   helperConcurrency: number
+  helperConcurrencyPerUser: number
   helperMemoryLimitBytes: number
   helperPidsLimit: number
   helperTimeoutMs: number
@@ -450,6 +451,7 @@ const VARIABLES = {
 
   workspaceMaxBytes: v('SCANTOR_WORKSPACE_MAX_BYTES', '2GiB', byteSize(1)),
   helperConcurrency: v('SCANTOR_HELPER_CONCURRENCY', '8', integer(1, 1000)),
+  helperConcurrencyPerUser: v('SCANTOR_HELPER_CONCURRENCY_PER_USER', '2', integer(1, 1000)),
   helperMemoryLimitBytes: v('SCANTOR_HELPER_MEMORY_LIMIT', '512MiB', byteSize(16 * 1024 ** 2)),
   helperPidsLimit: v('SCANTOR_HELPER_PIDS_LIMIT', '256', integer(8, 1_000_000)),
   helperTimeoutMs: v('SCANTOR_HELPER_TIMEOUT', '5m', duration(1000)),

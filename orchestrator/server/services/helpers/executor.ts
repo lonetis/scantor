@@ -5,16 +5,18 @@ import { apiError } from '../../utils/errors'
 import { scantorImageRef, useDocker } from '../../utils/docker'
 import { type Logger, useLogger } from '../../utils/logger'
 import { observeHelperRun, setHelpersRunning } from '../metrics/catalogue'
-import { KeyedRwLock, Semaphore, SemaphoreTimeoutError } from './concurrency'
+import { KeyedRwLock, KeyedSemaphore, type Release, Semaphore, SemaphoreTimeoutError } from './concurrency'
 import { stderrTail } from './protocol'
 import { HelperOutputTooLargeError, HelperTimeoutError, runHelperContainer } from './runner'
 import { helperContainerSpec, helperMountFor } from './spec'
 import { EXCLUSIVE_OPS, GIT_OPS, type HelperOp, type HelperResult, type HelperRunOptions, type HelperStreamOptions } from './types'
 
 // The workspace helper runner of the api component (docs/architecture.md §4.1, docs/editor.md §9.8): every helper
-// takes the user's read/write lock (exclusive for writers), then one of SCANTOR_HELPER_CONCURRENCY global slots
-// (waiting at most 30 s, else 503 unavailable), and runs its container with the per-operation profile. The first
-// helper of a user in this process runs `init` first, which creates the user's volume subpaths.
+// takes the user's read/write lock (exclusive for writers), then one of the user's SCANTOR_HELPER_CONCURRENCY_PER_USER
+// slots (waiting at most 30 s, else 429 tooManyRequests), then one of SCANTOR_HELPER_CONCURRENCY global slots (waiting
+// at most 30 s, else 503 unavailable), and runs its container with the per-operation profile. The per-user cap keeps
+// one user's slow uploads or git clones from holding every global slot. The first helper of a user in this process
+// runs `init` first, which creates the user's volume subpaths.
 
 export const SLOT_WAIT_MS = 30_000
 
@@ -23,6 +25,8 @@ export interface HelperRuntime {
   config: Config
   log: Logger
   slots: Semaphore
+  /** SCANTOR_HELPER_CONCURRENCY_PER_USER slots per user, taken before a global slot */
+  userSlots: KeyedSemaphore
   userLocks: KeyedRwLock
   /** users whose directories `init` has created in this process */
   initialized: Set<string>
@@ -40,6 +44,7 @@ export function useHelperRuntime(): HelperRuntime {
       config,
       log: useLogger('helpers'),
       slots: new Semaphore(config.helperConcurrency),
+      userSlots: new KeyedSemaphore(config.helperConcurrencyPerUser),
       userLocks: new KeyedRwLock(),
       initialized: new Set(),
       initializing: new Map(),
@@ -73,14 +78,29 @@ async function runContainer(rt: HelperRuntime, op: HelperOp, options: HelperRunO
     pidsLimit: rt.config.helperPidsLimit,
     id: randomUUID(),
   })
-  let release: () => void
+  let releaseUser: Release
   try {
-    release = await rt.slots.acquire({ timeoutMs: SLOT_WAIT_MS, signal: options.signal })
+    releaseUser = await rt.userSlots.acquire(options.userId, { timeoutMs: SLOT_WAIT_MS, signal: options.signal })
   } catch (error) {
+    if (error instanceof SemaphoreTimeoutError) {
+      const limit = rt.config.helperConcurrencyPerUser
+      throw apiError('tooManyRequests', `at most ${limit} workspace operations of one user run at once, and none finished within 30 s; retry later`, { limit })
+    }
+    throw error
+  }
+  let releaseGlobal: Release
+  try {
+    releaseGlobal = await rt.slots.acquire({ timeoutMs: SLOT_WAIT_MS, signal: options.signal })
+  } catch (error) {
+    releaseUser()
     if (error instanceof SemaphoreTimeoutError) {
       throw apiError('unavailable', 'no workspace helper slot became free within 30 s; retry later')
     }
     throw error
+  }
+  const release = () => {
+    releaseGlobal()
+    releaseUser()
   }
   setHelpersRunning(rt.slots.inUse)
   const started = Date.now()

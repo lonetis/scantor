@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'uploadTask',
     summary: 'Upload a task folder',
     description:
-      'Uploads a task folder as a tar.gz (body application/gzip, at most SCANTOR_TASK_MAX_PACK_BYTES; this is what `scantor push` does). The manifest name selects your task of that name or creates it. The workspace folder is replaced atomically unless it has changes that exist only there (edits since the last publish, upload, git import or pull): then 409 workspaceDirty, retry with force=true to replace them. Unless publish=false, a revision is published from the uploaded content (returned in revision; with wait the call returns when it is ready or failed). Archives may contain only regular files and directories. 422 manifestInvalid lists the manifest errors; 422 invalidPath names a rejected path; 413 for size caps.',
+      'Uploads a task folder as a tar.gz (body application/gzip, at most SCANTOR_TASK_MAX_PACK_BYTES; this is what `scantor push` does). The manifest name selects your task of that name or creates it. The workspace folder is replaced atomically unless it has changes that exist only there (edits since the last publish, upload, git import or pull): then 409 workspaceDirty, retry with force=true to replace them. Unless publish=false, a revision is published from the uploaded content (returned in revision; with wait the call returns when it is ready or failed). Archives may contain only regular files and directories. 422 manifestInvalid lists the manifest errors; 422 invalidPath names a rejected path; 413 for size caps; 400 badRequest when the body sends nothing for 30 s; 429 tooManyRequests while too many workspace operations of yours run.',
     'x-scantor-scope': 'owner',
     'x-mcp': false,
     parameters: [
@@ -34,10 +34,12 @@ defineRouteMeta({
           },
         },
       },
+      400: { description: 'The upload stalled', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
       409: { description: 'The workspace has unpublished changes', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
       413: { description: 'Upload or workspace too large', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
       415: { description: 'Not application/gzip', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
       422: { description: 'Invalid manifest or path', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+      429: { description: 'Too many concurrent workspace operations', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
     },
   },
 })

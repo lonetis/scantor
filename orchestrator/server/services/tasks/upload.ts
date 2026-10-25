@@ -16,12 +16,18 @@ import { applyWorkspaceSummary, findTaskByName, insertTask, newTaskDoc } from '.
 // the tar.gz streams into helper `extract`, the manifest name selects or creates the task, the orchestrator decides on
 // conflicts from the current workspace hash, helper `commit --expect <hash>` replaces the folder atomically (a
 // concurrent edit still fails), `lastSyncSha256` becomes the uploaded hash, and a revision is published unless
-// `publish=false`.
+// `publish=false`. The `extract` helper holds a helper slot while it reads the body, so a body that sends nothing for
+// UPLOAD_IDLE_MS fails the upload (400 badRequest) instead of holding the slot until the helper timeout.
+
+/** How long a task upload's body may send nothing while none of it is buffered, before the upload fails. */
+export const UPLOAD_IDLE_MS = 30_000
 
 export interface UploadInput {
   body: Readable
   /** cap of the compressed stream (SCANTOR_TASK_MAX_PACK_BYTES) */
   maxBytes: number
+  /** test seam: UPLOAD_IDLE_MS */
+  idleMs?: number
   publish: boolean
   force: boolean
   message?: string
@@ -39,6 +45,50 @@ export function assertTaskUploadContentType(header: string | undefined): void {
 
 function tooLarge(cap: ByteCap): ApiError {
   return apiError('payloadTooLarge', `the upload exceeds ${cap.maxBytes} bytes`, { limit: cap.maxBytes })
+}
+
+function stalledError(idleMs: number): ApiError {
+  return apiError('badRequest', `the upload sent no data for ${Math.round(idleMs / 1000)} s`, { idleMs })
+}
+
+/**
+ * Ends the helper's input once the body sends nothing for `idleMs` while nothing of it waits in `cap`: then the
+ * client, not the helper, is slow. Data buffered behind a helper that has not started yet (waiting for a slot) keeps
+ * the guard quiet. Ending (not destroying) the input lets the helper fail at once on the truncated archive.
+ */
+class StallGuard {
+  stalled = false
+  private timer: NodeJS.Timeout | null = null
+
+  constructor(
+    private readonly body: Readable,
+    private readonly cap: ByteCap,
+    private readonly idleMs: number,
+  ) {
+    body.once('end', () => this.stop())
+    this.touch()
+  }
+
+  touch(): void {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => this.check(), this.idleMs)
+  }
+
+  stop(): void {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+  }
+
+  private check(): void {
+    this.timer = null
+    if (this.body.readableLength + this.cap.readableLength + this.cap.writableLength > 0) {
+      this.touch()
+      return
+    }
+    this.stalled = true
+    this.body.unpipe(this.cap)
+    this.cap.end()
+  }
 }
 
 export interface UploadOutcome {
@@ -98,18 +148,22 @@ async function taskForManifest(principal: UserPrincipal, manifest: ExtractOutput
 export async function uploadTask(principal: UserPrincipal, input: UploadInput): Promise<UploadOutcome> {
   const userId = principal.user.id
   const stagingId = randomUUID()
-  const cap = new ByteCap(input.maxBytes)
+  const idleMs = input.idleMs ?? UPLOAD_IDLE_MS
+  const cap: ByteCap = new ByteCap(input.maxBytes, () => guard.touch())
+  const guard = new StallGuard(input.body, cap, idleMs)
   input.body.on('error', (error) => cap.destroy(error))
   let extracted: ExtractOutput
   try {
     extracted = await extract(userId, stagingId, input.body.pipe(cap))
   } catch (error) {
     await discardQuietly(userId, stagingId)
-    throw cap.exceeded ? tooLarge(cap) : error
+    throw cap.exceeded ? tooLarge(cap) : guard.stalled ? stalledError(idleMs) : error
+  } finally {
+    guard.stop()
   }
-  if (cap.exceeded) {
+  if (cap.exceeded || guard.stalled) {
     await discardQuietly(userId, stagingId)
-    throw tooLarge(cap)
+    throw cap.exceeded ? tooLarge(cap) : stalledError(idleMs)
   }
   let committed = false
   try {

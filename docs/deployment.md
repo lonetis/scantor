@@ -1117,7 +1117,7 @@ restart ([auth](auth.md)).
 | builds | `SCANTOR_BUILD_CONCURRENCY`, `SCANTOR_BUILD_TIMEOUT`, `SCANTOR_MAX_IMAGE_BYTES`, `SCANTOR_BUILD_CACHE_MAX_BYTES` | [tasks](tasks.md) |
 | test runs | `SCANTOR_TEST_RUN_CONCURRENCY`, `SCANTOR_TEST_RUN_TIMEOUT` | [tasks](tasks.md) |
 | editors | `SCANTOR_EDITOR_MAX_RUNNING`, `SCANTOR_EDITOR_MEMORY_LIMIT`, `SCANTOR_EDITOR_CPUS`, `SCANTOR_EDITOR_PIDS_LIMIT`, `SCANTOR_EDITOR_IDLE_TIMEOUT` | [editor](editor.md) |
-| workspace helpers | `SCANTOR_HELPER_CONCURRENCY`, `SCANTOR_HELPER_MEMORY_LIMIT`, `SCANTOR_HELPER_PIDS_LIMIT`, `SCANTOR_HELPER_TIMEOUT`, `SCANTOR_WORKSPACE_MAX_BYTES` | [editor](editor.md) §9 |
+| workspace helpers | `SCANTOR_HELPER_CONCURRENCY`, `SCANTOR_HELPER_CONCURRENCY_PER_USER`, `SCANTOR_HELPER_MEMORY_LIMIT`, `SCANTOR_HELPER_PIDS_LIMIT`, `SCANTOR_HELPER_TIMEOUT`, `SCANTOR_WORKSPACE_MAX_BYTES` | [editor](editor.md) §9 |
 | placement on full disks | `SCANTOR_NODE_MIN_FREE_DISK` | no new workers on a node below it; emergency image GC on the node |
 | per-user workers and storage | `user.maxWorkers` (default `SCANTOR_USER_MAX_WORKERS`), `SCANTOR_USER_STORAGE_QUOTA_BYTES` | [nodes](nodes.md) §12, [api](api.md) |
 | service logs | `x-logging` (local driver, 20 MiB × 5 per service) | bounded |

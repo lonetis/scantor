@@ -205,7 +205,7 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
 | `invalidPath` | 422 | upload/write path rule violated; `details.path` |
 | `gitFailed` | 422 | clone or fetch failed; `details.message` (credentials redacted) |
 | `incompatibleVersion` | 426 | node daemon/runtime version outside the supported window; `details: {serverVersion, minVersion}` |
-| `tooManyRequests` | 429 | concurrency caps (`SCANTOR_MAX_CONCURRENT_WAITS`, `SCANTOR_USER_MAX_CONCURRENT_QUERIES`, `SCANTOR_EDITOR_MAX_RUNNING`; `details.limit`) or auth rate limit |
+| `tooManyRequests` | 429 | concurrency caps (`SCANTOR_MAX_CONCURRENT_WAITS`, `SCANTOR_USER_MAX_CONCURRENT_QUERIES`, `SCANTOR_EDITOR_MAX_RUNNING`, `SCANTOR_HELPER_CONCURRENCY_PER_USER`; `details.limit`) or auth rate limit |
 | `internal` | 500 | unexpected error |
 | `brokerAlarm` | 503 | RabbitMQ memory/disk alarm active; new scans refused |
 | `unavailable` | 503 | the orchestrator is still booting ([architecture](architecture.md) §4.1), a dependency (MongoDB, RabbitMQ, S3, Docker) is unreachable, or no workspace helper slot became free within 30 s |

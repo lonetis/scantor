@@ -1,7 +1,7 @@
 import type Docker from 'dockerode'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { executeHelper, setHelperRuntimeForTesting } from '../../../server/services/helpers/executor'
-import { KeyedRwLock, Semaphore } from '../../../server/services/helpers/concurrency'
+import { KeyedRwLock, KeyedSemaphore, Semaphore } from '../../../server/services/helpers/concurrency'
 import { HelperTimeoutError, runHelperContainer } from '../../../server/services/helpers/runner'
 import { helpersRunning, metricsRegistry } from '../../../server/services/metrics/catalogue'
 import { parseConfig } from '../../../server/utils/config'
@@ -34,6 +34,7 @@ beforeEach(() => {
     config: { ...config, helperTimeoutMs: 1000 },
     log: useLogger('helpers'),
     slots: new Semaphore(2),
+    userSlots: new KeyedSemaphore(2),
     userLocks: new KeyedRwLock(),
     initialized: new Set([USER]),
     initializing: new Map(),

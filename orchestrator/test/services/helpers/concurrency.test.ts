@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { KeyedRwLock, Semaphore, SemaphoreTimeoutError } from '../../../server/services/helpers/concurrency'
+import { KeyedRwLock, KeyedSemaphore, Semaphore, SemaphoreTimeoutError } from '../../../server/services/helpers/concurrency'
 
 const tick = () => new Promise((resolve) => setImmediate(resolve))
 
@@ -38,6 +38,36 @@ describe('Semaphore', () => {
     release()
     release()
     expect(semaphore.inUse).toBe(0)
+  })
+})
+
+describe('KeyedSemaphore', () => {
+  it('caps each key separately and drops idle keys', async () => {
+    const slots = new KeyedSemaphore(2)
+    const a1 = await slots.acquire('a')
+    const a2 = await slots.acquire('a')
+    const b1 = await slots.acquire('b')
+    expect(slots.inUse('a')).toBe(2)
+    expect(slots.inUse('b')).toBe(1)
+    await expect(slots.acquire('a', { timeoutMs: 10 })).rejects.toBeInstanceOf(SemaphoreTimeoutError)
+    const waiting = slots.acquire('a')
+    a1()
+    a1()
+    const a3 = await waiting
+    expect(slots.inUse('a')).toBe(2)
+    for (const release of [a2, a3, b1]) release()
+    expect(slots.size).toBe(0)
+  })
+
+  it('drops the key of an aborted waiter', async () => {
+    const slots = new KeyedSemaphore(1)
+    const held = await slots.acquire('a')
+    const abort = new AbortController()
+    const waiting = slots.acquire('a', { signal: abort.signal })
+    abort.abort(new Error('gone'))
+    await expect(waiting).rejects.toThrow('gone')
+    held()
+    expect(slots.size).toBe(0)
   })
 })
 

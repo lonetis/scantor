@@ -1,6 +1,7 @@
-// In-process concurrency primitives of the api component: a FIFO counting semaphore (helper slots, build slots) and
-// a per-key read/write lock (the per-user workspace lock of docs/editor.md §9.8). Both are fair: waiters are served
-// in arrival order, and a waiting writer blocks later readers so it cannot starve.
+// In-process concurrency primitives of the api component: a FIFO counting semaphore (helper slots, build slots), the
+// same per key (the per-user helper slots) and a per-key read/write lock (the per-user workspace lock of
+// docs/editor.md §9.8). All are fair: waiters are served in arrival order, and a waiting writer blocks later readers
+// so it cannot starve.
 
 export type Release = () => void
 
@@ -106,6 +107,53 @@ export class Semaphore {
       this.active++
       next.grant(this.releaser())
     }
+  }
+}
+
+/** A semaphore of `capacity` slots per key (a user id). Entries are dropped when idle. */
+export class KeyedSemaphore {
+  private readonly semaphores = new Map<string, Semaphore>()
+
+  constructor(private readonly capacity: number) {
+    if (!Number.isInteger(capacity) || capacity < 1) throw new Error(`semaphore capacity must be a positive integer, got ${capacity}`)
+  }
+
+  /** Number of keys with holders or waiters (for tests). */
+  get size(): number {
+    return this.semaphores.size
+  }
+
+  /** Slots of `key` in use. */
+  inUse(key: string): number {
+    return this.semaphores.get(key)?.inUse ?? 0
+  }
+
+  /** Waits for one of the key's slots, like Semaphore.acquire. */
+  async acquire(key: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<Release> {
+    let semaphore = this.semaphores.get(key)
+    if (!semaphore) {
+      semaphore = new Semaphore(this.capacity)
+      this.semaphores.set(key, semaphore)
+    }
+    const held = semaphore
+    let release: Release
+    try {
+      release = await held.acquire(options)
+    } catch (error) {
+      this.dropIdle(key, held)
+      throw error
+    }
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      release()
+      this.dropIdle(key, held)
+    }
+  }
+
+  private dropIdle(key: string, semaphore: Semaphore): void {
+    if (semaphore.inUse === 0 && semaphore.waiting === 0 && this.semaphores.get(key) === semaphore) this.semaphores.delete(key)
   }
 }
 

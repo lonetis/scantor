@@ -764,8 +764,14 @@ The orchestrator then decides ([api](api.md) §4.8):
 
 ### 9.8 Concurrency and locking
 
+- A per-user semaphore of `SCANTOR_HELPER_CONCURRENCY_PER_USER` helpers, taken first. A request waits up
+  to 30 s for one of its user's slots, then fails with 429 `tooManyRequests` (`details.limit`). One user's
+  slow uploads or git clones therefore never hold every global slot.
 - A global semaphore of `SCANTOR_HELPER_CONCURRENCY` helpers. A request waits up to 30 s for a slot,
   then fails with 503 `unavailable`.
+- `uploadTask` streams the request body into `extract`, which holds its slots while it reads. A body that
+  sends nothing for 30 s while none of it is buffered (a stalled client, not a helper still waiting for its
+  slot) ends the helper's input and fails the upload with 400 `badRequest`.
 - A per-user read/write lock in the `api` component:
   - exclusive: `write-files`, `delete-files`, `commit`, `scaffold`, `init`, `purge`;
   - shared: `list`, `read`, `snapshot`, `extract`, `git-clone`, `git-pull`, `discard`.

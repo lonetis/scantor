@@ -28,6 +28,7 @@ const config = {
   imagePrefix: imageName.endsWith('scantor') ? imageName.slice(0, -'scantor'.length) : '',
   imageTag: at > 0 ? image.slice(at + 1) : 'latest',
   helperConcurrency: 4,
+  helperConcurrencyPerUser: 4,
   helperMemoryLimitBytes: 256 * 1024 ** 2,
   helperPidsLimit: 128,
   helperTimeoutMs: 60_000,
@@ -42,7 +43,7 @@ vi.mock('../../../server/utils/config', () => ({ useConfig: () => config }))
 
 const docker = new Docker()
 const { setHelperRuntimeForTesting } = await import('../../../server/services/helpers/executor')
-const { KeyedRwLock, Semaphore } = await import('../../../server/services/helpers/concurrency')
+const { KeyedRwLock, KeyedSemaphore, Semaphore } = await import('../../../server/services/helpers/concurrency')
 const ops = await import('../../../server/services/helpers/ops')
 const { ensureUserDirs } = await import('../../../server/services/helpers')
 const { HelperError } = await import('../../../server/services/helpers/protocol')
@@ -87,6 +88,7 @@ describe.skipIf(!enabled)('workspace helpers (Docker)', () => {
       config: config as never,
       log: useLogger('helpers-it'),
       slots: new Semaphore(config.helperConcurrency),
+      userSlots: new KeyedSemaphore(config.helperConcurrencyPerUser),
       userLocks: new KeyedRwLock(),
       initialized: new Set(),
       initializing: new Map(),
