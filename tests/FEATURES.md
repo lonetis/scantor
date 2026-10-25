@@ -351,7 +351,7 @@ Mechanisms: [api](../docs/api.md) §4.13, §5.1, [architecture](../docs/architec
 - **SCAN-039** [e2e] Resuming a breaker-paused scan clears `breakerTripped` (a `scan.conditionCleared` event) and starts a fresh failure window.
 - **SCAN-040** [e2e] A scan completes only when scheduling is `done` or `failed` and the recounted terminal analyses reach `scheduling.confirmed`: `completed` without `scheduling.error`, `failed` with it, with exact `stats` and `completedAt`; its workers, RabbitMQ user and queue are then removed. The ingestor completes it within 10 s of the last ingested result (at once unless the live counters overestimate), also in a retry-failed round started right after the round before and when a recount ran while the last results were ingested, without waiting for the periodic recount.
 - **SCAN-041** [e2e, chaos] Counters are recounted: running scans every 60 s, paused scans while they changed since the last recount (without completing them), and terminal scans once more 2 minutes after the terminal state, which corrects transient over-counts such as `61/60` after a cancel.
-- **SCAN-042** [api] Live hint counters (`stats.succeeded`, `failed`, `retrying`, `ratePerMin`) rise as results arrive and never decrease until a recount replaces them with exact values.
+- **SCAN-042** [api] Live hint counters (`stats.succeeded`, `failed`, `retrying`) rise as results arrive and never decrease until a recount replaces them with exact values, and `stats.ratePerMin` is above 0 while results arrive.
 
 ## PLACE. Placement
 

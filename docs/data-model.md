@@ -377,7 +377,7 @@ sha256, fetchedAt}, expectedTotal: int | null, at}`.
 |---|---|
 | `pending`, `retrying`, `succeeded`, `failed`, `lost`, `cancelled` | analysis counts by status; exact after a recount, otherwise live `$inc` hints. For `cancelled` scans, `cancelled = scheduling.confirmed − succeeded − failed − lost` (never-run seqs are implicitly cancelled). |
 | `expectedTotal` | int \| null; from the `schedule` resolution or the start-time estimate |
-| `ratePerMin` | completions per minute over the ingestor's 5-minute window |
+| `ratePerMin` | completions per minute over the ingestor's 5-minute window; decays to 0 once no results arrived for five minutes, and is 0 after an ingestor restart until the scan's next result ([queue](queue.md) §6.8) |
 | `recountedAt` | Date \| null of the last authoritative recount (running scans every 60 s and on triggers; paused scans every 60 s while their hints changed since the last recount; terminal scans once more 2 minutes after entering the terminal state) |
 
 #### 4.5.4 Conditions

@@ -60,6 +60,7 @@ export class Ingestor {
     this.cache.start()
     const processor = new BatchProcessor({ analyses: collections.analyses, scans: collections.scans, cache: this.cache, config, hooks, log })
     this.processor = processor
+    await processor.start()
     const common = { connection, log, pingWritable }
     const results = new ResultConsumer({ ...common, consumerTag: `scantor-ingestor-${instanceId}` }, config, processor)
     const deadLetters = new DeadLetterConsumer(

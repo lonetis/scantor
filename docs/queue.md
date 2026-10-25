@@ -580,8 +580,12 @@ The returned document feeds the completion check of §6.9. A failed hint update 
 
 `ratePerMin`: per scan, five one-minute buckets of applied terminal operations (succeeded + failed); the rate is
 their sum divided by the number of minutes covered (1–5). It lives in memory only and restarts empty after an
-orchestrator restart. ETA is computed by the API from `expectedTotal`, the recount and this rate
-([api](api.md) §2).
+orchestrator restart. A flush writes it with the hints; when results stop (lost or pending workers, long
+backoffs) no flush writes it, so every 30 s the ingestor writes the rate of each scan whose windowed rate
+changed since it last stored one (`$set: {"stats.ratePerMin": rate}` only, without `updatedAt`), down to 0 once
+the window is empty, and then forgets the scan. At start the ingestor sets every non-zero stored rate to 0,
+since its window starts empty; a scan that still produces results gets its rate back with its next flush. ETA
+is computed by the API from `expectedTotal`, the recount and this rate ([api](api.md) §2).
 
 ### 6.9 Recount and completion
 

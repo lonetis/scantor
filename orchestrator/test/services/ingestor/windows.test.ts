@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BREAKER_BUCKET_MS, BreakerWindow, RateWindow } from '../../../server/services/ingestor/windows'
 
-// In-memory windows of the ingestor (docs/queue.md §6.8 rate, §6.10 circuit breaker).
+// In-memory windows of the ingestor (docs/queue.md §6.8 rate and its decay, §6.10 circuit breaker).
 
 const SCAN = 'scan-a'
 const T0 = Date.parse('2026-10-21T10:00:00.000Z')
@@ -24,8 +24,35 @@ describe('RateWindow', () => {
     rate.record(SCAN, 0, T0)
     expect(rate.ratePerMin(SCAN, T0)).toBe(0)
     rate.record(SCAN, 5, T0)
+    rate.markStored(SCAN, 0)
     rate.sweep(T0 + 10 * MINUTE)
     expect(rate.ratePerMin(SCAN, T0 + 10 * MINUTE)).toBe(0)
+    expect(rate.staleRates(T0 + 10 * MINUTE)).toEqual([])
+  })
+
+  it('reports the decaying rate of a scan whose results stopped until 0 is stored, then forgets it', () => {
+    const rate = new RateWindow()
+    rate.record(SCAN, 60, T0)
+    rate.markStored(SCAN, 60)
+    expect(rate.staleRates(T0 + 30_000)).toEqual([])
+    expect(rate.staleRates(T0 + MINUTE)).toEqual([[SCAN, 30]])
+    rate.markStored(SCAN, 30)
+    expect(rate.staleRates(T0 + 4 * MINUTE)).toEqual([[SCAN, 12]])
+    rate.markStored(SCAN, 12)
+    expect(rate.staleRates(T0 + 5 * MINUTE)).toEqual([[SCAN, 0]])
+    rate.markStored(SCAN, 0)
+    expect(rate.staleRates(T0 + 6 * MINUTE)).toEqual([])
+    // Forgotten: the next completion starts a new window.
+    rate.record(SCAN, 10, T0 + 6 * MINUTE)
+    expect(rate.staleRates(T0 + 6 * MINUTE)).toEqual([[SCAN, 10]])
+  })
+
+  it('keeps an idle scan on sweep until its rate of 0 was stored', () => {
+    const rate = new RateWindow()
+    rate.record(SCAN, 5, T0)
+    rate.markStored(SCAN, 5)
+    rate.sweep(T0 + 10 * MINUTE)
+    expect(rate.staleRates(T0 + 10 * MINUTE)).toEqual([[SCAN, 0]])
   })
 })
 

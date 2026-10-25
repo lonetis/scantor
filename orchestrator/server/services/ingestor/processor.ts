@@ -26,11 +26,16 @@ import { type ItemResult, type WriteItem, writeBatch, writeIsolated } from './wr
  *      throws BatchWriteError and the consumer nacks;
  *   3. after the consumer settled the deliveries, `finish` updates the live hint counters, the rate window and the
  *      breaker per scan, and triggers completion checks.
+ *
+ * Between flushes a timer (`start`) writes the rate of scans whose window changed without a flush, so the rate and
+ * the API's ETA of a scan whose results stopped decay to 0 instead of keeping the last value (docs/queue.md §6.8).
  */
 
 /** Largest update document check 7 accepts (MongoDB's limit is 16 MiB per document). */
 export const MAX_UPDATE_BYTES = 15 * 1024 * 1024
 export const COMPLETION_TRIGGER_INTERVAL_MS = 10_000
+/** How often rates that changed without a flush are written (the window has one-minute buckets). */
+export const RATE_REFRESH_INTERVAL_MS = 30_000
 const SWEEP_INTERVAL_MS = 60_000
 
 export type ItemOutcome = 'applied' | 'failedRecorded' | 'duplicate' | 'dropped' | 'writeFailed'
@@ -141,6 +146,8 @@ export class BatchProcessor {
   private readonly deferredCompletions = new Map<string, NodeJS.Timeout>()
   private readonly now: () => Date
   private lastSweep = 0
+  private rateTimer: NodeJS.Timeout | null = null
+  private refreshing = false
 
   constructor(private readonly deps: ProcessorDeps) {
     this.breaker = new BreakerWindow(deps.config.breakerWindowMs)
@@ -252,15 +259,17 @@ export class BatchProcessor {
       if (tally.failed > 0) analysesCompleted.inc({ status: 'failed' }, tally.failed)
       this.rate.record(scanId, terminal, nowMs)
       this.breaker.record(scanId, tally.succeeded, tally.failed + tally.retrying, nowMs, result.scans.get(scanId)?.pausedAt ?? null)
+      const rate = this.rate.ratePerMin(scanId, nowMs)
       try {
         const updated = await this.deps.scans.findOneAndUpdate(
           { _id: scanId },
           {
             $inc: { 'stats.succeeded': tally.succeeded, 'stats.failed': tally.failed, 'stats.retrying': tally.retrying },
-            $set: { 'stats.ratePerMin': this.rate.ratePerMin(scanId, nowMs), updatedAt: result.now },
+            $set: { 'stats.ratePerMin': rate, updatedAt: result.now },
           },
           { returnDocument: 'after', projection: COMPLETION_PROJECTION },
         )
+        this.rate.markStored(scanId, rate)
         if (updated) counted.set(scanId, completionViewOf(updated as CompletionDoc))
       } catch (error) {
         this.deps.log.warn('updating the live scan counters failed', { scanId, err: error })
@@ -341,9 +350,47 @@ export class BatchProcessor {
     )
   }
 
-  /** Drops the completion checks still waiting for their interval (the ingestor stops). */
+  /**
+   * Starts the rate refresh. The window starts empty with the process, so rates an earlier process stored are reset
+   * to 0 first; the next flush of a scan that still produces results writes its rate again at once.
+   */
+  async start(): Promise<void> {
+    try {
+      const reset = await this.deps.scans.updateMany({ 'stats.ratePerMin': { $gt: 0 } }, { $set: { 'stats.ratePerMin': 0 } })
+      if (reset.modifiedCount > 0) this.deps.log.info('reset the rates an earlier process stored', { scans: reset.modifiedCount })
+    } catch (error) {
+      // Only display values are stale then; ingesting must not wait for it.
+      this.deps.log.warn('resetting the rates an earlier process stored failed', { err: error })
+    }
+    if (this.rateTimer) return
+    this.rateTimer = setInterval(() => void this.refreshRates(this.now().getTime()), RATE_REFRESH_INTERVAL_MS)
+    this.rateTimer.unref()
+  }
+
+  /** Writes the rates that changed without a flush (results stopped) and forgets scans whose rate reached 0. */
+  async refreshRates(nowMs: number): Promise<void> {
+    if (this.refreshing) return
+    this.refreshing = true
+    try {
+      for (const [scanId, rate] of this.rate.staleRates(nowMs)) {
+        try {
+          // No updatedAt: only the derived rate changes, and paused scans are recounted when updatedAt moves.
+          await this.deps.scans.updateOne({ _id: scanId }, { $set: { 'stats.ratePerMin': rate } })
+          this.rate.markStored(scanId, rate)
+        } catch (error) {
+          this.deps.log.warn('updating the rate of a scan failed', { scanId, err: error })
+        }
+      }
+    } finally {
+      this.refreshing = false
+    }
+  }
+
+  /** Drops the completion checks still waiting for their interval and the rate refresh (the ingestor stops). */
   stop(): void {
     for (const timer of this.deferredCompletions.values()) clearTimeout(timer)
     this.deferredCompletions.clear()
+    if (this.rateTimer) clearInterval(this.rateTimer)
+    this.rateTimer = null
   }
 }

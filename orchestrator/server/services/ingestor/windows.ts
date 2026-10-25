@@ -2,7 +2,9 @@
  * In-memory windows of the ingestor (docs/queue.md §6.8, §6.10). Both restart empty with the process.
  *
  *  - RateWindow: per scan, five one-minute buckets of applied terminal operations (succeeded + failed); the rate is
- *    their sum divided by the number of minutes covered (1–5). It feeds `stats.ratePerMin` (ETA in the API).
+ *    their sum divided by the number of minutes covered (1–5). It feeds `stats.ratePerMin` (ETA in the API) and
+ *    remembers the rate last stored on the scan, so a scan whose results stopped gets its decaying rate written
+ *    (staleRates) down to 0 before it is forgotten.
  *  - BreakerWindow: per scan, a sliding window of SCANTOR_BREAKER_WINDOW in 10-second buckets of applied attempt
  *    outcomes: successes are applied succeeded results, failures are applied failed results (any type) plus applied
  *    attempt events. Duplicates never count.
@@ -16,6 +18,8 @@ interface RateState {
   /** first minute (epoch minute) with data in this process */
   since: number
   buckets: Map<number, number>
+  /** the rate last written to the scan document by this process; null before the first write */
+  stored: number | null
 }
 
 export class RateWindow {
@@ -26,7 +30,7 @@ export class RateWindow {
     const minute = Math.floor(now / MINUTE_MS)
     let state = this.scans.get(scanId)
     if (!state) {
-      state = { since: minute, buckets: new Map() }
+      state = { since: minute, buckets: new Map(), stored: null }
       this.scans.set(scanId, state)
     }
     state.buckets.set(minute, (state.buckets.get(minute) ?? 0) + completed)
@@ -40,8 +44,10 @@ export class RateWindow {
   /** Completions per minute over the covered part of the last five minutes; 0 without data. */
   ratePerMin(scanId: string, now: number): number {
     const state = this.scans.get(scanId)
-    if (!state) return 0
-    const minute = Math.floor(now / MINUTE_MS)
+    return state ? this.rateOf(state, Math.floor(now / MINUTE_MS)) : 0
+  }
+
+  private rateOf(state: RateState, minute: number): number {
     this.prune(state, minute)
     let sum = 0
     for (const count of state.buckets.values()) sum += count
@@ -49,16 +55,41 @@ export class RateWindow {
     return Math.round((sum / covered) * 10) / 10
   }
 
+  /** Records that `rate` was written to the scan document. */
+  markStored(scanId: string, rate: number): void {
+    const state = this.scans.get(scanId)
+    if (state) state.stored = rate
+  }
+
+  /**
+   * The scans whose windowed rate differs from the rate last stored for them, with that rate: results that stopped
+   * leave no flush that would write the decaying rate. Scans whose window is empty and whose stored rate is 0 are
+   * forgotten here.
+   */
+  staleRates(now: number): [scanId: string, rate: number][] {
+    const minute = Math.floor(now / MINUTE_MS)
+    const stale: [string, number][] = []
+    for (const [scanId, state] of this.scans) {
+      const rate = this.rateOf(state, minute)
+      if (rate !== state.stored) stale.push([scanId, rate])
+      else if (state.buckets.size === 0) this.scans.delete(scanId)
+    }
+    return stale
+  }
+
   forget(scanId: string): void {
     this.scans.delete(scanId)
   }
 
-  /** Drops scans without completions in the last five minutes (bounds memory over the process lifetime). */
+  /**
+   * Drops scans without completions in the last five minutes whose stored rate is already 0 (bounds memory over the
+   * process lifetime); the others stay until staleRates had their 0 written.
+   */
   sweep(now: number): void {
     const minute = Math.floor(now / MINUTE_MS)
     for (const [scanId, state] of this.scans) {
       this.prune(state, minute)
-      if (state.buckets.size === 0) this.scans.delete(scanId)
+      if (state.buckets.size === 0 && state.stored === 0) this.scans.delete(scanId)
     }
   }
 }
