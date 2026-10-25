@@ -239,8 +239,8 @@ Additional conventions:
   one `LoadConfig` that reads every variable it uses: `internal/cli` and `internal/workspace` take
   `getenv func(string) string`, `internal/runtime` takes `getenv` plus the process environment (the
   passthrough of connector processes, [runtime](runtime.md) §3.4), and `internal/node` takes `lookup
-  func(string) (string, bool)` (`os.LookupEnv`), because `SCANTOR_NODE_EGRESS_DENY` treats empty (helper
-  off) and unset (the shipped deny list) differently. Only `internal/cli` passes `os.Getenv`,
+  func(string) (string, bool)` (`os.LookupEnv`); like every loader it treats an empty value as unset.
+  Only `internal/cli` passes `os.Getenv`,
   `os.LookupEnv` or `os.Environ()` in; no other package reads the environment (test fakes such as
   `fakeconn` and `stubruntime` aside, which read their own control variables). The CLI reads its
   credentials only from `SCANTOR_URL`/`SCANTOR_TOKEN`; its other variables (CA, mode selectors, image and

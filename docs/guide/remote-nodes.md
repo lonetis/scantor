@@ -188,6 +188,8 @@ address) and re-applies them every 10 minutes.
   and the daemon logs why.
 - On cloud VMs, also limit the metadata service to the host (for example AWS IMDSv2 with a hop limit
   of 1).
+- `SCANTOR_NODE_EGRESS_DENY=none` switches the rules off. An empty value keeps the default ranges, so a
+  missing line in `.env` never disables them.
 
 ## Docker-in-Docker
 

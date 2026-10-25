@@ -33,8 +33,13 @@ const (
 	defaultPullTimeout    = 30 * time.Minute
 )
 
-// LookupEnv is the signature of os.LookupEnv. The daemon needs it (rather than a plain getenv) because
-// an empty SCANTOR_NODE_EGRESS_DENY disables the egress helper while an unset one keeps the default.
+// EgressDenyOff is the SCANTOR_NODE_EGRESS_DENY value that disables the egress helper. An empty value
+// means the default list like every other variable, because compose passes an unset variable on as an
+// empty one: a missing .env line must never switch off the metadata blocking.
+const EgressDenyOff = "none"
+
+// LookupEnv is the signature of os.LookupEnv, which internal/cli passes in. Unset and empty values are
+// treated alike.
 type LookupEnv func(string) (string, bool)
 
 // Config is the daemon configuration (docs/nodes.md §2). Everything else comes from the orchestrator in
@@ -50,7 +55,8 @@ type Config struct {
 	MaxWorkers int
 	// DinD is the configured DinD mode (disabled, sysbox, privileged).
 	DinD string
-	// EgressDeny are the CIDRs workers must not reach; empty disables the egress helper.
+	// EgressDeny are the CIDRs workers must not reach; empty (SCANTOR_NODE_EGRESS_DENY=none) disables
+	// the egress helper.
 	EgressDeny []netip.Prefix
 	// Worker container settings.
 	PidsLimit      int64
@@ -114,15 +120,13 @@ func LoadConfig(lookup LookupEnv) (Config, error) {
 		cfg.Warnings = append(cfg.Warnings, "SCANTOR_NODE_PULL_TIMEOUT: must be greater than 0; using the default")
 	}
 
-	deny := defaultEgressDeny
-	if v, set := lookup("SCANTOR_NODE_EGRESS_DENY"); set {
-		deny = v
+	if deny := strings.TrimSpace(r.String("SCANTOR_NODE_EGRESS_DENY", defaultEgressDeny)); deny != EgressDenyOff {
+		prefixes, err := ParseCIDRs(deny)
+		if err != nil {
+			r.Fail("SCANTOR_NODE_EGRESS_DENY", fmt.Errorf("%w (or %s to disable the egress helper)", err, EgressDenyOff))
+		}
+		cfg.EgressDeny = prefixes
 	}
-	prefixes, err := ParseCIDRs(deny)
-	if err != nil {
-		r.Fail("SCANTOR_NODE_EGRESS_DENY", err)
-	}
-	cfg.EgressDeny = prefixes
 
 	token, tokenSet := r.Lookup("SCANTOR_NODE_TOKEN")
 	token = strings.TrimSpace(token)

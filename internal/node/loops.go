@@ -379,11 +379,12 @@ func shortImageID(id string) string {
 
 // Egress deny helper (docs/nodes.md §9).
 
-// egressLoop applies the deny list now and every egressEvery. An empty list disables the helper.
+// egressLoop applies the deny list now and every egressEvery. SCANTOR_NODE_EGRESS_DENY=none (an empty
+// list) disables the helper.
 func (s *session) egressLoop() {
 	if len(s.d.cfg.EgressDeny) == 0 {
 		s.d.egressOK.Store(false)
-		s.log.Info("SCANTOR_NODE_EGRESS_DENY is empty; the egress helper is disabled")
+		s.log.Warn("SCANTOR_NODE_EGRESS_DENY=" + EgressDenyOff + ": the egress helper is disabled, so workers can reach cloud metadata services")
 		return
 	}
 	for {

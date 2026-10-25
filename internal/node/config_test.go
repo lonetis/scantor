@@ -123,20 +123,33 @@ func TestLoadConfigErrors(t *testing.T) {
 	}
 }
 
-func TestLoadConfigEgressDenyEmptyDisablesUnsetDefaults(t *testing.T) {
-	unset, err := load(t, map[string]string{"SCANTOR_NODE_TOKEN": testToken})
+// Compose passes an unset SCANTOR_NODE_EGRESS_DENY on as an empty one, so empty must keep the shipped
+// deny list like unset; only the explicit value none disables the egress helper.
+func TestLoadConfigEgressDenyOnlyNoneDisables(t *testing.T) {
+	for name, vars := range map[string]map[string]string{
+		"unset":      {"SCANTOR_NODE_TOKEN": testToken},
+		"empty":      {"SCANTOR_NODE_TOKEN": testToken, "SCANTOR_NODE_EGRESS_DENY": ""},
+		"whitespace": {"SCANTOR_NODE_TOKEN": testToken, "SCANTOR_NODE_EGRESS_DENY": "  "},
+	} {
+		cfg, err := load(t, vars)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(cfg.EgressDeny) != 3 || cfg.EgressDeny[0] != netip.MustParsePrefix("169.254.0.0/16") || cfg.EgressDeny[2] != netip.MustParsePrefix("100.100.100.200/32") {
+			t.Errorf("%s SCANTOR_NODE_EGRESS_DENY = %v, want the shipped deny list", name, cfg.EgressDeny)
+		}
+	}
+	off, err := load(t, map[string]string{"SCANTOR_NODE_TOKEN": testToken, "SCANTOR_NODE_EGRESS_DENY": " none "})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(unset.EgressDeny) != 3 || unset.EgressDeny[2] != netip.MustParsePrefix("100.100.100.200/32") {
-		t.Errorf("unset SCANTOR_NODE_EGRESS_DENY = %v, want the shipped deny list", unset.EgressDeny)
+	if len(off.EgressDeny) != 0 {
+		t.Errorf("SCANTOR_NODE_EGRESS_DENY=none = %v, want the helper disabled", off.EgressDeny)
 	}
-	empty, err := load(t, map[string]string{"SCANTOR_NODE_TOKEN": testToken, "SCANTOR_NODE_EGRESS_DENY": ""})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(empty.EgressDeny) != 0 {
-		t.Errorf("empty SCANTOR_NODE_EGRESS_DENY = %v, want the helper disabled", empty.EgressDeny)
+	_, err = load(t, map[string]string{"SCANTOR_NODE_TOKEN": testToken, "SCANTOR_NODE_EGRESS_DENY": "off"})
+	var cfgErr *ConfigError
+	if !errors.As(err, &cfgErr) || !strings.Contains(err.Error(), "or none to disable") {
+		t.Errorf("SCANTOR_NODE_EGRESS_DENY=off: err = %v, want a configuration error naming none", err)
 	}
 }
 

@@ -56,7 +56,7 @@ The daemon reads only environment variables, documented with their defaults in `
 | `SCANTOR_SECRET` | Built-in node only: input of the token derivation. Never set it on remote nodes. |
 | `SCANTOR_NODE_MAX_WORKERS` | Maximum concurrent workers on this node, reported as `info.maxWorkers`. `0` means "number of CPUs". |
 | `SCANTOR_NODE_DIND` | `disabled`, `sysbox` or `privileged` (§6.9). |
-| `SCANTOR_NODE_EGRESS_DENY` | Comma-separated CIDRs that workers must not reach (§9). Empty disables the helper. |
+| `SCANTOR_NODE_EGRESS_DENY` | Comma-separated CIDRs that workers must not reach (§9), or `none` to disable the helper. An empty value means the default list, as for every variable: compose passes a variable missing from `.env` on as an empty one, which must never switch the metadata blocking off. |
 | `SCANTOR_NODE_PIDS_LIMIT` | `PidsLimit` of every worker container. |
 | `SCANTOR_NODE_SHM_SIZE` | `ShmSize` (`/dev/shm`) of every worker container. |
 | `SCANTOR_NODE_NOFILE` | `nofile` soft and hard ulimit of every worker container. |
