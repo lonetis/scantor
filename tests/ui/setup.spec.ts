@@ -106,7 +106,7 @@ test.describe('setup page', () => {
     await page.goto(`${orchestrator.publicUrl}/setup`)
     await expect(heading(page)).toBeVisible()
     await expect(page.getByText('Open the setup link printed in the orchestrator log:')).toBeVisible()
-    await expect(page.getByText('docker compose logs orchestrator | grep setup')).toBeVisible()
+    await expect(page.getByText('docker logs scantor-orchestrator 2>&1 | grep /setup')).toBeVisible()
     const paste = page.getByRole('textbox', { name: 'Or paste the setup token' })
     const use = page.getByRole('button', { name: 'Use token' })
     await expect(use).toBeDisabled()

@@ -725,7 +725,7 @@ Mechanisms: [ui](../docs/ui.md) §5.1–§5.3, [auth](../docs/auth.md) §7, [mcp
 - **UI-AUTH-005** [ui] With passkeys enabled, "Sign in with passkey" signs in with a virtual authenticator and lands on the redirect target.
 - **UI-AUTH-006** [ui, mcp] `/login` reached from an OAuth authorization shows "Sign in to authorize an application to access your scantor account." and returns to the consent page after sign-in; a signed-out visit to `/oauth/consent` goes to `/login` with the OAuth query kept.
 - **UI-AUTH-007** [ui, security] `/setup?token=…` stores the token in sessionStorage and removes it from the address bar and history at once; a reload of `/setup` still has it.
-- **UI-AUTH-008** [ui] Without a token, `/setup` explains where the setup link is printed (`docker compose logs orchestrator | grep setup`) and offers a paste field whose "Use token" button stays disabled until it is filled.
+- **UI-AUTH-008** [ui] Without a token, `/setup` explains where the setup link is printed (`docker logs scantor-orchestrator 2>&1 | grep /setup`) and offers a paste field whose "Use token" button stays disabled until it is filled.
 - **UI-AUTH-009** [ui] Password setup takes name, email, password (8–128 characters) and confirmation ("The passwords do not match" on a mismatch), creates the admin, signs in, forgets the token and opens `/`.
 - **UI-AUTH-010** [ui] With passkeys enabled, a "Password | Passkey" choice appears, and passkey setup registers "Primary passkey", creates the admin and signs in.
 - **UI-AUTH-011** [ui] A wrong setup token shows "The setup token is missing or wrong. Restarting the orchestrator prints a new one.", a completed setup sends the browser to `/login`, and while no user exists every protected route and `/login` redirect to `/setup`.

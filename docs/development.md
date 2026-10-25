@@ -675,7 +675,8 @@ just release 1.5.0
 
 Before tagging: `main` is green in `test.yml`. After the workflows finish: `docker run --rm
 ghcr.io/lonetis/scantor:X.Y.Z version` and a downloaded binary report `X.Y.Z`. Operators update with
-`docker compose pull && docker compose up -d` ([deployment](deployment.md)); remote nodes update by
+`docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`
+([deployment](deployment.md)); remote nodes update by
 restarting `scantor node` with the new image tag within the compatibility window.
 
 ## 15. Decisions

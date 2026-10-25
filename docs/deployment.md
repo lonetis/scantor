@@ -108,7 +108,7 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
   ([development](development.md) §10). The dev orchestrator image has its own name
   (`scantor-orchestrator-dev`), so it never collides with the production-style `scantor-orchestrator:dev`
   that the bake `default` group builds for the test runner's prod compose.
-- `docker compose pull` updates only the images of compose services (orchestrator, node and therefore
+- `docker compose -f docker-compose.prod.yml pull` updates only the images of compose services (orchestrator, node and therefore
   `scantor`, and the infra services). At boot the orchestrator pulls the editor image in the background
   when the prefix is not empty, so the first editor start does not wait for a 2 GB pull. The task
   pipeline pulls base images when it pins them by digest ([tasks](tasks.md)).
@@ -252,7 +252,7 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
   --wait`, because the first dev start installs `node_modules`, which can outlast the dev orchestrator's
   start period.
 - The JWKS is read only at registry start. After `SCANTOR_SECRET` changes, restart the registry
-  (`docker compose restart registry`). The orchestrator logs a reminder when it rewrites a JWKS whose
+  (`docker compose -f docker-compose.prod.yml restart registry`, in development `just restart registry`). The orchestrator logs a reminder when it rewrites a JWKS whose
   `kid` changed.
 - `REGISTRY_HTTP_SECRET` signs upload state. It is derived (HKDF label `registry-http`, §8.1), so it is
   stable across restarts without another secret in `.env`.
@@ -344,7 +344,7 @@ attacker-influenced data, so never publish it any other way. Secrets in the URLs
 Docker volume subpaths must exist before a container can mount them (verified: `cannot access path …
 no such file or directory`). The orchestrator creates `<userId>` directories through the `init` helper
 ([editor](editor.md) §9.4) and creates the socket directories directly in `scantor-editor-sockets`.
-`docker compose down -v` removes the compose-created volumes, including the database. It never removes
+`docker compose -f docker-compose.prod.yml down -v` removes the compose-created volumes, including the database. It never removes
 `scantor-workspaces` or `scantor-editor-home`, because compose did not create them.
 
 ## 6. The compose files
@@ -1202,7 +1202,7 @@ Plaintext is accepted automatically only for loopback, RFC 1918, CGNAT and ULA a
 | Data | Required | How |
 |---|---|---|
 | `.env` | **critical**: without `SCANTOR_SECRET`, encrypted git credentials and config secrets cannot be recovered and every derived credential changes | keep an encrypted copy off the host |
-| MongoDB | **yes** | `docker exec scantor-mongo mongodump --username "$SCANTOR_MONGO_USER" --password "$SCANTOR_MONGO_PASSWORD" --authenticationDatabase admin --oplog --archive --gzip > mongo-$(date +%F).archive.gz` (consistent while running) |
+| MongoDB | **yes** | `(umask 077; docker exec scantor-mongo sh -c 'exec mongodump --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --oplog --archive --gzip' > mongo-$(date +%F).archive.gz)` (consistent while running; the credentials are the container's own environment, which compose sets from `SCANTOR_MONGO_USER`/`SCANTOR_MONGO_PASSWORD`: the host shell does not have them) |
 | RustFS (`scantor-rustfs-data`) | **yes** | stop `rustfs`, then `docker run --rm -v scantor-rustfs-data:/data:ro -v "$PWD:/backup" alpine:3.24 tar -czf /backup/rustfs.tgz -C /data .` (the justfile's pinned `alpine_image`, [development](development.md) §3), then start it again; or mirror the bucket to external S3 with `rustfs/rc` (`rc mirror`) while it runs |
 | registry (`scantor-registry-data`) | **yes**: without it, ready revisions cannot be pulled again and must be republished | volume tar while no build is pushing (stop the orchestrator briefly, or accept a crash-consistent copy) |
 | workspaces (`scantor-workspaces`), editor homes (`scantor-editor-home`) | **yes** / optional | volume tar; stop editors first for consistency (`DELETE /api/editor` per user, or stop all editor containers) |
@@ -1323,16 +1323,20 @@ rebuilt from its snapshot after the restart ([data model](data-model.md) §6.4).
 MongoDB and RabbitMQ apply their root passwords only on first init. To rotate them:
 
 ```sh
-# MongoDB
-docker exec -it scantor-mongo mongosh -u "$SCANTOR_MONGO_USER" -p "$OLD" --authenticationDatabase admin \
-  --eval 'db.getSiblingDB("admin").changeUserPassword("'"$SCANTOR_MONGO_USER"'", "'"$NEW"'")'
+new_mongo="$(openssl rand -hex 24)" new_rabbitmq="$(openssl rand -hex 24)"
+# MongoDB: the container's environment still holds the user and the current password
+docker exec -e NEW="$new_mongo" scantor-mongo sh -c 'mongosh --quiet -u "$MONGO_INITDB_ROOT_USERNAME" \
+  -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin \
+  --eval "db.getSiblingDB(\"admin\").changeUserPassword(process.env.MONGO_INITDB_ROOT_USERNAME, process.env.NEW)"'
 # RabbitMQ
-docker exec scantor-rabbitmq rabbitmqctl change_password "$SCANTOR_RABBITMQ_USER" "$NEW"
-# then set the new values in .env and recreate the consumers
-docker compose -f docker-compose.prod.yml up -d orchestrator mongo-express
+docker exec -e NEW="$new_rabbitmq" scantor-rabbitmq sh -c 'rabbitmqctl --quiet change_password "$RABBITMQ_DEFAULT_USER" "$NEW"'
+# then set SCANTOR_MONGO_PASSWORD and SCANTOR_RABBITMQ_PASSWORD in .env to the new values and recreate
+# the services that use them (mongo and rabbitmq too, so their environment matches again)
+docker compose -f docker-compose.prod.yml up -d
 ```
 
-RustFS and mongo-express read their secrets at every start: change `.env` and run `up -d`.
+RustFS and mongo-express read their secrets at every start: change `.env` and run
+`docker compose -f docker-compose.prod.yml up -d`.
 
 ### 14.4 Changing `SCANTOR_SECRET` (disaster recovery)
 
@@ -1341,9 +1345,9 @@ key and HTTP secret, the built-in node token, the tools and editor cookies, and 
 credential and config secret ([architecture](architecture.md) §9). Procedure:
 
 1. Pause or cancel running scans.
-2. Change the secret and `up -d`. The orchestrator rewrites the JWKS and the HTTP secret, and resets
-   `scan-*` RabbitMQ users through the reconciler.
-3. `docker compose restart registry node`.
+2. Change the secret and `docker compose -f docker-compose.prod.yml up -d`. The orchestrator rewrites the
+   JWKS and the HTTP secret, and resets `scan-*` RabbitMQ users through the reconciler.
+3. `docker compose -f docker-compose.prod.yml restart registry node`.
 4. Users re-enter git credentials and re-run scans that had secret config values, because those can no
    longer be decrypted.
 
@@ -1364,7 +1368,7 @@ API keys and remote node tokens survive, because they are stored as hashes.
 |---|---|---|
 | builds fail at push with `401`/`connection refused` to the realm | the master's host daemon cannot reach `${SCANTOR_PUBLIC_URL}/api/registry/token` (no hairpin NAT) | add `127.0.0.1 <domain>` to the master's `/etc/hosts`, or bind Traefik on all addresses |
 | builds fail at push to `localhost:5000` | `SCANTOR_BIND_ADDRESS` excludes loopback (§1) | use `127.0.0.1` or `0.0.0.0` |
-| registry restarts in a loop logging "waiting …" | the orchestrator has not booted (MongoDB, RabbitMQ or RustFS unhealthy) | check `docker compose ps` and the orchestrator logs |
+| registry restarts in a loop logging "waiting …" | the orchestrator has not booted (MongoDB, RabbitMQ or RustFS unhealthy) | check `docker compose -f docker-compose.prod.yml ps` and the orchestrator logs |
 | empty broker after recreating `rabbitmq` | `hostname` changed | keep `hostname: rabbitmq` |
 | orchestrator exits at boot listing variables | startup guard (§8.2) | run `just init`, or set `SCANTOR_ALLOW_INSECURE_DEFAULTS=true` for local Traefik tests |
 | AMQP over :443 times out | the client connects by IP, so no SNI is sent | use the hostname |

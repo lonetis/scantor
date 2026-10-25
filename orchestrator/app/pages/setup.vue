@@ -10,7 +10,8 @@ definePageMeta({ layout: 'auth', auth: false })
 useHead({ title: 'Setup · scantor' })
 
 const TOKEN_STORAGE_KEY = 'scantor-setup-token'
-const SETUP_LOG_COMMAND = 'docker compose logs orchestrator | grep setup'
+// The container name is fixed in the dev and the prod compose file, so the command needs neither compose file.
+const SETUP_LOG_COMMAND = 'docker logs scantor-orchestrator 2>&1 | grep /setup'
 const TOKEN_INVALID_MESSAGE = 'The setup token is missing or wrong. Restarting the orchestrator prints a new one.'
 
 const route = useRoute()

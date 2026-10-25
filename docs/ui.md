@@ -242,7 +242,8 @@ or a two-step inline button (row-level, agentor pattern); the UI never calls `wi
   with `history.replaceState` (the token must not stay in history, [auth](auth.md) §7.2).
 - `getSetupStatus.needsSetup === false` → `/login`.
 - Without a token: explanation "Open the setup link printed in the orchestrator log" with the command
-  `docker compose logs orchestrator | grep setup` (CodeBlock) and an input to paste the token.
+  `docker logs scantor-orchestrator 2>&1 | grep /setup` (CodeBlock; the container name is the same in the
+  dev and the prod stack, so the command needs no compose file) and an input to paste the token.
 - Segmented control "Password | Passkey" (passkey only when `passkeysEnabled`):
   - Password: `{name, email, password, confirm}` (zod: password 8–128, confirm equal) →
     `createSetupAdmin` with header `X-Scantor-Setup-Token` → better-auth `signIn.email` → hard reload `/`.
