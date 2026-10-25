@@ -223,8 +223,9 @@ field syntax is the schema language:
 - `pydantic.SecretStr` marks a secret (`writeOnly`): it is encrypted at rest and shown as `***` in every
   response; your code reads it with `.get_secret_value()`. Secrets that your code writes into logs or
   results cannot be masked. An omitted secret keeps its Python default.
-- Results must serialise to JSON: `NaN`, infinities and bytes are rejected with a `validation` error.
-  Results are limited in size; store large data as [files](#files).
+- Results and the analysis configs your schedule yields must serialise to JSON: `NaN`, infinities,
+  bytes and dict keys that are not strings are rejected with a `validation` error that names the path,
+  also inside `Any` fields. Results are limited in size; store large or binary data as [files](#files).
 
 Every value is checked: configs before your code sees them, analysis configs your schedule yields and
 results your run returns before they leave the process. A violation fails the call with a `validation`

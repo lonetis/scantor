@@ -209,6 +209,26 @@ def test_secrets_in_results_are_serialised_in_plaintext(start_connector: StartCo
     assert "not representable in JSON" in error["message"]
 
 
+def test_values_json_cannot_represent_are_validation_errors(start_connector: StartConnector, ctx_factory: Any) -> None:
+    runtime = start_connector("json_values.py")
+    runtime.run("r0", ctx_factory("r0"), {"case": "ok"})
+    assert runtime.recv_type("result")["result"] == {"data": None, "anything": [], "mapping": {}}
+    paths = {
+        "binary": "/data",
+        "utf8Bytes": "/data",
+        "nan": "/anything/0",
+        "infinity": "/anything/1/x",
+        "intKey": "/mapping",
+    }
+    for index, (case, path) in enumerate(paths.items(), start=1):
+        request_id = f"r{index}"
+        runtime.run(request_id, ctx_factory(request_id), {"case": case})
+        error = runtime.recv_type("error")["error"]
+        assert error["type"] == "validation", case
+        assert error["message"].startswith("result is not representable in JSON"), case
+        assert [issue["path"] for issue in error["details"]["issues"]] == [path], case
+
+
 @pytest.mark.parametrize("entry", ECHO_FIXTURES)
 def test_fifty_runs_on_one_process(start_connector: StartConnector, ctx_factory: Any, entry: str) -> None:
     runtime = start_connector(entry)

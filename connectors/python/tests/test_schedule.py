@@ -50,6 +50,19 @@ def test_invalid_scan_config_is_a_validation_error(start_connector: StartConnect
     assert error["message"].startswith("scan config is invalid")
 
 
+@pytest.mark.parametrize("case", ["binary", "utf8Bytes"])
+def test_analysis_configs_json_cannot_represent_fail_scheduling(
+    start_connector: StartConnector, ctx_factory: Any, case: str
+) -> None:
+    runtime = start_connector("json_values.py")
+    runtime.schedule("s1", ctx_factory("s1", kind="schedule"), {"case": case})
+    analyses, error = runtime.until("error")
+    assert [message["config"] for message in analyses] == [{"case": "ok", "data": None}]
+    assert error["error"]["type"] == "validation"
+    assert error["error"]["message"].startswith("analysis config is not representable in JSON")
+    assert error["error"]["details"]["issues"][0]["path"] == "/data"
+
+
 def test_backpressure_and_cancel_during_a_stall(start_connector: StartConnector, ctx_factory: Any) -> None:
     runtime = start_connector("schedule.py")
     runtime.schedule("s1", ctx_factory("s1", kind="schedule"), {"count": 100000})

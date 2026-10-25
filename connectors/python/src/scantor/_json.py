@@ -1,9 +1,10 @@
 """JSON helpers shared by the protocol layer: model serialisation, validation issues and truncation."""
 
 import json
+import math
 import threading
 import traceback
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -19,7 +20,14 @@ MAX_ISSUE_MESSAGE = 300
 
 
 class NotJsonError(ValueError):
-    """A value cannot be represented in JSON (NaN, infinity, a non-object root, ...)."""
+    """A value cannot be represented in JSON (NaN, infinity, bytes, a non-string key, a non-object root, ...).
+
+    `path` is the JSON pointer of the offending value when it is known.
+    """
+
+    def __init__(self, message: str, path: str | None = None) -> None:
+        super().__init__(message)
+        self.path = path
 
 
 def encode_line(message: Mapping[str, Any]) -> bytes:
@@ -81,13 +89,19 @@ class ModelCodec:
         return self.adapter.validate_python(value)
 
     def to_json_object(self, value: object) -> dict[str, Any]:
-        """Serialise a validated value to a JSON object; raises `NotJsonError` when impossible."""
+        """Serialise a validated value to a JSON object; raises `NotJsonError` when impossible.
+
+        JSON mode would turn bytes and non-string keys into strings and NaN in untyped fields into null;
+        the Python-mode dump is checked first, so such values fail deterministically instead
+        (docs/protocol.md §5.5).
+        """
         try:
+            raw = self.adapter.dump_python(value, mode="python", by_alias=True, warnings="error")
+            check_representable(raw)
             data = self.adapter.dump_python(value, mode="json", by_alias=True, warnings="error")
             if self.has_secrets():
-                raw = self.adapter.dump_python(value, mode="python", by_alias=True, warnings="error")
                 data = _reveal_secrets(data, raw)
-        except pydantic_core.PydanticSerializationError as exc:
+        except (pydantic_core.PydanticSerializationError, UnicodeError) as exc:
             raise NotJsonError(str(exc)) from exc
         if not isinstance(data, dict):
             raise NotJsonError(f"{self.model.__name__} must serialise to a JSON object")
@@ -102,6 +116,48 @@ class ModelCodec:
             except pydantic.PydanticUserError:
                 self._has_secrets = True
         return self._has_secrets
+
+
+def check_representable(value: object) -> None:
+    """Raise `NotJsonError` for binary data, a non-string mapping key or a non-finite float in `value`.
+
+    `value` is a Python-mode dump: models are dicts, while bytes, keys and floats are still the task's own
+    values. Secrets are skipped; they are revealed as text.
+    """
+    stack: list[tuple[object, tuple[int | str, ...]]] = [(value, ())]
+    while stack:
+        item, location = stack.pop()
+        if isinstance(item, pydantic.SecretStr | pydantic.SecretBytes):
+            continue
+        if isinstance(item, bytes | bytearray | memoryview):
+            raise _unrepresentable("binary data", location, "; store it with ctx.files or encode it as text")
+        if isinstance(item, float) and not math.isfinite(item):
+            raise _unrepresentable(f"the float {item}", location)
+        children: list[tuple[object, tuple[int | str, ...]]] = []
+        if isinstance(item, Mapping):
+            for key, child in cast(Mapping[object, object], item).items():
+                if not isinstance(key, str):
+                    raise _unrepresentable(f"the non-string key {key!r}", location)
+                children.append((child, (*location, key)))
+        elif isinstance(item, list | tuple | set | frozenset):
+            children = [(child, (*location, index)) for index, child in enumerate(cast(Iterable[object], item))]
+        stack.extend(reversed(children))
+
+
+def _unrepresentable(what: str, location: tuple[int | str, ...], hint: str = "") -> NotJsonError:
+    path = json_pointer(location)
+    return NotJsonError(f"{what} at {path or '/'}{hint}", path)
+
+
+def not_json_error(subject: str, error: NotJsonError) -> dict[str, Any]:
+    """Protocol error object for a config or result that JSON cannot represent."""
+    payload: dict[str, Any] = {
+        "type": "validation",
+        "message": truncate(f"{subject} is not representable in JSON: {error}", MAX_ERROR_MESSAGE),
+    }
+    if error.path is not None:
+        payload["details"] = {"issues": [{"path": error.path, "message": truncate(str(error), MAX_ISSUE_MESSAGE)}]}
+    return payload
 
 
 def _reveal_secrets(data: object, raw: object) -> object:

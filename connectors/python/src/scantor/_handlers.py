@@ -17,6 +17,7 @@ from scantor._json import (
     describe_exception,
     encode_line,
     format_stack,
+    not_json_error,
     truncate,
     validation_error,
 )
@@ -186,9 +187,7 @@ def _encode_result(task: Task[Any, Any, Any, Any], value: object) -> dict[str, A
     except pydantic.ValidationError as exc:
         raise InvalidOutputError(validation_error("result", exc)) from exc
     except NotJsonError as exc:
-        raise InvalidOutputError(
-            {"type": "validation", "message": truncate(f"result is not representable in JSON: {exc}", 4096)}
-        ) from exc
+        raise InvalidOutputError(not_json_error("result", exc)) from exc
 
 
 class _Emitter:
@@ -206,12 +205,7 @@ class _Emitter:
         except pydantic.ValidationError as exc:
             raise InvalidOutputError(validation_error("analysis config", exc)) from exc
         except NotJsonError as exc:
-            raise InvalidOutputError(
-                {
-                    "type": "validation",
-                    "message": truncate(f"analysis config is not representable in JSON: {exc}", 4096),
-                }
-            ) from exc
+            raise InvalidOutputError(not_json_error("analysis config", exc)) from exc
         line = encode_line({"type": "analysis", "id": self._request.id, "config": config})
         if len(line) > self._connector.limits.max_line_bytes:
             raise InvalidOutputError(
