@@ -16,8 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"golang.org/x/sync/singleflight"
-
 	"github.com/lonetis/scantor/internal/templates/core"
 )
 
@@ -41,8 +39,22 @@ func (f *File) Open() (*os.File, error) {
 var (
 	cacheMu sync.Mutex
 	cache   = map[string]*File{}
-	flights singleflight.Group
+
+	flightsMu sync.Mutex
+	flights   = map[string]*flight{}
 )
+
+// flight is one download that concurrent callers for the same URL and TmpDir share. It runs with its
+// own context, detached from the caller that started it: a caller whose context ends stops waiting and
+// returns its own error, and the download is cancelled only when no caller waits any more, so one
+// caller's cancellation never fails the others.
+type flight struct {
+	done    chan struct{}
+	file    *File
+	err     error
+	waiters int
+	cancel  context.CancelFunc
+}
 
 // Download fetches req.URL with GET into Env.TmpDir, decoding HTTP content encoding and, with
 // req.Gunzip, a gzip file body. A URL already downloaded into the same TmpDir by this process is
@@ -58,7 +70,7 @@ func Download(ctx context.Context, env core.Env, req Request) (*File, error) {
 	if f := cached(path); f != nil {
 		return f, nil
 	}
-	v, err, _ := flights.Do(path, func() (any, error) {
+	return join(ctx, path, func(ctx context.Context) (*File, error) {
 		if f := cached(path); f != nil {
 			return f, nil
 		}
@@ -71,10 +83,48 @@ func Download(ctx context.Context, env core.Env, req Request) (*File, error) {
 		cacheMu.Unlock()
 		return f, nil
 	})
-	if err != nil {
-		return nil, err
+}
+
+// join waits for the flight of key, starting it with run when none is in progress, until it ends or ctx
+// ends.
+func join(ctx context.Context, key string, run func(context.Context) (*File, error)) (*File, error) {
+	flightsMu.Lock()
+	f := flights[key]
+	if f == nil {
+		fctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		f = &flight{done: make(chan struct{}), cancel: cancel}
+		flights[key] = f
+		go func() {
+			f.file, f.err = run(fctx)
+			flightsMu.Lock()
+			if flights[key] == f {
+				delete(flights, key)
+			}
+			flightsMu.Unlock()
+			cancel()
+			close(f.done)
+		}()
 	}
-	return v.(*File), nil
+	f.waiters++
+	flightsMu.Unlock()
+
+	select {
+	case <-f.done:
+		return f.file, f.err
+	case <-ctx.Done():
+		flightsMu.Lock()
+		f.waiters--
+		if f.waiters == 0 {
+			// Nobody waits any more: stop the download, and let a later caller start a new one rather
+			// than join this cancelled flight.
+			f.cancel()
+			if flights[key] == f {
+				delete(flights, key)
+			}
+		}
+		flightsMu.Unlock()
+		return nil, ctx.Err()
+	}
 }
 
 // cached returns the cache entry of path when its file still exists unchanged.

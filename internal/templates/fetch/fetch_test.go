@@ -139,6 +139,79 @@ func TestConcurrentDownloadsShareOneRequest(t *testing.T) {
 	}
 }
 
+// A caller that gives up stops waiting with its own error; the shared download goes on for the others
+// and stops only when nobody waits any more.
+func TestSharedDownloadOutlivesACancelledCaller(t *testing.T) {
+	var hits atomic.Int32
+	release := make(chan struct{})
+	aborted := make(chan struct{}, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		select {
+		case <-release:
+			_, _ = w.Write([]byte("1,a.example\r\n"))
+		case <-r.Context().Done():
+			aborted <- struct{}{}
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+	env := testEnv(t)
+	req := Request{URL: srv.URL + "/x"}
+
+	first, cancelFirst := context.WithCancel(context.Background())
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := Download(first, env, req)
+		firstDone <- err
+	}()
+	for hits.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	second := make(chan error, 1)
+	go func() {
+		_, err := Download(context.Background(), env, req)
+		second <- err
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancelFirst()
+	if err := <-firstDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("the cancelled caller got %v", err)
+	}
+	release <- struct{}{}
+	if err := <-second; err != nil {
+		t.Fatalf("the other caller failed with the first caller's cancellation: %v", err)
+	}
+	if hits.Load() != 1 {
+		t.Fatalf("%d requests, want 1", hits.Load())
+	}
+
+	// Every caller gives up: the request is cancelled, and the next caller starts a new download.
+	other := Request{URL: srv.URL + "/y"}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := Download(ctx, env, other)
+		done <- err
+	}()
+	for hits.Load() == 1 {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("got %v", err)
+	}
+	select {
+	case <-aborted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the download went on without a caller")
+	}
+	go func() { release <- struct{}{} }()
+	if _, err := Download(context.Background(), env, other); err != nil {
+		t.Fatalf("a new caller after the cancellation: %v", err)
+	}
+}
+
 func TestRetries(t *testing.T) {
 	t.Run("5xx then success", func(t *testing.T) {
 		var hits atomic.Int32

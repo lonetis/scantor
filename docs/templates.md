@@ -256,7 +256,10 @@ scaffold matrix point them at the fixtures server, which mirrors exactly the end
   which may exceed 64 MiB) instead, both raw and decoded; the 64 MiB / 256 MiB caps apply to Tranco, CrUX
   and uploads of unknown size.
 - Downloaded data is cached in `Env.TmpDir` keyed by URL for the lifetime of the scheduler process, so
-  Resolve and Stream download once.
+  Resolve and Stream download once. Concurrent callers for the same URL share one download, which runs
+  detached from the caller that started it: a caller whose context ends (a wrapped template call that
+  user code stops early) returns its own cancellation, the others keep waiting, and the download is
+  cancelled only when no caller waits any more.
 
 ## 8. Errors
 
