@@ -103,3 +103,31 @@ func TestNestedDefaultsAreFilled(t *testing.T) {
 		t.Fatalf("decoded %+v, want %+v", got, want)
 	}
 }
+
+type secretDefaults struct {
+	Token Secret `json:"token" jsonschema:"default=changeme"`
+	Empty Secret `json:"empty"`
+}
+
+// TestOmittedSecretsGetTheirTagDefault pins docs/tasks.md §6.5: the platform strips secret defaults
+// from effective configs, so the connector's own model applies the default= tag of an omitted secret.
+func TestOmittedSecretsGetTheirTagDefault(t *testing.T) {
+	m, err := modelFor(reflect.TypeFor[secretDefaults](), inputMode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, err := m.decode([]byte(`{}`), "task config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := v.(secretDefaults); got.Token != "changeme" || got.Empty != "" {
+		t.Fatalf("decoded %+v", got)
+	}
+	v, err = m.decode([]byte(`{"token":"real"}`), "task config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := v.(secretDefaults); got.Token != "real" {
+		t.Fatalf("decoded %+v", got)
+	}
+}

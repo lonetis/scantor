@@ -212,7 +212,7 @@ Types the connector provides:
 | Type | Meaning |
 |---|---|
 | `scantor.Empty` | a config without fields: `{}` |
-| `scantor.Secret` | a string marked `writeOnly`: encrypted at rest, shown as `***` in every response; your code gets the real value. Secrets that your code prints into logs or results cannot be masked. |
+| `scantor.Secret` | a string marked `writeOnly`: encrypted at rest, shown as `***` in every response; your code gets the real value. An omitted secret gets its `default=` tag (`""` without one); the platform never stores that default. Secrets that your code prints into logs or results cannot be masked. |
 | `scantor.FileRef` | a reference to a file registered with `ctx.Files()`; results may contain FileRefs anywhere (fields, nested structs, slices), and the UI renders them as download links |
 
 ## The context

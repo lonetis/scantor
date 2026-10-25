@@ -976,9 +976,10 @@ analysis config or result are masked in responses the same way.
 describe removes every `default` that carries a secret: the default of a `writeOnly` property, also when
 `writeOnly` sits in one of its `anyOf`/`oneOf` branches or a referenced definition (pydantic `SecretStr |
 None`), and the default of an object or array whose value contains a `writeOnly` member. Connectors
-export such defaults masked (pydantic: `"**********"`) or as `null`, and filling defaults would store that
-value as the secret. An omitted secret therefore stays absent from the effective config and the
-connector's native default applies (Go: the zero value).
+export such defaults masked (pydantic: `"**********"`), as `null` or as written (a Go `default=` tag),
+and filling defaults would store that value as the secret. An omitted secret therefore stays absent from
+the effective config, and the connector applies the task's own default when it decodes the config: the
+pydantic field default, zod's `.default()` or the Go `default=` tag (the zero value without one).
 
 The orchestrator takes a secret only from the request, whatever the stored description says: when it
 fills defaults (§6.3), a secret that the request does not contain is removed again together with the
