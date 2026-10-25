@@ -1,4 +1,5 @@
 import { computed, reactive, ref, shallowRef, toRaw, toValue, type MaybeRefOrGetter } from 'vue'
+import { stripEscapes } from '../utils/ansi'
 
 // State of the query console (docs/ui.md §5.13.4): JSON editors for queryAnalyses (filter, projection, sort, limit,
 // afterSeq) and aggregateAnalyses (pipeline, limit), "Load more" over `nextCursor`, inline errors with the editor
@@ -70,6 +71,12 @@ export function editorOfPath(path: unknown): QueryEditor | null {
 /** True when every item is a flat object (no nested objects or arrays), so a table can show it. */
 export function isFlatItems(items: readonly Record<string, unknown>[]): boolean {
   return items.length > 0 && items.every((item) => Object.values(item).every((value) => value === null || typeof value !== 'object'))
+}
+
+/** The text of a query table cell: items are flat, so a cell is a scalar; strings lose escape sequences. */
+export function queryCellText(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  return typeof value === 'string' ? stripEscapes(value) : String(value)
 }
 
 /**

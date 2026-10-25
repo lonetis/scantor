@@ -16,7 +16,8 @@ function runningFor(item: InflightAnalysis): string {
 
 function progressText(progress: unknown): string {
   if (progress === null || progress === undefined) return '–'
-  const text = typeof progress === 'string' ? progress : JSON.stringify(progress)
+  // Progress is reported by task code: shown as text without escape sequences.
+  const text = stripEscapes(typeof progress === 'string' ? progress : JSON.stringify(progress))
   return text.length > 80 ? `${text.slice(0, 80)}…` : text
 }
 

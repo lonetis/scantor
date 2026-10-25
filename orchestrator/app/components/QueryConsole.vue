@@ -33,7 +33,8 @@ useTableRowIds(resultsTable, queryRowId)
 const tableColumns = computed<TableColumn<Record<string, unknown>>[]>(() => {
   const keys = new Set<string>()
   for (const item of items.value) for (const key of Object.keys(item)) keys.add(key)
-  return [...keys].map((key) => ({ id: key, accessorFn: (row: Record<string, unknown>) => row[key], header: key }))
+  // Keys and values come from task results: shown as text without escape sequences.
+  return [...keys].map((key) => ({ id: key, accessorFn: (row: Record<string, unknown>) => queryCellText(row[key]), header: stripEscapes(key) }))
 })
 
 function editorError(editor: QueryEditor): string | undefined {

@@ -21,7 +21,7 @@ interface PhaseGroup {
 function lineText(line: BuildLogLine): string {
   if (line.type === 'error' && line.error) {
     const where = line.error.file ? `${[line.error.file, line.error.line, line.error.column].filter((part) => part !== undefined).join(':')}: ` : ''
-    return `error: ${where}${line.error.message}`
+    return stripEscapes(`error: ${where}${line.error.message}`)
   }
   if (line.type === 'result') return line.result && (line.result as { ok?: boolean }).ok ? 'result: ok' : 'result: failed'
   return stripAnsi(line.text ?? '')

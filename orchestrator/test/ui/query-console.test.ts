@@ -1,6 +1,6 @@
 import { effectScope } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useQuery, type QueryBody } from '../../app/composables/useQuery'
+import { queryCellText, useQuery, type QueryBody } from '../../app/composables/useQuery'
 
 // The query console (docs/ui.md §5.13.4): "Load more" continues the query that produced the shown items, not
 // whatever the editors hold when the button is pressed.
@@ -48,5 +48,14 @@ describe('useQuery.loadMore', () => {
     query.inputs.filter = '{"status": '
     await query.loadMore()
     expect(bodies.at(-1)).toEqual({ filter: { status: 'failed' }, limit: 20, afterSeq: 1 })
+  })
+})
+
+describe('queryCellText', () => {
+  it('shows strings from task results without escape sequences and other scalars as text', () => {
+    expect(queryCellText('\u001B[31mred\u001B[0m\u0007')).toBe('red')
+    expect(queryCellText(42)).toBe('42')
+    expect(queryCellText(false)).toBe('false')
+    expect(queryCellText(null)).toBe('')
   })
 })
