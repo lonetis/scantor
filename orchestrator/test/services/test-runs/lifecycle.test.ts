@@ -19,7 +19,7 @@ vi.mock('../../../server/utils/keys', async (original) => {
   return { ...actual, useKeys: () => keyring }
 })
 
-const { createTestRun, openRequest } = await import('../../../server/services/test-runs/create')
+const { createTestRun, openRequest, validatedSecretsUpdate } = await import('../../../server/services/test-runs/create')
 const { cancelTestRun } = await import('../../../server/services/test-runs')
 const { toApiTestRun } = await import('../../../server/services/test-runs/mappers')
 const { newTaskDoc } = await import('../../../server/services/tasks/store')
@@ -52,6 +52,26 @@ describe('createTestRun', () => {
     expect((await createTestRun(task, { limit: 5, maxAttempts: 1 }, config)).input.timeoutMs).toBe(120_000)
     expect((await createTestRun(task, { limit: 5, maxAttempts: 1, timeoutMs: 9000 }, config)).input.timeoutMs).toBe(9000)
     await expect(createTestRun(task, { scanConfig: { big: 'x'.repeat(2000) }, limit: 5, maxAttempts: 1 }, config)).rejects.toMatchObject({ code: 'payloadTooLarge' })
+  })
+})
+
+describe('validated secrets', () => {
+  it('are stored next to the sealed request, so a restarted attempt still finds the requested configs', async () => {
+    const requested = { taskConfig: { apiToken: 'secret-value', greeting: 'hi' }, analysisConfig: { target: 'a' }, limit: 1, maxAttempts: 1, timeoutMs: 9000 }
+    const doc = await createTestRun(task, requested, config)
+    const first = validatedSecretsUpdate({ taskConfig: { '/apiToken': 'enc:v1:a' }, scanConfig: {}, analysisConfig: {} })
+    await store.testRuns.updateOne({ _id: doc._id }, { $set: first.set, $unset: first.unset })
+    let stored = (await store.testRuns.findOne({ _id: doc._id }))!
+    expect(stored.secrets).toMatchObject({ taskConfig: { '/apiToken': 'enc:v1:a' }, scanConfig: {}, analysisConfig: {} })
+    expect(openRequest(stored)).toEqual({ taskConfig: { apiToken: 'secret-value', greeting: 'hi' }, analysisConfig: { target: 'a' }, timeoutMs: 9000 })
+
+    // A later attempt without per-analysis secrets drops the earlier ones and keeps the request.
+    const second = validatedSecretsUpdate({ taskConfig: { '/apiToken': 'enc:v1:b' }, scanConfig: {} })
+    await store.testRuns.updateOne({ _id: doc._id }, { $set: second.set, $unset: second.unset })
+    stored = (await store.testRuns.findOne({ _id: doc._id }))!
+    expect(stored.secrets?.analysisConfig).toBeUndefined()
+    expect(stored.secrets?.taskConfig).toEqual({ '/apiToken': 'enc:v1:b' })
+    expect(openRequest(stored)?.taskConfig).toEqual({ apiToken: 'secret-value', greeting: 'hi' })
   })
 })
 

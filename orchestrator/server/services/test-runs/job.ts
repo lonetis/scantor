@@ -18,7 +18,7 @@ import { discardTmpSnapshot, snapshotToTmp, type StoredSnapshot } from '../pipel
 import { useBuildSlots } from '../pipeline/slots'
 import { MAX_EVENT_LINE_BYTES, runTaskBuild, type TaskBuildOutcome } from '../pipeline/task-build'
 import { injectionArchive, type InjectionUpload, localSpec, OUT_DIR, removeContainer, runTestRunContainer, testRunContainerName, testRunContainerSpec } from './container'
-import { REQUEST_SECRET_KEY, openRequest } from './create'
+import { REQUEST_SECRET_KEY, openRequest, validatedSecretsUpdate } from './create'
 import { analysisFromResult, configIssueMessage, type LocalEvent, parseLocalEvent } from './events'
 import { cancellationFor, openTestRunChannel, publishTestRunEvent, releaseCancellation } from './live'
 import { isTestRunSettled, toApiTestRun, toApiTestRunAnalysis } from './mappers'
@@ -206,15 +206,18 @@ class TestRunExecution {
         { collection: 'testRuns', id: this.id },
       )
     } catch (error) {
-      await this.update({ input: maskedInput }, { [`secrets.${REQUEST_SECRET_KEY}`]: '' })
+      await this.update({ input: maskedInput })
       if (error instanceof ApiError && error.code === 'configInvalid') {
         const issues = (error.details?.issues as { path: string; message: string }[] | undefined) ?? [{ path: '', message: error.message }]
         throw new TestRunFailure(issues.map((issue) => ({ phase: 'config', message: configIssueMessage(issue) })))
       }
       throw error
     }
-    // `input` keeps the configs as requested (secrets masked); the effective configs only reach the container.
-    await this.update({ input: maskedInput, secrets: validated.secrets })
+    // `input` keeps the configs as requested (secrets masked); the effective configs only reach the container. The
+    // per-pointer secrets sit next to `secrets.request`, which stays until the run is terminal: an attempt that is
+    // restarted (a lost lease, an orchestrator stop) validates the requested configs again from scratch.
+    const secretsUpdate = validatedSecretsUpdate(validated.secrets)
+    await this.update({ input: maskedInput, ...secretsUpdate.set }, secretsUpdate.unset)
 
     const uploads = await this.uploads(result.description, validated.effective)
     this.checkAborted()
@@ -496,7 +499,7 @@ export const testRunJobKind: JobKindDefinition = {
     const now = new Date()
     await useCollections().testRuns.updateOne(
       { _id: testRunId, state: { $in: NON_TERMINAL } },
-      { $set: { state: 'failed', errors: [platformError(error.message)], finishedAt: now, updatedAt: now } },
+      { $set: { state: 'failed', errors: [platformError(error.message)], finishedAt: now, updatedAt: now }, $unset: { [`secrets.${REQUEST_SECRET_KEY}`]: '' } },
     )
   },
 }

@@ -7,11 +7,13 @@ import { createJob } from '../../utils/jobs'
 import { useCollections } from '../../utils/mongo'
 import { decryptSecret, encryptSecret } from '../../utils/secrets'
 import { SETTINGS_FALLBACKS } from '../configs/settings'
+import type { ConfigSecrets } from '../configs/validate'
 
 // Test-run creation (`testTask`, docs/tasks.md §11.1 step 1, docs/data-model.md §4.3): inserts the test run `queued`
 // with its `testRun` job. Which config values are secrets is known only once the draft image is described, so the
-// requested configs are kept encrypted as a whole (`secrets.request`) until the job has validated them; then `input`
-// holds the masked configs and `secrets` the encrypted `writeOnly` values per pointer.
+// requested configs are kept encrypted as a whole (`secrets.request`) until the run is terminal; each job attempt
+// validates them, then `input` holds the masked configs and `secrets` also the encrypted `writeOnly` values per
+// pointer.
 
 export const REQUEST_SECRET_KEY = 'request'
 
@@ -35,6 +37,21 @@ export function openRequest(doc: Pick<TestRunDoc, '_id' | 'secrets'>): Requested
   const sealed = doc.secrets?.[REQUEST_SECRET_KEY]?.['']
   if (!sealed) return null
   return JSON.parse(decryptSecret(sealed, 'config-secrets', requestAad(doc._id))) as RequestedConfigs
+}
+
+/**
+ * The `$set`/`$unset` fields that store the validated per-pointer secrets of an attempt next to `secrets.request`,
+ * which they never replace (a restarted attempt validates the request again).
+ */
+export function validatedSecretsUpdate(secrets: ConfigSecrets): { set: Record<string, Record<string, string>>; unset: Record<string, ''> } {
+  return {
+    set: {
+      'secrets.taskConfig': secrets.taskConfig,
+      'secrets.scanConfig': secrets.scanConfig,
+      ...(secrets.analysisConfig ? { 'secrets.analysisConfig': secrets.analysisConfig } : {}),
+    },
+    unset: secrets.analysisConfig ? {} : { 'secrets.analysisConfig': '' },
+  }
 }
 
 function configBytes(value: unknown): number {

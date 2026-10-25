@@ -233,7 +233,7 @@ Indexes:
 | `taskId`, `taskName` | uuid, slug | ✓ | |
 | `state` | `queued`\|`building`\|`running`\|`completed`\|`failed`\|`cancelled` | ✓ | §6.5. `completed` = ran to the end (analyses may have failed); `failed` = platform, build, describe, config or schedule failure |
 | `input` | object | ✓ | `{taskConfig?, scanConfig?, analysisConfig?, limit, maxAttempts, timeoutMs}`: the configs as requested (secrets masked, no defaults filled, see `secrets`), `timeoutMs` as used (the request value, else the described manifest default) |
-| `secrets` | object | – | *internal*; encrypted `writeOnly` input values, as on scans. Until the draft image is described the secret paths are unknown, so the requested configs are held encrypted as a whole under `secrets.request`; after validation they are replaced by the per-pointer encrypted values |
+| `secrets` | object | – | *internal*; encrypted `writeOnly` input values, as on scans. Until the draft image is described the secret paths are unknown, so the requested configs are held encrypted as a whole under `secrets.request`. Validation adds the per-pointer encrypted values next to it (`secrets.taskConfig`, `scanConfig`, `analysisConfig`); `secrets.request` stays until the test run is terminal, so a job attempt that restarts (lost lease, orchestrator stop) validates the requested configs again, and it is removed when the run ends, is cancelled or its job fails |
 | `packSha256` | string | – | workspace pack hash used |
 | `draftImage` | `{ref, digest, cached}` | – | `tasks/<taskId>:draft-<packSha256>`; `cached` = reused |
 | `description` | Description | – | describe output of the draft image |
