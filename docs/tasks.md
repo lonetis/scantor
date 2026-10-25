@@ -1198,7 +1198,7 @@ normalised `manifest`, `settingsDefaults`, `language` and `privileged` (§3.3) i
 | 1 | `pack` | pack (folder input) or read and verify (pack input) |
 | 2 | `static` | check-static |
 | 3 | `build` | resolve and pre-pull the base image (§4.1): pull when absent locally (anonymous); pin: development references (no registry and no namespace, such as `scantor-base-python:dev`) are passed by tag without any lookup; any other reference is pinned as `SCANTOR_BASE=<repository>@<digest>` when the daemon's anonymous distribution inspect (20 s timeout) finds that repo digest in the registry, else passed by tag; for a tag reference the local image id is recorded as `digest` (BuildKit resolves digest references against the registry, and the containerd image store gives local builds repo digests too, so a repo digest alone does not prove the image is in the registry). Build with BuildKit through the Engine API (`ImageBuild`, `Version: BuilderBuildKit`, context = the pack, `Dockerfile`, build args `SCANTOR_BASE` and with `--debug-build` `SCANTOR_GCFLAGS=all=-N -l`, `PullParent: false`, no auth configs, no labels, native platform, tag `--tag`), decoding the BuildKit status stream (`moby.buildkit.trace`) into log events. Before the build, every literal external image reference of the Dockerfile (D5) is pulled anonymously when absent and inspected: a non-empty `Config.OnBuild` is an error naming the image and its Dockerfile line ([security](security.md) BLD-7). Timeout `SCANTOR_BUILD_TIMEOUT` (the request context is cancelled, which cancels the build). Then `ImageInspect`: size ≤ `SCANTOR_MAX_IMAGE_BYTES`; no key of the effective `Config.Labels` (which include labels inherited from external stages) matches the D9 pattern (error naming the label, [security](security.md) LBL-3); platform `{os, arch, variant?}`. After the build, when `SCANTOR_BUILD_CACHE_MAX_BYTES` is set, prune the build cache to that size. |
-| 4 | `describe` | describe container (§9.5) → describe output (§7) |
+| 4 | `describe` | describe container (§9.5) → describe output (§7); error events are errors; at most 200 are reported |
 | 5 | `check` | check container (§9.5) unless `--skip-check`; error-severity diagnostics are errors with `file`/`line`/`column`; at most 200 are reported |
 | 6 | `push` | only with `--push` (§9.7) |
 | – | `platform` | Docker unreachable, unexpected daemon errors, internal failures |
@@ -1337,7 +1337,7 @@ or lost analyses.
 | build cache after each build | `SCANTOR_BUILD_CACHE_MAX_BYTES` |
 | describe / check duration each | `SCANTOR_DESCRIBE_TIMEOUT` |
 | schema size / describe output | 256 KiB per schema / 1 MiB total |
-| check diagnostics reported | 200 |
+| describe / check errors reported | 200 each (later error events are counted in one log line) |
 | event text | 16 KiB per event; build log 10 MiB (then one truncation event, later log events dropped, errors and the result kept) |
 
 ## 10. Revisions

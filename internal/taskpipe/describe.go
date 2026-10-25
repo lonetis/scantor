@@ -21,8 +21,9 @@ import (
 const (
 	// MaxDescriptionBytes bounds the describe output.
 	MaxDescriptionBytes = 1 << 20
-	// MaxCheckErrors bounds the check diagnostics that are reported.
-	MaxCheckErrors = 200
+	// MaxContainerErrors bounds the error events of one describe or check container that are reported.
+	// The container's output is untrusted, so the cap applies in both phases.
+	MaxContainerErrors = 200
 	// MaxDescriptionWarnings bounds description.warnings.
 	MaxDescriptionWarnings = 100
 	// maxContainerLine bounds one stdout line of a describe or check container.
@@ -170,7 +171,7 @@ func (b *builder) containerLine(phase api.BuildPhase, line []byte, out *containe
 		if ev.Error == nil {
 			return
 		}
-		if phase == api.BuildPhaseCheck && out.errors >= MaxCheckErrors {
+		if out.errors >= MaxContainerErrors {
 			out.dropped++
 			return
 		}
@@ -343,7 +344,7 @@ func containsString(list []string, s string) bool {
 }
 
 // check is the check phase: the runtime runs SCANTOR_CHECK_CMD in a check container; error lines are
-// BuildErrors (at most MaxCheckErrors are reported).
+// BuildErrors (at most MaxContainerErrors are reported).
 func (b *builder) check(ctx context.Context) bool {
 	out, ok := b.runPipelineContainer(ctx, api.BuildPhaseCheck, container.ModeCheck)
 	if !ok {

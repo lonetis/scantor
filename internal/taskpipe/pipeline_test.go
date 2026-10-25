@@ -501,17 +501,36 @@ func TestDescribeFailures(t *testing.T) {
 	}
 }
 
+// Describe output is untrusted like check output: forged error lines past the cap are counted, not
+// kept, so the result stays below the orchestrator's event line limit.
+func TestDescribeErrorCap(t *testing.T) {
+	env := newPipelineEnv()
+	message := strings.Repeat("x", MaxErrorMessage)
+	var lines []string
+	for range MaxContainerErrors + 300 {
+		lines = append(lines, `{"phase":"describe","type":"error","error":{"phase":"describe","message":"`+message+`"}}`)
+	}
+	env.describe = fakeRun{code: 1, stdout: lines}
+	res := env.buildTask(t, minimalTask(), BuildOptions{})
+	if len(res.Errors) != MaxContainerErrors || res.Errors[0].Phase != api.BuildPhaseDescribe || res.Description != nil {
+		t.Fatalf("%d errors, description %v", len(res.Errors), res.Description)
+	}
+	if !hasLog(env.eventList(t), api.BuildPhaseDescribe, "300 more diagnostics") || res.ExitCode() != 2 {
+		t.Fatal("dropped describe errors are counted")
+	}
+}
+
 func TestCheckPhase(t *testing.T) {
 	t.Run("diagnostics", func(t *testing.T) {
 		env := newPipelineEnv()
 		var lines []string
-		for i := range MaxCheckErrors + 50 {
+		for i := range MaxContainerErrors + 50 {
 			lines = append(lines, fmt.Sprintf(`{"phase":"check","type":"error","error":{"phase":"check","file":"main.py","line":%d,"column":2,"message":"bad"}}`, i+1))
 		}
 		lines = append(lines, `{"phase":"check","type":"result","ok":false,"exitCode":1,"skipped":false}`)
 		env.check = fakeRun{code: 2, stdout: lines}
 		res := env.buildTask(t, minimalTask(), BuildOptions{})
-		if len(res.Errors) != MaxCheckErrors || res.Errors[0] != (api.BuildError{Phase: api.BuildPhaseCheck, File: "main.py", Line: 1, Column: 2, Message: "bad"}) {
+		if len(res.Errors) != MaxContainerErrors || res.Errors[0] != (api.BuildError{Phase: api.BuildPhaseCheck, File: "main.py", Line: 1, Column: 2, Message: "bad"}) {
 			t.Fatalf("%d errors, first %+v", len(res.Errors), res.Errors[0])
 		}
 		if !hasLog(env.eventList(t), api.BuildPhaseCheck, "50 more diagnostics") || res.ExitCode() != 2 {
