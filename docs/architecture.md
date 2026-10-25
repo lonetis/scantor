@@ -152,7 +152,8 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
 
 The orchestrator is one Node.js 26 process (Nitro `node-server` preset). Which background components run
 is selected by `SCANTOR_COMPONENTS` (comma-separated subset of `api`, `ingestor`, `reconciler`), so the
-same image can later be split into several compose services. Everything below runs inside it.
+same image can later be split into several compose services; `api` and `reconciler` share process-local state
+until a shared store exists (§14), so they run in one process. Everything below runs inside it.
 
 | Component | Runs in | Responsibility | Main collections / systems |
 |---|---|---|---|
@@ -1021,8 +1022,8 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
 
 | Extension | How the design accommodates it |
 |---|---|
-| Multi-replica orchestrator | `locks` leases, leased jobs, change-stream caches and `SCANTOR_COMPONENTS` already make loops singleton-safe; the MCP internal capabilities, editor one-time codes and SSE in-process streams need a shared store, and the editor listener and helper runner must stay on the host that holds the Docker socket and the editor sockets. |
-| Separate ingestor/reconciler services | Same image with `SCANTOR_COMPONENTS=ingestor,reconciler` as a second compose service. |
+| Multi-replica orchestrator | `locks` leases, leased jobs, change-stream caches and `SCANTOR_COMPONENTS` already make loops singleton-safe; the MCP internal capabilities, editor one-time codes and SSE in-process streams need a shared store, and so do two pieces of process-local state that today require `api` and `reconciler` in one process: the in-flight store (`services/inflight.ts`, filled only by the runtime state polls the `api` component serves, read by the reconciler's stall detection, the retry-failed settle and the scale-in victim choice) and the metrics registry (the ingest, breaker and job counters live in the process that runs them, while `/api/metrics` is served by `api`). The editor listener and helper runner must stay on the host that holds the Docker socket and the editor sockets. |
+| Separate ingestor/reconciler services | Same image with `SCANTOR_COMPONENTS=ingestor,reconciler` as a second compose service, once the in-flight store is shared (until then a reconciler without `api` sees no busy runner: it would record analyses in flight as lost and drain busy runners on scale-in) and the metrics of every process are collected (until then `/api/metrics` lacks the counters of the other process). |
 | STS-scoped S3 credentials and multipart uploads > 5 GiB | `bootstrap.uploads.mode` is an enum (`presigned` today); keys are already per scan prefix. |
 | `ctx.memo`, `ctx.expectTotal` | `scheduling.resolved` is a keyed map; `stats.expectedTotal` exists; new connector protocol messages are versioned. |
 | Multi-arch task builds (buildx), registry S3 backend | Revisions record `platform`; placement already filters on architecture; images are referenced by digest. |

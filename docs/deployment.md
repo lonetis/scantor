@@ -1428,7 +1428,7 @@ fixed subdomains of 14, are flagged for lead review:
 
 | Extension | How the design accommodates it |
 |---|---|
-| Multi-replica orchestrator / split components | Same image with `SCANTOR_COMPONENTS=ingestor,reconciler` as an extra service. Locks and leased jobs already make loops singleton-safe. Only the editor listener and helper runner must stay on the host with the Docker socket. |
+| Multi-replica orchestrator / split components | Same image with `SCANTOR_COMPONENTS=ingestor,reconciler` as an extra service. Locks and leased jobs already make loops singleton-safe. Process-local state needs a shared store first ([architecture](architecture.md) §14): the in-flight store, which the reconciler reads but only `api` fills (so `api` and `reconciler` must run in one process until then), the metrics registry (`/api/metrics` shows the counters of its own process only), MCP internal capabilities, editor one-time codes and SSE streams. The editor listener and helper runner must stay on the host with the Docker socket. |
 | Prometheus/Grafana containers | An opt-in compose profile `monitoring` scraping `/api/metrics` (admin key) and `registry:5001`, and RabbitMQ's Prometheus endpoint once it can listen only on the `scantor` network (never on `scantor-sandbox`, §4.4). |
 | Registry S3 backend on RustFS | Registry env `REGISTRY_STORAGE=s3` + `REGISTRY_STORAGE_S3_*` (verified working), optionally `REDIRECTENDPOINT` to `SCANTOR_S3_PUBLIC_URL`; backups then cover one store. |
 | Docker socket proxy for Traefik | Replace the read-only socket mount with a `tecnativa/docker-socket-proxy` sidecar on an internal network. |
