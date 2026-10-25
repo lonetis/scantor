@@ -477,6 +477,12 @@ The middleware stores it as `event.context.principal`; nothing else in `event.co
 | tools cookie | cookie `scantor_tools` on `/api/tools/forward-auth` (parsed by the route) | §11 | 302 to `createToolsSession` for browsers, else 401 with a short `text/plain` body (§11) |
 | setup token | header `X-Scantor-Setup-Token` | §7.2 | 401 `setupTokenInvalid` / 409 `setupCompleted` |
 
+Both better-auth lookups go through `server/utils/credential-lookup.ts`, which `/mcp` shares (§13). Only a
+credential that better-auth rejects (no session, an unknown, expired or disabled key: a 4xx `APIError`) is 401. A
+lookup that fails (a 5xx `APIError`, which is how better-auth wraps database errors, or any other error) is logged
+and answered with 503 `unavailable`, so a MongoDB election or timeout never signs browsers out or makes clients
+treat a valid key as revoked.
+
 Precedence on user routes: internal capability, then API key, then session cookie. When an explicit
 credential (capability or API key) is present, it alone decides; the cookie is ignored and CSRF does not
 apply. MCP OAuth access tokens (`Authorization: Bearer eyJ…`) are not accepted on `/api/*`: they are
@@ -1000,7 +1006,7 @@ Specified in [mcp](mcp.md) §3:
 | `orchestrator/server/utils/internal-auth.ts` | `sic_` capability mint/consume |
 | `orchestrator/server/middleware/00.request.ts` | request id, client IP header, 421 for the editor host |
 | `orchestrator/server/middleware/01.path.ts`, `orchestrator/server/utils/request-path.ts` | canonical request paths (§5.5) |
-| `orchestrator/server/middleware/10.auth.ts` | §5.5 |
+| `orchestrator/server/middleware/10.auth.ts`, `orchestrator/server/utils/credential-lookup.ts` | §5.5; session and API key lookups (401 only for a rejected credential, §5.2) |
 | `orchestrator/server/middleware/11.passkey-guard.ts` | §6.4 |
 | `orchestrator/server/services/registry/token.ts` | registry token server |
 | `orchestrator/server/api/tools/session.get.ts`, `forward-auth.get.ts` | §11 |

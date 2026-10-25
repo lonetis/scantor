@@ -221,7 +221,7 @@ through `SCANTOR_INTERNAL_URL`, which does not match the OAuth resource URL, so 
 | resolution | identical to the REST API ([auth](auth.md) §5.2), including expiry and ban checks |
 | level | `admin` for a `default` key of an admin; otherwise `write`. `editor` keys are always `write`. |
 | bound | an API key never has more power on `/mcp` than on the REST API |
-| failure | an invalid key gets 401 with the OAuth `WWW-Authenticate` challenge, so a client can fall back to OAuth |
+| failure | an invalid key gets 401 with the OAuth `WWW-Authenticate` challenge, so a client can fall back to OAuth; a lookup that fails (MongoDB unavailable) gets 503 with `Retry-After` and no challenge, so the client keeps its key and retries |
 
 Example client configuration:
 `claude mcp add --transport http scantor https://scantor.example.com/mcp --header "Authorization: Bearer $SCANTOR_TOKEN"`.

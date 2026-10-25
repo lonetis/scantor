@@ -4,6 +4,7 @@ import { requireMcpAuth } from '@better-auth/mcp'
 import { useAuth } from '../../utils/auth'
 import { MCP_CHALLENGE_SCOPES, type McpConfig, resolveMcpConfig } from '../../utils/auth-policy'
 import { useConfig } from '../../utils/config'
+import { ApiError } from '../../utils/errors'
 import { useLogger } from '../../utils/logger'
 import type { UserPrincipal } from '../../utils/principal'
 import { scantorVersion } from '../../utils/version'
@@ -29,10 +30,10 @@ function protectedResourceMetadataUrl(config: McpConfig): string {
   return `${url.origin}/.well-known/oauth-protected-resource${url.pathname}`
 }
 
-function jsonRpcError(status: number, message: string, wwwAuthenticate: string): Response {
+function jsonRpcError(status: number, message: string, headers: Record<string, string>): Response {
   return new Response(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message }, id: null }), {
     status,
-    headers: { 'content-type': 'application/json', 'www-authenticate': wwwAuthenticate },
+    headers: { 'content-type': 'application/json', ...headers },
   })
 }
 
@@ -41,16 +42,19 @@ function challenge(config: McpConfig, message: string): Response {
   const parts = [`Bearer error="invalid_token"`, `error_description="${message}"`]
   if (config.oauth) parts.push(`resource_metadata="${protectedResourceMetadataUrl(config)}"`)
   parts.push(`scope="${MCP_CHALLENGE_SCOPES.join(' ')}"`)
-  return jsonRpcError(401, message, parts.join(', '))
+  return jsonRpcError(401, message, { 'www-authenticate': parts.join(', ') })
 }
 
 function revoked(config: McpConfig): Response {
   const message = 'Access revoked: the user no longer exists, is banned or no longer authorizes this application'
-  return jsonRpcError(
-    401,
-    message,
-    `Bearer error="invalid_token", error_description="${message}", resource_metadata="${protectedResourceMetadataUrl(config)}"`,
-  )
+  return jsonRpcError(401, message, {
+    'www-authenticate': `Bearer error="invalid_token", error_description="${message}", resource_metadata="${protectedResourceMetadataUrl(config)}"`,
+  })
+}
+
+/** 503 without a challenge: the credential could not be checked, so the client keeps it and retries. */
+function unavailable(message: string): Response {
+  return jsonRpcError(503, message, { 'retry-after': '5' })
 }
 
 /** docs/mcp.md §2: tools without listChanged, resources without subscribe, no prompts, sampling or elicitation. */
@@ -135,7 +139,13 @@ export function createScantorMcpHandler(readGuide: GuideReader, loopbackOrigin: 
   return async (request) => {
     const key = mcpApiKeyOf(request.headers)
     if (key) {
-      const principal = await principalFromApiKey(key)
+      let principal: UserPrincipal | null
+      try {
+        principal = await principalFromApiKey(key)
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'unavailable') return unavailable(error.message)
+        throw error
+      }
       if (!principal) return challenge(config, 'invalid, expired or revoked API key')
       const requestId = request.headers.get(REQUEST_ID_HEADER) ?? randomUUID()
       return serve(request, { token: '', clientId: 'api-key', scopes: [], extra: { principal, requestId } satisfies McpAuthExtra })

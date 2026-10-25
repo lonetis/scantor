@@ -1,6 +1,15 @@
-import { useAuth, useAuthContext } from '../../utils/auth'
+import { useAuthContext } from '../../utils/auth'
 import { mcpLevelForScopes } from '../../utils/auth-policy'
-import { apiKeyConfigIdOf, bearerValue, DEFAULT_API_KEY_PATTERN, EDITOR_API_KEY_PATTERN, effectiveAdmin, toUserRole, type UserPrincipal } from '../../utils/principal'
+import { lookupSession } from '../../utils/credential-lookup'
+import {
+  apiKeyConfigIdOf,
+  bearerValue,
+  DEFAULT_API_KEY_PATTERN,
+  EDITOR_API_KEY_PATTERN,
+  effectiveAdmin,
+  toUserRole,
+  type UserPrincipal,
+} from '../../utils/principal'
 import { isUserBanned, toCachedUser } from '../../utils/user-cache'
 import { hasOAuthConsent } from '../../utils/users'
 
@@ -25,12 +34,13 @@ export function mcpApiKeyOf(headers: Headers): string | null {
   return bearer && bearer.startsWith('sk_scantor_') ? bearer : null
 }
 
-/** Resolves an API key to an MCP principal, or null when invalid, expired or banned. */
+/**
+ * Resolves an API key to an MCP principal, or null when invalid, expired or banned. A lookup that fails (database
+ * outage) throws 503 `unavailable` (utils/credential-lookup.ts), which `/mcp` answers without an OAuth challenge.
+ */
 export async function principalFromApiKey(key: string): Promise<UserPrincipal | null> {
   if (!DEFAULT_API_KEY_PATTERN.test(key) && !EDITOR_API_KEY_PATTERN.test(key)) return null
-  const session = (await useAuth()
-    .api.getSession({ headers: new Headers({ 'x-api-key': key }) })
-    .catch(() => null)) as { session: { id: string }; user: Record<string, unknown> } | null
+  const { result: session } = await lookupSession(new Headers({ 'x-api-key': key }))
   if (!session || isUserBanned(toCachedUser(session.user))) return null
   const configId = apiKeyConfigIdOf(key)
   const role = toUserRole(session.user.role)

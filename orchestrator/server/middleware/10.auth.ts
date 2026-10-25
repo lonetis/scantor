@@ -1,9 +1,9 @@
 import { defineEventHandler, getRequestHeader, type H3Event, setResponseHeaders, setResponseStatus } from 'h3'
 import { trustedOrigins } from '../utils/auth-policy'
-import { useAuth } from '../utils/auth'
 import { isBootComplete } from '../utils/boot'
 import { useConfig } from '../utils/config'
 import { applyOpenCors, handleOpenCorsPreflight, isOpenCorsPath } from '../utils/cors'
+import { lookupSession } from '../utils/credential-lookup'
 import { apiError } from '../utils/errors'
 import { capabilityRequestOf, consumeInternalCapability, INTERNAL_AUTH_HEADER } from '../utils/internal-auth'
 import { useLogger } from '../utils/logger'
@@ -68,23 +68,6 @@ async function forwardSessionCookies(event: H3Event, headers: Headers | undefine
   for (const cookie of cookies) event.node.res.appendHeader('set-cookie', cookie)
 }
 
-interface SessionResult {
-  session: { id: string; createdAt: string | Date }
-  user: Record<string, unknown>
-}
-
-async function sessionFrom(headers: Headers): Promise<{ result: SessionResult | null; headers?: Headers }> {
-  try {
-    const response = (await useAuth().api.getSession({ headers, returnHeaders: true })) as {
-      response: SessionResult | null
-      headers?: Headers
-    }
-    return { result: response.response, headers: response.headers }
-  } catch {
-    return { result: null }
-  }
-}
-
 function userRefOf(user: Record<string, unknown>) {
   return { id: String(user.id), email: String(user.email ?? ''), name: String(user.name ?? ''), role: toUserRole(user.role) }
 }
@@ -116,7 +99,7 @@ async function resolveUserPrincipal(event: H3Event, pathname: string): Promise<{
       return { principal, banned: isUserBanned(user) }
     }
     case 'apiKey': {
-      const { result } = await sessionFrom(new Headers({ 'x-api-key': credential.key }))
+      const { result } = await lookupSession(new Headers({ 'x-api-key': credential.key }))
       if (!result) throw apiError('unauthorized', 'invalid or expired API key')
       const configId = apiKeyConfigIdOf(credential.key)
       const user = userRefOf(result.user)
@@ -132,7 +115,7 @@ async function resolveUserPrincipal(event: H3Event, pathname: string): Promise<{
       }
     }
     case 'session': {
-      const { result, headers } = await sessionFrom(new Headers({ cookie: credential.cookie }))
+      const { result, headers } = await lookupSession(new Headers({ cookie: credential.cookie }))
       if (!result) throw apiError('unauthorized', 'session expired or invalid')
       await forwardSessionCookies(event, headers)
       const user = userRefOf(result.user)
