@@ -8,8 +8,9 @@ import (
 	"github.com/lonetis/scantor/internal/api"
 )
 
-// MinRetryDelay is the floor of every retry delivery time (docs/runtime.md §10.2): a future-dated publish
-// is accepted even by a full queue, and jitter cannot produce sub-second delays.
+// MinRetryDelay is the floor of every retry delivery time (docs/runtime.md §10.2): it keeps jitter from
+// producing sub-second delays. It does not help a full scan queue, which refuses a future-dated publish like any
+// other (§8.11).
 const MinRetryDelay = time.Second
 
 // Policy is the retry policy of a scan's settings (docs/runtime.md §10).
