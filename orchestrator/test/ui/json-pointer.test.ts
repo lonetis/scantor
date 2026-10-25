@@ -2,12 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   dotPathAncestors,
   formatPointer,
-  getIn,
   mapIssuesToFields,
   parsePointer,
   pointerToDotPath,
   removeIn,
-  schemaErrorToFieldError,
   setIn,
 } from '../../app/utils/json-pointer'
 
@@ -75,29 +73,7 @@ describe('mapIssuesToFields', () => {
   })
 })
 
-describe('schemaErrorToFieldError', () => {
-  it('points required errors at the missing property', () => {
-    expect(schemaErrorToFieldError({ instancePath: '/auth', keyword: 'required', params: { missingProperty: 'token' }, message: "must have required property 'token'" }))
-      .toEqual({ name: 'auth.token', message: 'is required' })
-  })
-
-  it('reports unknown properties on the object', () => {
-    expect(schemaErrorToFieldError({ instancePath: '', keyword: 'additionalProperties', params: { additionalProperty: 'limt' } }))
-      .toEqual({ name: '', message: 'unknown property "limt"' })
-  })
-
-  it('keeps other messages on the instance path', () => {
-    expect(schemaErrorToFieldError({ instancePath: '/headers/0', keyword: 'maxLength', params: { limit: 5 }, message: 'must NOT have more than 5 characters' }))
-      .toEqual({ name: 'headers.0', message: 'must NOT have more than 5 characters' })
-  })
-})
-
 describe('immutable path updates', () => {
-  it('reads nested values', () => {
-    expect(getIn({ a: [{ b: 1 }] }, ['a', 0, 'b'])).toBe(1)
-    expect(getIn({ a: 1 }, ['a', 'b'])).toBeUndefined()
-  })
-
   it('sets values without mutating and creates containers', () => {
     const source = { a: { b: 1 } }
     const next = setIn(source, ['a', 'c'], 2)

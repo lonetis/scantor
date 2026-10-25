@@ -1049,7 +1049,6 @@ presigned URLs with forced `Content-Disposition`/`Content-Type` ([architecture](
 
 | Key | Content | Bound |
 |---|---|---|
-| `tables.<tableId>` | column visibility and page size | – |
 | `resultColumns.<taskId>` | chosen result columns | 200 tasks, LRU |
 | `queries.<scanId>` | recent query console inputs | 20 per scan, 50 scans, LRU |
 | `testRunDrafts.<taskId>` | last test-run inputs **without** `writeOnly` fields; configs only while their schemas are known, reduced to the declared properties (§5.8) | 50 tasks, LRU |

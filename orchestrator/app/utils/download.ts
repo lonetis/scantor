@@ -22,13 +22,3 @@ export function navigateToDownload(url: string): void {
 export function openInNewTab(url: string): void {
   window.open(url, '_blank', 'noopener')
 }
-
-/** Offers in-memory text as a file download (for example "Copy as JSON" alternatives). */
-export function downloadText(text: string, filename: string, contentType = 'application/json'): void {
-  const blobUrl = URL.createObjectURL(new Blob([text], { type: contentType }))
-  try {
-    downloadFromUrl(blobUrl, filename)
-  } finally {
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
-  }
-}

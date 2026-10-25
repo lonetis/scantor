@@ -84,38 +84,8 @@ export function mapIssuesToFields(
   return { fieldErrors, formErrors }
 }
 
-/** The structural part of an ajv `ErrorObject` this module needs (no ajv import, so it stays pure). */
-export interface SchemaValidationError {
-  instancePath: string
-  keyword: string
-  params: Record<string, unknown>
-  message?: string
-}
-
-/** ajv error → form error with a dot path relative to the validated value. */
-export function schemaErrorToFieldError(error: SchemaValidationError): FieldError {
-  const base = parsePointer(error.instancePath)
-  const message = error.message ?? 'is invalid'
-  if (error.keyword === 'required' && typeof error.params.missingProperty === 'string') {
-    return { name: segmentsToDotPath([...base, error.params.missingProperty]), message: 'is required' }
-  }
-  if (error.keyword === 'additionalProperties' && typeof error.params.additionalProperty === 'string') {
-    return { name: segmentsToDotPath(base), message: `unknown property "${error.params.additionalProperty}"` }
-  }
-  return { name: segmentsToDotPath(base), message }
-}
-
 function isContainer(value: unknown): value is Record<string, unknown> | unknown[] {
   return typeof value === 'object' && value !== null
-}
-
-export function getIn(value: unknown, segments: readonly PathSegment[]): unknown {
-  let current: unknown = value
-  for (const segment of segments) {
-    if (!isContainer(current)) return undefined
-    current = (current as Record<string, unknown>)[String(segment)]
-  }
-  return current
 }
 
 /** Immutable set; missing containers are created (arrays for numeric segments). */

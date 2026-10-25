@@ -3,7 +3,7 @@ import { UI_PREFS_LIMITS, emptyUiPrefs, sanitizeUiPrefs, stripPaths, touchLru } 
 
 describe('sanitizeUiPrefs (docs/ui.md §14)', () => {
   it('discards unknown versions and garbage', () => {
-    expect(sanitizeUiPrefs({ v: 2, tables: { a: {} } })).toEqual(emptyUiPrefs())
+    expect(sanitizeUiPrefs({ v: 2, filters: { scans: {} } })).toEqual(emptyUiPrefs())
     expect(sanitizeUiPrefs('nope')).toEqual(emptyUiPrefs())
     expect(sanitizeUiPrefs(null)).toEqual(emptyUiPrefs())
   })
@@ -11,17 +11,18 @@ describe('sanitizeUiPrefs (docs/ui.md §14)', () => {
   it('keeps valid entries and drops malformed ones', () => {
     const prefs = sanitizeUiPrefs({
       v: 1,
-      tables: { scans: { columnVisibility: { owner: false, bad: 'x' }, pageSize: 50 }, broken: 'x', ['__proto__']: { pageSize: 1 } },
+      tables: { scans: { pageSize: 50 } },
       resultColumns: { t1: { at: 2, value: ['a', 'b'] }, t2: { at: 1, value: [1] } },
       queries: { s1: { at: 1, value: [{ filter: {} }] } },
       testRunDrafts: { t1: { at: 1, value: { limit: 5 } }, t2: { at: 1, value: 'x' } },
-      filters: { tasks: { language: 'go' }, bad: 3 },
+      filters: { scans: { state: ['running'] }, bad: 3, ['__proto__']: { state: [] } },
     })
-    expect(prefs.tables).toEqual({ scans: { columnVisibility: { owner: false }, pageSize: 50 } })
+    // Keys the store no longer knows (table preferences of earlier builds) are dropped.
+    expect(prefs).not.toHaveProperty('tables')
     expect(Object.keys(prefs.resultColumns)).toEqual(['t1'])
     expect(prefs.queries.s1!.value).toEqual([{ filter: {} }])
     expect(Object.keys(prefs.testRunDrafts)).toEqual(['t1'])
-    expect(prefs.filters).toEqual({ tasks: { language: 'go' } })
+    expect(prefs.filters).toEqual({ scans: { state: ['running'] } })
   })
 
   it('enforces the LRU bounds when reading', () => {

@@ -11,11 +11,6 @@ export const UI_PREFS_LIMITS = {
   testRunDraftTasks: 50,
 } as const
 
-export interface TablePrefs {
-  columnVisibility?: Record<string, boolean>
-  pageSize?: number
-}
-
 /** An entry of an LRU map: the value plus its last-use time. */
 export interface LruEntry<T> {
   at: number
@@ -24,7 +19,6 @@ export interface LruEntry<T> {
 
 export interface UiPrefs {
   v: typeof UI_PREFS_VERSION
-  tables: Record<string, TablePrefs>
   resultColumns: Record<string, LruEntry<string[]>>
   queries: Record<string, LruEntry<unknown[]>>
   testRunDrafts: Record<string, LruEntry<Record<string, unknown>>>
@@ -32,7 +26,7 @@ export interface UiPrefs {
 }
 
 export function emptyUiPrefs(): UiPrefs {
-  return { v: UI_PREFS_VERSION, tables: {}, resultColumns: {}, queries: {}, testRunDrafts: {}, filters: {} }
+  return { v: UI_PREFS_VERSION, resultColumns: {}, queries: {}, testRunDrafts: {}, filters: {} }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -43,24 +37,6 @@ const SAFE_KEY = /^[\w.:@-]{1,200}$/
 
 function safeEntries(value: unknown): [string, unknown][] {
   return isRecord(value) ? Object.entries(value).filter(([key]) => SAFE_KEY.test(key) && key !== '__proto__') : []
-}
-
-function sanitizeTables(value: unknown): Record<string, TablePrefs> {
-  const result: Record<string, TablePrefs> = {}
-  for (const [key, raw] of safeEntries(value)) {
-    if (!isRecord(raw)) continue
-    const entry: TablePrefs = {}
-    if (isRecord(raw.columnVisibility)) {
-      entry.columnVisibility = Object.fromEntries(
-        safeEntries(raw.columnVisibility).filter((pair): pair is [string, boolean] => typeof pair[1] === 'boolean'),
-      )
-    }
-    if (typeof raw.pageSize === 'number' && Number.isInteger(raw.pageSize) && raw.pageSize > 0 && raw.pageSize <= 1000) {
-      entry.pageSize = raw.pageSize
-    }
-    result[key] = entry
-  }
-  return result
 }
 
 function sanitizeLru<T>(value: unknown, limit: number, check: (candidate: unknown) => candidate is T): Record<string, LruEntry<T>> {
@@ -83,7 +59,6 @@ export function sanitizeUiPrefs(raw: unknown): UiPrefs {
   if (!isRecord(raw) || raw.v !== UI_PREFS_VERSION) return emptyUiPrefs()
   return {
     v: UI_PREFS_VERSION,
-    tables: sanitizeTables(raw.tables),
     resultColumns: sanitizeLru(raw.resultColumns, UI_PREFS_LIMITS.resultColumnTasks, isStringArray),
     queries: Object.fromEntries(
       Object.entries(sanitizeLru(raw.queries, UI_PREFS_LIMITS.queryScans, isArray)).map(([key, entry]) => [

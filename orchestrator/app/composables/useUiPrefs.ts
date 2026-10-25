@@ -44,10 +44,6 @@ export function useUiPrefs() {
   return {
     prefs: readonly(prefs),
 
-    getTable: (tableId: string): TablePrefs => prefs.value.tables[tableId] ?? {},
-    setTable: (tableId: string, value: TablePrefs) =>
-      update((current) => ({ ...current, tables: { ...current.tables, [tableId]: value } })),
-
     getFilters: <T extends Record<string, unknown>>(page: string): Partial<T> => (prefs.value.filters[page] ?? {}) as Partial<T>,
     setFilters: (page: string, value: Record<string, unknown>) =>
       update((current) => ({ ...current, filters: { ...current.filters, [page]: value } })),
