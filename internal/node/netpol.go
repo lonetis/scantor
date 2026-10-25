@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -42,12 +43,17 @@ type EgressResult struct {
 	Errors   []string          `json:"errors"`
 }
 
-// CommandRunner runs a command and returns its combined output.
-type CommandRunner func(ctx context.Context, name string, args ...string) (string, error)
+// CommandRunner runs a command with stdin as its standard input (empty: none) and returns its combined
+// output.
+type CommandRunner func(ctx context.Context, stdin, name string, args ...string) (string, error)
 
 // ExecRunner runs commands with os/exec.
-func ExecRunner(ctx context.Context, name string, args ...string) (string, error) {
-	out, err := exec.CommandContext(ctx, name, args...).CombinedOutput()
+func ExecRunner(ctx context.Context, stdin, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
+	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
 
@@ -64,8 +70,9 @@ var egressFamilies = []egressFamily{
 
 // EgressApply applies the deny list with iptables (run inside the helper container). For each address
 // family with at least one CIDR it picks the first backend (nft, then legacy) whose DOCKER-USER chain
-// exists, which must be Docker's own backend, rebuilds SCANTOR-EGRESS with REJECT rules (which fail fast
-// instead of timing out) and makes sure DOCKER-USER jumps to it first.
+// exists, which must be Docker's own backend, replaces the rules of SCANTOR-EGRESS with REJECT rules
+// (which fail fast instead of timing out) in one transaction and makes sure DOCKER-USER jumps to it
+// first.
 func EgressApply(ctx context.Context, cidrs []netip.Prefix, run CommandRunner) EgressResult {
 	res := EgressResult{Applied: true, Families: map[string]string{}, Errors: []string{}}
 	for _, fam := range egressFamilies {
@@ -80,7 +87,7 @@ func EgressApply(ctx context.Context, cidrs []netip.Prefix, run CommandRunner) E
 		}
 		backend := ""
 		for _, b := range fam.backends {
-			if _, err := run(ctx, b, "-w", "-n", "-L", dockerUserChain); err == nil {
+			if _, err := run(ctx, "", b, "-w", "-n", "-L", dockerUserChain); err == nil {
 				backend = b
 				break
 			}
@@ -104,25 +111,48 @@ func (r *EgressResult) fail(family, msg string) {
 	r.Errors = append(r.Errors, family+": "+msg)
 }
 
+// applyChain makes SCANTOR-EGRESS hold exactly one REJECT rule per CIDR, in order, and makes
+// DOCKER-USER jump to it first. The rules are replaced with one `<backend>-restore --noflush`
+// transaction: declaring the chain creates it, or flushes it within the same commit, and every other
+// chain is left alone. Flushing and appending with separate commands would leave the chain empty, and
+// the metadata ranges reachable, between the flush and the first append while DOCKER-USER already
+// jumps to it. A chain that already holds the desired rules is not written at all. On the first run the
+// chain is complete before the jump is inserted.
 func applyChain(ctx context.Context, run CommandRunner, ipt, reject string, cidrs []string) error {
-	if out, err := run(ctx, ipt, "-w", "-N", EgressChain); err != nil && !strings.Contains(out, "exists") {
-		return commandError(ipt, "-N", out, err)
+	rules := make([]string, len(cidrs))
+	for i, c := range cidrs {
+		rules[i] = "-A " + EgressChain + " -d " + c + " -j REJECT --reject-with " + reject
 	}
-	if out, err := run(ctx, ipt, "-w", "-F", EgressChain); err != nil {
-		return commandError(ipt, "-F", out, err)
-	}
-	for _, c := range cidrs {
-		if out, err := run(ctx, ipt, "-w", "-A", EgressChain, "-d", c, "-j", "REJECT", "--reject-with", reject); err != nil {
-			return commandError(ipt, "-A "+c, out, err)
+	if !chainHolds(ctx, run, ipt, rules) {
+		restore := ipt + "-restore"
+		input := "*filter\n:" + EgressChain + " - [0:0]\n" + strings.Join(rules, "\n") + "\nCOMMIT\n"
+		if out, err := run(ctx, input, restore, "-w", "--noflush"); err != nil {
+			return commandError(restore, "--noflush", out, err)
 		}
 	}
-	if _, err := run(ctx, ipt, "-w", "-C", dockerUserChain, "-j", EgressChain); err == nil {
+	if _, err := run(ctx, "", ipt, "-w", "-C", dockerUserChain, "-j", EgressChain); err == nil {
 		return nil
 	}
-	if out, err := run(ctx, ipt, "-w", "-I", dockerUserChain, "1", "-j", EgressChain); err != nil {
+	if out, err := run(ctx, "", ipt, "-w", "-I", dockerUserChain, "1", "-j", EgressChain); err != nil {
 		return commandError(ipt, "-I "+dockerUserChain, out, err)
 	}
 	return nil
+}
+
+// chainHolds reports whether SCANTOR-EGRESS exists and holds exactly rules, in order (`-S` prints
+// rules in the restore syntax). Any failure counts as a mismatch, so the chain is rewritten.
+func chainHolds(ctx context.Context, run CommandRunner, ipt string, rules []string) bool {
+	out, err := run(ctx, "", ipt, "-w", "-S", EgressChain)
+	if err != nil {
+		return false
+	}
+	var have []string
+	for line := range strings.Lines(out) {
+		if line = strings.TrimSpace(line); strings.HasPrefix(line, "-A ") {
+			have = append(have, line)
+		}
+	}
+	return slices.Equal(have, rules)
 }
 
 func commandError(ipt, op, out string, err error) error {

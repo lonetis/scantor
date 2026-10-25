@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"slices"
 	"strings"
@@ -17,12 +18,12 @@ import (
 	"github.com/lonetis/scantor/internal/container"
 )
 
-// fakeIptables simulates iptables binaries: chains per binary, with DOCKER-USER present for the
-// binaries listed in withDockerUser.
+// fakeIptables simulates iptables binaries and their -restore counterparts: chains per binary, with
+// DOCKER-USER present for the binaries listed in withDockerUser.
 type fakeIptables struct {
 	withDockerUser []string
 	chains         map[string]map[string][]string // binary → chain → rules
-	failAppend     bool
+	failRestore    bool
 	calls          []string
 }
 
@@ -34,12 +35,18 @@ func newFakeIptables(withDockerUser ...string) *fakeIptables {
 	return f
 }
 
-func (f *fakeIptables) run(_ context.Context, name string, args ...string) (string, error) {
-	f.calls = append(f.calls, name+" "+strings.Join(args, " "))
+func (f *fakeIptables) run(_ context.Context, stdin, name string, args ...string) (string, error) {
+	f.calls = append(f.calls, strings.TrimSpace(name+" "+strings.Join(args, " ")))
 	if len(args) == 0 || args[0] != "-w" {
 		return "", errors.New("missing -w")
 	}
 	args = args[1:]
+	if binary, ok := strings.CutSuffix(name, "-restore"); ok {
+		return f.restore(binary, stdin, args)
+	}
+	if stdin != "" {
+		return "", fmt.Errorf("unexpected stdin for %s", name)
+	}
 	chains, ok := f.chains[name]
 	if !ok {
 		return "iptables: No chain/target/match by that name.", errors.New("exit status 1")
@@ -50,18 +57,16 @@ func (f *fakeIptables) run(_ context.Context, name string, args ...string) (stri
 			return "No chain/target/match by that name.", errors.New("exit status 1")
 		}
 		return "Chain " + args[2], nil
-	case "-N":
-		if _, ok := chains[args[1]]; ok {
-			return "iptables: Chain already exists.", errors.New("exit status 1")
+	case "-S":
+		rules, ok := chains[args[1]]
+		if !ok {
+			return "iptables: No chain/target/match by that name.", errors.New("exit status 1")
 		}
-		chains[args[1]] = nil
-	case "-F":
-		chains[args[1]] = nil
-	case "-A":
-		if f.failAppend {
-			return "iptables v1.8.13 (nf_tables): unknown option \"--reject-with\"", errors.New("exit status 2")
+		out := "# Warning: iptables-legacy tables present, use iptables-legacy to see them\n-N " + args[1] + "\n"
+		for _, r := range rules {
+			out += "-A " + args[1] + " " + r + "\n"
 		}
-		chains[args[1]] = append(chains[args[1]], strings.Join(args[2:], " "))
+		return out, nil
 	case "-C":
 		if !slices.Contains(chains[args[1]], strings.Join(args[2:], " ")) {
 			return "Bad rule", errors.New("exit status 1")
@@ -72,6 +77,57 @@ func (f *fakeIptables) run(_ context.Context, name string, args ...string) (stri
 		return "", fmt.Errorf("unexpected %v", args)
 	}
 	return "", nil
+}
+
+// restore applies an iptables-restore --noflush input to the filter table as one transaction: a
+// declared chain is created or emptied, the -A lines are appended, and nothing changes on an error.
+func (f *fakeIptables) restore(binary, input string, args []string) (string, error) {
+	if !slices.Equal(args, []string{"--noflush"}) {
+		return "", fmt.Errorf("unexpected restore arguments %v", args)
+	}
+	if f.failRestore {
+		return binary + "-restore v1.8.13 (nf_tables): unknown option \"--reject-with\"\nError occurred at line: 3", errors.New("exit status 2")
+	}
+	chains, ok := f.chains[binary]
+	if !ok {
+		return "", errors.New("exit status 1")
+	}
+	next := maps.Clone(chains)
+	lines := strings.Split(strings.TrimSuffix(input, "\n"), "\n")
+	if len(lines) < 2 || lines[0] != "*filter" || lines[len(lines)-1] != "COMMIT" {
+		return "", fmt.Errorf("malformed restore input %q", input)
+	}
+	for _, line := range lines[1 : len(lines)-1] {
+		switch {
+		case strings.HasPrefix(line, ":"):
+			chain, rest, _ := strings.Cut(line[1:], " ")
+			if rest != "- [0:0]" {
+				return "", fmt.Errorf("unexpected chain line %q", line)
+			}
+			next[chain] = []string{}
+		case strings.HasPrefix(line, "-A "):
+			chain, rule, _ := strings.Cut(strings.TrimPrefix(line, "-A "), " ")
+			if _, ok := next[chain]; !ok {
+				return "iptables-restore: line 2 failed", errors.New("exit status 1")
+			}
+			next[chain] = append(next[chain], rule)
+		default:
+			return "", fmt.Errorf("unexpected restore line %q", line)
+		}
+	}
+	f.chains[binary] = next
+	return "", nil
+}
+
+// restores returns the -restore calls made so far.
+func (f *fakeIptables) restores() []string {
+	var out []string
+	for _, c := range f.calls {
+		if strings.Contains(c, "-restore ") {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func prefixes(s ...string) []netip.Prefix {
@@ -99,10 +155,50 @@ func TestEgressApplyNft(t *testing.T) {
 	if got := ipt.chains["iptables-nft"][dockerUserChain]; !slices.Equal(got, []string{"-j " + EgressChain, "-j RETURN"}) {
 		t.Errorf("DOCKER-USER = %q, want the jump first", got)
 	}
-	// Re-applying is idempotent: the chain is rebuilt, the jump is not duplicated.
+	// The chain is filled before the jump to it is inserted.
+	restoreAt := slices.Index(ipt.calls, "iptables-nft-restore -w --noflush")
+	jumpAt := slices.Index(ipt.calls, "iptables-nft -w -I DOCKER-USER 1 -j SCANTOR-EGRESS")
+	if restoreAt < 0 || jumpAt < restoreAt {
+		t.Errorf("calls = %q, want the restore before the jump", ipt.calls)
+	}
+	// Re-applying an intact chain writes nothing and does not duplicate the jump.
+	ipt.calls = nil
 	res = EgressApply(t.Context(), deny, ipt.run)
 	if !res.Applied || len(ipt.chains["iptables-nft"][EgressChain]) != 2 || len(ipt.chains["iptables-nft"][dockerUserChain]) != 2 {
 		t.Errorf("second run: %+v %v", res, ipt.chains)
+	}
+	if r := ipt.restores(); len(r) != 0 {
+		t.Errorf("an intact chain was rewritten: %q", r)
+	}
+}
+
+// The chain is never flushed on its own: a re-apply that has to change it (a firewall tool edited it,
+// or the deny list changed) replaces its rules in a single restore transaction, so DOCKER-USER never
+// jumps to an empty chain.
+func TestEgressApplyReplacesTheChainAtomically(t *testing.T) {
+	ipt := newFakeIptables("iptables-nft")
+	if res := EgressApply(t.Context(), prefixes("169.254.0.0/16", "100.100.100.200/32"), ipt.run); !res.Applied {
+		t.Fatalf("first run = %+v", res)
+	}
+	ipt.chains["iptables-nft"][EgressChain] = []string{"-d 169.254.0.0/16 -j REJECT --reject-with icmp-admin-prohibited"}
+	ipt.calls = nil
+	if res := EgressApply(t.Context(), prefixes("169.254.0.0/16", "100.100.100.200/32"), ipt.run); !res.Applied {
+		t.Fatalf("repair = %+v", res)
+	}
+	want := []string{"-d 169.254.0.0/16 -j REJECT --reject-with icmp-admin-prohibited", "-d 100.100.100.200/32 -j REJECT --reject-with icmp-admin-prohibited"}
+	if got := ipt.chains["iptables-nft"][EgressChain]; !slices.Equal(got, want) {
+		t.Errorf("repaired chain = %q", got)
+	}
+	if r := ipt.restores(); len(r) != 1 {
+		t.Errorf("restores = %q, want exactly one", r)
+	}
+	for _, c := range ipt.calls {
+		if strings.Contains(c, " -F") || strings.Contains(c, " -N") || strings.Contains(c, " -A") {
+			t.Errorf("the chain was changed outside the restore transaction: %s", c)
+		}
+	}
+	if n := len(ipt.chains["iptables-nft"][dockerUserChain]); n != 2 {
+		t.Errorf("DOCKER-USER has %d rules, want the jump once plus RETURN", n)
 	}
 }
 
@@ -137,10 +233,14 @@ func TestEgressApplyBackendDetection(t *testing.T) {
 
 func TestEgressApplyReportsCommandErrors(t *testing.T) {
 	ipt := newFakeIptables("iptables-nft")
-	ipt.failAppend = true
+	ipt.failRestore = true
 	res := EgressApply(t.Context(), prefixes("169.254.0.0/16"), ipt.run)
-	if res.Applied || len(res.Errors) != 1 || !strings.Contains(res.Errors[0], "reject-with") {
+	if res.Applied || len(res.Errors) != 1 || !strings.Contains(res.Errors[0], "iptables-nft-restore --noflush") || !strings.Contains(res.Errors[0], "reject-with") {
 		t.Errorf("result = %+v", res)
+	}
+	// A failed transaction leaves no jump to a missing or partial chain.
+	if got := ipt.chains["iptables-nft"][dockerUserChain]; !slices.Equal(got, []string{"-j RETURN"}) {
+		t.Errorf("DOCKER-USER = %q", got)
 	}
 }
 

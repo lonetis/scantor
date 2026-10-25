@@ -548,6 +548,18 @@ func TestEgressHelperAppliesRules(t *testing.T) {
 	if !strings.Contains(rules6, "-A SCANTOR-EGRESS -d fd00:ec2::254/128 -j REJECT --reject-with icmp6-adm-prohibited") || !strings.Contains(rules6, "-A DOCKER-USER -j SCANTOR-EGRESS") {
 		t.Errorf("ipv6 rules:\n%s", rules6)
 	}
+
+	// A rule removed behind the daemon's back is restored by the next run (one restore transaction).
+	if out, code := execIn(t, docker, netns.ID, "iptables-nft", "-w", "-D", "SCANTOR-EGRESS", "-d", "100.100.100.200/32", "-j", "REJECT", "--reject-with", "icmp-admin-prohibited"); code != 0 {
+		t.Fatalf("iptables-nft -D: %s", out)
+	}
+	if res, err = h.run(ctx); err != nil || !res.Applied {
+		t.Fatalf("third run = %+v, %v", res, err)
+	}
+	rules, _ = execIn(t, docker, netns.ID, "iptables-nft", "-w", "-S", "SCANTOR-EGRESS")
+	if !strings.Contains(rules, "-A SCANTOR-EGRESS -d 169.254.0.0/16 -j REJECT --reject-with icmp-admin-prohibited\n-A SCANTOR-EGRESS -d 100.100.100.200/32 -j REJECT --reject-with icmp-admin-prohibited") {
+		t.Errorf("repaired chain:\n%s", rules)
+	}
 }
 
 func boolPtr(b bool) *bool { return &b }

@@ -684,13 +684,23 @@ for family in (ipv4: iptables, ipv6: ip6tables) with at least one CIDR of that f
   backend := first of (iptables-nft, iptables-legacy) whose `-w -n -L DOCKER-USER` succeeds
              // must match Docker's own backend; both binaries ship in the scantor image
   if none: result[family] = "DOCKER-USER chain not found"; continue
-  -N SCANTOR-EGRESS (ignore "exists"); -F SCANTOR-EGRESS
-  for cidr in family: -A SCANTOR-EGRESS -d <cidr> -j REJECT
-                      // icmp-admin-prohibited / icmp6-adm-prohibited: fails fast instead of timing out
+  rules := for cidr in family: "-A SCANTOR-EGRESS -d <cidr> -j REJECT --reject-with <reject>"
+           // icmp-admin-prohibited / icmp6-adm-prohibited: fails fast instead of timing out
+  if `<backend> -w -S SCANTOR-EGRESS` does not list exactly rules (in order):
+    <backend>-restore -w --noflush  <<  "*filter", ":SCANTOR-EGRESS - [0:0]", rules…, "COMMIT"
   -C DOCKER-USER -j SCANTOR-EGRESS || -I DOCKER-USER 1 -j SCANTOR-EGRESS
 print {"applied": bool, "families": {...}, "errors": [...]} on stdout
 ```
 
+- The chain is replaced in **one transaction** and is never empty while `DOCKER-USER` jumps to it.
+  With `--noflush`, the chain declaration creates `SCANTOR-EGRESS` or empties it within the same commit,
+  the rules follow in that commit, and every other chain stays untouched; a rejected rule aborts the
+  whole transaction and leaves the previous chain in place. A separate `-F` followed by one `-A` per
+  CIDR would leave the metadata ranges reachable between the flush and the first append, on every
+  periodic re-apply. A chain that already holds the desired rules is not written at all, and on the
+  first run the chain is complete before the jump is inserted. All four restore binaries
+  (`iptables-nft-restore`, `iptables-legacy-restore`, `ip6tables-nft-restore`,
+  `ip6tables-legacy-restore`) ship in the scantor image.
 - `DOCKER-USER` filters forwarded traffic of containers on bridge networks, which covers workers,
   editors, test runs and BuildKit. Host-network containers and the host itself are not affected.
 - `egressDenyApplied` is `true` only when every configured CIDR is in place. Otherwise the daemon logs a
@@ -944,7 +954,8 @@ lead review:
 3. **Free disk** is measured with `statfs("/")` inside the daemon container. No host mount is needed.
 4. **Egress helper:** chain `SCANTOR-EGRESS` jumped to from `DOCKER-USER`, `REJECT` target, iptables
    backend auto-detected. The helper image is the daemon's own image, found by self-inspection, and the
-   rules are re-applied every 10 min. The deny list proposed for `.env.example` also includes the Alibaba
+   rules are re-applied every 10 min, each time in one `iptables-restore --noflush` transaction, so the
+   chain is never empty while jumped to. The deny list proposed for `.env.example` also includes the Alibaba
    metadata address `100.100.100.200/32`.
 5. **Plaintext allowance** also covers CGNAT `100.64.0.0/10` and IPv6 ULA `fc00::/7` (private overlay
    networks), checked on the resolved peer address.
