@@ -402,4 +402,62 @@ test.describe('sessions', () => {
       expect((await owner.api.getAccount()).status).toBe(200)
     },
   )
+
+  test(
+    'request paths that a URL parser would rewrite are 400 before any middleware, route or better-auth sees them',
+    { tag: ['@AUTH-020'] },
+    async ({ adminApi, openapi, user, env }) => {
+      // Straight to the dashboard listener, so no proxy in front normalises the path first; node:http sends it verbatim.
+      const send = (method: string, path: string, headers: Record<string, string>, body?: string) =>
+        rawRequest(dashboardListenerUrl(), {
+          method,
+          path,
+          headers: { Host: env.domain, Origin: env.publicUrl, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
+          body,
+        })
+      const expectRefused = (response: Awaited<ReturnType<typeof send>>, label: string) => {
+        expect(response.status, `${label}: ${response.text().slice(0, 200)}`).toBe(400)
+        expect(response.json<Envelope>().error?.code, label).toBe('badRequest')
+      }
+
+      // An API key never reaches better-auth through a path that only resolves to /api/auth/*.
+      const editorShaped = `sk_scantor_editor_${'E'.repeat(64)}`
+      const keyPaths = [
+        '/.well-known/x/../../api/auth/get-session',
+        '/.well-known/x/../../api/auth/passkey/generate-register-options',
+        '/.well-known/x/%2e%2e/%2e%2e/api/auth/oauth2/authorize',
+        '/.well-known/oauth-protected-resource/../../api/auth/list-sessions',
+        '/api/auth/x/../passkey/generate-register-options',
+        '/api/x/../auth/get-session',
+        '/api\\auth\\get-session',
+        '//api/auth/get-session',
+      ]
+      for (const key of [user.apiKey, editorShaped]) {
+        const credentials: Record<string, string>[] = [{ 'x-api-key': key }, { Authorization: `Bearer ${key}` }]
+        for (const headers of credentials) {
+          for (const path of keyPaths) expectRefused(await send('GET', path, headers), `GET ${path} with ${Object.keys(headers)[0]}`)
+        }
+      }
+
+      // A session older than 24 h cannot skip the passkey guard with another spelling of the passkey paths.
+      const owner = await users.signedIn(adminApi, openapi, { prefix: 'paths' })
+      await ageSessions(owner.id, 25)
+      const cookie = { Cookie: `${owner.cookie.name}=${owner.cookie.value}` }
+      for (const [method, path, body] of [
+        ['GET', '/api/auth/passkey/./generate-register-options'],
+        ['POST', '/api/auth/passkey/%2e/verify-registration', '{"response":{}}'],
+        ['POST', '/api/auth/passkey/x/../delete-passkey', '{"id":"x"}'],
+        ['POST', '/.well-known/x/../../api/auth/passkey/verify-registration', '{"response":{}}'],
+      ] as const) {
+        expectRefused(await send(method, path, cookie, body), `${method} ${path}`)
+      }
+      // Control: the canonical path reaches the guard, which refuses the aged session.
+      const canonical = await send('GET', '/api/auth/passkey/generate-register-options', cookie)
+      expect(canonical.status, canonical.text()).toBe(403)
+      expect(canonical.json<Envelope>().error?.code).toBe('sessionRequired')
+      // Query strings are not part of the path: a canonical path with dot segments in its query passes.
+      const health = await send('GET', '/api/health?x=../..', {})
+      expect([200, 503], health.text()).toContain(health.status)
+    },
+  )
 })

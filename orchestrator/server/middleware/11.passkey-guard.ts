@@ -2,6 +2,7 @@ import { defineEventHandler, getQuery, getRequestHeader } from 'h3'
 import { useAuth } from '../utils/auth'
 import { apiError } from '../utils/errors'
 import { SESSION_COOKIE_NAMES } from '../utils/principal'
+import { routedPathname } from '../utils/request-path'
 import { credentialSummary } from '../utils/users'
 
 // Credential invariant and passkey freshness guard (docs/auth.md §6.4):
@@ -10,6 +11,7 @@ import { credentialSummary } from '../utils/users'
 //   the passkey plugin runs with `requireSession: false` for the passkey-first setup flow;
 // - without a session, generate-register-options needs the `context` (spk_ setup token) that
 //   resolvePasskeySetupUser validates; verify-registration then completes the setup user.
+// The rules key on the path better-auth routes (dot segments resolved), never on the raw request path.
 
 const FRESH_SESSION_MS = 24 * 3_600_000
 
@@ -28,7 +30,7 @@ async function currentSession(cookie: string | undefined): Promise<SessionResult
 }
 
 export default defineEventHandler(async (event) => {
-  const pathname = event.path.split('?')[0] ?? '/'
+  const pathname = routedPathname(event)
   if (!pathname.startsWith('/api/auth/passkey/')) return
   const action = pathname.slice('/api/auth/passkey/'.length)
 

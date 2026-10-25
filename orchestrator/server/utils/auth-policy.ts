@@ -74,6 +74,11 @@ export function isAuthHttpEndpoint(method: string, pathname: string): boolean {
   if (pathname.startsWith(`${AUTH_BASE_PATH}/`)) {
     return AUTH_HTTP_ENDPOINTS.get(pathname.slice(AUTH_BASE_PATH.length))?.includes(method) ?? false
   }
+  return isAuthRootDiscoveryEndpoint(method, pathname)
+}
+
+/** Whether `method pathname` is one of the discovery documents the root `.well-known` route forwards to better-auth. */
+export function isAuthRootDiscoveryEndpoint(method: string, pathname: string): boolean {
   return AUTH_ROOT_DISCOVERY_PATHS.has(pathname) && (method === 'GET' || method === 'HEAD')
 }
 

@@ -19,6 +19,7 @@ import {
   toUserRole,
   type UserPrincipal,
 } from '../utils/principal'
+import { rawPathOf, routedPathname } from '../utils/request-path'
 import { checkSetupToken } from '../utils/setup'
 import { getCachedUser, isUserBanned, toCachedUser } from '../utils/user-cache'
 import { checkClientVersion, scantorVersion } from '../utils/version'
@@ -26,7 +27,8 @@ import { resolveWorkerToken } from '../utils/worker-tokens'
 
 // The global auth middleware (docs/auth.md §5.5, docs/api.md §1.2) for `/api/*` on the dashboard listener:
 // route prefix → credential → operation registry (deny by default) → scope, session-only and MCP level → ban →
-// CSRF. It stores `event.context.principal` and `event.context.operation`. `/mcp` authenticates itself.
+// CSRF. It stores `event.context.principal` and `event.context.operation`. `/mcp` authenticates itself. API keys
+// are rejected wherever better-auth would answer, judged on the raw path and on the path better-auth routes.
 
 const log = useLogger('auth')
 
@@ -42,6 +44,10 @@ const BOOT_EXEMPT_PATHS = new Set(['/api/health', ...DOCS_PATHS])
 /** Traefik's forwardAuth route, which never answers with the JSON error envelope (docs/api.md §4.18). */
 const FORWARD_AUTH_PATH = '/api/tools/forward-auth'
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
+
+function isAuthPath(path: string): boolean {
+  return path === '/api/auth' || path.startsWith('/api/auth/')
+}
 
 function carriesApiKey(event: H3Event): boolean {
   return !!getRequestHeader(event, 'x-api-key') || looksLikeApiKey(bearerValue(getRequestHeader(event, 'authorization')))
@@ -192,7 +198,11 @@ function enforceScope(operation: Operation, principal: Principal | null, pathnam
 }
 
 export default defineEventHandler(async (event) => {
-  const pathname = event.path.split('?')[0] ?? '/'
+  const pathname = rawPathOf(event.path)
+  // middleware/01.path.ts already refused paths whose two forms differ; this keeps the key rule independent of it.
+  if (!isAuthPath(pathname) && isAuthPath(routedPathname(event)) && carriesApiKey(event)) {
+    throw apiError('unauthorized', 'API keys cannot be used on /api/auth')
+  }
   if (!pathname.startsWith('/api/') && pathname !== '/api') return
 
   if (!isBootComplete() && !BOOT_EXEMPT_PATHS.has(pathname)) {
@@ -204,7 +214,7 @@ export default defineEventHandler(async (event) => {
     throw apiError('unavailable', 'the orchestrator is starting')
   }
 
-  if (pathname === '/api/auth' || pathname.startsWith('/api/auth/')) {
+  if (isAuthPath(pathname)) {
     if (carriesApiKey(event)) throw apiError('unauthorized', 'API keys cannot be used on /api/auth')
     if (handleOpenCorsPreflight(event, pathname)) return
     if (isOpenCorsPath(pathname)) applyOpenCors(event)

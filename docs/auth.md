@@ -17,6 +17,7 @@ request
   │
   ├─ request hook       security headers on every response, public assets included (ui §13)
   ├─ 00.request         request id, client IP header (x-scantor-client-ip), 421 for the editor host
+  ├─ 01.path            400 badRequest for a path that a URL parser would rewrite (§5.5)
   ├─ 02.body-limit      SCANTOR_MAX_REQUEST_BYTES / per-route caps
   ├─ 10.auth            (/api/* only)
   │     ├─ route prefix  → which credential kind is parsed (§5.3)
@@ -223,6 +224,9 @@ more. Over HTTP they are therefore **denied by default**: the scantor plugin `au
 inside `useAuth().handler` before every other plugin and before routing, for both HTTP entries into better-auth (the
 `/api/auth/*` catch-all and the root `.well-known` route), on the URL better-auth itself routes (dot segments
 resolved). The match is exact: other methods, trailing slashes, percent-encodings and case variants are denied.
+The root `.well-known` route forwards only the three root discovery documents listed below (GET, HEAD), judged on
+that routed URL, and answers 404 for everything else, so no path below `/api/auth` is reachable through it. A raw
+path whose routed form differs never gets that far: `01.path` refuses it first (§5.5).
 Server-side `auth.api.*` calls never pass through it, so scantor's own routes keep calling any endpoint.
 
 `isAuthHttpEndpoint(method, path)` allows exactly the endpoints of [api](api.md) §3:
@@ -481,7 +485,9 @@ audience-bound to `/mcp`, so a bearer value that is not `sk_scantor_…` on a us
 API keys on `/api/auth/*`: the middleware rejects any request to `/api/auth/*` that carries `x-api-key` or a
 `Bearer sk_scantor_…` value with 401 `unauthorized` (scantor envelope). Otherwise the api-key plugin would
 turn the key into a session for better-auth's own endpoints. A stolen CLI key could then register a passkey,
-change the email or approve OAuth consents, which amounts to account takeover.
+change the email or approve OAuth consents, which amounts to account takeover. The rule holds for the raw path and
+for the path better-auth routes (dot segments resolved), and `01.path` already refuses every path whose two forms
+differ (§5.5), so no other spelling such as `/.well-known/x/../../api/auth/…` carries a key into better-auth.
 
 ### 5.3 Route prefixes
 
@@ -545,6 +551,13 @@ condition ([testing](testing.md) §8.5). Route handlers still call the typed hel
 again (defence in depth). The central check is what the authorization matrix relies on.
 
 ### 5.5 Middleware algorithm
+
+`orchestrator/server/middleware/01.path.ts` runs first, for every request: the raw path (without the query) must
+equal the pathname a WHATWG URL parser makes of it, which is what h3's `getRequestURL` and so better-auth route.
+Dot segments (also percent-encoded, `%2e`), backslashes, repeated leading slashes and characters the parser would
+percent-encode are 400 `badRequest`. Nitro's router and the middleware match the raw path, so without this rule a
+path such as `/.well-known/x/../../api/auth/passkey/generate-register-options` would reach a route outside `/api/auth`
+while better-auth runs the passkey endpoint, past every check keyed on `/api/auth/*`.
 
 `orchestrator/server/middleware/10.auth.ts`, for requests on the dashboard listener whose path starts with
 `/api/`:
@@ -658,6 +671,9 @@ account routes enforce:
 | `DELETE /api/account/password` (`removeAccountPassword`) | rejected when the user has no passkey | 409 `lastCredential` |
 | `GET /api/auth/passkey/generate-register-options`, `POST /api/auth/passkey/verify-registration` without a `context` query value | require a session created less than 24 h ago (the passkey plugin's `freshAge` semantics, which `requireSession: false` would otherwise skip) | 403 `sessionRequired` |
 | same, with a `context` value | handled by `resolvePasskeySetupUser` (§7.3); an unknown or expired context is 401 | – |
+
+The guard matches the path better-auth routes (dot segments resolved), never the raw request path, so a spelling
+such as `/api/auth/passkey/./delete-passkey` cannot skip it; `01.path` refuses such paths anyway (§5.5).
 
 ## 7. First admin
 
@@ -983,6 +999,7 @@ Specified in [mcp](mcp.md) §3:
 | `orchestrator/server/utils/node-tokens.ts`, `worker-tokens.ts` | node token generation/validation; worker token mint/verify |
 | `orchestrator/server/utils/internal-auth.ts` | `sic_` capability mint/consume |
 | `orchestrator/server/middleware/00.request.ts` | request id, client IP header, 421 for the editor host |
+| `orchestrator/server/middleware/01.path.ts`, `orchestrator/server/utils/request-path.ts` | canonical request paths (§5.5) |
 | `orchestrator/server/middleware/10.auth.ts` | §5.5 |
 | `orchestrator/server/middleware/11.passkey-guard.ts` | §6.4 |
 | `orchestrator/server/services/registry/token.ts` | registry token server |

@@ -300,8 +300,9 @@ orchestrator/
 │   ├── routes/                   mcp.ts (/mcp), .well-known/[...path].ts (never editor routes: the editor origin is
 │   │                             its own listener)
 │   ├── middleware/               ordered by prefix (auth §1): 00.request (request id, x-scantor-client-ip,
-│   │                             421 for the editor host), 02.body-limit, 10.auth (prefixes, principals,
-│   │                             operation registry, scopes, bans, CSRF), 11.passkey-guard
+│   │                             421 for the editor host), 01.path (400 for non-canonical paths, auth §5.5),
+│   │                             02.body-limit, 10.auth (prefixes, principals, operation registry, scopes,
+│   │                             bans, CSRF), 11.passkey-guard
 │   ├── plugins/                  Nitro plugins in file-name order: 00.boot (resets the registries, registers the
 │   │                             foundation boot steps, architecture §4.1), 10.components (foundation component
 │   │                             tasks: the jobs runners, userPurge), 20–89 domain plugins that only register

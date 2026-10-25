@@ -91,6 +91,7 @@ Mechanisms: [auth](../docs/auth.md) §2, §4, §5, [security](../docs/security.m
 - **AUTH-017** [security] Banning a user who holds a session, a `default` key, an `editor` key, an MCP OAuth token, MCP over an API key and (as an admin) a tools cookie rejects every one of these principals within 30 s; the API keys and OAuth consents are deleted and the editor is stopped.
 - **AUTH-018** [api, security] Role changes and bans take effect on every principal of the user within 30 s.
 - **AUTH-019** [security] Signing out also clears the admin tools cookie (`Set-Cookie: scantor_tools=; Domain=<SCANTOR_DOMAIN>; Max-Age=0`).
+- **AUTH-020** [security] A request path that a URL parser would rewrite (dot segments, also percent-encoded, backslashes, repeated leading slashes) returns 400 `badRequest` before any check, so neither an API key on `/.well-known/x/../../api/auth/*` nor a session older than 24 h on `/api/auth/passkey/./*` reaches better-auth.
 
 ## ACCT. Account, API keys and authorized apps
 

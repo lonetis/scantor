@@ -58,6 +58,11 @@ export interface RawRequestOptions {
   /** the body; sent with Transfer-Encoding: chunked (no Content-Length) when `chunked` is true */
   body?: Buffer | string
   chunked?: boolean
+  /**
+   * the request target sent verbatim (dot segments, backslashes and all) instead of the path of `url`, which the URL
+   * parser has already normalised
+   */
+  path?: string
 }
 
 /**
@@ -71,8 +76,14 @@ export function rawRequest(url: string, options: RawRequestOptions = {}): Promis
   const headers: Record<string, string> = { ...options.headers }
   if (body && !options.chunked) headers['Content-Length'] = String(body.length)
   if (body && options.chunked) headers['Transfer-Encoding'] = 'chunked'
+  const destination = {
+    protocol: target.protocol,
+    hostname: target.hostname.replace(/^\[(.*)\]$/, '$1'),
+    port: target.port,
+    path: options.path ?? `${target.pathname}${target.search}`,
+  }
   return new Promise((resolve, reject) => {
-    const req = send(target, { method: options.method ?? 'GET', headers, timeout: 60_000 }, (res) => {
+    const req = send({ ...destination, method: options.method ?? 'GET', headers, timeout: 60_000 }, (res) => {
       const chunks: Buffer[] = []
       res.on('data', (chunk: Buffer) => chunks.push(chunk))
       res.on('error', reject)

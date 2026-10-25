@@ -7,6 +7,7 @@ import {
   authHttpAllowlist,
   isAllowedMcpRedirect,
   isAuthHttpEndpoint,
+  isAuthRootDiscoveryEndpoint,
   mcpLevelForScopes,
   RATE_LIMIT,
   rateLimitConfig,
@@ -173,6 +174,20 @@ describe('isAuthHttpEndpoint', () => {
     ['GET', '/somewhere-else'],
   ])('denies %s %s', (method, path) => {
     expect(isAuthHttpEndpoint(method, path)).toBe(false)
+  })
+})
+
+describe('isAuthRootDiscoveryEndpoint', () => {
+  it('admits only the three discovery documents with GET or HEAD', () => {
+    for (const path of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server/api/auth', '/.well-known/openid-configuration/api/auth']) {
+      expect(isAuthRootDiscoveryEndpoint('GET', path), path).toBe(true)
+      expect(isAuthRootDiscoveryEndpoint('HEAD', path), path).toBe(true)
+      expect(isAuthRootDiscoveryEndpoint('POST', path), path).toBe(false)
+    }
+    // Paths the root route must never forward, among them the ones a dot-segment spelling resolves to.
+    for (const path of ['/api/auth/passkey/generate-register-options', '/api/auth/oauth2/authorize', '/api/auth/get-session', '/.well-known/x', '/']) {
+      expect(isAuthRootDiscoveryEndpoint('GET', path), path).toBe(false)
+    }
   })
 })
 
