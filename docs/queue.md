@@ -136,8 +136,8 @@ Argument semantics (verified on RabbitMQ 4.4.0):
   the delivery instead ([runtime](runtime.md) §8.11).
 - **Ready count**: a passive `queue.declare` (allowed without configure permission) reports only the **ready**
   messages of a quorum queue: delayed and unacknowledged ones are missing (verified on 4.4.0: 0 with six delayed
-  messages, 9 with nine ready and one unacknowledged). The scheduler reads its share of the queue this way
-  ([runtime](runtime.md) §11.4).
+  messages, 9 with nine ready and one unacknowledged). The scheduler and the retry-failed publisher read their
+  share of the queue this way ([runtime](runtime.md) §11.4, §8).
 - **Requeue**: `basic.nack(requeue=true)` returns a delivery to the **head** of a quorum queue, so the next
   delivery of the channel is usually the same message (verified on 4.4: eight nack-requeues of one message at
   delivery limit 5 redelivered it eight times, with `redelivered` set and without dead-lettering).
@@ -710,10 +710,16 @@ restarts the scan instead):
 3. `publish`: wait until `scantor.scan.<id>` exists (management API, 5 s polling). Then read documents
    `{scanId, status: "pending", round: R + 1}` in seq order (batches of 1000 after `afterSeq`) and publish each
    config as an analysis message `{round: R + 1, attempt: 1, scheduledAt: now}` on the admin connection's confirm
-   channel with `mandatory` and `user_id = SCANTOR_RABBITMQ_USER`. Nacked messages (queue full): wait 2 s ± 20 %,
-   republish only the nacked ones, repeat. Returned messages (queue missing): wait for the topology loop and
-   retry. After a batch is fully confirmed, persist `afterSeq`. A crash resumes from the cursor; re-published
-   seqs are duplicates the guards absorb.
+   channel with `mandatory` and `user_id = SCANTOR_RABBITMQ_USER`. Like the scheduler, the job keeps at most half
+   of the queue (`SCANTOR_SCAN_QUEUE_MAX_READY / 2`, its **share**, [runtime](runtime.md) §11.4), so the other
+   half stays free for the retries of the runners: before each slice it reads the ready count with a passive
+   `queue.declare` on a channel of its own (§3.3) and publishes at most `share − ready` messages once that is at
+   least a fifth of the share (or covers the rest of the batch); meanwhile it reads again every 250 ms ± 20 %. A
+   missing queue makes it wait for the queue; any other failure to read allows one slice of 512 messages, so only
+   the broker's limit applies. Nacked messages (queue full): wait 2 s ± 20 %, republish only the nacked ones,
+   repeat. Returned messages (queue missing): wait for the topology loop and retry. After a batch is fully
+   confirmed, persist `afterSeq`. A crash resumes from the cursor; re-published seqs are duplicates the guards
+   absorb.
 4. `finish`: `scheduling.state` → `failed` if `scheduling.error` is set, else `done`; recount; completion check.
 
 ## 9. Stall detection and lost gap fill
@@ -761,9 +767,9 @@ A late result for a `lost` analysis still applies (the guards allow `lost → su
 
 | Guard | Mechanism | Effect |
 |---|---|---|
-| scan queue size | `x-max-length = SCANTOR_SCAN_QUEUE_MAX_READY` with `x-overflow: reject-publish`; the scheduler keeps at most half of it (`amqp.maxLength / 2`, ready messages plus its unconfirmed publishes) | the scheduler reads the ready count and waits while its share is used up ([runtime](runtime.md) §11.4), so the other half stays free for retries, which count toward the limit while they are delayed (verified on 4.4 by `internal/runtime/worker` `TestSchedulerShareWithRabbitMQ`). Publishes that the full queue still refuses (more retries delayed than half the limit, a queue filled by retry-failed) are nacked; the scheduler then waits 2 s ± jitter and republishes only the nacked seqs. Quorum queues accept publishes already in flight to the leader, so the queue can exceed the limit by up to the unconfirmed windows of its publishers (§3.3; verified on 4.4 by `TestSchedulerBackpressureWithRabbitMQ`). |
+| scan queue size | `x-max-length = SCANTOR_SCAN_QUEUE_MAX_READY` with `x-overflow: reject-publish`; the scheduler keeps at most half of it (`amqp.maxLength / 2`, ready messages plus its unconfirmed publishes) | the scheduler reads the ready count and waits while its share is used up ([runtime](runtime.md) §11.4), so the other half stays free for retries, which count toward the limit while they are delayed (verified on 4.4 by `internal/runtime/worker` `TestSchedulerShareWithRabbitMQ`). Publishes that the full queue still refuses (more retries delayed than half the limit) are nacked; the scheduler then waits 2 s ± jitter and republishes only the nacked seqs. Quorum queues accept publishes already in flight to the leader, so the queue can exceed the limit by up to the unconfirmed windows of its publishers (§3.3; verified on 4.4 by `TestSchedulerBackpressureWithRabbitMQ`). |
 | retries never lost | runners publish retries with `x-opt-delivery-time ≥ server now + 1 s` into the half of the queue the scheduler leaves free; a full queue nacks them too (§3.3), so a refused retry is backpressure: the runner holds the delivery, republishes until the retry is due, then runs the next attempt on the held delivery, and gives the delivery back (`basic.nack(requeue=true)`, uncounted) only when its holding budget cannot cover another attempt ([runtime](runtime.md) §8.11) | a full queue cannot turn a retry into a lost or failed analysis, and it does not make the runner unhealthy |
-| retry-failed | same nack-and-wait loop (§8), without the scheduler's share: it publishes up to the broker's limit | large retry-failed jobs respect the same bound; while such a job keeps the queue full, the retries of its analyses are refused and held by their runners ([runtime](runtime.md) §8.11) |
+| retry-failed | the scheduler's share (at most half of `x-max-length`, read before each slice) and the same nack-and-wait loop (§8) | large retry-failed jobs respect the same bound and leave the other half to the retries of their analyses |
 | analyses per scan | `SCANTOR_MAX_ANALYSES_PER_SCAN` (start-time estimate, runtime enforcement) | bounds per-scan broker and database volume |
 | message size | broker `max_message_size` 4 MiB; runtime caps result messages at 2 MiB, results at `SCANTOR_MAX_RESULT_BYTES`, configs at `SCANTOR_MAX_ANALYSIS_CONFIG_BYTES` | large data goes to S3 as files |
 | memory and disk alarms | absolute `vm_memory_high_watermark` and `disk_free_limit` (§2) | during an alarm the broker blocks publishers. Runtimes stop consuming and wait ([runtime](runtime.md) §6.5). The ingestor keeps consuming (consumers are not blocked), which drains `scantor.results.ingest` and relieves memory. The reconciler polls `GET /api/health/checks/alarms` every tick and raises `brokerAlarm` on running scans; `startScan` answers 503 `brokerAlarm`; `/api/health` reports `degraded`. |
@@ -823,8 +829,8 @@ Made in this document and flagged for lead review:
 13. **Result and attempt messages carry `config`**, so the first write of an analysis creates a complete document.
 14. **Retries keep half of a scan queue**: delayed retries count toward `x-max-length` and a full queue refuses
     future-dated publishes too (§3.3), so the scheduler fills at most half of the queue ([runtime](runtime.md)
-    §11.4) and a runner holds a retry that the queue still refuses ([runtime](runtime.md) §8.11). The retry-failed
-    publisher does not keep the share yet (§13).
+    §11.4), the retry-failed publisher keeps the same share (§8), and a runner holds a retry that the queue still
+    refuses ([runtime](runtime.md) §8.11).
 
 ## 13. Future extensions
 
@@ -840,4 +846,3 @@ Made in this document and flagged for lead review:
 | Per-tenant broker isolation | a vhost per tenant would only change the vhost name in bootstrap and in the reconciler; permissions are already per user. |
 | Federation / multiple brokers | `user_id` must be preserved across links (`trust-user-id`); identity rules would otherwise need signed bodies. |
 | Larger fleets | quorum queues can be spread over a RabbitMQ cluster (`x-quorum-initial-group-size`); nothing in the message contract assumes a single node. |
-| Retry-failed share of the queue | the `scanRetryFailed` publisher could read the ready count like the scheduler (`checkQueue` on a channel of its own) and publish each batch in slices of the free half of the queue, so retry-failed rounds leave room for retries as well. |

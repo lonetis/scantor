@@ -12,7 +12,7 @@ import { recordAnalysesCompleted } from '../metrics/catalogue'
 import { recountScan, tryCompleteScan } from './completion'
 import { settleDelayMs } from './delete'
 import { writeEvent } from './events'
-import { publishAnalyses } from './publisher'
+import { publishAnalyses, QueueReadyReader } from './publisher'
 
 /*
  * The `scanRetryFailed` job (reconciler component, concurrency 2; docs/queue.md §8 "retry-failed publisher",
@@ -24,7 +24,8 @@ import { publishAnalyses } from './publisher'
  *   reset        batches of 1000 by seq: failed and lost analyses with a stored config → pending, round R + 1,
  *                attempt 0; then a recount and the event scan.retryFailed
  *   publish      wait for the scan queue, then publish the pending configs of round R + 1 with the nack-and-wait
- *                loop; the cursor advances after each fully confirmed batch
+ *                loop, keeping at most half of the queue like the scheduler (publisher.ts, docs/runtime.md §11.4);
+ *                the cursor advances after each fully confirmed batch
  *   finish       scheduling returns to `failed` (scheduling.error set) or `done`; recount; completion check
  *
  * A job that fails for good still runs `finish`, so the scan never stays in `retrying`.
@@ -209,6 +210,7 @@ async function publish(scan: ScanDoc, round: number, cursor: RetryCursor, ctx: J
   const connection = await useAmqp('reconciler')
   const channel: ConfirmChannel = await connection.createConfirmChannel()
   channel.on('error', (error: Error) => ctx.log.warn('retry-failed publish channel error', { scanId: scan._id, err: error }))
+  const ready = new QueueReadyReader(connection, scanQueueName(scan._id), ctx.log)
   let published = typeof ctx.job.progress.done === 'number' ? ctx.job.progress.done : 0
   try {
     for (;;) {
@@ -229,6 +231,7 @@ async function publish(scan: ScanDoc, round: number, cursor: RetryCursor, ctx: J
           appId: `scantor-orchestrator/${scantorVersion}`,
           signal: ctx.signal,
           waitForQueue: () => waitForQueue(scan._id, ctx.signal, ctx.log),
+          share: { maxLength: ctx.config.scanQueueMaxReady, readReady: () => ready.read() },
         },
       )
       published += batch.length
@@ -236,6 +239,7 @@ async function publish(scan: ScanDoc, round: number, cursor: RetryCursor, ctx: J
       await ctx.saveCursor({ ...cursor }, { done: published })
     }
   } finally {
+    await ready.close()
     await channel.close().catch((error: unknown) => ctx.log.debug('closing the publish channel failed', { err: error }))
   }
 }

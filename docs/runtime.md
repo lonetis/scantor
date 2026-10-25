@@ -739,9 +739,9 @@ The **holding budget** of a delivery is `consumerTimeoutMs − (now − delivere
 
 A full scan queue nacks the retry republish of the retry plan (§8.9) although it is future-dated
 ([queue](queue.md) §3.3), and it accepts publishes again only once it is down to 80 % of its limit. The
-scheduler leaves half of the queue to retries (§11.4), so this happens when more retries are delayed at once
-than that half holds, or when a retry-failed round ([queue](queue.md) §8) or the scheduler of an older runtime
-filled the queue. The attempt event is already confirmed at that point. A refused retry is backpressure: the analysis must neither be
+scheduler and the retry-failed publisher ([queue](queue.md) §8) leave half of the queue to retries (§11.4), so
+this happens when more retries are delayed at once than that half holds, or when the scheduler of an older
+runtime filled the queue. The attempt event is already confirmed at that point. A refused retry is backpressure: the analysis must neither be
 lost nor fail, and the worker stays healthy (it is not a transient platform failure, §12, and raises no
 `workerErrors`). The slot keeps the delivery and:
 
