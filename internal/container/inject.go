@@ -2,7 +2,6 @@ package container
 
 import (
 	"archive/tar"
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -99,15 +98,28 @@ func LocalModeFiles(spec []byte, uploads map[string][]byte) []File {
 // InjectionArchive writes the injection tar to w: the directory scantor/ (0755), the file
 // scantor/scantor (0755) and the extra entries, all owned by 0:0 with a fixed mtime.
 func InjectionArchive(w io.Writer, bin *Binary, extra []File) error {
+	entries, err := injectionEntries(bin, extra)
+	if err != nil {
+		return err
+	}
+	return writeInjectionArchive(w, entries)
+}
+
+// injectionEntries validates the extra entries and returns every entry of the archive in path order,
+// with the missing parent directories added.
+func injectionEntries(bin *Binary, extra []File) ([]File, error) {
 	if bin == nil || len(bin.data) == 0 {
-		return errors.New("injection archive: no runtime binary")
+		return nil, errors.New("injection archive: no runtime binary")
 	}
 	entries := []File{{Path: "scantor", Dir: true, Mode: 0o755}, {Path: "scantor/scantor", Mode: 0o755, Data: bin.data}}
 	seen := map[string]bool{"scantor": true, "scantor/scantor": true}
 	for _, f := range extra {
 		p := path.Clean(f.Path)
 		if p != f.Path || !strings.HasPrefix(p, "scantor/") || strings.Contains(p, "..") {
-			return fmt.Errorf("injection archive: invalid path %q", f.Path)
+			return nil, fmt.Errorf("injection archive: invalid path %q", f.Path)
+		}
+		if f.Dir && len(f.Data) > 0 {
+			return nil, fmt.Errorf("injection archive: directory %q has data", f.Path)
 		}
 		if seen[p] {
 			continue
@@ -120,14 +132,17 @@ func InjectionArchive(w io.Writer, bin *Binary, extra []File) error {
 		entries = append(entries, f)
 	}
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
+	return entries, nil
+}
+
+// writeInjectionArchive writes validated entries as a tar stream. File contents are written straight
+// from their slices, so the archive is never held in memory as a whole.
+func writeInjectionArchive(w io.Writer, entries []File) error {
 	tw := tar.NewWriter(w)
 	mtime := time.Unix(0, 0)
 	for _, e := range entries {
 		hdr := &tar.Header{Name: e.Path, Mode: e.Mode, ModTime: mtime, Uid: 0, Gid: 0, Format: tar.FormatPAX}
 		if e.Dir {
-			if len(e.Data) > 0 {
-				return fmt.Errorf("injection archive: directory %q has data", e.Path)
-			}
 			hdr.Typeflag = tar.TypeDir
 			hdr.Name += "/"
 		} else {
@@ -150,17 +165,34 @@ func InjectionArchive(w io.Writer, bin *Binary, extra []File) error {
 }
 
 // Inject copies the runtime binary and the extra entries into a created (not yet started) container
-// with one CopyToContainer at "/".
+// with one CopyToContainer at "/". The archive is streamed through a pipe instead of being built in
+// memory first: buffering would copy the whole runtime binary (about 18 MB) once per injection, and a
+// node that creates many workers at once (a scale-up, or a restart that recreates them) would hold one
+// such copy per concurrent create.
 func Inject(ctx context.Context, docker client.APIClient, containerID string, bin *Binary, extra []File) error {
-	var buf bytes.Buffer
-	if err := InjectionArchive(&buf, bin, extra); err != nil {
+	entries, err := injectionEntries(bin, extra)
+	if err != nil {
 		return err
 	}
-	if _, err := docker.CopyToContainer(ctx, containerID, client.CopyToContainerOptions{
+	pr, pw := io.Pipe()
+	written := make(chan error, 1)
+	go func() {
+		err := writeInjectionArchive(pw, entries)
+		pw.CloseWithError(err)
+		written <- err
+	}()
+	_, err = docker.CopyToContainer(ctx, containerID, client.CopyToContainerOptions{
 		DestinationPath: "/",
-		Content:         &buf,
-	}); err != nil {
+		Content:         pr,
+	})
+	// Unblocks the writer when the request ended before it read the whole archive.
+	pr.CloseWithError(errors.New("inject: the copy request ended"))
+	writeErr := <-written
+	if err != nil {
 		return fmt.Errorf("inject runtime into %s: %w", shortID(containerID), err)
+	}
+	if writeErr != nil {
+		return fmt.Errorf("inject runtime into %s: %w", shortID(containerID), writeErr)
 	}
 	return nil
 }

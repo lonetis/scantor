@@ -327,6 +327,8 @@ create(d):
 
 Runtime injection ([architecture](architecture.md) §4.2): the tar holds the daemon's own executable
 (`/proc/self/exe`, a static linux binary for the node's architecture), read once and cached in memory.
+The tar is streamed to the engine through a pipe and never buffered as a whole, so concurrent creates
+(a scale-up, or a restart that recreates many workers) do not each hold a copy of the binary.
 `CopyToContainer` works on a created, not yet started container and needs no volume. On a restart of an
 exited container the binary is still in its writable layer, so injection is skipped when
 `/scantor/scantor` already exists (`HEAD /containers/{id}/archive?path=/scantor/scantor`).

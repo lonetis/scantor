@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/network"
@@ -335,6 +336,72 @@ func TestInjectionArchive(t *testing.T) {
 	}
 	if err := InjectionArchive(io.Discard, nil, nil); err == nil {
 		t.Error("accepted a missing binary")
+	}
+}
+
+// copyEngine records the archive of CopyToContainer, or fails the request after reading readBytes.
+type copyEngine struct {
+	client.APIClient
+	calls     int
+	streamed  bool
+	files     map[string]string
+	readBytes int64
+}
+
+func (e *copyEngine) CopyToContainer(_ context.Context, _ string, opts client.CopyToContainerOptions) (client.CopyToContainerResult, error) {
+	e.calls++
+	_, e.streamed = opts.Content.(*io.PipeReader)
+	if e.readBytes > 0 {
+		if _, err := io.CopyN(io.Discard, opts.Content, e.readBytes); err != nil {
+			return client.CopyToContainerResult{}, err
+		}
+		return client.CopyToContainerResult{}, errors.New("Error response from daemon: no space left on device")
+	}
+	e.files = map[string]string{}
+	tr := tar.NewReader(opts.Content)
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			return client.CopyToContainerResult{}, nil
+		}
+		if err != nil {
+			return client.CopyToContainerResult{}, err
+		}
+		data, _ := io.ReadAll(tr)
+		e.files[hdr.Name] = string(data)
+	}
+}
+
+// Inject streams the archive (the runtime binary is never copied into a buffer of its own), reports
+// invalid entries before any request, and returns when the engine fails the copy midway.
+func TestInjectStreamsTheArchive(t *testing.T) {
+	bin := NewBinary(bytes.Repeat([]byte("E"), 1<<20))
+	engine := &copyEngine{}
+	if err := Inject(t.Context(), engine, "0123456789abcdef", bin, LocalModeFiles([]byte(`{"v":1}`), nil)); err != nil {
+		t.Fatal(err)
+	}
+	if !engine.streamed {
+		t.Error("the archive was not streamed through a pipe")
+	}
+	if len(engine.files["scantor/scantor"]) != 1<<20 || engine.files["scantor/in/spec.json"] != `{"v":1}` {
+		t.Errorf("injected %d entries, binary of %d bytes", len(engine.files), len(engine.files["scantor/scantor"]))
+	}
+
+	invalid := &copyEngine{}
+	if err := Inject(t.Context(), invalid, "0123456789abcdef", bin, []File{{Path: "etc/passwd"}}); err == nil || invalid.calls != 0 {
+		t.Errorf("an invalid entry: err = %v after %d requests", err, invalid.calls)
+	}
+
+	failing := &copyEngine{readBytes: 4096}
+	done := make(chan error, 1)
+	go func() { done <- Inject(t.Context(), failing, "0123456789abcdef", bin, nil) }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "no space left on device") || !strings.Contains(err.Error(), "0123456789ab") {
+			t.Errorf("a failed copy: err = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Inject did not return after the engine failed the copy midway")
 	}
 }
 
