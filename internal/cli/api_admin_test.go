@@ -24,6 +24,46 @@ func apiNodeFixture(name string) map[string]any {
 	}
 }
 
+// The worker cap is min(info.maxWorkers, maxWorkers): an override can only lower the daemon's cap (CLI-6).
+func TestAPINodeWorkers(t *testing.T) {
+	override := func(n int) *int { return &n }
+	reported := func(n int) *api.NodeInfoRecord { return &api.NodeInfoRecord{MaxWorkers: n} }
+	cases := []struct {
+		node    api.Node
+		workers string
+		sources string
+	}{
+		{api.Node{ActiveWorkers: 3, MaxWorkers: override(32), Info: reported(8)}, "3/8", "daemon 8, override 32"},
+		{api.Node{ActiveWorkers: 1, MaxWorkers: override(2), Info: reported(8)}, "1/2", "daemon 8, override 2"},
+		{api.Node{MaxWorkers: override(4)}, "0/4", "daemon not reported yet, override 4"},
+		{api.Node{ActiveWorkers: 5, Info: reported(8)}, "5/8", ""},
+		{api.Node{}, "0/-", ""},
+	}
+	for _, c := range cases {
+		if got := apiNodeWorkers(c.node); got != c.workers {
+			t.Errorf("apiNodeWorkers(%+v) = %q, want %q", c.node, got, c.workers)
+		}
+		if got := apiNodeCapSources(c.node); got != c.sources {
+			t.Errorf("apiNodeCapSources(%+v) = %q, want %q", c.node, got, c.sources)
+		}
+	}
+
+	f := newAPIFake(t)
+	raised := apiNodeFixture("scan-eu-1")
+	raised["maxWorkers"] = 32
+	raised["activeWorkers"] = 3
+	raised["state"] = "online"
+	raised["info"] = map[string]any{"version": "1.4.0", "hostname": "scan-eu-1", "os": "linux", "arch": "amd64", "kernel": "6.8.0", "dockerVersion": "29.9.2", "cpus": 16, "memoryBytes": 1 << 30, "diskFreeBytes": 1 << 30, "dindMode": "disabled", "maxWorkers": 8, "egressDenyApplied": true, "clockOffsetMs": 0}
+	f.reply("GET", "/api/nodes", 200, map[string]any{"items": []any{raised}})
+	f.reply("GET", "/api/nodes/"+apiNodeID, 200, raised)
+	if code, out, _ := f.exec("nodes", "list"); code != 0 || !regexp.MustCompile(`\s3/8\s`).MatchString(out) {
+		t.Fatalf("list: exit %d, out %q", code, out)
+	}
+	if code, out, _ := f.exec("nodes", "get", apiNodeID); code != 0 || !strings.Contains(out, "3/8 (daemon 8, override 32)") {
+		t.Fatalf("get: exit %d, out %q", code, out)
+	}
+}
+
 func TestAPINodes(t *testing.T) {
 	f := newAPIFake(t)
 	join := map[string]any{"dockerRun": "docker run -d --name scantor-node scantor:dev node", "compose": "name: scantor-node\n", "env": map[string]any{"SCANTOR_URL": "http://x", "SCANTOR_NODE_TOKEN": "snt_secret"}}

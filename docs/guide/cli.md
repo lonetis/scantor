@@ -1122,7 +1122,7 @@ scantor nodes create <name> [flags]
 ```
   -h, --help                help for create
       --label stringArray   label key=value (repeatable)
-      --max-workers int     maximum number of workers on the node (default: what the daemon reports)
+      --max-workers int     lower the node's worker cap below what the daemon reports (SCANTOR_NODE_MAX_WORKERS); a higher value has no effect
       --pool string         node pool scans select with nodeSelector.pool (server default "shared")
 ```
 
@@ -1268,7 +1268,7 @@ List nodes
 
 ### Synopsis
 
-List every node with its state, pool, architecture, worker usage and last heartbeat. Admins only.
+List every node with its state, pool, architecture, worker usage and last heartbeat. WORKERS is active/cap, where the cap is the smaller of what the daemon reports and the admin override. Admins only.
 
 ```
 scantor nodes list [flags]
@@ -1410,9 +1410,9 @@ scantor nodes update <node> [flags]
       --cordoned            stop placing new workers on the node
   -h, --help                help for update
       --label stringArray   label key=value; replaces all labels (repeatable)
-      --max-workers int     maximum number of workers on the node
+      --max-workers int     lower the node's worker cap below what the daemon reports (SCANTOR_NODE_MAX_WORKERS); a higher value has no effect
       --name string         new name
-      --no-max-workers      use the worker cap the daemon reports
+      --no-max-workers      remove the override and use the worker cap the daemon reports
       --pool string         new pool
 ```
 
