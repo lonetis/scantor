@@ -311,8 +311,8 @@ orchestrator/
 │                                 (auth.global), plugins/ (api), utils/, assets/, app.vue, app.config.ts
 ├── server/
 │   ├── api/<tag>/…               one file per method; path segments mirror the API path
-│   ├── routes/                   mcp.ts (/mcp), .well-known/[...path].ts (never editor routes: the editor origin is
-│   │                             its own listener)
+│   ├── routes/                   mcp.ts (/mcp), .well-known/[...path].ts, api/docs.get.ts (the Scalar reference,
+│   │                             ui §13) (never editor routes: the editor origin is its own listener)
 │   ├── middleware/               ordered by prefix (auth §1): 00.request (request id, x-scantor-client-ip,
 │   │                             421 for the editor host), 01.path (400 for non-canonical paths, auth §5.5),
 │   │                             02.body-limit, 10.auth (prefixes, principals, operation registry, scopes,
@@ -337,15 +337,18 @@ orchestrator/
 │   │                             openapi.ts (route-meta typing with the x-scantor extensions)
 │   └── utils/                    foundation seams and clients: config (the only process.env reader), env-values,
 │                                 startup-guard, errors, error-handler, zod (validate helpers), pagination, serialize,
-│                                 auth and auth-policy (better-auth instance), principal, operations (operation
-│                                 registry), authz (ownership helpers), internal-auth, node-tokens, worker-tokens,
+│                                 auth and auth-policy (better-auth instance), credential-lookup (session and API
+│                                 key lookups, auth §5.2), principal, operations (operation registry), authz
+│                                 (ownership helpers), request-path (canonical paths, auth §5.5), internal-auth,
+│                                 loopback (the MCP bridge's private listener, mcp §1), node-tokens, worker-tokens,
 │                                 users, user-cache, setup, keys, secrets, redact, logger, mongo, s3, amqp,
 │                                 rabbitmq-management, docker, labels (reads schemas/managed-labels.json), boot
 │                                 (registerBootStep, registerComponentTask), jobs (registerJobKind, createJob),
 │                                 user-purge (registerUserPurgeStep), locks, wait (long-polls) and
 │                                 wait-watchers (their change streams, one per collection), health,
-│                                 instance and instance-info, version, client-ip, cors, body-limits,
-│                                 security-headers, guides and guide-assets
+│                                 instance and instance-info, version, client-ip, cors, body-limits and
+│                                 capped-body (api §1.5), security-headers and api-docs (the pinned Scalar bundle),
+│                                 guides and guide-assets
 ├── shared/
 │   ├── types/<area>.ts           API representations ([api](api.md) §2), used by server, UI and tests;
 │   │                             types/augments/route-meta.d.ts types defineRouteMeta
