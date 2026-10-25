@@ -897,7 +897,7 @@ Mechanisms: [ui](../docs/ui.md) §5.15–§5.16, §5.20.
 - **UI-ADMIN-009** [ui] Editing a user sends only changed fields; on the admin's own row the role is locked ("You cannot change your own role.") and "Set password", Ban and Delete are disabled.
 - **UI-ADMIN-010** [ui] "Set password" (with confirmation) notes that it signs the user out everywhere and shows "Password of <email> set".
 - **UI-ADMIN-011** [ui] Ban takes an optional reason and "Also cancel all their scans" (checked by default); the row then shows "banned", and Unban returns it to active.
-- **UI-ADMIN-012** [ui] Deleting a user requires typing their email, shows the purge job's progress on the row, and removes the row with "User deleted".
+- **UI-ADMIN-012** [ui] Deleting a user requires typing their email, shows the purge job's progress on the row, and removes the row with "User deleted"; a failed or cancelled job unlocks the row again.
 - **UI-ADMIN-013** [ui, security] With Traefik, the admin tools page shows cards for RabbitMQ management, mongo-express, the RustFS console and the Traefik dashboard; "Open <title>" sets the tools cookie and reaches the tool, and without Traefik the page says "Traefik is not enabled" and shows the bind address instead.
 - **UI-ADMIN-014** [ui] The admin tools page links the API reference, the OpenAPI document and the metrics, and shows the health report (also when it answers 503) and a jobs table of all users with kind and state filters and failed jobs first.
 

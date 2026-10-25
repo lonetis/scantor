@@ -9,6 +9,7 @@ import {
   deleteUsersByEmail,
   expectToastAnywhere,
   findUserByEmail,
+  fulfillJson,
   nodeRoutedContext,
   openPage,
   patchJsonResponse,
@@ -353,4 +354,57 @@ test.describe('banning and deleting users', () => {
       if (target && !deleted) await deleteUser(adminApi, target.id)
     }
   })
+
+  for (const ending of ['failed', 'cancelled'] as const) {
+    test(`a ${ending} purge job shows a toast and unlocks the row for another try`, { tag: ['@UI-ADMIN-012'] }, async ({ page, adminApi }) => {
+      let target: TestUser | undefined
+      try {
+        target = await createUser(adminApi, { prefix: `purge-${ending}` })
+        const userId = target.id
+        // The stack cannot fail a purge on purpose: deleteUser answers with a job of its own, which then ends this way.
+        // The user is never really deleted.
+        const jobId = crypto.randomUUID()
+        await page.route(
+          (url) => url.pathname === `/api/users/${userId}`,
+          (route) => (route.request().method() === 'DELETE'
+            ? fulfillJson(route, { job: { id: jobId, kind: 'userPurge', state: 'queued' } }, 202)
+            : route.fallback()),
+        )
+        await page.route(
+          (url) => url.pathname === `/api/jobs/${jobId}`,
+          (route) => fulfillJson(route, {
+            id: jobId,
+            kind: 'userPurge',
+            subject: { kind: 'user', id: userId },
+            state: ending,
+            progress: { done: 0, total: null },
+            attempts: 1,
+            error: ending === 'failed' ? { code: 'internal', message: 'the purge could not finish' } : null,
+            createdAt: new Date().toISOString(),
+            startedAt: new Date().toISOString(),
+            finishedAt: new Date().toISOString(),
+          } satisfies Job),
+        )
+        await openPage(page, '/admin/users')
+        await search(page, target.email)
+        const row = userRow(page, userId)
+        await openActions(page, target.email)
+        await page.getByRole('menuitem', { name: 'Delete', exact: true }).click()
+        const dialog = page.getByRole('dialog', { name: `Delete ${target.email}` })
+        await dialog.getByLabel(`Type ${target.email} to confirm`).fill(target.email)
+        // The row reads the user again once the job ended.
+        const reread = page.waitForRequest((r) => r.method() === 'GET' && new URL(r.url()).pathname === `/api/users/${userId}`)
+        await dialog.getByRole('button', { name: 'Delete user' }).click()
+        await expectToastAnywhere(page, ending === 'failed' ? 'Deleting the user failed' : 'Deleting the user was cancelled')
+        await reread
+        await expect(row).toBeVisible()
+        await expect(await cell(page, row, 'Status')).not.toContainText('deleting')
+        const menu = await openActions(page, target.email)
+        for (const item of ['Edit', 'Delete']) await expect(menu.getByRole('menuitem', { name: item, exact: true })).not.toHaveAttribute('aria-disabled', 'true')
+        await page.keyboard.press('Escape')
+      } finally {
+        if (target) await deleteUser(adminApi, target.id)
+      }
+    })
+  }
 })

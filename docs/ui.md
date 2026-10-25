@@ -642,7 +642,9 @@ A note links to the authoring guides ([templates](templates.md) is the internal 
 - Row actions: Edit (`updateUser`), Set password (`setUserPassword`), Ban (`BanUserModal`: reason, "Also
   cancel all their scans" **checked by default**, with the hint "Unchecked, their running scans continue
   until they end" ([auth](auth.md) §5.7) → `banUser {reason, cancelScans}`), Unban (`unbanUser`), Delete (`ConfirmModal`
-  typing the email → `deleteUser` → 202; the row shows the `userPurge` job progress via `getJob`). Demote,
+  typing the email → `deleteUser` → 202; the row shows the `userPurge` job progress via `getJob`; a job
+  that fails or is cancelled shows a toast, unlocks the row so the deletion can be retried, and reloads
+  the user with `getUser`). Demote,
   set password and delete are disabled on the caller's own row.
 
 ### 5.17 Account (`/account`)

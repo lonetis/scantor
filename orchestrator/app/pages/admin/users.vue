@@ -27,17 +27,30 @@ const banTarget = shallowRef<User | null>(null)
 const purgeJobs = ref<Record<string, Job | JobRef>>({})
 const activePurges = computed(() => Object.entries(purgeJobs.value).filter(([, job]) => !(TERMINAL_JOB_STATES as readonly string[]).includes(job.state)))
 
+function forgetPurge(userId: string): void {
+  const { [userId]: _done, ...rest } = purgeJobs.value
+  purgeJobs.value = rest
+}
+
+// A purge that ended without deleting the user unlocks the row again (the deletion can be retried) and shows the
+// user as it is now.
 const purgePoll = usePoll(async () => {
   for (const [userId, pending] of activePurges.value) {
     const job = await api<Job>(`/api/jobs/${pending.id}`, { background: true })
     purgeJobs.value = { ...purgeJobs.value, [userId]: job }
     if (job.state === 'succeeded') {
       users.remove(userId)
-      const { [userId]: _done, ...rest } = purgeJobs.value
-      purgeJobs.value = rest
+      forgetPurge(userId)
       toast.add({ title: 'User deleted', color: 'success', icon: 'i-lucide-check' })
-    } else if (job.state === 'failed') {
-      toast.add({ title: 'Deleting the user failed', description: job.error?.message, color: 'error', icon: 'i-lucide-circle-alert' })
+    } else if (job.state === 'failed' || job.state === 'cancelled') {
+      forgetPurge(userId)
+      toast.add({
+        title: job.state === 'failed' ? 'Deleting the user failed' : 'Deleting the user was cancelled',
+        description: job.error?.message,
+        color: 'error',
+        icon: 'i-lucide-circle-alert',
+      })
+      users.reload(userId).catch((error: unknown) => console.error('[users] reloading the user failed', error))
     }
   }
 }, { intervalMs: JOB_POLL_MS, enabled: () => activePurges.value.length > 0 })

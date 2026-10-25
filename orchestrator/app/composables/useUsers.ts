@@ -57,5 +57,15 @@ export function useUsers(search: MaybeRefOrGetter<string>) {
     list.items.value = list.items.value.filter((item) => item.id !== userId)
   }
 
-  return { ...list, createUser, updateUser, setPassword, banUser, unbanUser, deleteUser, remove }
+  /** Reads one user again into its row; a user that no longer exists leaves the list. */
+  async function reload(userId: string): Promise<void> {
+    try {
+      replace(await api<User>(`/api/users/${encodeURIComponent(userId)}`, { background: true }))
+    } catch (cause) {
+      if (toApiError(cause).status === 404) remove(userId)
+      else throw cause
+    }
+  }
+
+  return { ...list, createUser, updateUser, setPassword, banUser, unbanUser, deleteUser, remove, reload }
 }
