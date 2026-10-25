@@ -1,4 +1,4 @@
-import { createServer, request, type IncomingHttpHeaders, type Server } from 'node:http'
+import { Agent, createServer, request, type IncomingHttpHeaders, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { createApp, defineEventHandler, readRawBody, send, setResponseStatus, toNodeListener, toWebRequest } from 'h3'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -110,18 +110,54 @@ function post(port: number, path: string, body: Buffer, options: { declared?: bo
   })
 }
 
+/** Sends the whole body chunked over `agent`, whatever the server answers in between. */
+function sendWhole(port: number, path: string, body: Buffer, agent: Agent): Promise<Omit<Answer, 'written'> & { reusedSocket: boolean }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      { host: '127.0.0.1', port, path, method: 'POST', agent, headers: { 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' } },
+      (res) => {
+        const chunks: Buffer[] = []
+        res.on('data', (chunk: Buffer) => chunks.push(chunk))
+        res.on('end', () =>
+          resolve({
+            status: res.statusCode ?? 0,
+            headers: res.headers,
+            body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+            reusedSocket: req.reusedSocket,
+          }),
+        )
+      },
+    )
+    req.on('error', reject)
+    req.end(body)
+  })
+}
+
 const spaces = (bytes: number) => Buffer.alloc(bytes, 0x20)
 
 describe('middleware 02.body-limit', () => {
-  it('stops reading a chunked body at the cap and closes the connection with 413', async () => {
+  it('answers 413 at the cap of a chunked body while the client is still sending', async () => {
     const port = await listen()
-    // Far more than the socket buffers hold: the client only gets to write it all if the server keeps reading.
     const total = 32 * 1024 ** 2
     const answer = await post(port, '/api/json', spaces(total))
     expect(answer.status).toBe(413)
     expect(answer.body).toEqual({ error: { code: 'payloadTooLarge', message: `request body exceeds ${LIMIT} bytes`, details: { limit: LIMIT } } })
-    expect(answer.headers.connection).toBe('close')
     expect(answer.written).toBeLessThan(total)
+  })
+
+  it('discards the rest of a capped body and keeps the connection for the next request', async () => {
+    const port = await listen()
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 })
+    try {
+      // The whole body is written, as a proxy that is already sending it does; the 413 must not reset the connection.
+      const over = await sendWhole(port, '/api/json', spaces(64 * LIMIT), agent)
+      expect(over.status).toBe(413)
+      expect(over.headers.connection).toBe('keep-alive')
+      const next = await sendWhole(port, '/api/json', Buffer.from('{"a":1}'), agent)
+      expect(next).toMatchObject({ status: 200, body: { body: { a: 1 } }, reusedSocket: true })
+    } finally {
+      agent.destroy()
+    }
   })
 
   it('hands a chunked body below the cap to readJsonBody', async () => {
@@ -137,7 +173,6 @@ describe('middleware 02.body-limit', () => {
     const auth = await post(port, '/api/auth/sign-in/email', spaces(4 * PROTOCOL_BODY_LIMIT))
     expect(auth.status).toBe(413)
     expect(auth.body).toMatchObject({ error: { code: 'payloadTooLarge', details: { limit: PROTOCOL_BODY_LIMIT } } })
-    expect(auth.headers.connection).toBe('close')
     const mcp = await post(port, '/mcp', spaces(4 * PROTOCOL_BODY_LIMIT))
     expect(mcp.status).toBe(413)
     // Below the cap the buffered body reaches toWebRequest (better-auth) and readRawBody (/mcp) whole.

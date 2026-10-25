@@ -7,10 +7,10 @@ import { rawPathOf } from '../utils/request-path'
 
 // Body caps (docs/api.md §1.5, security.md RES-1) on `/api/*`, `/mcp` and the root `/.well-known/*` documents, before
 // any credential is checked: a declared length above the route's cap is 413 payloadTooLarge at once. A body without
-// Content-Length (chunked) is read here, counted while it streams, and stops at the cap with 413 and `Connection:
-// close`; below the cap the buffer is handed to h3 (utils/capped-body.ts), so readJsonBody, better-auth, `/mcp` and the
-// registry token realm never read an unbounded body. The two streaming upload routes count their own bodies (ByteCap);
-// the cap is stored in `event.context.bodyLimit` for them.
+// Content-Length (chunked) is read here and counted while it streams; at the cap it is 413 and the rest of the body is
+// discarded, never buffered; below the cap the buffer is handed to h3 (utils/capped-body.ts), so readJsonBody,
+// better-auth, `/mcp` and the registry token realm never read an unbounded body. The two streaming upload routes count
+// their own bodies (ByteCap); the cap is stored in `event.context.bodyLimit` for them.
 
 export default defineEventHandler(async (event) => {
   const method = event.method
@@ -25,11 +25,5 @@ export default defineEventHandler(async (event) => {
   }
   const req = event.node.req
   if (isStreamingBodyRoute(method, path) || !hasUncountedBody(req)) return
-  try {
-    ;(req as unknown as Record<symbol, unknown>)[RAW_BODY] = await readCappedBody(req, limit)
-  } catch (error) {
-    // The unread rest of the body still sits on the connection, so it must not carry another request.
-    if (!event.node.res.headersSent) event.node.res.setHeader('Connection', 'close')
-    throw error
-  }
+  ;(req as unknown as Record<symbol, unknown>)[RAW_BODY] = await readCappedBody(req, limit)
 })

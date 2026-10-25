@@ -10,12 +10,29 @@ import { apiError } from './errors'
 /** The request property h3's readRawBody and getRequestWebStream read instead of the socket when it is set. */
 export const RAW_BODY = Symbol.for('h3RawBody')
 
+/** How long the rest of a body that hit its cap is discarded before the connection is destroyed. */
+export const CAPPED_BODY_DRAIN_MS = 5_000
+
 /**
- * Reads the request body into memory, never more than `limit` bytes. At the cap it stops reading and rejects with 413
- * `payloadTooLarge` (`details.limit`): the request is paused, never destroyed, so the 413 can still be written; the
- * unread rest stays on the connection, so the caller answers with `Connection: close`.
+ * Drops the rest of a body that is not read, so the connection stays open while the 413 is written and read. Leaving the
+ * rest unread and closing the connection after the 413 (`Connection: close`) resets the connection while a proxy is
+ * still sending the body, and the proxy answers 502 instead of the 413; kept alive with the rest unread, the next
+ * request of the connection would wait behind it. Once the body ends, the connection carries the next request; a body
+ * that has not ended `drainMs` later gets its connection destroyed (by then the 413 has long arrived), so a client
+ * cannot make the orchestrator discard data for longer.
  */
-export function readCappedBody(req: IncomingMessage, limit: number): Promise<Buffer> {
+function discardRest(req: IncomingMessage, drainMs: number): void {
+  const deadline = setTimeout(() => req.socket.destroy(), drainMs)
+  deadline.unref()
+  req.once('end', () => clearTimeout(deadline))
+  req.resume()
+}
+
+/**
+ * Reads the request body into memory, never more than `limit` bytes. At the cap it rejects with 413 `payloadTooLarge`
+ * (`details.limit`) and discards the rest of the body as it arrives (discardRest).
+ */
+export function readCappedBody(req: IncomingMessage, limit: number, drainMs = CAPPED_BODY_DRAIN_MS): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
     let bytes = 0
@@ -29,7 +46,7 @@ export function readCappedBody(req: IncomingMessage, limit: number): Promise<Buf
       bytes += chunk.length
       if (bytes > limit) {
         cleanup()
-        req.pause()
+        discardRest(req, drainMs)
         reject(apiError('payloadTooLarge', `request body exceeds ${limit} bytes`, { limit }))
         return
       }

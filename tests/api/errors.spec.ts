@@ -217,9 +217,8 @@ test.describe('body caps', () => {
     expect(response.status, response.text().slice(0, 300)).toBe(413)
     const error = response.json<ErrorBody>().error
     expect(error.code).toBe('payloadTooLarge')
-    // Counted while it streams: reading stops at the cap, so the size of the whole body is never known.
+    // Counted while it streams: buffering stops at the cap, so the size of the whole body is never known.
     expect(error.details).toEqual({ limit })
-    expect(response.headers.connection).toBe('close')
 
     // Below the cap the same chunked request is read and validated normally.
     const small = await rawRequest(`${env.publicUrl}/api/account`, {
@@ -268,7 +267,6 @@ test.describe('body caps', () => {
         const error = response.json<ErrorBody>().error
         expect(error.code, label).toBe('payloadTooLarge')
         expect(error.details, label).toEqual(chunked ? { limit } : { limit, actual: 4 * limit })
-        if (chunked) expect(response.headers.connection, label).toBe('close')
       }
     }
   })
