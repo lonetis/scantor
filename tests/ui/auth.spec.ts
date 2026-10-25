@@ -146,17 +146,28 @@ test.describe('signed-in visits to /login', () => {
 test.describe('session loss', () => {
   test.use({ pageUser: 'fresh' })
 
-  test('a user banned while signed in is signed out on the next API call', { tag: ['@UI-NAV-018'] }, async ({ page, freshUser, freshApi, adminApi }) => {
-    await openPage(page, '/tasks')
-    await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
-    ok(await adminApi.call('banUser', { path: { userId: freshUser.id }, body: { reason: unique('ui-ban'), cancelScans: false } }), 'banUser')
-    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
-    await expect(page).toHaveURL((url) => url.pathname === '/login')
-    // The session is gone on the server, and protected pages redirect to the login page again.
-    expect((await freshApi.getAccount()).status).toBe(401)
-    await openPage(page, '/scans')
-    await expect(page).toHaveURL((url) => url.pathname === '/login' && url.searchParams.get('redirect') === '/scans')
-  })
+  test(
+    'a user banned while signed in gets 401 on the next API call, lands on /login?redirect= and sees the ban on signing in',
+    { tag: ['@UI-NAV-018'] },
+    async ({ page, freshUser, freshApi, adminApi }) => {
+      await openPage(page, '/tasks')
+      await expect(page.getByRole('button', { name: 'Refresh', exact: true })).toBeEnabled()
+      ok(await adminApi.call('banUser', { path: { userId: freshUser.id }, body: { reason: unique('ui-ban'), cancelScans: false } }), 'banUser')
+      // The ban deleted the session first (docs/auth.md §5.7): the next call answers 401, not 403 banned.
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+      await expect(page).toHaveURL((url) => url.pathname === '/login' && url.searchParams.get('redirect') === '/tasks')
+      expect((await freshApi.getAccount()).status).toBe(401)
+      // Signing in again shows the ban (UI-AUTH-003) and stays on the login page.
+      await page.getByLabel('Email').fill(freshUser.email)
+      await page.getByLabel('Password').fill(freshUser.password)
+      expect((await submitLoginForm(page)).status()).toBe(403)
+      await expect(page.getByTestId('login-error')).toHaveText(/Your account is banned/)
+      await expect(page).toHaveURL((url) => url.pathname === '/login')
+      // Protected pages keep redirecting to the login page.
+      await openPage(page, '/scans')
+      await expect(page).toHaveURL((url) => url.pathname === '/login' && url.searchParams.get('redirect') === '/scans')
+    },
+  )
 
   test(
     'a user whose session outlives the ban gets 403 banned, is signed out and lands on /login?banned=1 with "Your account is banned"',
