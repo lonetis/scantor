@@ -52,7 +52,8 @@ type BuildOptions struct {
 	TagFunc func(name, packSHA256 string) string
 	// SkipCheck skips the check phase (test runs, dev run).
 	SkipCheck bool
-	// ReuseExisting skips the image build when an image tagged Tag already exists locally.
+	// ReuseExisting skips the image build when an image tagged Tag already exists locally and was built on
+	// the current base image.
 	ReuseExisting bool
 	// DebugBuild sets the build argument SCANTOR_GCFLAGS=all=-N -l (dev debug).
 	DebugBuild bool

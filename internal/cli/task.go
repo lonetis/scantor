@@ -227,7 +227,7 @@ func newTaskBuildCommand(app *App) *cobra.Command {
 	cmd.Flags().BoolVar(&opts.Push, "push", false, "push the image by digest after every other phase succeeded")
 	cmd.Flags().IntVar(&pushGate, "push-gate", 0, "file descriptor to read the push go-ahead line from (with --push)")
 	cmd.Flags().BoolVar(&opts.SkipCheck, "skip-check", false, "skip the type check phase")
-	cmd.Flags().BoolVar(&opts.ReuseExisting, "reuse-existing", false, "skip the image build when an image tagged --tag exists locally")
+	cmd.Flags().BoolVar(&opts.ReuseExisting, "reuse-existing", false, "skip the image build when an image tagged --tag exists locally and was built on the current base image")
 	cmd.Flags().BoolVar(&opts.DebugBuild, "debug-build", false, "build with SCANTOR_GCFLAGS=\""+taskpipe.DebugGCFlags+"\" (debuggable Go binaries)")
 	taskStaticFlags(cmd, &opts.StaticOptions)
 	events.add(cmd)
