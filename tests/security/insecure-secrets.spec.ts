@@ -253,10 +253,13 @@ test.describe('SCANTOR_SECRET change', () => {
     { tag: ['@SEC-022'] },
     async ({ openapi, throwawayInfra, shared, docker: inner }) => {
       test.setTimeout(180_000)
-      // A ready revision with a writeOnly field for the throwaway: the shared probe revision of the stack, copied
-      // white-box into the throwaway's database (the throwaway cannot push images to the stack's registry).
+      // A ready revision with a writeOnly field for the throwaway: the shared probe revision of the stack and its task
+      // (a scan starts only on a revision whose task exists), copied white-box into the throwaway's database (the
+      // throwaway cannot push images to the stack's registry).
       const { revision: probe } = await shared.probe()
-      const revisionJson = await inner.mongosh(`print(EJSON.stringify(db.revisions.findOne({ _id: '${probe.id}' }), undefined, undefined, { relaxed: false }))`)
+      const copyJson = await inner.mongosh(
+        `const revision = db.revisions.findOne({ _id: '${probe.id}' }); print(EJSON.stringify({ revision, task: db.tasks.findOne({ _id: revision.taskId }) }, undefined, undefined, { relaxed: false }))`,
+      )
       expect(probe.description?.secretPaths.taskConfig).toEqual(['/token'])
       const password = random(18)
       const oldSecret = random(24)
@@ -283,7 +286,8 @@ test.describe('SCANTOR_SECRET change', () => {
         // A scan whose task config holds a writeOnly secret, encrypted with the old secret.
         const adminId = (await api.getAccount()).body.id
         const copied = await orchestrator.mongosh(
-          `const doc = EJSON.parse(${JSON.stringify(revisionJson)}); doc.userId = '${adminId}'; print(db.revisions.insertOne(doc).acknowledged)`,
+          `const { revision, task } = EJSON.parse(${JSON.stringify(copyJson)}); revision.userId = '${adminId}'; task.userId = '${adminId}'; ` +
+            `print(db.tasks.insertOne(task).acknowledged && db.revisions.insertOne(revision).acknowledged)`,
         )
         expect(copied).toBe('true')
         const scanSecret = `scan-secret-${random()}`
