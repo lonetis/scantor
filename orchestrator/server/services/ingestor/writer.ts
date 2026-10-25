@@ -11,6 +11,7 @@ import {
   MongoServerSelectionError,
   MongoTopologyClosedError,
   MongoWriteConcernError,
+  type WriteError,
 } from 'mongodb'
 import type { Logger } from '../../utils/logger'
 import type { AnalysisWrite } from './build-document'
@@ -26,6 +27,9 @@ import type { AnalysisWrite } from './build-document'
  *    error is logged, counted and acknowledged so the queue never blocks;
  *  - anything that is not a per-operation write error (network, no primary, write concern, timeouts, driver errors)
  *    fails the whole batch: BatchWriteError, and the consumer nacks and backs off. Replays are absorbed by the guards.
+ *    The driver reports these wrapped in a MongoBulkWriteError without write errors; `transient` comes from the
+ *    wrapped error, and a per-operation error with an availability code (an interrupted write) makes the batch
+ *    transient as well.
  */
 
 export interface WriteItem {
@@ -58,6 +62,16 @@ const TRANSIENT_CODES = new Set([6, 7, 50, 64, 89, 91, 189, 262, 9001, 10107, 11
 const TRANSIENT_LABELS = ['RetryableWriteError', 'TransientTransactionError', 'ResetPool', 'SystemOverloadedError']
 const DUPLICATE_KEY = 11000
 
+/** The driver types `writeErrors` as one error or a list (OneOrMore), and Array.isArray narrows no readonly list. */
+function isList<T>(value: T | readonly T[]): value is readonly T[] {
+  return Array.isArray(value)
+}
+
+function writeErrorList(error: MongoBulkWriteError): readonly WriteError[] {
+  const writeErrors = error.writeErrors
+  return isList(writeErrors) ? writeErrors : [writeErrors]
+}
+
 /** True when an error says that MongoDB is unavailable rather than that the data is bad. */
 export function isTransientMongoError(error: unknown): boolean {
   if (
@@ -71,7 +85,17 @@ export function isTransientMongoError(error: unknown): boolean {
   ) {
     return true
   }
-  if (error instanceof MongoBulkWriteError && error.result?.getWriteConcernError()) return true
+  if (error instanceof MongoBulkWriteError) {
+    if (error.result?.getWriteConcernError()) return true
+    const writeErrors = writeErrorList(error)
+    // bulk.execute wraps every error of the operation itself (server selection, network, timeouts, driver errors) in a
+    // MongoBulkWriteError without write errors and keeps the original as errorResponse; classify that one.
+    if (writeErrors.length === 0 && error.errorResponse instanceof Error && error.errorResponse !== error) {
+      return isTransientMongoError(error.errorResponse)
+    }
+    // An operation interrupted by a stepdown or shutdown fails per operation, and only the first code is copied up.
+    if (writeErrors.some((writeError) => TRANSIENT_CODES.has(writeError.code))) return true
+  }
   if (error instanceof MongoError) {
     if (TRANSIENT_LABELS.some((label) => error.hasErrorLabel(label))) return true
     if (typeof error.code === 'number' && TRANSIENT_CODES.has(error.code)) return true
@@ -86,7 +110,7 @@ function toOperation(write: AnalysisWrite): AnyBulkWriteOperation<Document> {
 /** Per-operation write errors by operation index, or null when the error concerns the whole batch. */
 function writeErrorsOf(error: unknown): Map<number, { code: number; message: string }> | null {
   if (!(error instanceof MongoBulkWriteError) || isTransientMongoError(error)) return null
-  const errors = Array.isArray(error.writeErrors) ? error.writeErrors : [error.writeErrors]
+  const errors = writeErrorList(error)
   if (errors.length === 0) return null
   return new Map(errors.map((writeError) => [writeError.index, { code: writeError.code, message: writeError.errmsg ?? 'write error' }]))
 }

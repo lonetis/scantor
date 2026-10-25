@@ -1,4 +1,13 @@
-import { type AnyBulkWriteOperation, type Collection, type Document, MongoBulkWriteError, MongoNetworkError } from 'mongodb'
+import {
+  type AnyBulkWriteOperation,
+  type Collection,
+  type Document,
+  MongoBulkWriteError,
+  MongoClient,
+  MongoNetworkError,
+  MongoRuntimeError,
+  MongoServerSelectionError,
+} from 'mongodb'
 import { describe, expect, it } from 'vitest'
 import { buildMinimalFailedWrite, buildSucceededWrite, type WriteTarget } from '../../../server/services/ingestor/build-document'
 import type { ResultMessage } from '../../../server/services/ingestor/messages'
@@ -40,6 +49,29 @@ function bulkError(errors: { index: number; code: number }[], writeConcern = fal
     { message: 'bulk write failed', code: errors[0]?.code ?? 0, writeErrors: errors.map((error) => ({ ...error, errmsg: `error ${error.code}` })) } as never,
     { getWriteConcernError: () => (writeConcern ? { code: 64, errmsg: 'waiting for replication timed out' } : undefined) } as never,
   )
+}
+
+/** The driver's own server-selection timeout: a bulkWrite through a client that never reached a server. */
+async function serverSelectionError(): Promise<MongoServerSelectionError> {
+  const client = new MongoClient('mongodb://127.0.0.1:1/?directConnection=true', { serverSelectionTimeoutMS: 50 })
+  try {
+    await client.db('test').collection('analyses').bulkWrite([{ updateOne: { filter: { _id: 'a' }, update: { $set: { x: 1 } }, upsert: true } }])
+  } catch (error) {
+    expect(error).toBeInstanceOf(MongoServerSelectionError)
+    return error as MongoServerSelectionError
+  } finally {
+    await client.close()
+  }
+  throw new Error('expected the bulkWrite to fail')
+}
+
+/**
+ * How bulk.execute reports an error of a batch's operation itself on a connected client (server selection after an
+ * election, network errors, timeouts; node_modules/mongodb/lib/bulk/common.js): wrapped in a MongoBulkWriteError
+ * without write errors, the original kept as errorResponse.
+ */
+function wrappedByBulkExecute(error: Error): MongoBulkWriteError {
+  return new MongoBulkWriteError(error, { getWriteConcernError: () => undefined } as never)
 }
 
 /** A collection whose successive bulkWrite calls throw the given errors (or succeed with `null`). */
@@ -106,6 +138,42 @@ describe('writeBatch', () => {
     await expect(writeBatch(other.collection, [item(0)], log)).rejects.toSatisfy(
       (error: unknown) => error instanceof BatchWriteError && !error.transient,
     )
+  })
+})
+
+describe('wrapped driver errors', () => {
+  it('classifies a wrapped error by the error it wraps', async () => {
+    const wrapped = wrappedByBulkExecute(await serverSelectionError())
+    expect(wrapped.writeErrors).toEqual([])
+    expect(wrapped.errorResponse).toBeInstanceOf(MongoServerSelectionError)
+    expect(isTransientMongoError(wrapped)).toBe(true)
+    expect(isTransientMongoError(wrappedByBulkExecute(new MongoNetworkError('connection reset')))).toBe(true)
+  })
+
+  it('fails the batch as transient, so nothing is acknowledged', async () => {
+    const { collection } = fakeCollection([wrappedByBulkExecute(await serverSelectionError())])
+    await expect(writeBatch(collection, [item(0), item(1)], log)).rejects.toSatisfy((error: unknown) => error instanceof BatchWriteError && error.transient)
+  })
+
+  it('makes an isolated write throw instead of acknowledging it without a document', async () => {
+    const { collection, calls } = fakeCollection([wrappedByBulkExecute(await serverSelectionError())])
+    await expect(writeIsolated(collection, item(0), log)).rejects.toSatisfy((error: unknown) => error instanceof BatchWriteError && error.transient)
+    expect(calls).toHaveLength(1)
+  })
+
+  it('keeps a wrapped driver bug non-transient, so it cannot back off forever', () => {
+    expect(isTransientMongoError(wrappedByBulkExecute(new MongoRuntimeError('driver bug')))).toBe(false)
+  })
+
+  it('treats a batch as transient when any operation was interrupted, not only the first', async () => {
+    const interrupted = bulkError([
+      { index: 0, code: 11000 },
+      { index: 1, code: 11602 },
+    ])
+    expect(isTransientMongoError(interrupted)).toBe(true)
+    const { collection, calls } = fakeCollection([interrupted])
+    await expect(writeBatch(collection, [item(0), item(1)], log)).rejects.toSatisfy((error: unknown) => error instanceof BatchWriteError && error.transient)
+    expect(calls).toHaveLength(1)
   })
 })
 
