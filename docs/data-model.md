@@ -1072,8 +1072,20 @@ every stop, and every start mints a new one.
    scans reference images by digest.
 7. A scan document holds only scalars and bounded maps/arrays (`conditions` ≤ 16, `uploadIds` ≤ 32,
    `scheduling.resolved` ≤ 16 keys); unbounded data lives in `workers`, `events`, `analyses` or S3.
-8. No plaintext secret is stored: API keys and node tokens are hashes; worker tokens, AMQP passwords and
-   the built-in node token are derived; git tokens and `writeOnly` config values are encrypted.
+8. No plaintext secret is stored, with one exception: API keys and node tokens are hashes, and so are
+   passwords (scrypt) and, by `@better-auth/oauth-provider`'s defaults, OAuth access and refresh tokens,
+   authorization codes and client secrets; worker tokens, AMQP passwords and the built-in node token are
+   derived; git tokens, `writeOnly` config values and the JWKS private keys are encrypted. The exception is
+   `session.token`: better-auth stores the opaque session token in clear and looks sessions up by it, and it
+   has no option to store a hash (its `list-sessions` and `revoke-session` endpoints work with the raw token).
+   A stored token alone is not a usable credential, because the session cookie is the token plus an HMAC
+   signature under the better-auth secret (HKDF `better-auth` of `SCANTOR_SECRET`, [auth](auth.md) §3) and no
+   bearer plugin accepts the bare token; with that secret it is a session for up to 7 days. Everything that
+   can read the `session` collection is therefore kept as private as `SCANTOR_SECRET`: the MongoDB root and
+   analytics users (direct access, the exposed TCP router and mongo-express are for admins only,
+   [deployment](deployment.md) §4.3), the MongoDB log, which keeps no slow operations
+   ([security](security.md) MC-11), and backups, which are written with mode 0600 ([deployment](deployment.md)
+   §12).
 9. After `deleted`: no analyses, workers, files, exports, events, RabbitMQ queue or user exist for the scan;
    only the tombstone, until `purgeAfter`.
 10. `userId` on a document never changes and always equals the owner of its parent.
