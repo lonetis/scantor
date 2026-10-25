@@ -155,7 +155,6 @@ type apiDeleted struct {
 	Deleted bool   `json:"deleted"`
 }
 
-// apiYesNo renders a boolean for tables.
 // countNoun renders "1 analysis" / "3 analyses".
 func countNoun(n int, singular, plural string) string {
 	if n == 1 {
@@ -164,6 +163,7 @@ func countNoun(n int, singular, plural string) string {
 	return fmt.Sprintf("%d %s", n, plural)
 }
 
+// apiYesNo renders a boolean for tables.
 func apiYesNo(b bool) string {
 	if b {
 		return "yes"

@@ -12,8 +12,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/lonetis/scantor/internal/api"
-	"github.com/lonetis/scantor/internal/envconf"
 	"github.com/lonetis/scantor/internal/redact"
+	"github.com/lonetis/scantor/internal/taskpipe"
 )
 
 // Format is the output format selected with -o.
@@ -107,11 +107,6 @@ func (t Table) Write(w io.Writer) error {
 		}
 	}
 	return tw.Flush()
-}
-
-// PrintList writes items as JSON (the items array, or the page object when page is not nil) or table.
-func (o *Output) PrintList(items any, table Table) error {
-	return o.Print(items, table.Write)
 }
 
 // NDJSON writes one compact JSON object per line (streams such as `dev run -o json` events). It is safe
@@ -319,19 +314,11 @@ func exitCodeName(code int) string {
 	}
 }
 
-// FormatBuildError renders "<phase> <file>:<line>:<column>: <message>" with the parts that are set.
+// FormatBuildError renders "[<phase>] <file>:<line>:<column>: <message>" with the parts that are set. It
+// is the one rendering of build errors in the CLI, for errors the platform reports and local pack problems
+// alike.
 func FormatBuildError(e api.BuildError) string {
-	loc := e.File
-	if loc != "" && e.Line > 0 {
-		loc = fmt.Sprintf("%s:%d", loc, e.Line)
-		if e.Column > 0 {
-			loc = fmt.Sprintf("%s:%d", loc, e.Column)
-		}
-	}
-	if loc != "" {
-		return fmt.Sprintf("[%s] %s: %s", e.Phase, loc, e.Message)
-	}
-	return fmt.Sprintf("[%s] %s", e.Phase, e.Message)
+	return fmt.Sprintf("[%s] %s", e.Phase, taskpipe.FormatBuildError(e))
 }
 
 // HumanBytes renders a byte count with a binary unit ("1.5 GiB", "512 B").
@@ -346,15 +333,6 @@ func HumanBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %s", value, []string{"B", "KiB", "MiB", "GiB", "TiB"}[exp])
-}
-
-// HumanSize renders a byte count in the env value syntax when exact ("512MiB"), else HumanBytes.
-func HumanSize(n int64) string {
-	s := envconf.FormatByteSize(n)
-	if strings.HasSuffix(s, "iB") || n < 1024 {
-		return s
-	}
-	return HumanBytes(n)
 }
 
 // HumanTime renders a timestamp in local time ("2026-10-21 11:01:00"), or "-" for nil/zero.

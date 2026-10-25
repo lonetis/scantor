@@ -233,7 +233,7 @@ func packFailure(ctx context.Context, out *Output, err error) error {
 	switch {
 	case errors.As(err, &problems):
 		for _, p := range problems {
-			out.Infof("  %s", taskpipe.FormatBuildError(api.BuildError{Phase: api.BuildPhasePack, File: p.Path, Message: p.Message}))
+			out.Infof("  %s", FormatBuildError(api.BuildError{Phase: api.BuildPhasePack, File: p.Path, Message: p.Message}))
 		}
 		return ValidationError(fmt.Errorf("the task folder cannot be packed (%d problem(s))", len(problems)))
 	case ctx.Err() != nil:

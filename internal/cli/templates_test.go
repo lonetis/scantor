@@ -68,6 +68,7 @@ func TestTemplatesEstimate(t *testing.T) {
 		{"inline", "", []string{"cidr", "--config", `{"cidrs": ["10.0.0.0/24", "10.0.0.128/25"]}`}, `{"expectedTotal": 256, "exact": true}`},
 		{"stdin", `{"times": 5}`, []string{"repeat", "--config", "-"}, `{"expectedTotal": 5, "exact": true}`},
 		{"empty stdin is {}", "  \n", []string{"repeat", "--config", "-"}, `{"expectedTotal": 1, "exact": true}`},
+		{"blank inline is {}", "", []string{"repeat", "--config", " "}, `{"expectedTotal": 1, "exact": true}`},
 		{"file", "", []string{"range", "--config", "@" + file}, `{"expectedTotal": 15, "exact": true}`},
 		{"scan-config alias", "", []string{"tranco", "--scan-config", `{"offset": 10, "limit": 500}`}, `{"expectedTotal": 500, "exact": true}`},
 		{"upper bound", "", []string{"crux", "--config", `{"country": "de", "bucket": 5000}`}, `{"expectedTotal": 5000, "exact": false}`},
@@ -137,6 +138,7 @@ func TestTemplatesEstimateUsageErrors(t *testing.T) {
 		{"list", "--upload", "x"},
 		{"list", "--upload", "x=-1"},
 		{"cidr", "--config", "@/nonexistent/scan.json"},
+		{"cidr", "--config", "@"},
 	} {
 		code, out, errOut := runTemplates(t, "", append([]string{"templates", "estimate"}, args...)...)
 		if code != 2 {

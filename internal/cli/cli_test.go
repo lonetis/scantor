@@ -440,7 +440,7 @@ func TestPrintErrorHuman(t *testing.T) {
 }
 
 func TestHumanHelpers(t *testing.T) {
-	if HumanBytes(512) != "512 B" || HumanBytes(1536) != "1.5 KiB" || HumanSize(512<<20) != "512MiB" || HumanDuration(40) != "40ms" || HumanDuration(1200) != "1.2s" {
+	if HumanBytes(512) != "512 B" || HumanBytes(1536) != "1.5 KiB" || HumanDuration(40) != "40ms" || HumanDuration(1200) != "1.2s" {
 		t.Fatal("human helpers")
 	}
 	if FormatBuildError(api.BuildError{Phase: api.BuildPhaseStatic, File: "Dockerfile", Line: 3, Message: "x"}) != "[static] Dockerfile:3: x" {

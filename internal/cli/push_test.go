@@ -129,7 +129,7 @@ func TestPushPackErrors(t *testing.T) {
 		t.Fatal(err)
 	}
 	code, _, errOut := f.exec("push", dir)
-	if code != 2 || !strings.Contains(errOut, "  evil: the symlink points to the absolute path") || f.count() != 0 {
+	if code != 2 || !strings.Contains(errOut, "  [pack] evil: the symlink points to the absolute path") || f.count() != 0 {
 		t.Fatalf("exit %d requests %d: %s", code, f.count(), errOut)
 	}
 }

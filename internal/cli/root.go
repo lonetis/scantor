@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -18,7 +17,6 @@ import (
 
 	"github.com/lonetis/scantor/internal/api"
 	"github.com/lonetis/scantor/internal/container"
-	"github.com/lonetis/scantor/internal/redact"
 	"github.com/lonetis/scantor/internal/version"
 )
 
@@ -134,11 +132,6 @@ func (a *App) Docker() (*client.Client, error) {
 		a.dockerClient = c
 	})
 	return a.dockerClient, a.dockerErr
-}
-
-// Logger returns a redacting text logger on stderr at info level.
-func (a *App) Logger() *slog.Logger {
-	return redact.NewLogger(a.Stderr, redact.FormatText, slog.LevelInfo)
 }
 
 // InterruptContext returns a context that is cancelled on SIGINT or SIGTERM. The command wrapper of

@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io"
-	"os"
 	"strconv"
 	"strings"
 
@@ -20,9 +18,6 @@ func init() {
 	registerCommand("templates", newTemplatesListCommand)
 	registerCommand("templates", newTemplatesEstimateCommand)
 }
-
-// templatesMaxConfigBytes bounds a scan config read by `templates estimate`.
-const templatesMaxConfigBytes = 16 << 20
 
 func newTemplatesListCommand(app *App) *cobra.Command {
 	return &cobra.Command{
@@ -44,18 +39,11 @@ func newTemplatesListCommand(app *App) *cobra.Command {
 				if sources == "" {
 					sources = "-"
 				}
-				table.Add(info.Name, info.Title, info.Estimate, yesNo(info.Resolves), sources, yesNo(info.Uploads))
+				table.Add(info.Name, info.Title, info.Estimate, apiYesNo(info.Resolves), sources, apiYesNo(info.Uploads))
 			}
 			return app.Output().Print(map[string]any{"items": items}, table.Write)
 		},
 	}
-}
-
-func yesNo(b bool) string {
-	if b {
-		return "yes"
-	}
-	return "no"
 }
 
 // templatesIssues is the stdout document of a rejected scan config (exit 2).
@@ -146,31 +134,15 @@ func templatesReject(app *App, issues []templates.Issue) error {
 	return SilentExit(ExitValidation)
 }
 
-// templatesReadConfig reads a scan config given inline, as @file or as - (stdin); empty means {}.
+// templatesReadConfig reads a scan config given inline, as @file or as - (stdin), with the input rules and
+// size cap of every other command (apiInputs); empty or blank means {}.
 func templatesReadConfig(app *App, value string) ([]byte, error) {
-	var r io.Reader
-	switch {
-	case value == "":
+	if value == "" {
 		return []byte(`{}`), nil
-	case value == "-":
-		r = app.Stdin
-	case strings.HasPrefix(value, "@"):
-		name := strings.TrimPrefix(value, "@")
-		f, err := os.Open(name) // #nosec G304 -- the user names the file to read
-		if err != nil {
-			return nil, ValidationError(fmt.Errorf("--config: %w", err))
-		}
-		defer func() { _ = f.Close() }()
-		r = f
-	default:
-		return []byte(value), nil
 	}
-	data, err := io.ReadAll(io.LimitReader(r, templatesMaxConfigBytes+1))
+	data, err := newAPIInputs(app).bytes("--config", value)
 	if err != nil {
-		return nil, ValidationError(fmt.Errorf("read --config: %w", err))
-	}
-	if len(data) > templatesMaxConfigBytes {
-		return nil, ValidationError(fmt.Errorf("--config exceeds %s", HumanBytes(templatesMaxConfigBytes)))
+		return nil, err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		return []byte(`{}`), nil

@@ -42,7 +42,6 @@
 //   - app.Docker(): a Docker Engine client (DOCKER_HOST).
 //   - app.Getenv: the environment reader to pass to other components' LoadConfig (runtime, node daemon);
 //     no other code reads the environment.
-//   - app.Logger(): a redacting slog logger on stderr.
 //
 // # Interrupts
 //
