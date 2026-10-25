@@ -536,7 +536,7 @@ func (w *worker) runScheduler(ctx context.Context, publisher *amqpx.Publisher, a
 			return ExitFatal
 		}
 	}
-	env, err := templateEnv(b, w.cfg)
+	env, err := templateEnv(b, w.cfg, w.policy)
 	if err != nil {
 		w.fatal(ctx, scerr.Newf(api.ErrorPlatform, api.PhaseBootstrap, "%v", err), "")
 		return ExitFatal
@@ -566,8 +566,9 @@ func (w *worker) runScheduler(ctx context.Context, publisher *amqpx.Publisher, a
 	return w.exit()
 }
 
-// templateEnv builds the template environment of a scheduler from bootstrap.
-func templateEnv(b *api.Bootstrap, cfg runtime.Config) (templates.Env, error) {
+// templateEnv builds the template environment of a scheduler from bootstrap. Downloads of uploaded lists follow
+// the platform transport rule (withUploadRule).
+func templateEnv(b *api.Bootstrap, cfg runtime.Config, policy api.Policy) (templates.Env, error) {
 	httpClient, err := fetch.NewHTTPClient(cfg.CACert)
 	if err != nil {
 		return templates.Env{}, err
@@ -580,9 +581,12 @@ func templateEnv(b *api.Bootstrap, cfg runtime.Config) (templates.Env, error) {
 	if s := b.Scheduler; s != nil {
 		env.DataSources[templates.DataSourceTranco] = s.DataSources.Tranco
 		env.DataSources[templates.DataSourceCrux] = s.DataSources.Crux
+		urls := make([]string, 0, len(s.Uploads))
 		for id, u := range s.Uploads {
 			env.Uploads[id] = templates.Upload{URL: u.URL, SHA256: u.SHA256, Bytes: u.Bytes}
+			urls = append(urls, u.URL)
 		}
+		httpClient.Transport = withUploadRule(httpClient.Transport, policy, urls)
 	}
 	return env, nil
 }

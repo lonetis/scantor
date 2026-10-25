@@ -222,7 +222,10 @@ endpoints the runtime applies the platform transport rule ([security](security.m
   flag.
 - A refused orchestrator URL is a fatal startup error (exit 1). A refused AMQP URL is reported through
   `POST /api/runtime/errors` (`fatal: true`, type `platform`, phase `bootstrap`) and exits 1. A refused
-  presigned URL is a deterministic upload failure (§8.8).
+  presigned URL is a deterministic upload failure (§8.8). The presigned GETs of uploaded lists that a scheduler
+  downloads for its template (`scheduler.uploads`) follow the same rule, redirects included; a refused one is a
+  non-retryable `platform` error of the schedule. Data source downloads keep the template download policy
+  ([templates](templates.md) §7.2).
 
 ### 4.3 HTTP client
 
