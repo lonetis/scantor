@@ -11,6 +11,7 @@ import (
 	"time"
 
 	dcontainer "github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 
 	"github.com/lonetis/scantor/internal/api"
 	"github.com/lonetis/scantor/internal/container"
@@ -323,13 +324,42 @@ func TestBuiltInNodeNeedsSandboxNetwork(t *testing.T) {
 	if h.docker.callCount("network create") != 0 {
 		t.Error("the built-in node must not create networks")
 	}
-	h.docker.mu.Lock()
-	h.docker.networks[container.NetworkSandbox] = true
-	h.docker.mu.Unlock()
+	// compose creates scantor-sandbox with inter-container traffic on, which the built-in node accepts.
+	h.docker.addNetwork(network.Network{Name: container.NetworkSandbox, Driver: "bridge"})
 	h.waitWorkerState(testWorker1, api.NodeWorkerRunning)
 	if c := h.docker.container(workerName(testWorker1)); string(c.host.NetworkMode) != container.NetworkSandbox {
 		t.Errorf("network = %s", c.host.NetworkMode)
 	}
+}
+
+// An existing scantor-workers network that the daemon did not create as an isolated network is never
+// used: workers of different scans and users on it could reach each other (docs/nodes.md §6.8).
+func TestRemoteNodeRefusesAWorkerNetworkWithInterContainerTraffic(t *testing.T) {
+	h := newHarness(t, nil)
+	labels, err := container.ManagedLabels(container.KindNetwork, container.Identity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.docker.addNetwork(network.Network{Name: container.NetworkWorkers, Driver: "bridge", Labels: labels})
+	h.start()
+	h.orch.setDesired(testAssignment(testWorker1))
+	st := h.waitWorkerState(testWorker1, api.NodeWorkerError)
+	if st.Error == nil || st.Error.Code != api.NodeWorkerCreateFailed || !strings.Contains(st.Error.Message, "inter-container traffic is enabled") {
+		t.Errorf("error = %+v", st.Error)
+	}
+	if h.docker.callCount("create "+workerName(testWorker1)) != 0 {
+		t.Error("a worker was created on a network with inter-container traffic")
+	}
+	if !h.logContains("the worker network is not usable") {
+		t.Error("the unsafe network was not logged")
+	}
+
+	// Once the operator replaced it with an isolated network, the worker is created at once.
+	h.docker.addNetwork(network.Network{
+		Name: container.NetworkWorkers, Driver: "bridge", Labels: labels,
+		Options: map[string]string{"com.docker.network.bridge.enable_icc": "false"},
+	})
+	h.waitWorkerState(testWorker1, api.NodeWorkerRunning)
 }
 
 func TestConflictStopsWithoutTouchingContainers(t *testing.T) {

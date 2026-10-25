@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"runtime"
+	"strings"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/authconfig"
 	"github.com/moby/moby/api/types/jsonstream"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/api/types/registry"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -102,9 +104,13 @@ const (
 	NetworkSandbox = "scantor-sandbox"
 )
 
+// bridgeICCOption is the bridge driver option that disables inter-container traffic when "false".
+const bridgeICCOption = "com.docker.network.bridge.enable_icc"
+
 // EnsureNetwork creates the bridge network name with inter-container traffic disabled
 // (com.docker.network.bridge.enable_icc=false), no IPv6 and the managed labels of kind network. An
-// existing network of that name counts as success; scantor never deletes these networks.
+// existing network of that name (a 409, or a concurrent create) counts as success only when
+// CheckIsolatedNetwork accepts it; scantor never deletes these networks.
 func EnsureNetwork(ctx context.Context, docker client.APIClient, name string) error {
 	labels, err := ManagedLabels(KindNetwork, Identity{})
 	if err != nil {
@@ -114,14 +120,41 @@ func EnsureNetwork(ctx context.Context, docker client.APIClient, name string) er
 	_, err = docker.NetworkCreate(ctx, name, client.NetworkCreateOptions{
 		Driver:     "bridge",
 		EnableIPv6: &ipv6,
-		Options:    map[string]string{"com.docker.network.bridge.enable_icc": "false"},
+		Options:    map[string]string{bridgeICCOption: "false"},
 		Labels:     labels,
 	})
-	if err == nil || IsConflict(err) {
+	if err == nil {
 		return nil
 	}
-	if _, inspectErr := docker.NetworkInspect(ctx, name, client.NetworkInspectOptions{}); inspectErr == nil {
+	existing, inspectErr := docker.NetworkInspect(ctx, name, client.NetworkInspectOptions{})
+	if inspectErr != nil {
+		return fmt.Errorf("create network %s: %w", name, err)
+	}
+	return CheckIsolatedNetwork(existing.Network)
+}
+
+// CheckIsolatedNetwork returns an error naming every property in which an existing network differs
+// from what EnsureNetwork creates: the bridge driver, inter-container traffic disabled, no IPv6 and the
+// managed labels of kind network (docs/nodes.md §6.8). A network of the right name that someone else
+// created, or that was edited, could let workers of different scans and users reach each other, so it is
+// never used as is.
+func CheckIsolatedNetwork(n network.Inspect) error {
+	var problems []string
+	if n.Driver != "bridge" {
+		problems = append(problems, fmt.Sprintf("its driver is %q, not bridge", n.Driver))
+	}
+	if n.Options[bridgeICCOption] != "false" {
+		problems = append(problems, "inter-container traffic is enabled ("+bridgeICCOption+" is not false)")
+	}
+	if n.EnableIPv6 {
+		problems = append(problems, "IPv6 is enabled")
+	}
+	if s, err := Labels(); err != nil || !s.hasManagedLabels(KindNetwork, n.Labels) {
+		problems = append(problems, "it lacks the managed labels of kind network")
+	}
+	if len(problems) == 0 {
 		return nil
 	}
-	return fmt.Errorf("create network %s: %w", name, err)
+	return fmt.Errorf("network %s was not created by scantor as an isolated worker network: %s; remove it so that it is created again",
+		n.Name, strings.Join(problems, ", "))
 }

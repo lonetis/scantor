@@ -3,14 +3,20 @@ package container
 import (
 	"archive/tar"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
 	"testing"
+
+	cerrdefs "github.com/containerd/errdefs"
+	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 
 	"github.com/lonetis/scantor/internal/api"
 )
@@ -93,6 +99,83 @@ func TestIsManaged(t *testing.T) {
 	}
 	if Name(KindWorker, "abc") != "scantor-w-abc" || Name(KindEditor, "u") != "scantor-editor-u" || Name(KindEgressHelper, "n") != "scantor-netpol-n" {
 		t.Fatal("names")
+	}
+}
+
+// isolatedNetwork returns a network as EnsureNetwork creates it.
+func isolatedNetwork(t *testing.T) network.Network {
+	t.Helper()
+	labels, err := ManagedLabels(KindNetwork, Identity{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return network.Network{Name: NetworkWorkers, Driver: "bridge", Options: map[string]string{bridgeICCOption: "false"}, Labels: labels}
+}
+
+func TestCheckIsolatedNetwork(t *testing.T) {
+	if err := CheckIsolatedNetwork(network.Inspect{Network: isolatedNetwork(t)}); err != nil {
+		t.Fatalf("an isolated network was refused: %v", err)
+	}
+	cases := map[string]func(n *network.Network){
+		"its driver is \"overlay\", not bridge":       func(n *network.Network) { n.Driver = "overlay" },
+		"inter-container traffic is enabled":          func(n *network.Network) { n.Options = nil },
+		"IPv6 is enabled":                             func(n *network.Network) { n.EnableIPv6 = true },
+		"it lacks the managed labels of kind network": func(n *network.Network) { n.Labels = map[string]string{"scantor.managed": "true"} },
+	}
+	for want, mutate := range cases {
+		n := isolatedNetwork(t)
+		n.Options = maps.Clone(n.Options)
+		mutate(&n)
+		err := CheckIsolatedNetwork(network.Inspect{Network: n})
+		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), NetworkWorkers) {
+			t.Errorf("%s: err = %v", want, err)
+		}
+	}
+	n := isolatedNetwork(t)
+	n.Options = map[string]string{bridgeICCOption: "true"}
+	if err := CheckIsolatedNetwork(network.Inspect{Network: n}); err == nil {
+		t.Error("enable_icc=true was accepted")
+	}
+}
+
+// networkEngine is a Docker engine with one existing network.
+type networkEngine struct {
+	client.APIClient
+	existing *network.Network
+	created  *client.NetworkCreateOptions
+}
+
+func (e *networkEngine) NetworkCreate(_ context.Context, name string, opts client.NetworkCreateOptions) (client.NetworkCreateResult, error) {
+	if e.existing != nil && e.existing.Name == name {
+		return client.NetworkCreateResult{}, cerrdefs.ErrConflict.WithMessage("network with name " + name + " already exists")
+	}
+	e.created = &opts
+	return client.NetworkCreateResult{ID: name}, nil
+}
+
+func (e *networkEngine) NetworkInspect(_ context.Context, name string, _ client.NetworkInspectOptions) (client.NetworkInspectResult, error) {
+	if e.existing == nil || e.existing.Name != name {
+		return client.NetworkInspectResult{}, cerrdefs.ErrNotFound.WithMessage("network " + name + " not found")
+	}
+	return client.NetworkInspectResult{Network: network.Inspect{Network: *e.existing}}, nil
+}
+
+func TestEnsureNetwork(t *testing.T) {
+	engine := &networkEngine{}
+	if err := EnsureNetwork(t.Context(), engine, NetworkWorkers); err != nil {
+		t.Fatal(err)
+	}
+	if c := engine.created; c == nil || c.Driver != "bridge" || c.Options[bridgeICCOption] != "false" || c.EnableIPv6 == nil || *c.EnableIPv6 || c.Labels[LabelKind] != string(KindNetwork) {
+		t.Errorf("create options = %+v", engine.created)
+	}
+	// A 409 counts as success only for an isolated network.
+	isolated := isolatedNetwork(t)
+	if err := EnsureNetwork(t.Context(), &networkEngine{existing: &isolated}, NetworkWorkers); err != nil {
+		t.Errorf("an existing isolated network was refused: %v", err)
+	}
+	foreign := network.Network{Name: NetworkWorkers, Driver: "bridge"}
+	if err := EnsureNetwork(t.Context(), &networkEngine{existing: &foreign}, NetworkWorkers); err == nil || !strings.Contains(err.Error(), "inter-container traffic is enabled") {
+		t.Errorf("an existing network with inter-container traffic: err = %v", err)
 	}
 }
 

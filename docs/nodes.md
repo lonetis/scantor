@@ -495,8 +495,12 @@ After adoption the daemon always re-issues the update once, so `applied` is know
 | built-in | `scantor-sandbox` | compose ([deployment](deployment.md)) | Shared with the orchestrator (alias `orchestrator`), `rabbitmq` and `rustfs`. Inter-container traffic is on, because workers must reach those services. If the network is missing, the daemon reports every assignment as `createFailed` and logs an error. |
 | remote | `scantor-workers` | daemon, at start, if missing | bridge, `com.docker.network.bridge.enable_icc=false` (workers of different scans and users on one node cannot reach each other), managed labels (`scantor.kind=network`), no IPv6 |
 
-`NetworkCreate` is idempotent: a 409 or an existing network with the same name counts as success. The
-daemon never deletes networks.
+`NetworkCreate` is idempotent, but an existing `scantor-workers` (found at start, or the cause of a 409)
+is used only when it has every property of the table: the bridge driver, `enable_icc=false`, no IPv6 and
+the managed labels of kind `network`. A network of that name made by hand or by another tool, or edited,
+could let workers of different scans and users reach each other. The daemon then logs an error naming
+the missing properties and reports every assignment as `createFailed` until an operator removes the
+network; the next check (every 30 s) creates it again. The daemon never deletes networks.
 
 ### 6.9 DinD modes
 

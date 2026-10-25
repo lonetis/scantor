@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"iter"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -31,9 +32,9 @@ type fakeDocker struct {
 
 	mu         sync.Mutex
 	seq        int
-	containers map[string]*fakeContainer // by id
-	images     map[string]*fakeImage     // by id
-	networks   map[string]bool
+	containers map[string]*fakeContainer  // by id
+	images     map[string]*fakeImage      // by id
+	networks   map[string]network.Inspect // by name
 	subs       []chan events.Message
 	calls      []string
 
@@ -88,7 +89,11 @@ func newFakeDocker() *fakeDocker {
 	return &fakeDocker{
 		containers: map[string]*fakeContainer{},
 		images:     map[string]*fakeImage{},
-		networks:   map[string]bool{"bridge": true, "host": true, "none": true},
+		networks: map[string]network.Inspect{
+			"bridge": {Network: network.Network{Name: "bridge", Driver: "bridge"}},
+			"host":   {Network: network.Network{Name: "host", Driver: "host"}},
+			"none":   {Network: network.Network{Name: "none", Driver: "null"}},
+		},
 		engineID:   "4c6f2b1e-9a8d-4e7f-b6c5-3d2e1f0a9b8c",
 		os:         "linux",
 		arch:       "arm64",
@@ -304,8 +309,10 @@ func (f *fakeDocker) ContainerCreate(_ context.Context, opts client.ContainerCre
 	if img == nil {
 		return client.ContainerCreateResult{}, fmt.Errorf("no such image %s: %w", opts.Config.Image, errFakeNotFound)
 	}
-	if opts.HostConfig != nil && opts.HostConfig.NetworkMode != "" && !f.networks[string(opts.HostConfig.NetworkMode)] && !strings.HasPrefix(string(opts.HostConfig.NetworkMode), "container:") {
-		return client.ContainerCreateResult{}, fmt.Errorf("network %s not found: %w", opts.HostConfig.NetworkMode, errFakeNotFound)
+	if hc := opts.HostConfig; hc != nil && hc.NetworkMode != "" && !strings.HasPrefix(string(hc.NetworkMode), "container:") {
+		if _, ok := f.networks[string(hc.NetworkMode)]; !ok {
+			return client.ContainerCreateResult{}, fmt.Errorf("network %s not found: %w", hc.NetworkMode, errFakeNotFound)
+		}
 	}
 	c := &fakeContainer{
 		id: f.nextID(), name: opts.Name, config: *opts.Config, netCfg: opts.NetworkingConfig,
@@ -571,21 +578,32 @@ func (f *fakeDocker) ImageRemove(_ context.Context, ref string, opts client.Imag
 func (f *fakeDocker) NetworkInspect(_ context.Context, name string, _ client.NetworkInspectOptions) (client.NetworkInspectResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.networks[name] {
+	n, ok := f.networks[name]
+	if !ok {
 		return client.NetworkInspectResult{}, fmt.Errorf("network %s not found: %w", name, errFakeNotFound)
 	}
-	return client.NetworkInspectResult{}, nil
+	return client.NetworkInspectResult{Network: n}, nil
 }
 
-func (f *fakeDocker) NetworkCreate(_ context.Context, name string, _ client.NetworkCreateOptions) (client.NetworkCreateResult, error) {
+func (f *fakeDocker) NetworkCreate(_ context.Context, name string, opts client.NetworkCreateOptions) (client.NetworkCreateResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.record("network create " + name)
-	if f.networks[name] {
+	if _, ok := f.networks[name]; ok {
 		return client.NetworkCreateResult{}, fmt.Errorf("network with name %s already exists: %w", name, errFakeConflict)
 	}
-	f.networks[name] = true
+	f.networks[name] = network.Inspect{Network: network.Network{
+		Name: name, Driver: opts.Driver, EnableIPv6: opts.EnableIPv6 != nil && *opts.EnableIPv6,
+		Options: maps.Clone(opts.Options), Labels: maps.Clone(opts.Labels),
+	}}
 	return client.NetworkCreateResult{ID: name}, nil
+}
+
+// addNetwork adds a network that the daemon did not create (compose, an operator or another tool).
+func (f *fakeDocker) addNetwork(n network.Network) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.networks[n.Name] = network.Inspect{Network: n}
 }
 
 func (f *fakeDocker) Events(ctx context.Context, _ client.EventsListOptions) client.EventsResult {

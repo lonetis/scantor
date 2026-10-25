@@ -311,8 +311,8 @@ func (a *actor) create(want api.Assignment, order int64) time.Duration {
 	if !a.s.mayCreate() {
 		return 0
 	}
-	if !a.s.networkOK.Load() {
-		return a.failOrWait(newWorkerError(api.NodeWorkerCreateFailed, true, "the worker network %s does not exist", a.s.ws.network), want)
+	if ok, problem := a.s.networkUsable(); !ok {
+		return a.failOrWait(newWorkerError(api.NodeWorkerCreateFailed, true, "the worker network %s is not usable: %s", a.s.ws.network, problem), want)
 	}
 	if err := a.ensureImage(want, order); err != nil {
 		var werr *workerError

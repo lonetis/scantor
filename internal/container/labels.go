@@ -186,11 +186,20 @@ func Name(kind Kind, id string) string { return NamePrefix(kind) + id }
 // foreign container pass, because the name prefix is checked too. name may carry Docker's leading "/".
 func IsManaged(kind Kind, name string, labels map[string]string) bool {
 	s, err := Labels()
-	if err != nil {
+	if err != nil || !s.hasManagedLabels(kind, labels) {
 		return false
 	}
-	spec, ok := s.Kinds[string(kind)]
-	if !ok || labels[s.KindKey] != string(kind) {
+	spec := s.Kinds[string(kind)]
+	name = strings.TrimPrefix(name, "/")
+	if spec.Object == "network" {
+		return slices.Contains(spec.Names, name)
+	}
+	return spec.NamePrefix != "" && strings.HasPrefix(name, spec.NamePrefix) && len(name) > len(spec.NamePrefix)
+}
+
+// hasManagedLabels reports whether labels hold the fixed labels and scantor.kind=<kind> of a known kind.
+func (s *LabelSet) hasManagedLabels(kind Kind, labels map[string]string) bool {
+	if _, ok := s.Kinds[string(kind)]; !ok || labels[s.KindKey] != string(kind) {
 		return false
 	}
 	for k, v := range s.Fixed {
@@ -198,11 +207,7 @@ func IsManaged(kind Kind, name string, labels map[string]string) bool {
 			return false
 		}
 	}
-	name = strings.TrimPrefix(name, "/")
-	if spec.Object == "network" {
-		return slices.Contains(spec.Names, name)
-	}
-	return spec.NamePrefix != "" && strings.HasPrefix(name, spec.NamePrefix) && len(name) > len(spec.NamePrefix)
+	return true
 }
 
 // ForbiddenImageLabel reports whether an image LABEL key is forbidden (Dockerfile rule D9, the

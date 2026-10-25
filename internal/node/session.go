@@ -60,8 +60,10 @@ type session struct {
 
 	pulls        pullQueue
 	removals     chan struct{}
-	networkOK    atomic.Bool
 	unauthorized atomic.Bool
+	// networkProblem says why workers cannot be created on the worker network; nil when they can
+	// (checkNetwork).
+	networkProblem atomic.Pointer[string]
 	// conflictAfter is details.retryAfterMs of the first 409 nodeInstanceConflict.
 	conflictAfter atomic.Pointer[time.Duration]
 	// nextStatus is the interval the last status response asked for (nextStatusMs; 0 = the hello
@@ -122,6 +124,8 @@ func newSession(ctx context.Context, d *Daemon, hello *api.NodeHelloResponse) *s
 	}
 	s.stopCtx, s.stopCancel = context.WithCancel(ctx)
 	s.opCtx, s.opCancel = context.WithCancel(context.WithoutCancel(ctx))
+	notChecked := "it was not checked yet"
+	s.networkProblem.Store(&notChecked)
 	return s
 }
 
@@ -397,8 +401,9 @@ func (s *session) consumeEvents(res client.EventsResult) error {
 // Worker network (docs/nodes.md §6.8).
 
 // networkLoop makes sure the worker network exists: the daemon creates scantor-workers on remote nodes
-// and only checks scantor-sandbox (created by compose) on the built-in node. While it is missing, every
-// creation fails with createFailed; when it appears, those workers are retried at once.
+// and only checks scantor-sandbox (created by compose) on the built-in node. While it is missing or
+// unsafe, every creation fails with createFailed; when it becomes usable, those workers are retried at
+// once.
 func (s *session) networkLoop() {
 	for sleep(s.stopCtx, s.d.t.networkRetry) {
 		if s.checkNetwork() {
@@ -409,26 +414,40 @@ func (s *session) networkLoop() {
 	}
 }
 
-// checkNetwork updates networkOK and reports whether the network just became available.
+// checkNetwork updates networkProblem and reports whether the network just became usable.
 func (s *session) checkNetwork() bool {
 	err := s.ensureNetwork()
-	wasOK := s.networkOK.Swap(err == nil)
-	if err != nil {
-		if s.stopCtx.Err() == nil {
-			s.log.Error("the worker network is not available; workers cannot be created", "network", s.ws.network, "err", err)
-		}
-		return false
+	if err == nil {
+		return s.networkProblem.Swap(nil) != nil
 	}
-	return !wasOK
+	problem := err.Error()
+	s.networkProblem.Store(&problem)
+	if s.stopCtx.Err() == nil {
+		s.log.Error("the worker network is not usable; workers cannot be created", "network", s.ws.network, "err", err)
+	}
+	return false
+}
+
+// networkUsable reports whether workers can be created on the worker network, and why not.
+func (s *session) networkUsable() (bool, string) {
+	if p := s.networkProblem.Load(); p != nil {
+		return false, *p
+	}
+	return true, ""
 }
 
 // ensureNetwork checks that the worker network exists and, on remote nodes, creates it when it is
-// missing (an existing network of that name counts as success; the daemon never deletes networks).
+// missing. On remote nodes an existing network must have the properties the daemon creates it with
+// (container.CheckIsolatedNetwork): a scantor-workers network made by hand or by another tool, or
+// edited, could let workers of different scans and users reach each other (docs/nodes.md §6.8). The
+// daemon never deletes networks.
 func (s *session) ensureNetwork() error {
-	_, err := s.d.docker.NetworkInspect(s.opCtx, s.ws.network, client.NetworkInspectOptions{})
+	existing, err := s.d.docker.NetworkInspect(s.opCtx, s.ws.network, client.NetworkInspectOptions{})
 	switch {
-	case err == nil:
+	case err == nil && s.d.cfg.BuiltIn:
 		return nil
+	case err == nil:
+		return container.CheckIsolatedNetwork(existing.Network)
 	case !container.IsNotFound(err):
 		return fmt.Errorf("inspect network %s: %w", s.ws.network, err)
 	case s.d.cfg.BuiltIn:
