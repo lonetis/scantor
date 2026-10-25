@@ -136,9 +136,12 @@ Further rules of the global middleware ([auth](auth.md) §5):
 - Query parameters: booleans `true`/`false`, integers in decimal, lists comma-separated.
 - Body caps: `SCANTOR_MAX_REQUEST_BYTES` for every JSON body (413 `payloadTooLarge`); streaming routes have
   their own cap (task upload `SCANTOR_TASK_MAX_PACK_BYTES`, list upload `SCANTOR_MAX_UPLOAD_BYTES`); machine
-  routes: `/api/runtime/*` 1 MiB, `/api/node/status` and `/api/node/workers/*/logs` 2 MiB. A declared
-  `Content-Length` above the cap is rejected before the body is read; a body without one (chunked) is counted
-  while it streams, and at the cap the route stops reading it (it pauses the request, never destroys it) and
+  routes: `/api/runtime/*` 1 MiB, `/api/node/status` and `/api/node/workers/*/logs` 2 MiB; protocol routes, most of
+  them reachable without a credential: `/api/auth/*`, `/api/registry/token`, `/mcp` and the root `/.well-known/*`
+  documents 1 MiB. The caps apply before any credential is checked. A declared `Content-Length` above the cap is
+  rejected (`details {limit, actual}`) before the body is read; a body without one (chunked) is counted while it
+  streams, by the body-limit middleware, which buffers it for the route, or by the streaming route itself. At the cap
+  the reader stops (it pauses the request, never destroys it) and
   answers 413 `payloadTooLarge` with `details.limit` and `Connection: close`: the unread rest of the body stays on
   the connection, so it must not carry another request. Every other error a streaming route answers before it
   read the whole body (an invalid archive entry, no free helper slot, 429) closes the connection the same way

@@ -370,7 +370,7 @@ authoritative; [architecture](architecture.md) §4.1 step 1 and [deployment](dep
 
 | Id | Limit | Enforced by | Test |
 |---|---|---|---|
-| RES-1 | request body `SCANTOR_MAX_REQUEST_BYTES`; `/api/runtime/*` 1 MiB; node status and logs 2 MiB; streaming uploads under their own caps (413 `payloadTooLarge`) | `02.body-limit.ts`, upload routes | `tests/api/errors.spec.ts` (413); `tests/e2e/limits.spec.ts` |
+| RES-1 | request body `SCANTOR_MAX_REQUEST_BYTES`; `/api/runtime/*` 1 MiB; node status and logs 2 MiB; `/api/auth/*`, `/api/registry/token`, `/mcp` and `/.well-known/*` 1 MiB; streaming uploads under their own caps (413 `payloadTooLarge`). Enforced before authentication and while the body is read: a chunked body is counted as it streams and never read past the cap, so no route, better-auth included, buffers an unbounded body. | `02.body-limit.ts`, `capped-body.ts`, upload routes | `tests/api/errors.spec.ts` (413, also chunked to `/api/auth/sign-in/email`, `/api/registry/token` and `/mcp`); `tests/e2e/limits.spec.ts`; `orchestrator/test/middleware/body-limit.test.ts` |
 | RES-2 | per-scan queue `x-max-length = SCANTOR_SCAN_QUEUE_MAX_READY` with `reject-publish` (scheduler backpressure); delivery limit `SCANTOR_DELIVERY_LIMIT` | topology ([queue](queue.md)) | `tests/e2e/backpressure.spec.ts` |
 | RES-3 | per-scan RabbitMQ user limits `max-connections` and `max-channels`; RabbitMQ memory and disk limits; MongoDB cache size; container `mem_limit`s | topology, compose | `tests/security/compose-lint.spec.ts` |
 | RES-4 | message and document sizes (ING-4); analyses per scan `SCANTOR_MAX_ANALYSES_PER_SCAN`; confirmation above `SCANTOR_SCAN_CONFIRM_THRESHOLD` | runtime, API | `tests/e2e/limits.spec.ts`; `tests/api/scans.spec.ts` (confirmation) |

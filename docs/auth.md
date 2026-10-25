@@ -18,7 +18,7 @@ request
   ├─ request hook       security headers on every response, public assets included (ui §13)
   ├─ 00.request         request id, client IP header (x-scantor-client-ip), 421 for the editor host
   ├─ 01.path            400 badRequest for a path that a URL parser would rewrite (§5.5)
-  ├─ 02.body-limit      SCANTOR_MAX_REQUEST_BYTES / per-route caps
+  ├─ 02.body-limit      SCANTOR_MAX_REQUEST_BYTES / per-route caps, chunked bodies counted while they stream
   ├─ 10.auth            (/api/* only)
   │     ├─ route prefix  → which credential kind is parsed (§5.3)
   │     ├─ credential    → principal (§5.2)                         401 unauthorized

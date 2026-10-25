@@ -217,7 +217,9 @@ test.describe('body caps', () => {
     expect(response.status, response.text().slice(0, 300)).toBe(413)
     const error = response.json<ErrorBody>().error
     expect(error.code).toBe('payloadTooLarge')
-    expect(error.details).toEqual({ limit, actual: body.length })
+    // Counted while it streams: reading stops at the cap, so the size of the whole body is never known.
+    expect(error.details).toEqual({ limit })
+    expect(response.headers.connection).toBe('close')
 
     // Below the cap the same chunked request is read and validated normally.
     const small = await rawRequest(`${env.publicUrl}/api/account`, {
@@ -242,6 +244,32 @@ test.describe('body caps', () => {
       expect(expectError(over, 413, 'payloadTooLarge').details, path).toEqual({ limit, actual: limit + 1 })
       const at = await fetchRaw(anonApi, path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, data: Buffer.alloc(limit, 0x20) })
       expectError(at, 401, 'unauthorized')
+    }
+  })
+
+  test('anonymous protocol routes cap chunked bodies at 1 MiB before any credential is checked', { tag: ['@API-006'] }, async ({ env }) => {
+    // better-auth, the registry token realm and /mcp used to buffer a chunked body whole before looking at it.
+    const limit = 1024 ** 2
+    const cases: [string, string][] = [
+      ['/api/auth/sign-in/email', 'application/json'],
+      ['/api/registry/token', 'application/x-www-form-urlencoded'],
+      ['/mcp', 'application/json'],
+    ]
+    for (const [path, contentType] of cases) {
+      for (const chunked of [true, false]) {
+        const response = await rawRequest(`${env.publicUrl}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': contentType, Origin: env.publicUrl, Accept: 'application/json, text/event-stream' },
+          body: Buffer.alloc(4 * limit, 0x20),
+          chunked,
+        })
+        const label = `${path} ${chunked ? 'chunked' : 'with Content-Length'}`
+        expect(response.status, `${label}: ${response.text().slice(0, 300)}`).toBe(413)
+        const error = response.json<ErrorBody>().error
+        expect(error.code, label).toBe('payloadTooLarge')
+        expect(error.details, label).toEqual(chunked ? { limit } : { limit, actual: 4 * limit })
+        if (chunked) expect(response.headers.connection, label).toBe('close')
+      }
     }
   })
 })

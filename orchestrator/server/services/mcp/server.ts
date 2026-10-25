@@ -3,6 +3,7 @@ import { type AuthInfo, createMcpHandler, McpServer, ProtocolError, ProtocolErro
 import { requireMcpAuth } from '@better-auth/mcp'
 import { useAuth } from '../../utils/auth'
 import { MCP_CHALLENGE_SCOPES, type McpConfig, resolveMcpConfig } from '../../utils/auth-policy'
+import { PROTOCOL_BODY_LIMIT } from '../../utils/body-limits'
 import { useConfig } from '../../utils/config'
 import { ApiError } from '../../utils/errors'
 import { useLogger } from '../../utils/logger'
@@ -101,7 +102,7 @@ export function createScantorMcpHandler(readGuide: GuideReader, loopbackOrigin: 
       legacy: 'stateless',
       responseMode: 'auto',
       keepAliveMs: 15_000,
-      maxRequestBodySize: 1024 * 1024,
+      maxRequestBodySize: PROTOCOL_BODY_LIMIT,
       onerror: (error) => log.warn('MCP request error', { err: error }),
     },
   )

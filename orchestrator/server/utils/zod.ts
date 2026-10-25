@@ -5,8 +5,9 @@ import { apiError, validationError } from './errors'
 
 // Request validation (docs/api.md §1.5): every body, query and path parameter is parsed with a strict zod schema.
 // Body and query failures are 400 `validationFailed` with `details.issues`; a path parameter that does not parse
-// names no resource and is 404 `notFound` (docs/api.md §1.4). JSON bodies are capped by the per-route limit that
-// middleware/02.body-limit.ts stores in `event.context.bodyLimit`.
+// names no resource and is 404 `notFound` (docs/api.md §1.4). JSON bodies are capped by middleware/02.body-limit.ts
+// before they are read (a declared Content-Length) or while they stream (a chunked body, which the middleware buffers
+// for h3); the length check of readJsonBody against `event.context.bodyLimit` is a backstop.
 
 /** `details.issues` of a validation failure: dot paths; unknown keys are reported one by one at their own path. */
 export function zodIssues(error: z.ZodError): ValidationIssue[] {
