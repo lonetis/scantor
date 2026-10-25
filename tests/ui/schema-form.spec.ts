@@ -355,10 +355,11 @@ test.describe('schema forms', () => {
       await schemaField(form, 'size').getByRole('button', { name: 'Reset Size' }).click()
       await expect(size).toContainText('default: m')
 
-      // Formats choose the input type; examples or defaults are placeholders; long strings get a textarea.
+      // Formats choose the input type (date-time stays text: RFC 3339 needs seconds and a zone); examples or defaults
+      // are placeholders; long strings get a textarea.
       for (const [path, type] of [
         ['when', 'date'],
-        ['at', 'datetime-local'],
+        ['at', 'text'],
         ['site', 'url'],
         ['contact', 'email'],
         ['code', 'text'],
@@ -366,6 +367,16 @@ test.describe('schema forms', () => {
         await expect(schemaField(form, path).locator('input')).toHaveAttribute('type', type)
       }
       await expect(schemaField(form, 'site').locator('input')).toHaveAttribute('placeholder', 'https://example.org/start')
+      await expect(schemaField(form, 'at').locator('input')).toHaveAttribute('placeholder', '2024-01-01T12:00:00Z')
+      // A date-time value the validators accept, and one they reject.
+      const at = schemaField(form, 'at')
+      await at.locator('input').fill('2024-03-05')
+      await at.locator('input').blur()
+      await expect(fieldError(at)).toHaveText('String does not match format "date-time".')
+      await at.locator('input').fill('2024-03-05T07:15:00+01:00')
+      await at.locator('input').blur()
+      await expect(fieldError(at)).toHaveCount(0)
+      await expect(at.locator('input')).toHaveValue('2024-03-05T07:15:00+01:00')
       await expect(schemaField(form, 'code').locator('input')).toHaveAttribute('placeholder', 'ABC')
       await expect(schemaField(form, 'bio').locator('textarea')).toBeVisible()
       await expect(schemaField(form, 'bio').locator('input')).toHaveCount(0)
@@ -430,6 +441,7 @@ test.describe('schema forms', () => {
       const expected = {
         priority: 2,
         color: 'green',
+        at: '2024-03-05T07:15:00+01:00',
         code: 'XYZ',
         site: 'https://scan.example.org/',
         amount: 10,

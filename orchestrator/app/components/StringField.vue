@@ -17,6 +17,10 @@ const isSecret = computed(() => props.field.kind === 'secret')
 const maxLength = computed(() => (typeof props.field.schema.maxLength === 'number' ? props.field.schema.maxLength : null))
 const multiline = computed(() => !isSecret.value && maxLength.value !== null && maxLength.value > 256)
 
+// `date-time` stays a text input: a datetime-local input emits neither seconds nor a zone, so its values never pass the
+// RFC 3339 check of both validators, and it shows a valid RFC 3339 value as empty.
+const DATE_TIME_PLACEHOLDER = '2024-01-01T12:00:00Z'
+
 const inputType = computed(() => {
   if (isSecret.value) return revealed.value ? 'text' : 'password'
   switch (props.field.schema.format) {
@@ -26,8 +30,6 @@ const inputType = computed(() => {
       return 'email'
     case 'date':
       return 'date'
-    case 'date-time':
-      return 'datetime-local'
     default:
       return 'text'
   }
@@ -37,7 +39,7 @@ const placeholder = computed(() => {
   const example = props.field.examples?.[0]
   if (typeof example === 'string') return example
   if (!isSecret.value && typeof props.field.default === 'string') return props.field.default
-  return undefined
+  return props.field.schema.format === 'date-time' ? DATE_TIME_PLACEHOLDER : undefined
 })
 
 const text = computed(() => (typeof props.modelValue === 'string' ? props.modelValue : ''))

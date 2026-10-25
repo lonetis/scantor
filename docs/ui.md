@@ -739,7 +739,7 @@ production CSP; ajv, which compiles validators with `new Function`, would need `
 | `type: object` with `properties` | field group; nested objects render as titled sub-sections (collapsible below depth 1); depth > 4 → JSON fallback |
 | `type: object` with `additionalProperties: <primitive schema>` (map) | `KeyValueEditor` (keys validated by `propertyNames` if present) |
 | `type: object` with `additionalProperties: true` (open map) | `JsonField` for that object |
-| `type: string` | `UInput`; `format` `uri`, `email`, `date`, `date-time` choose the input type; `maxLength > 256` → `UTextarea`; `pattern`, `minLength`, `maxLength` via the validator |
+| `type: string` | `UInput`; `format` `uri`, `email`, `date` choose the input type; `date-time` stays a text input with an RFC 3339 placeholder (`2024-01-01T12:00:00Z` unless the schema has an example or default), because a `datetime-local` input emits neither seconds nor a zone; `maxLength > 256` → `UTextarea`; `pattern`, `minLength`, `maxLength`, `format` via the validator |
 | `type: string` + `writeOnly: true` | password `UInput` with a reveal button (aria "Show value"); never prefilled from server data; no default (describe drops it, [tasks](tasks.md) §6.5) |
 | `type: string` (or nullable string) + `"x-scantor": "upload"` | `UploadField` (existing upload or upload a file; "None" for a nullable field) |
 | `enum`, or `oneOf`/`anyOf` whose members are all `{const, title?}` | `USelect` with `title` labels; ≤ 4 options and required → radio group |

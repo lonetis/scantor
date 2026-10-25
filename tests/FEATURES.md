@@ -862,7 +862,7 @@ Mechanisms: [ui](../docs/ui.md) §5.13.2–§5.13.6.
 Mechanisms: [ui](../docs/ui.md) §6.
 
 - **UI-FORM-001** [ui] Object properties render as field groups in schema source order; nested objects from depth 2 are collapsible, deeper or recursive schemas fall back to JSON, and an object without properties shows "No options."
-- **UI-FORM-002** [ui] String fields use the input type of their format (uri, email, date, date-time), a textarea above 256 characters, the first example or the default as placeholder, and show pattern and length errors under the field.
+- **UI-FORM-002** [ui] String fields use the input type of their format (uri, email, date; date-time is a text input that accepts RFC 3339 values), a textarea above 256 characters, the first example or the default as placeholder, and show pattern, length and format errors under the field.
 - **UI-FORM-003** [ui, security] `writeOnly` strings render as password inputs with "Show value of <field>" and a "secret" badge, are never prefilled, and show no default.
 - **UI-FORM-004** [ui] Enums and unions of titled constants render as a select with titles, required fields with at most 4 options as radio buttons, and non-string values keep their JSON type.
 - **UI-FORM-005** [ui] A discriminated union renders a select of the branch titles followed by the chosen branch's fields, and switching branches keeps only the discriminator.
