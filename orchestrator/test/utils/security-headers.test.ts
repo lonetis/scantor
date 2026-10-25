@@ -1,5 +1,6 @@
 import { createApp, createError, defineEventHandler, serveStatic, toWebHandler } from 'h3'
 import { describe, expect, it } from 'vitest'
+import { SCALAR_BUNDLE_URL } from '../../server/utils/api-docs'
 import {
   applySecurityHeaders,
   buildCsp,
@@ -43,10 +44,15 @@ describe('buildCsp', () => {
 })
 
 describe('buildDocsCsp', () => {
-  it('admits the Scalar bundle CDN and its font origin, and nothing else from outside', () => {
+  it('admits the exact URL of the pinned Scalar bundle and its font origin, and nothing else from outside', () => {
     const csp = buildDocsCsp()
-    expect(csp).toContain("script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net;")
-    expect(csp).toMatch(/font-src [^;]*https:\/\/fonts\.scalar\.com/)
+    expect(SCALAR_BUNDLE_URL).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/npm\/@scalar\/api-reference@\d+\.\d+\.\d+\/dist\/browser\/standalone\.js$/)
+    expect(csp).toContain(`script-src 'self' ${SCALAR_BUNDLE_URL};`)
+    // Never a whole CDN origin, inline scripts or eval.
+    expect(csp).not.toMatch(/https:\/\/cdn\.jsdelivr\.net(\/npm\/)?(;|\s|$)/)
+    expect(csp.split('; ').find((directive) => directive.startsWith('script-src'))).not.toMatch(/'unsafe-(inline|eval)'/)
+    expect(csp).toContain("style-src 'self' 'unsafe-inline';")
+    expect(csp).toContain("font-src 'self' data: https://fonts.scalar.com;")
     expect(csp).toContain("connect-src 'self';")
     expect(csp).toContain("object-src 'none'")
   })

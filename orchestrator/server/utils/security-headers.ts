@@ -1,4 +1,5 @@
 import { setResponseHeaders, type H3Event } from 'h3'
+import { SCALAR_BUNDLE_URL } from './api-docs'
 import type { Config } from './config'
 
 // Dashboard security headers (security.md HDR-1..HDR-3, docs/ui.md §13). The policy depends on runtime origins
@@ -44,15 +45,16 @@ export function buildCsp(options: CspOptions): string {
 }
 
 /**
- * CSP of the Scalar UI at /api/docs: its pinned bundle comes from a CDN (the documented exception) and loads its
- * Inter and mono fonts from fonts.scalar.com.
+ * CSP of the Scalar UI at /api/docs (utils/api-docs.ts): the one script it admits beyond 'self' is the exact URL of the
+ * pinned bundle (the page also checks its integrity hash), never a whole CDN origin. The bundle carries its styles
+ * and loads its Inter and mono fonts from fonts.scalar.com.
  */
 export function buildDocsCsp(): string {
   return [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
-    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com",
-    "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net https://fonts.scalar.com",
+    `script-src 'self' ${SCALAR_BUNDLE_URL}`,
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data: https://fonts.scalar.com",
     "img-src 'self' data: blob:",
     "connect-src 'self'",
     "object-src 'none'",

@@ -1037,9 +1037,15 @@ and the reason is recorded in this section; the required headers stay. `script-s
 rather than ajv (§6.1) and why `app/plugins/zod.ts` sets `z.config({ jitless: true })` while the entry
 module evaluates (zod otherwise probes `new Function('')` when it builds its first object schema, which the
 CSP blocks and reports on every page with a form); only the development server (`nuxt dev`) adds `'unsafe-eval'` and
-`'unsafe-inline'` for Vite. `/api/docs` (Nitro's Scalar UI) is
-the only exception to `script-src`/`style-src`/`font-src`: it additionally allows the pinned Scalar bundle's CDN
-origin and the font origin that bundle loads from (`https://fonts.scalar.com`). The editor host has its own headers ([editor](editor.md) §8.8).
+`'unsafe-inline'` for Vite. `/api/docs` (the Scalar API reference, `server/routes/api/docs.get.ts`; Nitro's own
+Scalar page is disabled because it loads `@scalar/api-reference` unversioned) is the only exception to
+`script-src`/`font-src`: its policy is `script-src 'self' <bundle URL>` (no inline scripts, no eval), `style-src
+'self' 'unsafe-inline'` and `font-src 'self' data: https://fonts.scalar.com`. The bundle URL names one exact
+version of `@scalar/api-reference/dist/browser/standalone.js` on jsDelivr, never the whole CDN origin, and the
+page loads it with its `integrity` hash and `crossorigin="anonymous"`, so a changed file is refused
+(`server/utils/api-docs.ts`; the pin is in [development](development.md) §11). The page's only other third-party
+request is for the Inter and mono fonts the bundle loads from `https://fonts.scalar.com`. The editor host has its
+own headers ([editor](editor.md) §8.8).
 
 Rendering rules that keep untrusted content harmless: no `v-html` anywhere (lint
 rule `vue/no-v-html` as an error), logs are ANSI-stripped text (`stripAnsi`, which also applies bare

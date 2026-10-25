@@ -41,7 +41,7 @@ Mechanisms: [api](../docs/api.md) §1.1, [auth](../docs/auth.md) §5.4.
 - **OAS-002** [authz] The OpenAPI lint passes: every operation has one tag, a summary, a description, a unique camelCase verb-first `operationId`, `x-scantor-scope` and `x-mcp`; `x-admin-only` is set exactly when the scope is `admin`; `x-session-only` appears only with scope `owner` or `admin`; `x-destructive` never appears on a `DELETE`; at most 30 operations have `x-mcp: true`; every request body has a schema; no route file lacks OpenAPI metadata.
 - **OAS-003** [authz] Each operation's scope matches its route prefix: `node` for `/api/node/*` and `/api/registry/token`, `worker` for `/api/runtime/*`, `setup` for `/api/setup/*` (the status is `public`), `tools` for `/api/tools/forward-auth`, `owner` or `admin` elsewhere.
 - **OAS-004** [api, mcp] Route-meta values survive Nitro's extraction: the descriptions of `startScan`, `listTasks`, `listTemplates`, `listTaskFiles`, `uploadTask`, `getRegistryToken` and `createRegistryToken` are present in the OpenAPI document and in the MCP tool descriptions, and the `queryAnalyses` sort schema allows both `1` and `-1`.
-- **OAS-005** [ui] `GET /api/docs` serves the Scalar UI with its docs-specific CSP (which allows `https://fonts.scalar.com`) and loads without console errors.
+- **OAS-005** [ui, security] `GET /api/docs` serves the Scalar UI with its docs-specific CSP (which allows `https://fonts.scalar.com`) and loads without console errors; its `script-src` admits no inline script and, beyond `'self'`, only the exact URL of one pinned `@scalar/api-reference` version, which the page loads with an `integrity` hash.
 
 ## PLAT. Health, instance info and metrics
 

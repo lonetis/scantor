@@ -339,6 +339,22 @@ test.describe('dashboard security headers', () => {
     const csp = directives(response?.headers()['content-security-policy'])
     expect(csp.get('font-src')).toContain('https://fonts.scalar.com')
     expect(csp.get('script-src')).not.toContain("'unsafe-eval'")
+    expect(csp.get('script-src')).not.toContain("'unsafe-inline'")
+    // Beyond 'self' the policy admits one exact, versioned file, never a whole CDN origin or package.
+    const external = (csp.get('script-src') ?? []).filter((source) => source !== "'self'")
+    expect(external).toHaveLength(1)
+    expect(external[0]).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/npm\/@scalar\/api-reference@\d+\.\d+\.\d+\/dist\/browser\/standalone\.js$/)
+    // Every script the page loads is same-origin or checked by its integrity hash.
+    const scripts = await page.locator('script[src]').evaluateAll((elements) =>
+      elements.map((element) => ({ src: (element as HTMLScriptElement).src, integrity: element.getAttribute('integrity'), crossorigin: element.getAttribute('crossorigin') })),
+    )
+    expect(scripts.length).toBeGreaterThan(0)
+    for (const script of scripts) {
+      if (new URL(script.src).origin === new URL(page.url()).origin) continue
+      expect(script.src).toBe(external[0])
+      expect(script.integrity, script.src).toMatch(/^sha384-[A-Za-z0-9+/]{64}$/)
+      expect(script.crossorigin, script.src).toBe('anonymous')
+    }
     expect(csp.get('frame-ancestors')).toEqual(["'self'"])
     expect(csp.get('object-src')).toEqual(["'none'"])
     // Scalar renders the document: its title, a sidebar group per tag, and the operations of a group once opened.

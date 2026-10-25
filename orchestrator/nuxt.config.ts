@@ -64,8 +64,9 @@ export default defineNuxtConfig({
       },
       production: 'runtime',
       route: '/api/docs/openapi.json',
+      // /api/docs is server/routes/api/docs.get.ts: Nitro's Scalar page loads an unpinned bundle (docs/ui.md §13).
       ui: {
-        scalar: { route: '/api/docs' },
+        scalar: false,
         swagger: false,
       },
     },

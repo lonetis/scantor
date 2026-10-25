@@ -453,7 +453,7 @@ Columns: **Scope** per §1.2; **MCP** = `x-mcp`; request fields marked `?` are o
 |---|---|---|---|---|---|
 | `GET /api/health` | `getHealth` | public | no | – | `{status: "ok"\|"degraded", version, components: {mongo, rabbitmq, s3, registry}, alarms: string[]}` (each component `"ok"` or `"down"`; `status` is `"degraded"` when a component is down or a RabbitMQ alarm is active); 503 when MongoDB is down |
 | `GET /api/docs/openapi.json` | – (Nitro built-in) | public | no | – | OpenAPI 3.1 document |
-| `GET /api/docs` | – (Nitro built-in) | public | no | – | Scalar UI |
+| `GET /api/docs` | – (`server/routes/api/docs.get.ts`) | public | no | – | Scalar UI, loading one pinned bundle with its integrity hash ([ui](ui.md) §13) |
 | `GET /api/info` | `getInstanceInfo` | owner | no | – | `InstanceInfo` (below) |
 
 `InstanceInfo`:
