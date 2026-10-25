@@ -1397,7 +1397,10 @@ automatically inside the editor where `SCANTOR_DEV_MODE=remote`; the UI test-run
    string"}`.
 4. Start the test-run container (§11.2) (`running`); stream its events as SSE (`streamTestRun`) and store
    them (`test-runs/<id>/log.ndjson`), analyses (`testRunAnalyses`) and files (`test-runs/<id>/files/…`,
-   uploaded by the job after `CopyFromContainer` of `/scantor/out`).
+   uploaded by the job after `CopyFromContainer` of `/scantor/out`). The container's output is untrusted
+   (task code can write to the runtime's stdout): the job keeps one result per seq below `limit`, bounds
+   every stored field, validates file ids and paths and counts the files against the owner's storage
+   quota ([data model](data-model.md) §4.4, §8).
 5. `completed` when local mode finishes (whatever the analysis outcomes), `failed` on build, describe,
    config, schedule or platform errors and on the total timeout `SCANTOR_TEST_RUN_TIMEOUT`, `cancelled` by
    `cancelTestRun` or the deletion of the task. A cancel stops the job at whatever step it is in: the

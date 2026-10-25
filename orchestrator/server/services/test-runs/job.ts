@@ -20,7 +20,7 @@ import { useBuildSlots } from '../pipeline/slots'
 import { MAX_EVENT_LINE_BYTES, runTaskBuild, type TaskBuildOutcome } from '../pipeline/task-build'
 import { injectionArchive, type InjectionUpload, localSpec, OUT_DIR, removeContainer, runTestRunContainer, testRunContainerSpec } from './container'
 import { REQUEST_SECRET_KEY, openRequest, validatedSecretsUpdate } from './create'
-import { analysisFromResult, configIssueMessage, type LocalEvent, parseLocalEvent } from './events'
+import { acceptedFiles, analysisFromResult, configIssueMessage, type LocalEvent, parseLocalEvent, resultSeqAccepted } from './events'
 import { cancellationFor, openTestRunChannel, publishTestRunEvent, releaseCancellation } from './live'
 import { isTestRunSettled, toApiTestRun, toApiTestRunAnalysis } from './mappers'
 
@@ -35,6 +35,10 @@ const TEST_RUN_WAIT_MS = 10_000
 const KILL_GRACE_MS = 30_000
 const STORED_LOG_MAX_BYTES = 10 * 1024 ** 2
 const STDERR_TAIL_BYTES = 16 * 1024
+/** Longest live `log` line forwarded (the runtime splits lines at 16 KiB). */
+const LOG_LINE_MAX_CHARS = 16 * 1024
+/** The run keeps at most this many errors (finish stores at most 200). */
+const MAX_RUN_ERRORS = 200
 const NON_TERMINAL: TestRunState[] = ['queued', 'building', 'running']
 
 export function draftImageRef(taskId: string, packSha256: string): string {
@@ -117,6 +121,7 @@ class TestRunExecution {
   private readonly expectedFiles = new Map<string, { seq: number; file: FileRefDoc }>()
   private readonly errors: BuildErrorDoc[] = []
   private summary = { analyses: 0, succeeded: 0, failed: 0 }
+  private droppedResults = 0
   private endEvent: Extract<LocalEvent, { type: 'end' }> | null = null
   private snapshot: StoredSnapshot | null = null
   /** the container this execution created; cleanup removes exactly it */
@@ -164,8 +169,25 @@ class TestRunExecution {
   }
 
   private addError(error: BuildErrorDoc): void {
+    if (this.errors.length >= MAX_RUN_ERRORS) return
     this.errors.push(error)
     publishTestRunEvent(this.id, { event: 'error', data: error })
+  }
+
+  /**
+   * Local-mode output is untrusted (task code can write to the runtime's stdout), so a result is kept only for a seq
+   * the run asked for (`0 ≤ seq < limit`) and only once; anything else is dropped (and logged once).
+   */
+  private acceptsResult(seq: number): boolean {
+    if (resultSeqAccepted(seq, this.doc.input.limit, this.analyses)) return true
+    if (this.droppedResults === 0) this.ctx.log.warn('dropped a local-mode result outside the run limit or for a stored seq', { testRunId: this.id, seq, limit: this.doc.input.limit })
+    this.droppedResults++
+    return false
+  }
+
+  /** A count of the `end` summary, bounded by the run's limit. */
+  private boundedCount(value: unknown): number {
+    return Number.isSafeInteger(value) ? Math.min(Math.max(0, value as number), this.doc.input.limit) : 0
   }
 
   async run(): Promise<void> {
@@ -349,21 +371,34 @@ class TestRunExecution {
     this.runLog.append(event)
     switch (event.type) {
       case 'log':
-        publishTestRunEvent(this.id, { event: 'log', data: { seq: event.seq ?? null, stream: event.stream === 'stderr' ? 'stderr' : 'stdout', text: String(event.text ?? ''), at: event.at } })
+        publishTestRunEvent(this.id, {
+          event: 'log',
+          data: {
+            seq: Number.isSafeInteger(event.seq) ? event.seq : null,
+            stream: event.stream === 'stderr' ? 'stderr' : 'stdout',
+            text: String(event.text ?? '').slice(0, LOG_LINE_MAX_CHARS),
+            at: typeof event.at === 'string' ? event.at : new Date().toISOString(),
+          },
+        })
         return
       case 'result': {
+        if (!this.acceptsResult(event.seq)) return
         const doc = analysisFromResult(event, {
           testRunId: this.id,
           userId: this.doc.userId,
           expiresAt: this.doc.expiresAt,
           secretPaths: { analysisConfig: this.description?.secretPaths.analysisConfig ?? [], result: this.description?.secretPaths.result ?? [] },
+          maxFiles: this.ctx.config.maxFilesPerAnalysis,
+          maxResultBytes: this.ctx.config.maxResultBytes,
+          maxConfigBytes: this.ctx.config.maxAnalysisConfigBytes,
           now: new Date(),
         })
         await useCollections().testRunAnalyses.replaceOne({ _id: doc._id }, doc, { upsert: true })
         this.analyses.set(event.seq, doc.files)
-        for (const file of event.files ?? []) {
-          const ref = doc.files.find((candidate) => candidate.id === file.id)
-          if (ref && typeof file.path === 'string') this.expectedFiles.set(file.path, { seq: event.seq, file: ref })
+        // Only validated files with their canonical path are collected (and keyed by their checked id).
+        for (const accepted of acceptedFiles(event, this.ctx.config.maxFilesPerAnalysis)) {
+          const ref = doc.files.find((candidate) => candidate.id === accepted.ref.id)
+          if (ref) this.expectedFiles.set(accepted.path, { seq: event.seq, file: ref })
         }
         this.summary = {
           analyses: this.summary.analyses + 1,
@@ -379,7 +414,9 @@ class TestRunExecution {
         return
       case 'end':
         this.endEvent = event
-        if (event.summary) this.summary = { analyses: event.summary.analyses, succeeded: event.summary.succeeded, failed: event.summary.failed }
+        if (event.summary && typeof event.summary === 'object') {
+          this.summary = { analyses: this.boundedCount(event.summary.analyses), succeeded: this.boundedCount(event.summary.succeeded), failed: this.boundedCount(event.summary.failed) }
+        }
         return
       default:
         return

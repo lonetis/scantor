@@ -1,8 +1,11 @@
-import type { ScantorErrorDoc, TestRunAnalysisDoc, TimingsDoc } from '../../types/documents'
+import type { FileRefDoc, ScantorErrorDoc, TestRunAnalysisDoc, TimingsDoc } from '../../types/documents'
+import { safeName } from '../../utils/s3'
 import { maskSecrets } from '../../utils/secrets'
 
 // Local-mode output events of the runtime (docs/runtime.md §15.3) and their mapping onto `testRunAnalyses`
-// documents (docs/data-model.md §4.4). Event times are ISO strings; documents store Dates.
+// documents (docs/data-model.md §4.4). Event times are ISO strings; documents store Dates. The container's output is
+// untrusted (security.md A2: task code can write to the runtime's stdout), so every field is checked or bounded
+// before it is stored.
 
 export interface LocalErrorEvent {
   type: string
@@ -79,21 +82,86 @@ function toDate(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
+/** Server-side bounds of a stored test-run analysis; the runtime keeps below them, task code may not. */
+export const MAX_LOG_TAIL_BYTES = 64 * 1024
+export const MAX_ATTEMPT_LOG_TAIL_BYTES = 4 * 1024
+export const MAX_ERROR_DETAILS_BYTES = 16 * 1024
+
+function jsonBytes(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value) ?? '', 'utf8')
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** The last `maxBytes` bytes of a string, never splitting a character; anything else becomes ''. */
+function tailOf(value: unknown, maxBytes: number): string {
+  if (typeof value !== 'string') return ''
+  const buffer = Buffer.from(value, 'utf8')
+  if (buffer.length <= maxBytes) return value
+  let start = buffer.length - maxBytes
+  while (start < buffer.length && (buffer[start]! & 0xc0) === 0x80) start++
+  return buffer.subarray(start).toString('utf8')
+}
+
 const ERROR_TYPES = new Set(['taskError', 'fatal', 'retry', 'timeout', 'crash', 'validation', 'platform', 'cancelled'])
 const ERROR_PHASES = new Set(['bootstrap', 'schedule', 'run', 'validate', 'upload', 'publish', 'platform', 'ingest'])
 
 export function toErrorDoc(error: LocalErrorEvent | null | undefined, fallbackAt: Date): ScantorErrorDoc | null {
-  if (!error) return null
+  if (!isPlainObject(error)) return null
   return {
     type: (ERROR_TYPES.has(error.type) ? error.type : 'platform') as ScantorErrorDoc['type'],
     message: String(error.message ?? '').slice(0, 4096),
     retryable: error.retryable === true,
-    phase: (error.phase && ERROR_PHASES.has(error.phase) ? error.phase : 'run') as ScantorErrorDoc['phase'],
+    phase: (typeof error.phase === 'string' && ERROR_PHASES.has(error.phase) ? error.phase : 'run') as ScantorErrorDoc['phase'],
     attempt: typeof error.attempt === 'number' ? error.attempt : 0,
-    ...(error.stack ? { stack: error.stack.slice(0, 16_384) } : {}),
-    ...(error.details ? { details: error.details } : {}),
-    at: toDate(error.at) ?? fallbackAt,
+    ...(typeof error.stack === 'string' && error.stack ? { stack: error.stack.slice(0, 16_384) } : {}),
+    ...(isPlainObject(error.details) && jsonBytes(error.details) <= MAX_ERROR_DETAILS_BYTES ? { details: error.details } : {}),
+    at: toDate(typeof error.at === 'string' ? error.at : undefined) ?? fallbackAt,
   }
+}
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+const SHA256_HEX = /^[0-9a-f]{64}$/
+const CONTENT_TYPE = /^[\w.+-]+\/[\w.+-]+(\s*;[\x20-\x7e]*)?$/
+
+/** Whether a `result` for `seq` is kept: local mode numbers a run's analyses 0 … limit-1, and each is final once. */
+export function resultSeqAccepted(seq: number, limit: number, stored: { has(seq: number): boolean }): boolean {
+  return Number.isSafeInteger(seq) && seq >= 0 && seq < limit && !stored.has(seq)
+}
+
+/** A file of a `result` event that the job may upload, with the path of its copy below the container's outDir. */
+export interface AcceptedFile {
+  ref: FileRefDoc
+  /** `files/<seq>/<id>/<safeName(name)>`, as the runtime writes it */
+  path: string
+}
+
+/**
+ * The files of a `result` event that are kept. As for presigned scan uploads (docs/api.md §8.3), the id must be a
+ * uuid v4, unique within the analysis, and the name, size, hash and content type well-formed; the path must be
+ * exactly the one the runtime writes, so the S3 key `test-runs/<id>/files/<seq>/<fileId>/<safeName>` stays inside
+ * the run's prefix. Other files are dropped, and at most `maxFiles` are kept.
+ */
+export function acceptedFiles(event: Extract<LocalEvent, { type: 'result' }>, maxFiles: number): AcceptedFile[] {
+  const accepted: AcceptedFile[] = []
+  const ids = new Set<string>()
+  for (const file of Array.isArray(event.files) ? (event.files as unknown[]) : []) {
+    if (accepted.length >= maxFiles) break
+    if (typeof file !== 'object' || file === null) continue
+    const { id, name, size, sha256, contentType, path } = file as Partial<Record<keyof LocalFile, unknown>>
+    if (typeof id !== 'string' || !UUID_V4.test(id) || ids.has(id)) continue
+    if (typeof name !== 'string' || name.length === 0 || name.length > 255 || /[\0/\\]/.test(name)) continue
+    if (!Number.isSafeInteger(size) || (size as number) < 0) continue
+    if (typeof sha256 !== 'string' || !SHA256_HEX.test(sha256)) continue
+    if (typeof contentType !== 'string' || contentType.length > 255 || !CONTENT_TYPE.test(contentType)) continue
+    const expected = `files/${event.seq}/${id}/${safeName(name)}`
+    if (path !== expected) continue
+    ids.add(id)
+    accepted.push({ ref: { id, name, size: size as number, sha256, contentType }, path: expected })
+  }
+  return accepted
 }
 
 export interface AnalysisContext {
@@ -101,38 +169,72 @@ export interface AnalysisContext {
   userId: string
   expiresAt: Date
   secretPaths: { analysisConfig: string[]; result: string[] }
+  /** SCANTOR_MAX_FILES_PER_ANALYSIS */
+  maxFiles: number
+  /** SCANTOR_MAX_RESULT_BYTES: a larger result fails the analysis, as in the ingestor */
+  maxResultBytes: number
+  /** SCANTOR_MAX_ANALYSIS_CONFIG_BYTES: a larger config is not stored */
+  maxConfigBytes: number
   now: Date
 }
 
-/** Builds the `testRunAnalyses` document of a `result` event, masking secrets of the config and result. */
+function toTimestamp(value: unknown): Date | null {
+  return toDate(typeof value === 'string' ? value : undefined)
+}
+
+/**
+ * Builds the `testRunAnalyses` document of a `result` event, masking secrets of the config and result. Every field is
+ * bounded: the result by SCANTOR_MAX_RESULT_BYTES (else the analysis fails with a validation error), the config by
+ * SCANTOR_MAX_ANALYSIS_CONFIG_BYTES (else it is left out), log tails, error details and the last 10 attempts by fixed
+ * sizes, and the files by acceptedFiles.
+ */
 export function analysisFromResult(event: Extract<LocalEvent, { type: 'result' }>, ctx: AnalysisContext): TestRunAnalysisDoc {
   const at = toDate(event.at) ?? ctx.now
   const timings: TimingsDoc = {
-    scheduledAt: toDate(event.timings?.scheduledAt),
-    startedAt: toDate(event.timings?.startedAt),
-    finishedAt: toDate(event.timings?.finishedAt),
+    scheduledAt: toTimestamp(event.timings?.scheduledAt),
+    startedAt: toTimestamp(event.timings?.startedAt),
+    finishedAt: toTimestamp(event.timings?.finishedAt),
     durationMs: typeof event.timings?.durationMs === 'number' ? event.timings.durationMs : null,
   }
+  const attempt = Number.isSafeInteger(event.attempt) ? event.attempt : 0
+  let status: TestRunAnalysisDoc['status'] = event.status === 'succeeded' ? 'succeeded' : 'failed'
+  let result: Record<string, unknown> | null = status === 'succeeded' && isPlainObject(event.result) ? event.result : null
+  let error = toErrorDoc(event.error, at)
+  const resultBytes = result ? jsonBytes(result) : 0
+  if (result && resultBytes > ctx.maxResultBytes) {
+    status = 'failed'
+    result = null
+    error = {
+      type: 'validation',
+      message: `the result is ${resultBytes} bytes, above SCANTOR_MAX_RESULT_BYTES (${ctx.maxResultBytes} bytes)`,
+      retryable: false,
+      phase: 'ingest',
+      attempt,
+      at,
+    }
+  }
+  const config = isPlainObject(event.config) && jsonBytes(event.config) <= ctx.maxConfigBytes ? event.config : null
+  const attempts = Array.isArray(event.attempts) ? event.attempts.slice(-10).filter(isPlainObject) : []
   return {
     _id: `${ctx.testRunId}-${event.seq}`,
     testRunId: ctx.testRunId,
     userId: ctx.userId,
     seq: event.seq,
-    status: event.status === 'succeeded' ? 'succeeded' : 'failed',
-    attempt: event.attempt,
-    ...(event.config ? { config: maskSecrets(event.config, ctx.secretPaths.analysisConfig) } : {}),
-    result: event.status === 'succeeded' && event.result ? maskSecrets(event.result, ctx.secretPaths.result) : null,
-    error: toErrorDoc(event.error, at),
-    attempts: (event.attempts ?? []).slice(-10).map((attempt) => ({
-      attempt: attempt.attempt,
-      startedAt: toDate(attempt.startedAt),
-      finishedAt: toDate(attempt.finishedAt),
-      durationMs: typeof attempt.durationMs === 'number' ? attempt.durationMs : null,
-      error: toErrorDoc(attempt.error, at),
-      logTail: attempt.logTail ?? '',
+    status,
+    attempt,
+    ...(config ? { config: maskSecrets(config, ctx.secretPaths.analysisConfig) } : {}),
+    result: result ? maskSecrets(result, ctx.secretPaths.result) : null,
+    error,
+    attempts: (attempts as unknown as LocalAttempt[]).map((entry) => ({
+      attempt: Number.isSafeInteger(entry.attempt) ? entry.attempt : 0,
+      startedAt: toTimestamp(entry.startedAt),
+      finishedAt: toTimestamp(entry.finishedAt),
+      durationMs: typeof entry.durationMs === 'number' ? entry.durationMs : null,
+      error: toErrorDoc(entry.error, at),
+      logTail: tailOf(entry.logTail, MAX_ATTEMPT_LOG_TAIL_BYTES),
     })),
-    files: (event.files ?? []).map((file) => ({ id: file.id, name: file.name, size: file.size, sha256: file.sha256, contentType: file.contentType })),
-    logTail: event.logTail ?? '',
+    files: acceptedFiles(event, ctx.maxFiles).map((file) => file.ref),
+    logTail: tailOf(event.logTail, MAX_LOG_TAIL_BYTES),
     timings,
     createdAt: ctx.now,
     updatedAt: ctx.now,

@@ -275,7 +275,10 @@ Indexes: `{taskId: 1, createdAt: -1}`, `{userId: 1, createdAt: -1}`, `{expiresAt
 
 Same field shapes as `analyses` (§4.6) with `_id = "<testRunId>-<seq>"`, `testRunId` instead of `scanId`,
 `status ∈ {succeeded, failed}`, no `round`, `workerId`, `nodeId` or `executionId`, and `expiresAt` copied
-from the test run. File keys are `test-runs/<testRunId>/files/<seq>/<fileId>/<safeName>`.
+from the test run. File keys are `test-runs/<testRunId>/files/<seq>/<fileId>/<safeName>`. The container's output is
+untrusted, so the job keeps a file of a `result` event only when its `fileId` is a uuid v4 (unique within the
+analysis), its name, size, hash and content type are well-formed and its path below the output directory is exactly
+`files/<seq>/<fileId>/<safeName>`, and at most `SCANTOR_MAX_FILES_PER_ANALYSIS` per analysis.
 
 ```json
 {
@@ -1111,7 +1114,7 @@ All limits are enforced at the earliest point listed. Values come from the named
 | running editors | `SCANTOR_EDITOR_MAX_RUNNING` | editor manager (429) |
 | concurrent workspace helpers | `SCANTOR_HELPER_CONCURRENCY` (a request waits ≤ 30 s for a slot, then 503); per user `SCANTOR_HELPER_CONCURRENCY_PER_USER` (≤ 30 s, then 429) | helper runner |
 | inline export size | `SCANTOR_EXPORT_INLINE_MAX` analyses | export API |
-| test run | `limit` ≤ 50, `maxAttempts` ≤ 5, total `SCANTOR_TEST_RUN_TIMEOUT` | API, job |
+| test run | `limit` ≤ 50, `maxAttempts` ≤ 5, total `SCANTOR_TEST_RUN_TIMEOUT` (API, job); the job keeps one result per seq `0 … limit-1` and bounds each stored analysis (result `SCANTOR_MAX_RESULT_BYTES`, else failed; config `SCANTOR_MAX_ANALYSIS_CONFIG_BYTES`, else left out; log tail 64 KiB, attempt log tails 4 KiB, error details 16 KiB, files §4.4), since the container's output is untrusted | API, job |
 | names | task/node slugs ≤ 64, scan name ≤ 100, credential name ≤ 64, upload name ≤ 255 | API |
 | conditions per scan | 16 | reconciler |
 | event message / data | 1 KiB / 8 KiB | event writer |
