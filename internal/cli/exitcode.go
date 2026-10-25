@@ -11,9 +11,11 @@ const (
 	ExitOK = 0
 	// ExitAnalysisFailures: the command ran, but analyses failed (`dev run`).
 	ExitAnalysisFailures = 1
-	// ExitValidation: the input is invalid (usage, flags, task content, configs, API 4xx).
+	// ExitValidation: the input is invalid (usage, flags, task content, configs, API 4xx except 408, 426
+	// and 429).
 	ExitValidation = 2
-	// ExitPlatform: the platform failed (Docker, network, API 5xx, internal errors, interrupts).
+	// ExitPlatform: the platform failed (Docker, network, API 5xx, 408, 426 and 429, internal errors,
+	// interrupts).
 	ExitPlatform = 3
 )
 

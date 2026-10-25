@@ -18,8 +18,8 @@ single binary (release downloads for Linux and macOS) and also runs through the 
 |---|---|
 | 0 | success |
 | 1 | analyses failed: `dev run`, and the waiting scan commands (`scans start --wait`, `scans get --wait`, `scans watch`) when the scan failed, was cancelled, paused by the circuit breaker, or completed with failed or lost analyses |
-| 2 | invalid input: usage, configuration, task content, configs, requests the platform rejected (4xx) |
-| 3 | platform failure: Docker, network, orchestrator errors (5xx), timeouts, interrupts |
+| 2 | invalid input: usage, configuration, task content, configs, requests the platform rejected (4xx except 408, 426 and 429) |
+| 3 | platform failure: Docker, network, orchestrator errors (5xx), rate limits (429), request timeouts (408), version mismatches (426), timeouts, interrupts |
 
 
 ## scantor

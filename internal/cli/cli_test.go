@@ -57,6 +57,7 @@ func TestExitCode(t *testing.T) {
 		{&api.Error{Status: 503, Code: api.CodeBrokerAlarm}, 3},
 		{&api.Error{Status: 429, Code: api.CodeTooManyRequests}, 3},
 		{&api.Error{Status: 426, Code: api.CodeIncompatibleVersion}, 3},
+		{&api.Error{Status: 408, Code: "requestTimeout"}, 3},
 		{&api.NetworkError{Method: "GET", Path: "/api/x", Err: errors.New("refused")}, 3},
 		{context.Canceled, 3},
 		{errors.New("unexpected"), 3},
