@@ -332,14 +332,16 @@ Every task defines up to four types and two functions:
   file); TypeScript `Uint8Array` (content), `string` (UTF-8 text) or `{path: string}`; Go `Put([]byte)` and
   `PutFile(path)`. `name` is 1–255 characters without `/`, `\` and NUL, unique within the analysis
   attempt. `contentType` defaults to `application/octet-stream` (pass it explicitly for images to be
-  shown inline). `put` writes or copies the content into the execution's files directory (later changes
-  to a user path do not matter), waits for the runtime to hash it and returns the `FileRef` at once; the
-  runtime uploads the files only after `run` succeeded, so files of failed attempts are discarded and
-  uploads do not count toward the timeout ([protocol](protocol.md) §5.6). At most
-  `SCANTOR_MAX_FILES_PER_ANALYSIS` files of at most `SCANTOR_MAX_FILE_BYTES` each; violations raise a
-  `ScantorError` of type `validation`. Connectors reject a name that breaks the rules themselves, before
-  any `file` message is sent; the runtime enforces the size and count limits ([protocol](protocol.md)
-  §5.6; connectors may check them early).
+  shown inline) and is at most 255 characters long (Python, TypeScript and JavaScript also reject an
+  empty one; Go treats it as the default). `put` writes or copies the content into the execution's
+  files directory (later changes to a user path do not matter), waits for the runtime to hash it and
+  returns the `FileRef` at once; the runtime uploads the files only after `run` succeeded, so files of
+  failed attempts are discarded and uploads do not count toward the timeout ([protocol](protocol.md)
+  §5.6). At most `SCANTOR_MAX_FILES_PER_ANALYSIS` files of at most `SCANTOR_MAX_FILE_BYTES` each;
+  violations raise a `ScantorError` of type `validation`. Connectors reject a name or content type that
+  breaks the rules themselves, before any `file` message is sent (the runtime treats a `file` message
+  outside its schema as a protocol violation); the runtime enforces the size and count limits
+  ([protocol](protocol.md) §5.6; connectors may check them early).
 - `tmp_dir` is empty at the start of each call, private to it, under the runtime's work root
   `/tmp/scantor` (disk-backed, not a tmpfs), and deleted afterwards.
 

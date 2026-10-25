@@ -159,6 +159,16 @@ def test_invalid_file_names_fail_the_run(start_connector: StartConnector, ctx_fa
     assert "bad/name" in error["message"]
 
 
+def test_invalid_content_types_raise_before_any_file_message(start_connector: StartConnector, ctx_factory: Any) -> None:
+    runtime = start_connector("content_types.py")
+    runtime.run("r1", ctx_factory("r1"))
+    request = runtime.recv_type("file")
+    assert request["name"] == "t.bin"
+    assert request["contentType"] == "x" * 255
+    ref = runtime.answer_file(request)
+    assert runtime.recv_type("result")["result"] == {"outcomes": ["validation"] * 3, "file": ref}
+
+
 @pytest.mark.parametrize("entry", ECHO_FIXTURES)
 def test_runtime_file_errors_reach_task_code(start_connector: StartConnector, ctx_factory: Any, entry: str) -> None:
     runtime = start_connector(entry)

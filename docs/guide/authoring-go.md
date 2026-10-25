@@ -247,8 +247,9 @@ Large or binary outputs belong in files, not in the result (results are limited 
 `PutFile` copy the content and return the final `scantor.FileRef` at once; store it in the result. The
 files are uploaded only after `run` succeeded, so files of failed attempts disappear. Names are 1–255
 characters without `/`, `\` and NUL and unique within the attempt. An empty content type means
-`application/octet-stream`; pass `image/png`, `image/jpeg`, `image/gif` or `image/webp` for images that
-should open inline. Violated rules and platform limits return a `*scantor.Error` of type `validation`.
+`application/octet-stream`, and a content type is at most 255 characters long; pass `image/png`,
+`image/jpeg`, `image/gif` or `image/webp` for images that should open inline. Violated rules and platform
+limits return a `*scantor.Error` of type `validation`.
 
 ## Errors and retries
 

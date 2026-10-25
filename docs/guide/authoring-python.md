@@ -291,9 +291,11 @@ Large or binary outputs belong in files, not in the result. `put` copies the con
 final `scantor.FileRef` at once; store it in the result. The files are uploaded only after `run`
 succeeded, so files of failed attempts disappear, and the upload does not count toward the timeout.
 Names are 1–255 characters without `/`, `\` and NUL and unique within the attempt. The content type
-defaults to `application/octet-stream`; pass `image/png`, `image/jpeg`, `image/gif` or `image/webp` for
-images that should open inline. Violated rules and platform limits (`SCANTOR_MAX_FILE_BYTES`,
-`SCANTOR_MAX_FILES_PER_ANALYSIS`) raise a `scantor.ScantorError` of type `validation`.
+defaults to `application/octet-stream` and is 1–255 characters long when given (shorten a
+`Content-Type` header you copy from a response); pass `image/png`, `image/jpeg`, `image/gif` or
+`image/webp` for images that should open inline. Violated rules and platform limits
+(`SCANTOR_MAX_FILE_BYTES`, `SCANTOR_MAX_FILES_PER_ANALYSIS`) raise a `scantor.ScantorError` of type
+`validation`.
 
 The [`files`](../../tasks/files) example stores files by content and by path and references them from
 nested models and lists:

@@ -26,6 +26,7 @@ _MAX_LOG_MESSAGE = 16384
 _MAX_LOG_FIELDS = 16384
 _MAX_PROGRESS_MESSAGE = 256
 _MAX_FILE_NAME = 255
+_MAX_CONTENT_TYPE = 255
 
 FileData = bytes | bytearray | memoryview | str | os.PathLike[str]
 
@@ -42,12 +43,14 @@ class Files:
         `data` is the content (`bytes`, or `str` as UTF-8 text) or the path of an existing file
         (`os.PathLike`). The content is copied at once, so later changes to a path do not matter. Files
         are uploaded only after `run` succeeded. `content_type` defaults to `application/octet-stream`;
-        pass it explicitly for images to be shown inline.
+        pass it explicitly for images to be shown inline. A name or content type that breaks the rules
+        (1-255 characters each) raises a `ScantorError` of type `validation` before anything is stored.
         """
         request = self._request
         if request.kind != "run":
             raise ScantorError("validation", "files are only available in run")
         _check_file_name(name)
+        _check_content_type(name, content_type)
         files_dir = request.files_dir
         if files_dir is None:
             raise ScantorError("validation", "the runtime provided no files directory for this run")
@@ -121,6 +124,23 @@ def _check_file_name(name: str) -> None:
         raise ScantorError("validation", f"file name {name!r} must be 1-255 characters long")
     if "/" in name or "\\" in name or "\x00" in name:
         raise ScantorError("validation", f"file name {name!r} must not contain '/', '\\' or NUL")
+
+
+def _check_content_type(name: str, content_type: object) -> None:
+    # The runtime treats a `file` message that breaks its schema as a protocol violation and kills the
+    # process, so a value from a scanned server (a Content-Type header) must fail here, catchable.
+    if content_type is None:
+        return
+    if not isinstance(content_type, str):
+        raise ScantorError(
+            "validation", f"file {name!r}: the content type must be a str or None, not {type(content_type).__name__}"
+        )
+    if not 1 <= len(content_type) <= _MAX_CONTENT_TYPE:
+        raise ScantorError(
+            "validation",
+            f"file {name!r}: the content type must be 1-255 characters long, not {len(content_type)}; "
+            "pass None for application/octet-stream",
+        )
 
 
 def _safe_file_component(name: str) -> str:

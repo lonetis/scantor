@@ -225,9 +225,9 @@ Large or binary outputs belong in files, not in the result (results are limited 
 the content and resolves to the final FileRef at once; store it in the result. The files are uploaded
 only after `run` succeeded, so files of failed attempts disappear. Names are 1–255 characters without
 `/`, `\` and NUL and unique within the attempt. The content type defaults to
-`application/octet-stream`; pass `image/png`, `image/jpeg`, `image/gif` or `image/webp` for images that
-should open inline. Violated rules and platform limits reject with a `ScantorError` of type
-`validation`.
+`application/octet-stream` and is 1–255 characters long when given; pass `image/png`, `image/jpeg`,
+`image/gif` or `image/webp` for images that should open inline. Violated rules and platform limits
+reject with a `ScantorError` of type `validation`.
 
 ## Errors and retries
 
