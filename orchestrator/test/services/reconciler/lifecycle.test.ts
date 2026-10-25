@@ -6,8 +6,9 @@ import { FakeCollection, matches } from '../../helpers/fake-collection'
 import { analysisDoc, scanDoc } from '../scans/fixtures'
 
 // Periodic recounts of the reconciler's lifecycle convergence (docs/queue.md §6.9): running scans every 60 s,
-// paused scans at the same cadence while their hint counters changed since the last recount. The MongoDB
-// behaviour of the whole convergence is covered by test/services/scans/broker.integration.test.ts.
+// paused scans at the same cadence while their hint counters changed since the last recount; and the cancel
+// convergence, which leaves a scan alone that a retry-failed moved to the next round (docs/queue.md §8, §9). The
+// MongoDB behaviour of the whole convergence is covered by test/services/scans/broker.integration.test.ts.
 
 /** The fake collection plus the `$match` + `$group by $status` aggregation the recount runs. */
 class FakeAnalyses extends FakeCollection<AnalysisDoc> {
@@ -21,8 +22,21 @@ class FakeAnalyses extends FakeCollection<AnalysisDoc> {
   }
 }
 
+/** The fake collection with hooks around the cancel convergence's state check (countDocuments). */
+class FakeScans extends FakeCollection<ScanDoc> {
+  beforeCheck: (() => Promise<void>) | null = null
+  afterCheck: (() => Promise<void>) | null = null
+
+  override async countDocuments(filter: Record<string, unknown> = {}): Promise<number> {
+    await this.beforeCheck?.()
+    const count = await super.countDocuments(filter)
+    await this.afterCheck?.()
+    return count
+  }
+}
+
 const store = {
-  scans: new FakeCollection<ScanDoc>('scans'),
+  scans: new FakeScans('scans'),
   analyses: new FakeAnalyses('analyses'),
   events: new FakeCollection<EventDoc>('events'),
   jobs: new FakeCollection<JobDoc>('jobs'),
@@ -101,5 +115,75 @@ describe('LifecycleConvergence periodic recounts', () => {
     const scan = (await store.scans.findOne({ _id: SCAN_ID }))!
     expect(scan.state).toBe('completed')
     expect(scan.stats).toMatchObject({ succeeded: 2 })
+  })
+})
+
+describe('LifecycleConvergence cancel convergence', () => {
+  beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(at(5_000))
+    for (const collection of Object.values(store)) await collection.deleteMany({})
+    store.scans.beforeCheck = null
+    store.scans.afterCheck = null
+    await store.scans.insertOne(scanDoc({ _id: SCAN_ID, state: 'cancelled', completedAt: T0, updatedAt: T0, scheduling: { state: 'done', confirmed: 3 } }))
+    await store.analyses.insertOne(analysisDoc(SCAN_ID, 0, 'retrying'))
+    await store.analyses.insertOne(analysisDoc(SCAN_ID, 1, 'failed'))
+    await store.analyses.insertOne(analysisDoc(SCAN_ID, 2, 'pending'))
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** What retryFailedAnalyses and the reset phase of its job write (docs/queue.md §8). */
+  async function startRetryFailed(): Promise<void> {
+    await store.scans.updateOne({ _id: SCAN_ID }, { $set: { round: 2, 'scheduling.state': 'retrying', state: 'running', completedAt: null } })
+    await store.analyses.updateMany({ scanId: SCAN_ID, status: 'failed', round: { $lte: 1 } }, { $set: { status: 'pending', round: 2, attempt: 0 } })
+  }
+
+  async function statuses(): Promise<[number, string, number][]> {
+    return (await store.analyses.find({ scanId: SCAN_ID }).sort({ seq: 1 }).toArray()).map((doc) => [doc.seq, doc.status, doc.round])
+  }
+
+  it('cancels the unfinished analyses of a cancelled scan once its broker objects are gone', async () => {
+    await convergence().run(new Set())
+    expect(await statuses()).toEqual([
+      [0, 'cancelled', 1],
+      [1, 'failed', 1],
+      [2, 'cancelled', 1],
+    ])
+    expect(await stats()).toMatchObject({ cancelled: 2, failed: 1 })
+  })
+
+  it('leaves a scan alone that a retry-failed moved to the next round before the conversion', async () => {
+    // The convergence read the scan as cancelled; the retry starts before its state check.
+    store.scans.beforeCheck = async () => {
+      store.scans.beforeCheck = null
+      await startRetryFailed()
+    }
+
+    await convergence().run(new Set())
+
+    expect(await statuses()).toEqual([
+      [0, 'retrying', 1],
+      [1, 'pending', 2],
+      [2, 'pending', 1],
+    ])
+    expect((await store.scans.findOne({ _id: SCAN_ID }))!.state).toBe('running')
+  })
+
+  it('converts only the cancelled round when the retry starts right after the state check', async () => {
+    store.scans.afterCheck = async () => {
+      store.scans.afterCheck = null
+      await startRetryFailed()
+    }
+
+    await convergence().run(new Set())
+
+    expect(await statuses()).toEqual([
+      [0, 'cancelled', 1],
+      [1, 'pending', 2],
+      [2, 'cancelled', 1],
+    ])
   })
 })

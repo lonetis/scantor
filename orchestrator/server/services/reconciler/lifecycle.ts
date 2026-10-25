@@ -10,7 +10,9 @@ import { recountScan, tryCompleteScan } from '../scans/completion'
  * Lifecycle convergence of the reconciler (docs/architecture.md §11.2 step 9, §11.3; docs/queue.md §6.9, §8):
  *
  *   cancel     once the scan's RabbitMQ user and queue are gone, pending/retrying analyses become `cancelled`
- *              and the scan is recounted (never-run seqs count as cancelled implicitly)
+ *              and the scan is recounted (never-run seqs count as cancelled implicitly). The conversion re-checks
+ *              that the scan is still cancelled in the round it was read with and touches only analyses of that
+ *              round or earlier: a retry-failed may have moved it to round R + 1 and reset analyses to `pending`
  *   periodic   every 60 s per running scan: recount, and the completion check when scheduling finished; at once
  *              after a resume. Paused scans are recounted (never completed) at the same cadence while their hint
  *              counters changed since their last recount
@@ -54,21 +56,31 @@ export class LifecycleConvergence {
   private async convergeCancelled(brokerPresent: ReadonlySet<string>, now: Date): Promise<void> {
     const { scans, log } = this.deps
     const cancelled = await scans
-      .find({ state: 'cancelled', updatedAt: { $gte: new Date(now.getTime() - FINAL_RECOUNT_WINDOW_MS) } }, { projection: { _id: 1, completedAt: 1, stats: 1 } })
+      .find({ state: 'cancelled', updatedAt: { $gte: new Date(now.getTime() - FINAL_RECOUNT_WINDOW_MS) } }, { projection: { _id: 1, round: 1, completedAt: 1, stats: 1 } })
       .toArray()
     for (const scan of cancelled) {
       if (brokerPresent.has(scan._id)) continue
       const recountedAt = scan.stats.recountedAt?.getTime() ?? 0
       if (scan.completedAt && recountedAt >= scan.completedAt.getTime()) continue
-      const cancelledAnalyses = await this.cancelUnfinished(scan._id, now)
+      const cancelledAnalyses = await this.cancelUnfinished(scan, now)
+      if (cancelledAnalyses === null) continue
       await recountScan(scan._id)
       log.info('cancelled scan converged', { scanId: scan._id, cancelledAnalyses })
     }
   }
 
-  /** pending/retrying analyses of a cancelled scan → cancelled (docs/data-model.md §6.3); returns the count. */
-  private async cancelUnfinished(scanId: string, now: Date): Promise<number> {
-    const result = await this.deps.analyses.updateMany({ scanId, status: { $in: ['pending', 'retrying'] } }, { $set: { status: 'cancelled', updatedAt: now } })
+  /**
+   * pending/retrying analyses of a cancelled scan → cancelled (docs/data-model.md §6.3); returns the count, or null
+   * when the scan is no longer cancelled in the round it was read with (a retry-failed started meanwhile).
+   */
+  private async cancelUnfinished(scan: Pick<ScanDoc, '_id' | 'round'>, now: Date): Promise<number | null> {
+    const { scans, analyses } = this.deps
+    if ((await scans.countDocuments({ _id: scan._id, state: 'cancelled', round: scan.round }, { limit: 1 })) === 0) return null
+    // A retry that starts after the check writes round R + 1, which this update leaves alone.
+    const result = await analyses.updateMany(
+      { scanId: scan._id, round: { $lte: scan.round }, status: { $in: ['pending', 'retrying'] } },
+      { $set: { status: 'cancelled', updatedAt: now } },
+    )
     recordAnalysesCompleted('cancelled', result.modifiedCount)
     return result.modifiedCount
   }
@@ -111,7 +123,7 @@ export class LifecycleConvergence {
           updatedAt: { $gte: new Date(now.getTime() - FINAL_RECOUNT_WINDOW_MS) },
           completedAt: { $lte: new Date(now.getTime() - FINAL_RECOUNT_DELAY_MS) },
         },
-        { projection: { _id: 1, state: 1, completedAt: 1, stats: 1 } },
+        { projection: { _id: 1, state: 1, round: 1, completedAt: 1, stats: 1 } },
       )
       .toArray()
     for (const scan of recent) {
@@ -119,7 +131,7 @@ export class LifecycleConvergence {
       if (scan.completedAt && recountedAt >= scan.completedAt.getTime() + FINAL_RECOUNT_DELAY_MS) continue
       // An attempt event still in the ingest queue at cancel time may have written `retrying` after the cancel
       // convergence; the final pass cancels it too.
-      if (scan.state === 'cancelled') await this.cancelUnfinished(scan._id, now)
+      if (scan.state === 'cancelled' && (await this.cancelUnfinished(scan, now)) === null) continue
       await recountScan(scan._id)
     }
   }

@@ -677,7 +677,7 @@ perform the broker operations below.
 | **pause** (user or breaker) | none: queue (ready and delayed) and user stay | state polls return `drain`: slots cancel their consumers, in-flight analyses finish within `SCANTOR_WORKER_DRAIN_GRACE`, the rest is nacked with requeue (uncounted); the scheduler checkpoints and exits; workers are removed | results keep being ingested; completion cannot happen while paused; delayed retries become due and wait in the queue |
 | **resume** | the topology loop re-ensures queue and user (normally a no-op) | new runners consume; a new scheduler (if scheduling is unfinished) gets `epoch + 1` and resumes from the checkpoint | completion check |
 | **scale** | user limits raised (§4.3) before assignments change | slots opened or closed; workers added or drained | – |
-| **cancel** | (1) `DELETE /api/users/scan-<id>`: force-closes every connection of the scan (kill switch); (2) `DELETE /api/queues/scantor/scantor.scan.<id>`: drops ready, delayed and unacked messages | runtimes lose their connections, get `ACCESS_REFUSED` and `stop`; workers are removed | results already in `scantor.results.ingest` are still recorded; then the reconciler sets `pending`/`retrying` analyses to `cancelled` and recounts (never-run seqs count as cancelled implicitly) |
+| **cancel** | (1) `DELETE /api/users/scan-<id>`: force-closes every connection of the scan (kill switch); (2) `DELETE /api/queues/scantor/scantor.scan.<id>`: drops ready, delayed and unacked messages | runtimes lose their connections, get `ACCESS_REFUSED` and `stop`; workers are removed | results already in `scantor.results.ingest` are still recorded; then the reconciler sets `pending`/`retrying` analyses of the scan's round or earlier to `cancelled`, while the scan is still `cancelled` in that round (§9), and recounts (never-run seqs count as cancelled implicitly) |
 | **retry-failed** (failed and lost analyses with a config) | the scan is `running` again, so the topology loop recreates queue, binding and user (same password); the `scanRetryFailed` job waits until the queue exists, then publishes (below) | new runners consume round R + 1 | round R + 1 results apply; late round-R messages are superseded (E11000) |
 | **delete** | job step 1: user absent, then queue absent (idempotent; normally already gone because the scan was terminal) | – | results of `deleting`/`deleted` scans are dropped; the job ends with a final sweep (§6.3) |
 | **completed / failed** (terminal cleanup) | user deleted, then queue deleted (the topology loop's step 4) | idle workers are removed (they hold nothing: every confirmed analysis is final) | late duplicates are absorbed by the guards; final recount after 2 minutes |
@@ -733,13 +733,22 @@ The duration requirement covers the lag of management statistics and of state po
    "platform", retryable: false, attempt: 0, at: now, message: "lost: no message for this analysis remained in the
    queue and no worker was processing it"}, createdAt, updatedAt}` (no config). E11000 (a result arrived
    meanwhile) is ignored.
-3. For existing documents with `status ∈ {pending, retrying}`, one pipeline update: `updateMany({scanId, status:
-   {$in: ["pending", "retrying"]}}, [{$set: {status: "lost", updatedAt: now, error: {type: "platform", phase:
-   "platform", retryable: false, attempt: "$attempt", at: now, message: <as above>}}}])`. They keep their config
-   ([data model](data-model.md) §6.3).
+3. For existing documents with `status ∈ {pending, retrying}` of the scan's round or earlier, one pipeline
+   update: `updateMany({scanId, round: {$lte: scan.round}, status: {$in: ["pending", "retrying"]}}, [{$set:
+   {status: "lost", updatedAt: now, error: {type: "platform", phase: "platform", retryable: false, attempt:
+   "$attempt", at: now, message: <as above>}}}])`. They keep their config ([data model](data-model.md) §6.3).
 4. Raise the condition `stalled {lost: n}`, write event `scan.lostAnalyses {count: n}`, run the completion
    function. The scan completes with a warning; retry-failed (§8) re-runs the `lost` analyses that kept their
    config, and a restart re-runs everything.
+
+The decision is made on the scan read at the start of the tick, and a retry-failed may start while the recount
+and the walk run (it is allowed once scheduling finished, §8). So before every batch of step 2 and before step 3
+the reconciler checks that the scan is still `running` in the same round with `scheduling.state ∈ {done,
+failed}`; once that fails it stops and skips steps 3 and 4 (lost documents it already inserted have no config, so
+the retry could not run them anyway). The round filter of step 3 keeps the analyses that the retry's reset moved
+to round R + 1 `pending` even when the retry starts right after the last check. The cancel convergence (§8) is
+guarded the same way: it converts only while the scan is still `cancelled` in the round it read, and only
+analyses of that round or earlier.
 
 A late result for a `lost` analysis still applies (the guards allow `lost → succeeded|failed` in the same round).
 
