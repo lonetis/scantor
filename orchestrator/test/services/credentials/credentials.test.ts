@@ -66,6 +66,24 @@ describe('credentials', () => {
     expect((store.credentials.docs[0] as unknown as CredentialDoc).lastUsedAt).toBeInstanceOf(Date)
   })
 
+  it('requires the token again when the host changes', async () => {
+    const created = await createCredential(alice, { kind: 'gitToken', name: 'github', host: 'github.com', username: 'u', token: 'first-token' })
+    try {
+      await updateCredential(alice, created.id, { host: 'attacker.example' })
+      expect.unreachable()
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError)
+      expect((error as InstanceType<typeof ApiError>).code).toBe('validationFailed')
+      expect((error as InstanceType<typeof ApiError>).details).toEqual({ issues: [{ path: 'token', message: 'is required when the host changes' }] })
+    }
+    expect(await errorCode(credentialForGit(alice.user.id, created.id, 'attacker.example'))).toBe('badRequest')
+    // The same host (as normalised by the schema) needs no token.
+    expect(await updateCredential(alice, created.id, { host: 'github.com', username: 'robot' })).toMatchObject({ host: 'github.com', username: 'robot', last4: 'oken' })
+    const moved = await updateCredential(alice, created.id, { host: 'gitlab.com', token: 'gitlab-token-9999' })
+    expect(moved).toMatchObject({ host: 'gitlab.com', last4: '9999' })
+    expect((await credentialForGit(alice.user.id, created.id, 'gitlab.com')).secrets).toContain('gitlab-token-9999')
+  })
+
   it('sends a token only to its exact host', async () => {
     const created = await createCredential(alice, { kind: 'gitToken', name: 'github', host: 'github.com', username: 'u', token: 'tttt' })
     expect(await errorCode(credentialForGit(alice.user.id, created.id, 'evil.example'))).toBe('badRequest')

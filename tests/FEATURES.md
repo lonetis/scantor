@@ -134,7 +134,7 @@ Mechanisms: [api](../docs/api.md) §4.5, [security](../docs/security.md) WS-7.
 - **CRED-002** [api] The host is normalised to lowercase `host[:port]` with a default `:443` dropped; a host with a scheme, path, userinfo or whitespace returns 400, and so does a token containing CR or LF.
 - **CRED-003** [api] A second credential with the same name for the same user returns 409 `alreadyExists`, also when renaming; different users may reuse a name.
 - **CRED-004** [api] `GET /api/credentials` returns `{items}` sorted by name, without a cursor, holding only the caller's own credentials (admins included).
-- **CRED-005** [api] `PATCH /api/credentials/{id}` updates name, host, username or token (a new token updates `last4`), and an empty body returns 400; `DELETE` returns 204; another user's credential returns 404.
+- **CRED-005** [api, security] `PATCH /api/credentials/{id}` updates name, host, username or token (a new token updates `last4`); a new host without the token returns 400 (issue path `token`), so a stored token is never redirected; an empty body returns 400; `DELETE` returns 204; another user's credential returns 404.
 
 ## AUTHZ. Authorization
 

@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'updateCredential',
     summary: 'Update a git credential',
     description:
-      'Changes the name, host, username or token of a git credential (at least one field). An omitted token keeps the stored one. Tasks imported with the credential keep using it for pulls. 404 when the credential is not yours; 409 alreadyExists for a taken name.',
+      'Changes the name, host, username or token of a git credential (at least one field). An omitted token keeps the stored one, except that a new host requires the token again (400 validationFailed otherwise), so a stored token is never sent to another host. Tasks imported with the credential keep using it for pulls. 404 when the credential is not yours; 409 alreadyExists for a taken name.',
     'x-scantor-scope': 'owner',
     'x-mcp': false,
     parameters: [{ name: 'credentialId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],

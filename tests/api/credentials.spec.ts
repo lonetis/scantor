@@ -137,13 +137,28 @@ test.describe('update and delete', () => {
     expect(renamed).toMatchObject({ id: credential.id, name, host: 'github.com', username: 'x-access-token', last4: '1111' })
     expect(Date.parse(renamed.updatedAt)).toBeGreaterThanOrEqual(Date.parse(credential.updatedAt))
 
-    expect(ok(await update({ host: 'Git.Example.com:443' }), 'updateCredential')).toMatchObject({ host: 'git.example.com', last4: '1111' })
-    expect(ok(await update({ username: 'robot' }), 'updateCredential')).toMatchObject({ username: 'robot', last4: '1111' })
+    expect(ok(await update({ host: 'Git.Example.com:443', token: 'moved-3333' }), 'updateCredential')).toMatchObject({ host: 'git.example.com', last4: '3333' })
+    expect(ok(await update({ username: 'robot' }), 'updateCredential')).toMatchObject({ username: 'robot', last4: '3333' })
     const retokened = ok(await update({ token: 'second-2222' }), 'updateCredential')
     expect(retokened).toMatchObject({ name, host: 'git.example.com', username: 'robot', last4: '2222', createdAt: credential.createdAt })
 
     const listed = ok(await api.call<{ items: Credential[] }>('listCredentials'), 'listCredentials')
     expect(listed.items.find((item) => item.id === credential.id)).toEqual(retokened)
+  })
+
+  test('a new host requires the token again', { tag: ['@CRED-005'] }, async ({ api, credentials }) => {
+    const credential = await credentials.add({ name: unique('cred'), host: 'github.com', token: 'bound-4444' })
+    const update = (body: Record<string, unknown>) => api.call<Credential>('updateCredential', { path: { credentialId: credential.id }, body })
+
+    const moved = await update({ host: 'attacker.example' })
+    expect(moved.status).toBe(400)
+    expect(errorOf(moved).code).toBe('validationFailed')
+    expect(issuePaths(moved)).toEqual(['token'])
+    const listed = ok(await api.call<{ items: Credential[] }>('listCredentials'), 'listCredentials')
+    expect(listed.items.find((item) => item.id === credential.id)).toMatchObject({ host: 'github.com', last4: '4444' })
+
+    // The stored host, however it is spelled, is no change and needs no token.
+    expect(ok(await update({ host: 'GitHub.com:443', username: 'robot' }), 'updateCredential')).toMatchObject({ host: 'github.com', username: 'robot', last4: '4444' })
   })
 
   test('an empty update and invalid fields return 400', { tag: ['@CRED-005'] }, async ({ api, credentials }) => {

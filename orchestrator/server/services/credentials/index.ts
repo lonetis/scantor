@@ -4,14 +4,15 @@ import type { Credential } from '#shared/types/credentials'
 import type { CredentialDoc } from '../../types/documents'
 import type { UserPrincipal } from '../../utils/principal'
 import { callerFilter, loadOwned, ownedRef } from '../../utils/authz'
-import { apiError } from '../../utils/errors'
+import { apiError, validationError } from '../../utils/errors'
 import { useCollections } from '../../utils/mongo'
 import { decryptSecret, encryptSecret, SecretDecryptionError } from '../../utils/secrets'
 import { isoDate, isoDateOrNull } from '../../utils/serialize'
 
 // Git credentials (docs/api.md §4.5, docs/data-model.md §4.9, security.md WS-7): the token is stored only as
 // `secretEnc` (AES-256-GCM, HKDF label `credentials`, AAD `credentials:<_id>:secretEnc`) and never returned; the API
-// shows `last4`. Tokens reach git only through GIT_CONFIG_* variables of a git helper, for the exact host.
+// shows `last4`. Tokens reach git only through GIT_CONFIG_* variables of a git helper, for the exact host. A token is
+// bound to its host: changing the host requires the token again, so the API never redirects a stored token.
 
 export function credentialAad(id: string): string {
   return `credentials:${id}:secretEnc`
@@ -72,6 +73,10 @@ export async function createCredential(principal: UserPrincipal, body: CreateCre
 export async function updateCredential(principal: UserPrincipal, credentialId: string, body: UpdateCredentialBody): Promise<Credential> {
   const { credentials } = useCollections()
   const current = await loadOwned(credentials, credentialId, principal, { what: 'credential' })
+  // Otherwise anyone holding one of the user's API keys could point the stored token at a host they control.
+  if (body.host !== undefined && body.host !== current.host && body.token === undefined) {
+    throw validationError([{ path: 'token', message: 'is required when the host changes' }], 'changing the host of a credential requires its token again')
+  }
   const set: Partial<CredentialDoc> = { updatedAt: new Date() }
   if (body.name !== undefined) set.name = body.name
   if (body.host !== undefined) set.host = body.host

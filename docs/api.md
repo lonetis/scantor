@@ -499,7 +499,7 @@ changed nor unbanned until the job has removed it.
 |---|---|---|---|---|---|
 | `GET /api/credentials` | `listCredentials` | owner | no | – | `{items: Credential[]}` (`{id, kind, name, host, username, last4, lastUsedAt, createdAt, updatedAt}`) |
 | `POST /api/credentials` | `createCredential` | owner | no | `{kind: "gitToken", name, host, username? ("x-access-token"), token}` | 201 `Credential`; 409 `alreadyExists` |
-| `PATCH /api/credentials/{credentialId}` | `updateCredential` | owner | no | `{name?, host?, username?, token?}` | `Credential` |
+| `PATCH /api/credentials/{credentialId}` | `updateCredential` | owner | no | `{name?, host?, username?, token?}`; an omitted `token` keeps the stored one, but a new `host` requires `token` (a token is bound to its host) | `Credential`; 400 `validationFailed` (issue path `token`) for a new host without a token |
 | `DELETE /api/credentials/{credentialId}` | `deleteCredential` | owner | no | – | 204 |
 
 ### 4.6 `tasks`
