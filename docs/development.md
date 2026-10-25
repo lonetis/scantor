@@ -141,7 +141,7 @@ Conventions for recipes:
 | `test-go *args` | Go unit tests with `-race` |
 | `test-go-integration *args` | Go tests tagged `integration` (host Docker socket, host network; the images they use must exist locally, [testing](testing.md) §4.1) |
 | `test-orchestrator *args` | vitest unit tests of the orchestrator |
-| `test-orchestrator-integration *args` | the orchestrator's `*.integration.test.ts` ([testing](testing.md) §4.2) in one root `node` container with the Docker socket, next to throwaway MongoDB, RabbitMQ and RustFS on a private network; every object carries the prefix `scantor-test-orchestrator-it` and is removed afterwards |
+| `test-orchestrator-integration *args` | bake `scantor:dev`, then run the orchestrator's `*.integration.test.ts` ([testing](testing.md) §4.2) in one root `node` container with the Docker socket, `scantor:dev` and its binary, next to throwaway MongoDB, RabbitMQ and RustFS on a private network; every object carries the prefix `scantor-test-orchestrator-it` and is removed afterwards |
 | `test-connectors [base]` | connector unit tests in each base image's `test` stage |
 | `test-conformance [language]` | connector conformance harness |
 | `test-e2e *args` | dockerized Playwright suite on a fresh stack, torn down afterwards (args go to `playwright test`): `docker compose -f docker-compose.tests.yml run --rm --name scantor-test-runner test-runner …` |

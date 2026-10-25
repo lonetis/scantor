@@ -61,6 +61,19 @@ jobs:
             base-python.cache-from=type=gha,scope=test-base-python
             base-js.cache-from=type=gha,scope=test-base-js
             base-go.cache-from=type=gha,scope=test-base-go
+      # The helper and task build tests of the orchestrator run the dev-tagged scantor image, which the recipe
+      # bakes; this step fills the builder's cache from the e2e job's.
+      - name: Image of the orchestrator integration tests
+        if: matrix.suite == 'orchestrator-integration'
+        uses: docker/bake-action@v7
+        env:
+          COMMIT: ${{ steps.commit.outputs.short }}
+        with:
+          source: .
+          targets: scantor
+          load: true
+          set: |
+            scantor.cache-from=type=gha,scope=test-scantor
       - name: Service images of the Go integration tests
         if: matrix.suite == 'go-integration'
         run: |

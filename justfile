@@ -369,7 +369,7 @@ test-go-integration *args: _caches
 test-orchestrator *args: _caches
     {{run}} {{npm_cache}} -w /src/orchestrator {{node_image}} sh -euc '{{npm_ci}} && exec npx --no-install vitest run "$@"' sh "$@"
 
-# Orchestrator integration tests against throwaway MongoDB, RabbitMQ, RustFS, registry and code-server containers (args go to vitest run)
+# Orchestrator integration tests against throwaway MongoDB, RabbitMQ, RustFS, registry and code-server containers and scantor:dev (args go to vitest run)
 [group('tests')]
 test-orchestrator-integration *args:
     #!/usr/bin/env bash
@@ -378,7 +378,7 @@ test-orchestrator-integration *args:
     # integration.ts); everything here carries it, so one name filter finds every leftover.
     prefix=scantor-test-orchestrator-it
     mongo="$prefix-svc-mongo" rabbitmq="$prefix-svc-rabbitmq" rustfs="$prefix-svc-rustfs"
-    volumes="$prefix-editor-home $prefix-editor-workspaces $prefix-editor-sockets"
+    volumes="$prefix-editor-home $prefix-editor-workspaces $prefix-editor-sockets $prefix-scantor-bin"
     # Throwaway credentials: the services publish no ports and live only on this run's network.
     mongo_password=mongo-integration-test rabbitmq_password=rabbitmq-integration-test s3_secret=rustfs-integration-test
 
@@ -413,6 +413,10 @@ test-orchestrator-integration *args:
       docker exec "$mongo" mongosh --quiet -u scantor -p "$mongo_password" --authenticationDatabase admin --eval "$1"
     }
 
+    # The helper and task build tests run scantor:dev and its binary (SCANTOR_TEST_SCANTOR_IMAGE and
+    # SCANTOR_TEST_SCANTOR_BINARY below).
+    echo "==> Building scantor:dev"
+    {{bake}} --load scantor
     # The tests never pull: every image they start must be present.
     for image in {{node_image}} {{alpine_image}} {{mongo_image}} {{rabbitmq_image}} {{rustfs_image}} {{registry_image}} {{code_server_image}}; do
       if ! docker image inspect "$image" >/dev/null 2>&1; then
@@ -426,6 +430,9 @@ test-orchestrator-integration *args:
     echo "==> Creating the network and the volumes"
     docker network create --label scantor.test=true "$prefix" >/dev/null
     for volume in $volumes; do docker volume create --label scantor.test=true "$volume" >/dev/null; done
+    # The image's static binary, which runs in the node container too.
+    docker run --rm --label scantor.test=true --entrypoint cp -v "$prefix-scantor-bin:/out" scantor:dev \
+      /usr/local/bin/scantor /out/scantor
 
     echo "==> Starting MongoDB, RabbitMQ and RustFS"
     docker run -d --name "$mongo" --network "$prefix" --label scantor.test=true \
@@ -448,15 +455,18 @@ test-orchestrator-integration *args:
 
     # Root (the editor test chowns to the editor uid) with the Docker socket, on the run's network, and
     # the three volumes standing in for the editor's (orchestrator/test/services/editor/
-    # code-server.integration.test.ts). The checkout stays read-only: orchestrator/ is copied into the
-    # container next to links to the rest of the repository, and gets Linux node_modules and .nuxt there.
+    # code-server.integration.test.ts), plus scantor:dev and its binary for the helper and task build tests.
+    # The checkout stays read-only: orchestrator/ is copied into the container next to links to the rest of
+    # the repository, and gets Linux node_modules and .nuxt there.
     echo "==> Running the integration tests"
     docker run --rm --init --name "$prefix" --network "$prefix" --label scantor.test=true \
       -v {{quote(root)}}:/repo:ro -w /src/orchestrator \
       -v /var/run/docker.sock:/var/run/docker.sock \
       -v "$prefix-editor-sockets:/run/scantor/editor-sockets" \
       -v "$prefix-editor-home:/volumes/editor-home" -v "$prefix-editor-workspaces:/volumes/workspaces" \
+      -v "$prefix-scantor-bin:/opt/scantor-bin:ro" \
       -e SCANTOR_TEST_INTEGRATION=true \
+      -e SCANTOR_TEST_SCANTOR_IMAGE=scantor:dev -e SCANTOR_TEST_SCANTOR_BINARY=/opt/scantor-bin/scantor \
       -e "SCANTOR_MONGO_URL=mongodb://$mongo:27017/?replicaSet=rs0&authSource=admin" \
       -e SCANTOR_MONGO_USER=scantor -e SCANTOR_MONGO_PASSWORD="$mongo_password" \
       -e SCANTOR_AMQP_INTERNAL_URL="amqp://$rabbitmq:5672" -e SCANTOR_RABBITMQ_MANAGEMENT_URL="http://$rabbitmq:15672" \
