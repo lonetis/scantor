@@ -10,7 +10,7 @@ test-index --check`); never edit it by hand.
 
 ## Playwright projects
 
-### api (248 tests)
+### api (250 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -18,9 +18,9 @@ test-index --check`); never edit it by hand.
 | `api/analyses.spec.ts` | analyses of a finished scan | 9 |
 | `api/api-keys.spec.ts` | API keys; API key credentials | 7 |
 | `api/catalog.spec.ts` | languages and scaffolds; templates; guides | 8 |
-| `api/credentials.spec.ts` | create; list; update and delete | 11 |
+| `api/credentials.spec.ts` | create; list; update and delete | 12 |
 | `api/editor.spec.ts` | idle stop; editor sessions; editor state; the editor key; inside the editor | 8 |
-| `api/errors.spec.ts` | request ids; error envelope; deny by default; request validation; body caps; path ids; query values; pagination; listeners | 15 |
+| `api/errors.spec.ts` | request ids; error envelope; deny by default; request validation; body caps; path ids; query values; pagination; listeners | 16 |
 | `api/exports.spec.ts` | exports of a finished scan; exports of scans of their own | 7 |
 | `api/files.spec.ts` | analysis files | 1 |
 | `api/git.spec.ts` | import; pull; revisions of imported tasks | 19 |
@@ -62,13 +62,13 @@ test-index --check`); never edit it by hand.
 | `authz/matrix.spec.ts` | authorization matrix | 29 |
 | `authz/openapi-lint.spec.ts` | OpenAPI lint | 10 |
 
-### security (176 tests)
+### security (180 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
-| `security/auth-endpoints.spec.ts` | better-auth endpoints; credential binding; sessions | 8 |
+| `security/auth-endpoints.spec.ts` | better-auth endpoints; credential binding; sessions | 9 |
 | `security/banned.spec.ts` | banned users | 3 |
-| `security/compose-lint.spec.ts` | lint-compose | 26 |
+| `security/compose-lint.spec.ts` | lint-compose | 28 |
 | `security/cross-scan.spec.ts` | per-scan RabbitMQ users; result ingestion trust; event visibility; malformed analysis messages | 9 |
 | `security/csrf.spec.ts` | CSRF; CORS | 5 |
 | `security/dockerfile-policy.spec.ts` | Dockerfile policy | 5 |
@@ -78,7 +78,7 @@ test-index --check`); never edit it by hand.
 | `security/hostile-labels.spec.ts` | hostile labels | 3 |
 | `security/insecure-secrets.spec.ts` | startup guard; SCANTOR_SECRET change; secrets derived from SCANTOR_SECRET | 13 |
 | `security/query-injection.spec.ts` | query injection | 4 |
-| `security/rate-limits.spec.ts` | auth rate limits | 3 |
+| `security/rate-limits.spec.ts` | auth rate limits | 4 |
 | `security/sandbox.spec.ts` | worker containers; reachability; egress deny list; short-lived containers; worker logs; node daemon boundaries | 15 |
 | `security/secrets-masking.spec.ts` | secret masking | 5 |
 | `security/setup-token.spec.ts` | setup token; setup on the shared stack; passkey-first admin; first admin from the environment; passkey availability | 12 |
@@ -120,7 +120,7 @@ test-index --check`); never edit it by hand.
 | `e2e/templates.spec.ts` | template single; template list; template range; template repeat; template tranco; template crux; template cidr; wrapped templates; resolution on resume; test runs and template data; data sources | 17 |
 | `e2e/workers.spec.ts` | crash loops and memory; drain and stop; process slots; image pulls | 11 |
 
-### ui (238 tests)
+### ui (242 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -129,7 +129,7 @@ test-index --check`); never edit it by hand.
 | `ui/account.spec.ts` | account page of the tenant; account changes | 6 |
 | `ui/admin-nodes.spec.ts` | nodes table; adding a node; node actions; node page | 10 |
 | `ui/admin-tools.spec.ts` | infrastructure tools; API links, health and jobs | 8 |
-| `ui/admin-users.spec.ts` | users table; creating and editing users; banning and deleting users | 6 |
+| `ui/admin-users.spec.ts` | users table; creating and editing users; banning and deleting users | 8 |
 | `ui/auth.spec.ts` | sign-in page; signed-in visits to /login; session loss; admin user menu | 16 |
 | `ui/consent.spec.ts` | OAuth sign-in on the way to consent; OAuth consent page without a registered client; OAuth consent page with a registered client | 11 |
 | `ui/credentials.spec.ts` | git credentials page | 3 |
@@ -140,14 +140,14 @@ test-index --check`); never edit it by hand.
 | `ui/passkeys.spec.ts` | passkeys | 2 |
 | `ui/revisions.spec.ts` | revision page | 7 |
 | `ui/scan-health.spec.ts` | scan health; crash loops of a user with a worker limit | 6 |
-| `ui/scan-results.spec.ts` | results of a finished scan; results of a running scan; results for admins; hostile task output | 19 |
+| `ui/scan-results.spec.ts` | results of a finished scan; results of a running scan; results for admins; hostile task output | 20 |
 | `ui/scans.spec.ts` | scans list; scans list for admins; new scan form; privileged revisions; scan detail | 20 |
 | `ui/schema-form.spec.ts` | schema forms | 7 |
 | `ui/setup.spec.ts` | setup page | 4 |
 | `ui/smoke.spec.ts` | UI plumbing | 1 |
 | `ui/tasks.spec.ts` | tasks list; new-task wizard; git import; upload; task page | 22 |
 | `ui/templates.spec.ts` | templates catalog | 3 |
-| `ui/test-run.spec.ts` | test runs | 7 |
+| `ui/test-run.spec.ts` | test runs | 8 |
 
 ### chaos (21 tests)
 
@@ -164,7 +164,7 @@ test-index --check`); never edit it by hand.
 | API-003 | Deny by default: an /api path that matches no operation returns 404 notFound (also /api//users; one … | api/errors.spec.ts › deny by default › a path without an operation is 404 and a wrong method is 405 with Allow<br>api/errors.spec.ts › deny by default › the orchestrator never routes an empty interior segment to an operation |
 | API-004 | An unknown key in a JSON body or in the query string returns 400 validationFailed with … | api/errors.spec.ts › request validation › unknown keys in a body or the query string are validationFailed |
 | API-005 | A non-empty body whose Content-Type is not application/json returns 415 unsupportedMediaType, … | api/errors.spec.ts › request validation › bodies must be JSON: 415 for other types, 400 for malformed JSON, an empty body is {} |
-| API-006 | A JSON body larger than SCANTOR_MAX_REQUEST_BYTES (declared Content-Length or actual size) returns … | api/errors.spec.ts › body caps › a JSON body above SCANTOR_MAX_REQUEST_BYTES is 413 by declared length<br>api/errors.spec.ts › body caps › a chunked JSON body without Content-Length is 413 by actual size<br>api/errors.spec.ts › body caps › machine routes have their own caps: 1 MiB for the runtime, 2 MiB for node status and logs |
+| API-006 | A JSON body larger than SCANTOR_MAX_REQUEST_BYTES returns 413 payloadTooLarge: by its declared … | api/errors.spec.ts › body caps › a JSON body above SCANTOR_MAX_REQUEST_BYTES is 413 by declared length<br>api/errors.spec.ts › body caps › a chunked JSON body without Content-Length is 413 by actual size<br>api/errors.spec.ts › body caps › machine routes have their own caps: 1 MiB for the runtime, 2 MiB for node status and logs<br>api/errors.spec.ts › body caps › anonymous protocol routes cap chunked bodies at 1 MiB before any credential is checked |
 | API-007 | A malformed path id (a non-uuid id, a bad analysis id, ../, or a URL-encoded {"$ne": null}) returns … | api/errors.spec.ts › path ids › a malformed path id is 404 notFound on every owner operation<br>api/errors.spec.ts › path ids › a malformed path id is 404 notFound on every admin operation<br>authz/matrix.spec.ts › authorization matrix › a malformed path id answers 404 on every operation |
 | API-008 | Query values are strict: booleans accept only true/false and integers must be decimal, so ?wait=60s … | api/errors.spec.ts › query values › booleans accept only true/false and integers must be decimal |
 | API-009 | Cursor pagination: limit defaults to 50 and allows at most 200 (201 returns 400); following … | api/errors.spec.ts › pagination › cursor pages are newest first without overlap, limit defaults to 50 and allows 200 |
@@ -201,9 +201,9 @@ test-index --check`); never edit it by hand.
 | AUTH-007 | Credentials are bound to their route prefix: a node, worker or setup token on a user route returns … | security/auth-endpoints.spec.ts › credential binding › credentials are bound to their route prefix |
 | AUTH-008 | better-auth endpoints outside the HTTP allowlist return 404: /sign-up/email, /token, /api-key/*, … | security/auth-endpoints.spec.ts › better-auth endpoints › every disabled better-auth path answers 404, also with a session<br>security/auth-endpoints.spec.ts › better-auth endpoints › no better-auth endpoint beyond the documented ones is reachable with a session |
 | AUTH-009 | On https the session cookie is __Secure-scantor.session_token: host-only (no Domain), Path=/, … | security/auth-endpoints.spec.ts › sessions › the session cookie is host-only and secure, the client IP is never taken from client headers, and sign-out clears the tools cookie |
-| AUTH-010 | On a throwaway orchestrator with SCANTOR_TRUST_PROXY=false, the 11th /sign-in/email from one client … | security/rate-limits.spec.ts › auth rate limits › without a trusted proxy the 11th sign-in within a minute is refused, whatever X-Forwarded-For says<br>security/rate-limits.spec.ts › auth rate limits › with a trusted proxy the rightmost X-Forwarded-For entry is the client |
+| AUTH-010 | On a throwaway orchestrator, the 11th /sign-in/email from one client within a minute returns 429, … | security/rate-limits.spec.ts › auth rate limits › without a trusted proxy the 11th sign-in within a minute is refused, whatever X-Forwarded-For says<br>security/rate-limits.spec.ts › auth rate limits › with SCANTOR_TRUST_PROXY=true, X-Forwarded-For from a peer that is not a trusted proxy is ignored<br>security/rate-limits.spec.ts › auth rate limits › behind a trusted proxy the rightmost X-Forwarded-For entry is the client |
 | AUTH-011 | Further per-IP auth rate limits return 429 above their budgets per minute: … | security/rate-limits.spec.ts › auth rate limits › passkey authentication, password and email changes and client registration have their own per-IP budgets |
-| AUTH-012 | The client IP ignores an incoming x-scantor-client-ip header; with SCANTOR_TRUST_PROXY=true it is … | security/auth-endpoints.spec.ts › sessions › the session cookie is host-only and secure, the client IP is never taken from client headers, and sign-out clears the tools cookie |
+| AUTH-012 | The client IP ignores an incoming x-scantor-client-ip header and, with SCANTOR_TRUST_PROXY=true, … | security/auth-endpoints.spec.ts › sessions › the session cookie is host-only and secure, the client IP is never taken from client headers, and sign-out clears the tools cookie |
 | AUTH-013 | An internal MCP capability (x-scantor-internal-auth: sic_…) sent from outside the orchestrator … | security/auth-endpoints.spec.ts › credential binding › an internal MCP capability from outside the orchestrator is 401 |
 | AUTH-014 | Passkeys are disabled when SCANTOR_PUBLIC_URL is plain http on a non-localhost host or an IP … | security/setup-token.spec.ts › passkey availability › a plain-http public URL on another host disables passkeys everywhere<br>security/setup-token.spec.ts › passkey availability › an IP-literal public URL disables passkeys (http://127.0.0.1:3000)<br>security/setup-token.spec.ts › passkey availability › an IP-literal public URL disables passkeys (https://10.0.0.5)<br>security/setup-token.spec.ts › passkey availability › a SCANTOR_PASSKEY_RP_ID that is not a registrable suffix of the host aborts startup<br>security/setup-token.spec.ts › passkey availability › an http *.localhost public URL keeps passkeys enabled and MCP on API keys only |
 | AUTH-015 | Registering a passkey with a session older than 24 h returns 403 sessionRequired, and … | security/auth-endpoints.spec.ts › sessions › passkey registration needs a fresh session, and better-auth cannot set the admin fields |
@@ -211,6 +211,7 @@ test-index --check`); never edit it by hand.
 | AUTH-017 | Banning a user who holds a session, a default key, an editor key, an MCP OAuth token, MCP over an … | security/banned.spec.ts › banned users › banning revokes the session, both API keys, MCP over OAuth and over an API key and the tools cookie, and stops the editor |
 | AUTH-018 | Role changes and bans take effect on every principal of the user within 30 s. | api/users.spec.ts › users › role changes reach the session, the API key, MCP and the tools cookie within 30 s<br>security/banned.spec.ts › banned users › banning revokes the session, both API keys, MCP over OAuth and over an API key and the tools cookie, and stops the editor |
 | AUTH-019 | Signing out also clears the admin tools cookie (Set-Cookie: scantor_tools=; … | security/auth-endpoints.spec.ts › sessions › the session cookie is host-only and secure, the client IP is never taken from client headers, and sign-out clears the tools cookie |
+| AUTH-020 | A request path that a URL parser would rewrite (dot segments, also percent-encoded, backslashes, … | security/auth-endpoints.spec.ts › sessions › request paths that a URL parser would rewrite are 400 before any middleware, route or better-auth sees them |
 | ACCT-001 | GET /api/account returns {id, email, name, role, canRunPrivileged, maxWorkers, credentials: … | api/account.spec.ts › account › GET /api/account returns the caller with the credential summary |
 | ACCT-002 | PATCH /api/account {name} updates the display name (trimmed, 1–100 characters) and returns the … | api/account.spec.ts › account › PATCH /api/account updates only the trimmed display name |
 | ACCT-003 | POST /api/account/password {newPassword} returns 204 and sets a password only when the user has … | api/account.spec.ts › account › setting a password needs a session and is refused while one exists<br>api/account.spec.ts › credential invariant › password and passkeys can be removed only while the other credential remains |
@@ -239,7 +240,7 @@ test-index --check`); never edit it by hand.
 | CRED-002 | The host is normalised to lowercase host[:port] with a default :443 dropped; a host with a scheme, … | api/credentials.spec.ts › create › normalises the host to lowercase host[:port] without the default port<br>api/credentials.spec.ts › create › rejects a host with a scheme, path, userinfo or whitespace<br>api/credentials.spec.ts › create › rejects a token containing CR or LF |
 | CRED-003 | A second credential with the same name for the same user returns 409 alreadyExists, also when … | api/credentials.spec.ts › create › a name is unique per user, also when renaming, while another user may reuse it |
 | CRED-004 | GET /api/credentials returns {items} sorted by name, without a cursor, holding only the caller's … | api/credentials.spec.ts › list › returns only the caller’s credentials sorted by name, without a cursor |
-| CRED-005 | PATCH /api/credentials/{id} updates name, host, username or token (a new token updates last4), and … | api/credentials.spec.ts › update and delete › updates name, host, username and token; a new token updates last4<br>api/credentials.spec.ts › update and delete › an empty update and invalid fields return 400<br>api/credentials.spec.ts › update and delete › delete returns 204 and removes the credential<br>api/credentials.spec.ts › update and delete › another user’s credential is 404 for update and delete |
+| CRED-005 | PATCH /api/credentials/{id} updates name, host, username or token (a new token updates last4); a … | api/credentials.spec.ts › update and delete › updates name, host, username and token; a new token updates last4<br>api/credentials.spec.ts › update and delete › a new host requires the token again<br>api/credentials.spec.ts › update and delete › an empty update and invalid fields return 400<br>api/credentials.spec.ts › update and delete › delete returns 204 and removes the credential<br>api/credentials.spec.ts › update and delete › another user’s credential is 404 for update and delete |
 | AUTHZ-001 | Every owner-scope operation returns 401 unauthorized to an anonymous request. | authz/matrix.spec.ts › authorization matrix › authz/requests.ts covers every operation of the document<br>authz/matrix.spec.ts › authorization matrix › every owner-scope operation answers 401 to anonymous callers<br>authz/matrix.spec.ts › authorization matrix › machine credentials are never user principals on owner and admin operations |
 | AUTHZ-002 | Every owner-scope operation, read or mutation, that user B calls with user A's ids (task, revision, … | authz/matrix.spec.ts › authorization matrix › authz/requests.ts covers every operation of the document<br>authz/matrix.spec.ts › authorization matrix › A reads and acts on its own resources with its session and its key<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › B’s reads of A’s resources answer 404<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › B’s mutations of A’s resources answer 404<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › B’s destructive operations on copies of A’s resources answer 404 and leave them intact<br>authz/matrix.spec.ts › authorization matrix › user B with A’s ids › A’s representations are unchanged after all of B’s attempts |
 | AUTHZ-003 | An admin (session or default key) can read and act on other users' resources by id, and list … | authz/matrix.spec.ts › authorization matrix › an admin reads every resource of A by id, with a session and a default key<br>authz/matrix.spec.ts › authorization matrix › an admin acts on A’s resources by id<br>authz/matrix.spec.ts › authorization matrix › list operations return every user’s items to an admin<br>authz/matrix.spec.ts › authorization matrix › upload and credential lists stay caller-scoped for an admin, who still reads A’s upload by id |
@@ -400,7 +401,7 @@ test-index --check`); never edit it by hand.
 | SCAN-039 | Resuming a breaker-paused scan clears breakerTripped (a scan.conditionCleared event) and starts a … | e2e/breaker.spec.ts › circuit breaker › resuming a breaker-paused scan clears breakerTripped and starts a fresh failure window |
 | SCAN-040 | A scan completes only when scheduling is done or failed and the recounted terminal analyses reach … | e2e/backpressure.spec.ts › backpressure › a 20 000-analysis scan completes through a queue of at most 500 ready messages with exact counts<br>e2e/lifecycle.spec.ts › retry-failed › a retry round started right after the round before completes as soon as its last result is ingested<br>e2e/lifecycle.spec.ts › broker topology and completion › a scan gets its queue and RabbitMQ user before it runs and loses them, user first, when it completes<br>e2e/lifecycle.spec.ts › broker topology and completion › a scan whose schedule fails ends failed with schedulingFailed once its published analyses are final |
 | SCAN-041 | Counters are recounted: running scans every 60 s, paused scans while they changed since the last … | e2e/lifecycle.spec.ts › recounts and delete › cancel removes the user, then the queue and the workers; running, paused and terminal scans are recounted on their cadences<br>chaos/chaos.spec.ts › the remote node remote-1 › cancelling a scan on remote-1 closes its worker connections, removes the broker objects and keeps the counts stable |
-| SCAN-042 | Live hint counters (stats.succeeded, failed, retrying, ratePerMin) rise as results arrive and never … | api/scans.spec.ts › reads › live hint counters only rise until the recount |
+| SCAN-042 | Live hint counters (stats.succeeded, failed, retrying) rise as results arrive and never decrease … | api/scans.spec.ts › reads › live hint counters only rise until the recount |
 | PLACE-001 | A running scan wants one scheduler while scheduling is pending or running plus settings.workers … | e2e/placement.spec.ts › desired workers › a running scan wants one scheduler while scheduling is unfinished plus settings.workers runners |
 | PLACE-002 | An unplaceable worker stays pending and the scan carries the condition workersPending {count, … | e2e/placement.spec.ts › pending reasons › unplaceable workers carry workersPending with the filter that removed the last node; it clears once placed<br>e2e/placement.spec.ts › pending reasons › nodes below SCANTOR_NODE_MIN_FREE_DISK leave workers pending with diskLow<br>e2e/placement.spec.ts › pending reasons › at most SCANTOR_PLACEMENT_MAX_CONCURRENT_PULLS workers pull one image at a time; the others wait with pullLimit<br>e2e/placement.spec.ts › capacity › placement reserves one slot, processes × cpus and processes × memoryMiB + 256 MiB per worker |
 | PLACE-003 | Placement reserves per worker one slot, processes × cpus CPUs and processes × memoryMiB + 256 MiB … | e2e/placement.spec.ts › capacity › placement reserves one slot, processes × cpus and processes × memoryMiB + 256 MiB per worker |
@@ -618,7 +619,7 @@ test-index --check`); never edit it by hand.
 | SEC-023 | The key derivations from SCANTOR_SECRET match the shared vectors of … | security/insecure-secrets.spec.ts › secrets derived from SCANTOR_SECRET › the derivations match the shared vectors<br>security/insecure-secrets.spec.ts › secrets derived from SCANTOR_SECRET › the credentials the helpers derive from the stack secret work against the stack<br>security/insecure-secrets.spec.ts › secrets derived from SCANTOR_SECRET › the editor cookie the helpers derive opens the running editor |
 | SEC-024 | Logs never contain credentials: the orchestrator and node daemon log JSON lines with correlation … | chaos/chaos.spec.ts › logs › no live credential appears in any container log of the stack |
 | OPS-001 | lint-compose fails when the infrastructure services (mongo, rabbitmq, rustfs, registry, … | security/compose-lint.spec.ts › lint-compose › the compose files of the checkout pass every rule<br>security/compose-lint.spec.ts › lint-compose › a difference in the mongo service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the rabbitmq service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the rustfs service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the registry service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the mongo-express service between dev and prod fails<br>security/compose-lint.spec.ts › lint-compose › a difference in the traefik service between dev and prod fails |
-| OPS-002 | lint-compose enforces the compose rules: Traefik exposedbydefault=false, the compose-project … | security/compose-lint.spec.ts › lint-compose › the compose files of the checkout pass every rule<br>security/compose-lint.spec.ts › lint-compose › only the image prefix fallback is allowed as a default<br>security/compose-lint.spec.ts › lint-compose › fails when Traefik exposes containers by default<br>security/compose-lint.spec.ts › lint-compose › fails when Traefik lacks the compose-project constraint<br>security/compose-lint.spec.ts › lint-compose › fails when Traefik serves its API insecurely<br>security/compose-lint.spec.ts › lint-compose › fails when the RabbitMQ management GUI is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when MongoDB is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when mongo-express is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when the RustFS console is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when the MongoDB TCP router is enabled without SCANTOR_EXPOSE_MONGO<br>security/compose-lint.spec.ts › lint-compose › fails when mongo-express is writable<br>security/compose-lint.spec.ts › lint-compose › fails when mongod runs without --noscripting<br>security/compose-lint.spec.ts › lint-compose › fails when the orchestrator service has no memory limit<br>security/compose-lint.spec.ts › lint-compose › fails when the mongo service has no memory limit<br>security/compose-lint.spec.ts › lint-compose › fails when the rabbitmq service has no memory limit<br>security/compose-lint.spec.ts › lint-compose › fails when the orchestrator mounts scantor-workspaces<br>security/compose-lint.spec.ts › lint-compose › fails when the orchestrator service has no env_file .env<br>security/compose-lint.spec.ts › lint-compose › fails when the traefik service has no env_file .env<br>security/compose-lint.spec.ts › lint-compose › fails when a production compose variable has a default<br>security/compose-lint.spec.ts › lint-compose › fails when a variable of the test stack override has a default |
+| OPS-002 | lint-compose enforces the compose rules: Traefik exposedbydefault=false, the compose-project … | security/compose-lint.spec.ts › lint-compose › the compose files of the checkout pass every rule<br>security/compose-lint.spec.ts › lint-compose › only the image prefix fallback is allowed as a default<br>security/compose-lint.spec.ts › lint-compose › fails when Traefik exposes containers by default<br>security/compose-lint.spec.ts › lint-compose › fails when Traefik lacks the compose-project constraint<br>security/compose-lint.spec.ts › lint-compose › fails when Traefik serves its API insecurely<br>security/compose-lint.spec.ts › lint-compose › fails when the RabbitMQ management GUI is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when MongoDB is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when mongo-express is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when the RustFS console is published on the public bind address<br>security/compose-lint.spec.ts › lint-compose › fails when the MongoDB TCP router is enabled without SCANTOR_EXPOSE_MONGO<br>security/compose-lint.spec.ts › lint-compose › fails when mongo-express is writable<br>security/compose-lint.spec.ts › lint-compose › fails when mongod runs without --noscripting<br>security/compose-lint.spec.ts › lint-compose › fails when mongod logs slow operations<br>security/compose-lint.spec.ts › lint-compose › fails when RabbitMQ enables its Prometheus plugin<br>security/compose-lint.spec.ts › lint-compose › fails when the orchestrator service has no memory limit<br>security/compose-lint.spec.ts › lint-compose › fails when the mongo service has no memory limit<br>security/compose-lint.spec.ts › lint-compose › fails when the rabbitmq service has no memory limit<br>security/compose-lint.spec.ts › lint-compose › fails when the orchestrator mounts scantor-workspaces<br>security/compose-lint.spec.ts › lint-compose › fails when the orchestrator service has no env_file .env<br>security/compose-lint.spec.ts › lint-compose › fails when the traefik service has no env_file .env<br>security/compose-lint.spec.ts › lint-compose › fails when a production compose variable has a default<br>security/compose-lint.spec.ts › lint-compose › fails when a variable of the test stack override has a default |
 | OPS-003 | lint-env fails when a SCANTOR_* variable read by code, compose files, recipes or the test stack is … | security/env-example.spec.ts › lint-env › the checkout passes every rule<br>security/env-example.spec.ts › lint-env › a variable read by code but missing from .env.example fails<br>security/env-example.spec.ts › lint-env › a variable read by a Go config loader must be documented<br>security/env-example.spec.ts › lint-env › a variable read by a direct Go environment read must be documented<br>security/env-example.spec.ts › lint-env › a variable read by the orchestrator's config loader must be documented<br>security/env-example.spec.ts › lint-env › a variable read by a compose interpolation must be documented<br>security/env-example.spec.ts › lint-env › a variable read by the test stack override must be documented<br>security/env-example.spec.ts › lint-env › a variable read by a recipe must be documented<br>security/env-example.spec.ts › lint-env › a variable read by the test stack's settings must be documented<br>security/env-example.spec.ts › lint-env › a variable read by the suite's environment helper must be documented<br>security/env-example.spec.ts › lint-env › a non-empty PASSWORD or SECRET default must end in -insecure-dev |
 | OPS-004 | lint-env enforces the shipped secure defaults: loopback bind addresses, SCANTOR_NODE_DIND=disabled … | security/env-example.spec.ts › lint-env › the checkout passes every rule<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_BIND_ADDRESS=0.0.0.0 breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_ADMIN_BIND_ADDRESS=192.168.1.10 breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_NODE_DIND=rootless breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_BUILTIN_NODE_DIND=privileged breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_MONGO_EXPRESS_READONLY=false breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_EXPOSE_MONGO=true breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_NODE_EGRESS_DENY=fd00:ec2::254/128,100.100.100.200/32 breaks a secure default<br>security/env-example.spec.ts › lint-env › the shipped SCANTOR_NODE_EGRESS_DENY=169.254.0.0/16,100.100.100.200/32 breaks a secure default<br>security/env-example.spec.ts › lint-env › a secure-default variable missing from .env.example fails<br>security/env-example.spec.ts › lint-env › the comment of SCANTOR_MONGO_PASSWORD must carry the first-initialisation note<br>security/env-example.spec.ts › lint-env › the comment of SCANTOR_RABBITMQ_PASSWORD must carry the first-initialisation note |
 | OPS-005 | lint-env fails when a non-configuration variable (SCANTOR_WORKER_TOKEN, SCANTOR_DIND, … | security/env-example.spec.ts › lint-env › the checkout passes every rule<br>security/env-example.spec.ts › lint-env › SCANTOR_WORKER_TOKEN must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_DIND must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_REGISTRY_PUSH_PASSWORD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_LANGUAGE must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_CONNECTOR_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_CHECK_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_DEBUG_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_DEBUG_PORT must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROTOCOL_IN_FD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROTOCOL_OUT_FD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROTOCOL_VERSIONS must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROCESS_INDEX must not appear in .env.example |
@@ -650,7 +651,7 @@ test-index --check`); never edit it by hand.
 | UI-NAV-015 | A failed API call shows a red toast titled after its error code (for example "Not possible in the … | ui/navigation.spec.ts › Scans badge › a running scan of the user shows in the badge, its page title and inline query errors; the badge clears after it ends<br>ui/navigation.spec.ts › errors and toasts › a failed API call shows a red toast titled after its error code; forms show errors inline |
 | UI-NAV-016 | A 5xx error toast offers "Copy request id", which copies the X-Request-Id and shows "Copied". | ui/navigation.spec.ts › errors and toasts › a 5xx toast offers "Copy request id", which copies the X-Request-Id |
 | UI-NAV-017 | Any 401 from the API on a protected page, such as after the session was revoked from another … | ui/auth.spec.ts › signed-in visits to /login › a 401 from the API on a protected page navigates to /login with the current path |
-| UI-NAV-018 | When an admin bans a signed-in user, the ban deletes their sessions ([auth](../docs/auth.md) §5.7), … | ui/auth.spec.ts › session loss › a user banned while signed in is signed out on the next API call<br>ui/auth.spec.ts › session loss › a user whose session outlives the ban gets 403 banned, is signed out and lands on /login?banned=1 with "Your account is banned" |
+| UI-NAV-018 | When an admin bans a signed-in user, the ban deletes their sessions ([auth](../docs/auth.md) §5.7), … | ui/auth.spec.ts › session loss › a user banned while signed in gets 401 on the next API call, lands on /login?redirect= and sees the ban on signing in<br>ui/auth.spec.ts › session loss › a user whose session outlives the ban gets 403 banned, is signed out and lands on /login?banned=1 with "Your account is banned" |
 | UI-NAV-019 | Without any response from the server, the UI shows a single toast "Cannot reach the orchestrator" … | ui/navigation.spec.ts › errors and toasts › an unreachable orchestrator shows one toast at most every 10 s, and background polls never toast |
 | UI-NAV-020 | After 3 consecutive failures of a poll, the banner "Live updates paused, retrying…" (role=status, … | ui/navigation.spec.ts › polling › three failed polls show "Live updates paused, retrying…" until the next successful poll |
 | UI-NAV-021 | Polls pause while the tab is hidden and refetch when it becomes visible, keep one request in … | ui/navigation.spec.ts › polling › polls pause while hidden, refetch when visible, keep one request in flight and back off after failures |
@@ -674,7 +675,7 @@ test-index --check`); never edit it by hand.
 | UI-AUTH-005 | With passkeys enabled, "Sign in with passkey" signs in with a virtual authenticator and lands on … | ui/passkeys.spec.ts › passkeys › "Sign in with passkey" signs in with the virtual authenticator and lands on the redirect target |
 | UI-AUTH-006 | /login reached from an OAuth authorization shows "Sign in to authorize an application to access … | ui/consent.spec.ts › OAuth sign-in on the way to consent › a signed-out visit to the consent page goes to /login with the OAuth query, which explains why<br>ui/consent.spec.ts › OAuth sign-in on the way to consent › signing in from an authorization returns to the consent page of the client |
 | UI-AUTH-007 | /setup?token=… stores the token in sessionStorage and removes it from the address bar and history … | ui/setup.spec.ts › setup page › the setup link token leaves the address bar and the history at once and survives a reload |
-| UI-AUTH-008 | Without a token, /setup explains where the setup link is printed (docker compose logs orchestrator … | ui/setup.spec.ts › setup page › without a token the page shows where the link is printed and a paste field |
+| UI-AUTH-008 | Without a token, /setup explains where the setup link is printed (docker logs scantor-orchestrator … | ui/setup.spec.ts › setup page › without a token the page shows where the link is printed and a paste field |
 | UI-AUTH-009 | Password setup takes name, email, password (8–128 characters) and confirmation ("The passwords do … | ui/setup.spec.ts › setup page › a wrong token shows the restart hint, every route leads to /setup until setup, and password setup signs the admin in |
 | UI-AUTH-010 | With passkeys enabled, a "Password \| Passkey" choice appears, and passkey setup registers "Primary … | ui/setup.spec.ts › setup page › with passkeys enabled the passkey path registers "Primary passkey" and signs the admin in |
 | UI-AUTH-011 | A wrong setup token shows "The setup token is missing or wrong. Restarting the orchestrator prints … | ui/setup.spec.ts › setup page › a wrong token shows the restart hint, every route leads to /setup until setup, and password setup signs the admin in |
@@ -694,17 +695,17 @@ test-index --check`); never edit it by hand.
 | UI-TASK-010 | The upload step accepts only .tar.gz and .tgz files ("Expected a .tar.gz or .tgz file"), shows the … | ui/tasks.spec.ts › upload › accepts only .tar.gz and .tgz files and shows the chosen file |
 | UI-TASK-011 | An upload that published a revision opens the revision page, otherwise the task page; … | ui/tasks.spec.ts › upload › upload results: task page, revision page, workspaceDirty with "Replace anyway", manifest and path errors |
 | UI-TASK-012 | The task header shows the name, language, source (git tasks git · <commit8>), privileged and … | ui/tasks.spec.ts › git import › one task opens at once; several candidates are selected, existing ones are disabled<br>ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task |
-| UI-TASK-013 | The task navbar offers "Open in editor" (/editor?task=<name>), "Publish revision", "Start scan" … | ui/tasks.spec.ts › git import › one task opens at once; several candidates are selected, existing ones are disabled<br>ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task<br>ui/tasks.spec.ts › task page › a build shows live in the header, then the files of the revision, the revisions tab and "Start scan" |
+| UI-TASK-013 | The task navbar offers "Open in editor" (/editor?task=<name>), "Publish revision", "Start scan" … | ui/tasks.spec.ts › git import › one task opens at once; several candidates are selected, existing ones are disabled<br>ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task<br>ui/tasks.spec.ts › task page › a build shows live in the header and the open revisions tab, then the files of the revision and "Start scan" |
 | UI-TASK-014 | ?created=1 shows the banner "Task <name> is ready" in full with "Open the editor", "Try a test run" … | ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task |
 | UI-TASK-015 | The Overview, Files, Revisions and Test tabs sync with ?tab=, and an unknown value falls back to … | ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task |
 | UI-TASK-016 | The Overview tab shows the description and cards for the workspace ("Check now" refreshes its … | ui/tasks.spec.ts › task page › header, actions, created banner and tabs of a scaffolded task |
 | UI-TASK-017 | The publish modal shows a fresh workspace status, notes when the workspace equals an existing … | ui/tasks.spec.ts › task page › the publish modal shows the workspace status, notes an existing revision and shows errors |
 | UI-TASK-018 | "Pull from git" shows "Pulled <commit8>" or "Already up to date", and on gitDiverged asks … | ui/tasks.spec.ts › task page › "Pull from git" reports up to date, pulls a new commit and asks before overwriting on divergence |
 | UI-TASK-019 | "Delete task" requires typing the task name, then shows "Task <name> is being deleted" and opens … | ui/tasks.spec.ts › task page › "Delete task" asks for the name, shows the deletion toast and opens /tasks<br>ui/tasks.spec.ts › task page › deleting a task that a scan uses shows "A scan still uses this task" with "Show active scans"<br>ui/tasks.spec.ts › task page › "Show active scans" lists the scans of that task |
-| UI-TASK-020 | An unknown task shows "Task not found", and the revision badge updates live while a new revision … | ui/tasks.spec.ts › task page › an unknown task shows "Task not found"<br>ui/tasks.spec.ts › task page › a build shows live in the header, then the files of the revision, the revisions tab and "Start scan" |
+| UI-TASK-020 | An unknown task shows "Task not found", and the revision badge updates live while a new revision … | ui/tasks.spec.ts › task page › an unknown task shows "Task not found"<br>ui/tasks.spec.ts › task page › a build shows live in the header and the open revisions tab, then the files of the revision and "Start scan" |
 | UI-TASK-021 | The Files tab shows the workspace tree with file, folder and symlink icons; a file shows its path, … | ui/tasks.spec.ts › task page › the files tab shows the tree, file content with line numbers, binary files and notices |
-| UI-TASK-022 | The Files tab's source select switches between "Workspace" and "Revision N" (synced with … | ui/tasks.spec.ts › task page › a build shows live in the header, then the files of the revision, the revisions tab and "Start scan" |
-| UI-TASK-023 | The Revisions tab filters by state and lists ref, state, source, pack hash, error count, created … | ui/tasks.spec.ts › task page › a build shows live in the header, then the files of the revision, the revisions tab and "Start scan" |
+| UI-TASK-022 | The Files tab's source select switches between "Workspace" and "Revision N" (synced with … | ui/tasks.spec.ts › task page › a build shows live in the header and the open revisions tab, then the files of the revision and "Start scan" |
+| UI-TASK-023 | The Revisions tab filters by state and lists ref, state, source, pack hash, error count, created … | ui/tasks.spec.ts › task page › a build shows live in the header and the open revisions tab, then the files of the revision and "Start scan" |
 | UI-TASK-024 | The revision page shows ref, state, privileged badge, message and times, "Start scan" for ready … | ui/revisions.spec.ts › revision page › a failed revision shows its errors first, each with phase, location and message<br>ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log<br>ui/revisions.spec.ts › revision page › an unknown revision shows "Revision not found" |
 | UI-TASK-025 | A failed revision shows its errors first (data-testid=build-errors), each with phase, … | ui/revisions.spec.ts › revision page › a failed revision shows its errors first, each with phase, location and message |
 | UI-TASK-026 | The build log (data-testid=build-log) follows a running build, groups lines by phase with … | ui/revisions.spec.ts › revision page › a failed revision shows its errors first, each with phase, location and message<br>ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log<br>ui/revisions.spec.ts › revision page › the build log of a running build follows new lines, strips ANSI and stops following when scrolled up<br>ui/revisions.spec.ts › revision page › a build log read before the revision opens scrolled to the bottom |
@@ -718,7 +719,7 @@ test-index --check`); never edit it by hand.
 | UI-TRUN-006 | "Cancel test run" cancels the active run, and the history shows it cancelled. | ui/test-run.spec.ts › test runs › start is disabled while a run is active, cancel cancels it, and start errors are shown |
 | UI-TRUN-007 | An analysis row opens the slideover "Analysis <seq>" with status, attempt, duration, error and … | ui/test-run.spec.ts › test runs › an analysis opens its slideover with error, stack, config, result, earlier attempts, log tail and file downloads |
 | UI-TRUN-008 | The history lists earlier runs with state, x / y succeeded and pack hash, and a row loads that run. | ui/test-run.spec.ts › test runs › a live run streams its state, logs and analyses; the history loads earlier runs; the draft image is cached |
-| UI-TRUN-009 | Unsent test-run inputs are restored per task after a reload, without the values of writeOnly fields. | ui/test-run.spec.ts › test runs › unsent inputs are restored per task after a reload, without secrets |
+| UI-TRUN-009 | Unsent test-run inputs are restored per task after a reload, without the values of writeOnly … | ui/test-run.spec.ts › test runs › unsent inputs are restored per task after a reload, without secrets<br>ui/test-run.spec.ts › test runs › config values typed while no schemas are known are not stored, also not after the run describes the schemas |
 | UI-EDIT-001 | /editor starts the user's editor, shows "Editor is starting…", and then loads code-server from the … | ui/editor.spec.ts › editor of a fresh user › starts the editor, opens the task folder in code-server from the editor origin, opens a new tab and stops after confirmation |
 | UI-EDIT-002 | /editor?task=<name> opens that task's folder; an unknown task shows "Task “<name>” was not found" … | ui/editor.spec.ts › editor of a fresh user › starts the editor, opens the task folder in code-server from the editor origin, opens a new tab and stops after confirmation<br>ui/editor.spec.ts › editor page states › an unknown task offers "Open workspace", which opens the editor on the workspace root |
 | UI-EDIT-003 | The navbar shows the editor state and stops after N min idle, and "Open in new tab" opens a fresh … | ui/editor.spec.ts › editor of a fresh user › starts the editor, opens the task folder in code-server from the editor origin, opens a new tab and stops after confirmation |
@@ -754,7 +755,7 @@ test-index --check`); never edit it by hand.
 | UI-SCAN-027 | The stats tiles (data-testid=scan-stats) for pending, retrying, succeeded, failed, lost and … | ui/scans.spec.ts › scan detail › progress and stats cards: totals, scheduling, tiles that filter the results, exact and live captions |
 | UI-SCAN-028 | The health card (data-testid=scan-health) shows "Healthy", or one item per condition … | ui/scan-health.spec.ts › scan health › a finished scan is healthy and its settings card shows settings, masked secrets, configs and its resolution<br>ui/scan-health.spec.ts › scan health › an impossible node selector shows the pending workers with a readable reason<br>ui/scan-health.spec.ts › scan health › a failing schedule shows schedulingFailed and the "Scheduling failed" alert; other conditions render their details<br>ui/scan-health.spec.ts › crash loops of a user with a worker limit › crashLoop shows the worker, node, exit code, OOM badge, restarts and an ANSI-free log tail above workersPending |
 | UI-SCAN-029 | workersPending shows N workers pending with readable reasons (for example "No online node matches", … | ui/scan-health.spec.ts › scan health › an impossible node selector shows the pending workers with a readable reason<br>ui/scan-health.spec.ts › crash loops of a user with a worker limit › crashLoop shows the worker, node, exit code, OOM badge, restarts and an ANSI-free log tail above workersPending |
-| UI-SCAN-030 | crashLoop (a task whose connector is OOM-killed at import inside workers) shows the worker, a node … | ui/scan-health.spec.ts › crash loops of a user with a worker limit › crashLoop shows the worker, node, exit code, OOM badge, restarts and an ANSI-free log tail above workersPending |
+| UI-SCAN-030 | crashLoop (a task whose connector is OOM-killed at import inside workers) shows the worker, the … | ui/scan-health.spec.ts › crash loops of a user with a worker limit › crashLoop shows the worker, node, exit code, OOM badge, restarts and an ANSI-free log tail above workersPending |
 | UI-SCAN-031 | breakerTripped shows X % of N attempts failed within D with a "Resume scan" button, which resumes … | ui/scan-health.spec.ts › scan health › a 100 %-failing scan trips the breaker, and "Resume scan" resumes it and clears the condition |
 | UI-SCAN-032 | Other conditions render their details: schedulingFailed, workerErrors and schedulerRestarting with … | ui/scan-health.spec.ts › scan health › a failing schedule shows schedulingFailed and the "Scheduling failed" alert; other conditions render their details |
 | UI-SCAN-033 | The settings card shows the effective settings, the task and scan configs with * values rendered as … | ui/scan-health.spec.ts › scan health › a finished scan is healthy and its settings card shows settings, masked secrets, configs and its resolution<br>ui/scan-health.spec.ts › scan health › template resolutions show the resolved scan config and its provenance<br>ui/scan-health.spec.ts › scan health › a failing schedule shows schedulingFailed and the "Scheduling failed" alert; other conditions render their details |
@@ -763,7 +764,7 @@ test-index --check`); never edit it by hand.
 | UI-RES-003 | "Result columns" allows up to 4 result fields (default the first four of the result schema) and … | ui/scan-results.spec.ts › results of a finished scan › result columns default to four, are remembered per task, and cells render as text or file chips |
 | UI-RES-004 | The results table shows seq, status, attempt, round (when above 1), duration, error, the chosen … | ui/scan-results.spec.ts › results of a finished scan › result columns default to four, are remembered per task, and cells render as text or file chips |
 | UI-RES-005 | Results load 50 rows per page through "Load more" or scrolling, and stop at 5000 rows with "Showing … | ui/scan-results.spec.ts › results of a finished scan › results load page by page with "Load more" and stop at 5,000 rows |
-| UI-RES-006 | "Auto-refresh" appears only while the scan runs, is on by default and reloads the loaded rows. | ui/scan-results.spec.ts › results of a finished scan › result columns default to four, are remembered per task, and cells render as text or file chips<br>ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
+| UI-RES-006 | "Auto-refresh" appears only while the scan runs, is on by default and reloads the loaded rows (the … | ui/scan-results.spec.ts › results of a finished scan › result columns default to four, are remembered per task, and cells render as text or file chips<br>ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
 | UI-RES-007 | ?analysis=<seq> opens the drawer "Analysis <seq>" on load, closing removes the parameter, and an … | ui/scan-results.spec.ts › results of a finished scan › ?analysis= opens the drawer with the summary; closing removes it; copy and "Query similar" |
 | UI-RES-008 | The drawer summary shows the analysis id, status, attempt, round, worker, node (a link for admins), … | ui/scan-results.spec.ts › results of a finished scan › ?analysis= opens the drawer with the summary; closing removes it; copy and "Query similar"<br>ui/scan-results.spec.ts › results for admins › admins get a node link in the analysis drawer |
 | UI-RES-009 | The drawer shows the config with * secrets as locks (or "No config was stored for this analysis."), … | ui/scan-results.spec.ts › results of a finished scan › the drawer shows masked config secrets, file chips at the FileRef paths, other files, previews and downloads |
@@ -775,14 +776,14 @@ test-index --check`); never edit it by hand.
 | UI-RES-015 | Query output shows N items as JSON or, for flat items, as a table; "Load more" follows the cursor … | ui/scan-results.spec.ts › results of a finished scan › the query console runs queries and aggregations with Ctrl+Enter, tables, "Load more" and truncation |
 | UI-RES-016 | Query errors stay inline: a rejected operator shows under its editor with (at <path>), timeouts and … | ui/scan-results.spec.ts › results of a finished scan › query errors stay inline with their path, and a filter naming another scan finds nothing |
 | UI-RES-017 | The last 20 queries per scan are kept, "Recent queries" restores one, ?filter=<json> prefills the … | ui/scan-results.spec.ts › results of a finished scan › recent queries, the ?filter= prefill and "Export these results" |
-| UI-RES-018 | The Workers tab shows N active · N pending · N desired and a table of workers (role, state, node, … | ui/scan-results.spec.ts › results of a finished scan › the workers tab of a finished scan lists stopped workers once the state filter is cleared<br>ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
+| UI-RES-018 | The Workers tab shows N active · N pending · N desired and a table of workers (role, state, node (a … | ui/scan-results.spec.ts › results of a finished scan › the workers tab of a finished scan lists stopped workers once the state filter is cleared<br>ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
 | UI-RES-019 | "Show worker logs of <id>" opens "Logs of <role> <id>", requests a fresh tail ("Requesting the … | ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
 | UI-RES-020 | The in-flight table lists running analyses with seq, attempt, round, a live "running for" timer, … | ui/scan-results.spec.ts › results of a running scan › auto-refresh, workers, worker logs and the in-flight analyses while the scan runs |
 | UI-RES-021 | The Events tab lists events newest first with level, type, time and message, filters all, scan or … | ui/scan-results.spec.ts › results of a finished scan › the events tab lists events newest first, filters by kind, expands data and loads older ones |
 | UI-RES-022 | The Exports tab lists format, state (with the error when failed), rows, size, selection, created … | ui/scan-results.spec.ts › results of a finished scan › exports: the dialog validates and starts an export that is followed until ready; download and delete<br>ui/scan-results.spec.ts › results of a finished scan › a failed export is reported, and deleted scans offer no new export |
-| UI-RES-023 | The export dialog takes JSON Lines or CSV, a status selection or a JSON filter, and fields (at most … | ui/scan-results.spec.ts › results of a finished scan › exports: the dialog validates and starts an export that is followed until ready; download and delete<br>ui/scan-results.spec.ts › results of a finished scan › a failed export is reported, and deleted scans offer no new export |
+| UI-RES-023 | The export dialog takes JSON Lines or CSV, a status selection or a JSON filter, and fields (at most … | ui/scan-results.spec.ts › results of a finished scan › exports: the dialog validates and starts an export that is followed until ready; download and delete<br>ui/scan-results.spec.ts › results of a finished scan › an export started from the scan controls shows in the open Exports tab<br>ui/scan-results.spec.ts › results of a finished scan › a failed export is reported, and deleted scans offer no new export |
 | UI-FORM-001 | Object properties render as field groups in schema source order; nested objects from depth 2 are … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: collapsible nested objects, the depth limit, recursion and unsupported constructs fall back to JSON<br>ui/schema-form.spec.ts › schema forms › the test-run panel renders the same form and sends only what was touched |
-| UI-FORM-002 | String fields use the input type of their format (uri, email, date, date-time), a textarea above … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps |
+| UI-FORM-002 | String fields use the input type of their format (uri, email, date; date-time is a text input that … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps |
 | UI-FORM-003 | writeOnly strings render as password inputs with "Show value of <field>" and a "secret" badge, are … | ui/schema-form.spec.ts › schema forms › schema-zoo: arrays, maps, the discriminated union and the secret; browser validation under the production CSP |
 | UI-FORM-004 | Enums and unions of titled constants render as a select with titles, required fields with at most 4 … | ui/schema-form.spec.ts › schema forms › schema-zoo: fields in source order, nested objects, strings, numbers, booleans, enums and nullable fields; only touched keys are sent<br>ui/schema-form.spec.ts › schema forms › form-extras: formats, long strings, titled options, radios, read-only, deprecated and constant fields, arrays and maps |
 | UI-FORM-005 | A discriminated union renders a select of the branch titles followed by the chosen branch's fields, … | ui/schema-form.spec.ts › schema forms › schema-zoo: arrays, maps, the discriminated union and the secret; browser validation under the production CSP<br>ui/schema-form.spec.ts › schema forms › server issues land on their field, on the nearest rendered ancestor, or above the form |
@@ -807,7 +808,7 @@ test-index --check`); never edit it by hand.
 | UI-ADMIN-009 | Editing a user sends only changed fields; on the admin's own row the role is locked ("You cannot … | ui/admin-users.spec.ts › creating and editing users › editing sends only changed fields; the own row cannot change its role, password, ban or delete |
 | UI-ADMIN-010 | "Set password" (with confirmation) notes that it signs the user out everywhere and shows "Password … | ui/admin-users.spec.ts › creating and editing users › "Set password" confirms the password, notes the sign-out everywhere and signs the user out |
 | UI-ADMIN-011 | Ban takes an optional reason and "Also cancel all their scans" (checked by default); the row then … | ui/admin-users.spec.ts › banning and deleting users › Ban takes a reason and cancels scans by default; Unban returns the user to active |
-| UI-ADMIN-012 | Deleting a user requires typing their email, shows the purge job's progress on the row, and removes … | ui/admin-users.spec.ts › banning and deleting users › Delete needs the email, shows the purge job on the row and removes it with "User deleted" |
+| UI-ADMIN-012 | Deleting a user requires typing their email, shows the purge job's progress on the row, and removes … | ui/admin-users.spec.ts › banning and deleting users › Delete needs the email, shows the purge job on the row and removes it with "User deleted"<br>ui/admin-users.spec.ts › banning and deleting users › a failed purge job shows a toast and unlocks the row for another try<br>ui/admin-users.spec.ts › banning and deleting users › a cancelled purge job shows a toast and unlocks the row for another try |
 | UI-ADMIN-013 | With Traefik, the admin tools page shows cards for RabbitMQ management, mongo-express, the RustFS … | ui/admin-tools.spec.ts › infrastructure tools › "Open RabbitMQ management" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open mongo-express" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open RustFS console" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open Traefik dashboard" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › without Traefik the page says so and shows the bind address instead of links |
 | UI-ADMIN-014 | The admin tools page links the API reference, the OpenAPI document and the metrics, and shows the … | ui/admin-tools.spec.ts › API links, health and jobs › links the API reference, the OpenAPI document and the metrics<br>ui/admin-tools.spec.ts › API links, health and jobs › shows the health report, also when it answers 503<br>ui/admin-tools.spec.ts › API links, health and jobs › the jobs table lists other users' jobs, filters by kind and state and puts failed jobs first |
 | UI-ACCT-001 | The account page has Profile, Password, Passkeys, Sessions and Editor sections that load and fail … | ui/account.spec.ts › account page of the tenant › has Profile, Password, Passkeys, Sessions and Editor sections that load and fail on their own<br>ui/account.spec.ts › account page of the tenant › a failed account load offers "Retry" |
@@ -891,6 +892,9 @@ None.
 
 - `orchestrator/test/api/route-meta.test.ts`
 - `orchestrator/test/middleware/auth-boot.test.ts`
+- `orchestrator/test/middleware/body-limit.test.ts`
+- `orchestrator/test/middleware/path.test.ts`
+- `orchestrator/test/services/analyses/list.test.ts`
 - `orchestrator/test/services/analyses/representation.test.ts`
 - `orchestrator/test/services/catalog/catalog.test.ts`
 - `orchestrator/test/services/configs/settings.test.ts`
@@ -912,11 +916,14 @@ None.
 - `orchestrator/test/services/helpers/helpers.integration.test.ts`
 - `orchestrator/test/services/helpers/protocol.test.ts`
 - `orchestrator/test/services/helpers/runner.test.ts`
+- `orchestrator/test/services/helpers/snapshot-stream.test.ts`
+- `orchestrator/test/services/helpers/user-slots.test.ts`
 - `orchestrator/test/services/inflight.test.ts`
 - `orchestrator/test/services/ingestor/build-document.test.ts`
 - `orchestrator/test/services/ingestor/completion-trigger.test.ts`
 - `orchestrator/test/services/ingestor/identity.test.ts`
 - `orchestrator/test/services/ingestor/ingestor.integration.test.ts`
+- `orchestrator/test/services/ingestor/rate-refresh.test.ts`
 - `orchestrator/test/services/ingestor/windows.test.ts`
 - `orchestrator/test/services/ingestor/writer.test.ts`
 - `orchestrator/test/services/jobs/runner.test.ts`
@@ -941,12 +948,14 @@ None.
 - `orchestrator/test/services/nodes/status.test.ts`
 - `orchestrator/test/services/nodes/transport.test.ts`
 - `orchestrator/test/services/pipeline/events.test.ts`
+- `orchestrator/test/services/pipeline/snapshot.test.ts`
 - `orchestrator/test/services/pipeline/task-build.integration.test.ts`
 - `orchestrator/test/services/pipeline/task-build.test.ts`
 - `orchestrator/test/services/placement/desired.test.ts`
 - `orchestrator/test/services/placement/place.test.ts`
 - `orchestrator/test/services/query/validator.test.ts`
 - `orchestrator/test/services/reconciler/lifecycle.test.ts`
+- `orchestrator/test/services/reconciler/stall.test.ts`
 - `orchestrator/test/services/registry/files.test.ts`
 - `orchestrator/test/services/registry/gc.test.ts`
 - `orchestrator/test/services/registry/registry.integration.test.ts`
@@ -956,6 +965,7 @@ None.
 - `orchestrator/test/services/revisions/build-requeue.test.ts`
 - `orchestrator/test/services/revisions/publish-flow.test.ts`
 - `orchestrator/test/services/revisions/publish.test.ts`
+- `orchestrator/test/services/revisions/resolve.test.ts`
 - `orchestrator/test/services/runtime/bootstrap.test.ts`
 - `orchestrator/test/services/runtime/conditions.test.ts`
 - `orchestrator/test/services/runtime/runtime-api.integration.test.ts`
@@ -965,6 +975,7 @@ None.
 - `orchestrator/test/services/runtime/uploads.test.ts`
 - `orchestrator/test/services/scans/broker.integration.test.ts`
 - `orchestrator/test/services/scans/completion.test.ts`
+- `orchestrator/test/services/scans/delete.test.ts`
 - `orchestrator/test/services/scans/publisher.test.ts`
 - `orchestrator/test/services/scans/retry-settle.test.ts`
 - `orchestrator/test/services/scans/state-machine.test.ts`
@@ -974,12 +985,14 @@ None.
 - `orchestrator/test/services/tasks/git-url.test.ts`
 - `orchestrator/test/services/tasks/git.test.ts`
 - `orchestrator/test/services/tasks/mappers.test.ts`
+- `orchestrator/test/services/tasks/upload-stall.test.ts`
 - `orchestrator/test/services/tasks/upload.test.ts`
 - `orchestrator/test/services/tasks/workspace-flows.test.ts`
 - `orchestrator/test/services/test-runs/container.test.ts`
 - `orchestrator/test/services/test-runs/events.test.ts`
 - `orchestrator/test/services/test-runs/lifecycle.test.ts`
 - `orchestrator/test/services/test-runs/live.test.ts`
+- `orchestrator/test/services/test-runs/stream.test.ts`
 - `orchestrator/test/services/tools/cookie.test.ts`
 - `orchestrator/test/services/tools/forward-auth.test.ts`
 - `orchestrator/test/services/uploads/uploads.test.ts`
@@ -989,34 +1002,45 @@ None.
 - `orchestrator/test/shared/slug.test.ts`
 - `orchestrator/test/ui/analyses.test.ts`
 - `orchestrator/test/ui/ansi.test.ts`
+- `orchestrator/test/ui/cli-alias.test.ts`
 - `orchestrator/test/ui/clipboard.test.ts`
 - `orchestrator/test/ui/consent.test.ts`
 - `orchestrator/test/ui/cursor-list.test.ts`
 - `orchestrator/test/ui/dialog-focus.test.ts`
 - `orchestrator/test/ui/errors.test.ts`
+- `orchestrator/test/ui/exports-follow.test.ts`
 - `orchestrator/test/ui/follow-scroll.test.ts`
 - `orchestrator/test/ui/format.test.ts`
 - `orchestrator/test/ui/icon-buttons.test.ts`
 - `orchestrator/test/ui/json-pointer.test.ts`
 - `orchestrator/test/ui/navigation.test.ts`
+- `orchestrator/test/ui/nodes-filters.test.ts`
+- `orchestrator/test/ui/query-console.test.ts`
+- `orchestrator/test/ui/revisions.test.ts`
 - `orchestrator/test/ui/scan-filters.test.ts`
 - `orchestrator/test/ui/schema-subset.test.ts`
 - `orchestrator/test/ui/schema-validation.test.ts`
 - `orchestrator/test/ui/settled-validator.test.ts`
 - `orchestrator/test/ui/status.test.ts`
 - `orchestrator/test/ui/table-labels.test.ts`
+- `orchestrator/test/ui/task-choices.test.ts`
+- `orchestrator/test/ui/test-run-stream.test.ts`
 - `orchestrator/test/ui/toggle-labels.test.ts`
+- `orchestrator/test/ui/tools-health.test.ts`
 - `orchestrator/test/ui/ui-prefs.test.ts`
 - `orchestrator/test/ui/workers.test.ts`
 - `orchestrator/test/ui/zod-jitless.test.ts`
+- `orchestrator/test/utils/api-docs.test.ts`
 - `orchestrator/test/utils/auth-indexes.test.ts`
 - `orchestrator/test/utils/auth-policy.test.ts`
 - `orchestrator/test/utils/authz.test.ts`
 - `orchestrator/test/utils/body-limits.test.ts`
 - `orchestrator/test/utils/boot.test.ts`
 - `orchestrator/test/utils/byte-cap.test.ts`
+- `orchestrator/test/utils/capped-body.test.ts`
 - `orchestrator/test/utils/client-ip.test.ts`
 - `orchestrator/test/utils/config.test.ts`
+- `orchestrator/test/utils/credential-lookup.test.ts`
 - `orchestrator/test/utils/env-values.test.ts`
 - `orchestrator/test/utils/errors.test.ts`
 - `orchestrator/test/utils/health.test.ts`
@@ -1032,13 +1056,17 @@ None.
 - `orchestrator/test/utils/principal.test.ts`
 - `orchestrator/test/utils/rabbitmq-management.test.ts`
 - `orchestrator/test/utils/redact.test.ts`
+- `orchestrator/test/utils/request-path.test.ts`
 - `orchestrator/test/utils/s3.integration.test.ts`
 - `orchestrator/test/utils/s3.test.ts`
 - `orchestrator/test/utils/secrets.test.ts`
 - `orchestrator/test/utils/security-headers.test.ts`
 - `orchestrator/test/utils/startup-guard.test.ts`
+- `orchestrator/test/utils/trusted-proxy.test.ts`
 - `orchestrator/test/utils/user-cache.test.ts`
+- `orchestrator/test/utils/user-lockout.test.ts`
 - `orchestrator/test/utils/version.test.ts`
+- `orchestrator/test/utils/wait-watchers.test.ts`
 - `orchestrator/test/utils/wait.test.ts`
 - `orchestrator/test/utils/zod.test.ts`
 
