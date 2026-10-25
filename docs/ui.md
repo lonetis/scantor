@@ -510,7 +510,7 @@ Tabs (`?tab=`): `overview` (default), `results`, `query`, `workers`, `events`, `
 | Condition | Details rendering |
 |---|---|
 | `workersPending` | `count` and a reasons table (`noNodes` "No online node matches", `archMismatch`, `selectorMismatch`, `insufficientCapacity`, `userMaxWorkers` "Your worker limit is reached", `dindUnavailable`, `diskLow`, `pullLimit`) |
-| `crashLoop` | worker and node links, exit code, OOM badge, restarts, `logTail` in a `LogView` (ANSI stripped) |
+| `crashLoop` | worker id and node (a link to the node page for admins only), exit code, OOM badge, restarts, `logTail` in a `LogView` (ANSI stripped) |
 | `imagePullFailed` | node, message |
 | `workerErrors` | worker, `ScantorError` (type, phase, message) |
 | `schedulerRestarting` | restarts, latest error |
@@ -579,7 +579,7 @@ Actions: "Copy as JSON", "Query similar" (opens the query tab with `{"error.type
 #### 5.13.5 Workers
 
 - `WorkersTable` from `listScanWorkers` (state filter, default active states): short id, role badge,
-  state badge with `stateReason`, node name, processes `desired / applied / running`, restarts, last exit
+  state badge with `stateReason`, node name (a link to the node page for admins only), processes `desired / applied / running`, restarts, last exit
   (code, OOM badge), runtime version, last seen, started. Row action "Logs" (aria "Show worker logs") →
   `WorkerLogsModal`: `getWorkerLogs?wait=20&tailBytes=65536` shows a `LogView` with "Collected <time>",
   `truncated`, and "Refresh". The table loads when the tab opens and again from the start on every filter

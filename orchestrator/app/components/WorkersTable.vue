@@ -5,6 +5,8 @@ import type { TableColumn } from '@nuxt/ui'
 // restarts and last exit, runtime version and timestamps; the row action shows the worker's logs.
 withDefaults(defineProps<{ workers: ScanWorker[], loading?: boolean }>(), { loading: false })
 const emit = defineEmits<{ logs: [worker: ScanWorker] }>()
+// Node pages are admin-only: other users see the node's name as text.
+const { isAdmin } = useAuth()
 
 const table = useTemplateRef('table')
 useTableRowIds(table, (worker: ScanWorker) => worker.id)
@@ -52,7 +54,8 @@ const columns: TableColumn<ScanWorker>[] = [
       </div>
     </template>
     <template #node-cell="{ row }">
-      <NuxtLink v-if="row.original.node" :to="`/admin/nodes/${row.original.node.id}`" class="font-mono text-xs hover:underline">{{ row.original.node.name }}</NuxtLink>
+      <NuxtLink v-if="row.original.node && isAdmin" :to="`/admin/nodes/${row.original.node.id}`" class="font-mono text-xs hover:underline">{{ row.original.node.name }}</NuxtLink>
+      <span v-else-if="row.original.node" class="font-mono text-xs">{{ row.original.node.name }}</span>
       <span v-else class="text-xs text-dimmed">–</span>
     </template>
     <template #processes-cell="{ row }">

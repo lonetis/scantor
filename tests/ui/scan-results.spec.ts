@@ -860,7 +860,9 @@ test.describe('results of a running scan', () => {
       const workers = uTable(page, 'Workers')
       const runner = workers.locator('tbody tr[data-row-id]', { hasText: 'runner' }).first()
       await expect(runner.locator('[data-state="running"]')).toBeVisible({ timeout: 60_000 })
-      await expect(runner.getByRole('link', { name: /builtin|remote-1/ })).toHaveAttribute('href', /\/admin\/nodes\//)
+      // Node pages are admin-only: users see the node's name as text, not as a link.
+      await expect(runner.getByRole('cell').nth(3)).toHaveText(/builtin|remote-1/)
+      await expect(runner.getByRole('link', { name: /builtin|remote-1/ })).toHaveCount(0)
       await expect(runner).toContainText('2 / ')
       await expect(runner).toContainText('dev')
       const workerId = (await runner.getAttribute('data-row-id'))!

@@ -39,6 +39,9 @@ const TEXT_COLOR: Record<StatusColor, string> = {
   neutral: 'text-muted',
 }
 
+// Node pages are admin-only: other users see the node's short id as text.
+const { isAdmin } = useAuth()
+
 const meta = computed(() => statusMeta('conditionSeverity', props.condition.severity))
 const details = computed(() => (props.condition.details ?? {}) as Record<string, unknown>)
 const title = computed(() => TITLES[props.condition.type] ?? props.condition.type)
@@ -87,7 +90,10 @@ const alarms = computed(() => (Array.isArray(details.value.alarms) ? details.val
         <dt class="text-muted">Worker</dt>
         <dd><IdChip v-if="text(details.workerId)" :id="text(details.workerId)" /></dd>
         <dt class="text-muted">Node</dt>
-        <dd><NuxtLink v-if="text(details.nodeId)" :to="`/admin/nodes/${text(details.nodeId)}`" class="font-mono hover:underline">{{ shortId(text(details.nodeId)) }}</NuxtLink></dd>
+        <dd>
+          <NuxtLink v-if="text(details.nodeId) && isAdmin" :to="`/admin/nodes/${text(details.nodeId)}`" class="font-mono hover:underline">{{ shortId(text(details.nodeId)) }}</NuxtLink>
+          <span v-else-if="text(details.nodeId)" class="font-mono">{{ shortId(text(details.nodeId)) }}</span>
+        </dd>
         <dt class="text-muted">Exit code</dt>
         <dd class="font-mono">
           {{ text(details.exitCode) }}
