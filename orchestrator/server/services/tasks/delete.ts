@@ -57,8 +57,6 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 export interface StoppedWork {
   /** a job was running: the caller waits for it to notice before deleting what it might still write */
   running: boolean
-  /** a revision build was running: it may still push an image */
-  buildsRunning: boolean
 }
 
 /**
@@ -67,14 +65,13 @@ export interface StoppedWork {
  */
 export async function stopTaskWork(filter: { taskId: string } | { userId: string }, log: Logger): Promise<StoppedWork> {
   const { revisions, testRuns, jobs } = useCollections()
-  let buildsRunning = false
+  let running = false
   const unfinished = await revisions.find({ ...filter, state: { $in: ['queued', 'building'] } }, { projection: { _id: 1 } }).toArray()
   for (const revision of unfinished) {
-    buildsRunning = (await jobs.countDocuments({ kind: 'revisionBuild', 'subject.id': revision._id, state: 'running' })) > 0 || buildsRunning
+    running = (await jobs.countDocuments({ kind: 'revisionBuild', 'subject.id': revision._id, state: 'running' })) > 0 || running
     await cancelActiveJobs('revisionBuild', revision._id)
     await failRevision(revision._id, [platformError(TASK_DELETED)], log)
   }
-  let running = buildsRunning
   const active = await testRuns.find({ ...filter, state: { $in: [...ACTIVE_TEST_RUN_STATES] } } as Filter<TestRunDoc>, { projection: { _id: 1 } }).toArray()
   const now = new Date()
   for (const testRun of active) {
@@ -86,7 +83,7 @@ export async function stopTaskWork(filter: { taskId: string } | { userId: string
     requestCancellation(testRun._id)
     await cancelActiveJobs('testRun', testRun._id)
   }
-  return { running, buildsRunning }
+  return { running }
 }
 
 /** Deletes the matching test runs with their analyses and S3 objects (logs and files). */
@@ -103,14 +100,24 @@ export async function deleteTestRuns(filter: { taskId: string } | { userId: stri
 }
 
 /**
- * Deletes a task's registry manifests and its local revision and draft images. The registry is contacted only when
- * the task has pushed images or a stopped build might still have pushed one (`buildsStopped`), so deleting a task
- * that never published an image does not depend on the registry.
+ * Whether a deletion stopped a build of the task after it had started (the revision failed with "the task was
+ * deleted" and has a `startedAt`): such a build may have pushed a manifest that no revision records. It is read from
+ * the revisions, so a restarted taskDelete job or a later userPurge step that stops nothing itself still knows it.
  */
-export async function deleteTaskImages(taskId: string, log: Logger, options: { buildsStopped: boolean }): Promise<void> {
+async function hadStoppedBuild(taskId: string): Promise<boolean> {
+  const failed = await useCollections().revisions.find({ taskId, state: 'failed', image: null, startedAt: { $ne: null } }, { projection: { errors: 1 } }).toArray()
+  return failed.some((revision) => revision.errors.some((error) => error.message === TASK_DELETED))
+}
+
+/**
+ * Deletes a task's registry manifests and its local revision and draft images. The registry is contacted only when
+ * the task has pushed images or a stopped build might still have pushed one, so deleting a task that never published
+ * an image does not depend on the registry.
+ */
+export async function deleteTaskImages(taskId: string, log: Logger): Promise<void> {
   const revisions = await useCollections().revisions.find({ taskId, 'image.digest': { $type: 'string' } }, { projection: { image: 1 } }).toArray()
   const digests = revisions.map((revision) => revision.image?.digest).filter((digest): digest is string => typeof digest === 'string')
-  if (digests.length > 0 || options.buildsStopped) await deleteTaskManifests(taskId, digests, log)
+  if (digests.length > 0 || (await hadStoppedBuild(taskId))) await deleteTaskManifests(taskId, digests, log)
   await removeLocalTaskImages(taskId, log)
 }
 
@@ -128,12 +135,7 @@ async function loadTask(job: JobDoc): Promise<TaskDoc | null> {
   return useCollections().tasks.findOne({ _id: job.subject.id })
 }
 
-/** State carried between phases in the job cursor. */
-interface DeleteState {
-  buildsStopped: boolean
-}
-
-async function runPhase(phase: TaskDeletePhase, task: TaskDoc, ctx: JobContext, state: DeleteState): Promise<void> {
+async function runPhase(phase: TaskDeletePhase, task: TaskDoc, ctx: JobContext): Promise<void> {
   const { revisions, tasks } = useCollections()
   if (SCAN_GUARDED_PHASES.has(phase)) {
     const scan = await scanUsingTask(task._id)
@@ -142,7 +144,6 @@ async function runPhase(phase: TaskDeletePhase, task: TaskDoc, ctx: JobContext, 
   switch (phase) {
     case 'stop': {
       const stopped = await stopTaskWork({ taskId: task._id }, ctx.log)
-      state.buildsStopped = stopped.buildsRunning
       if (stopped.running) await sleep(STOP_SETTLE_MS, ctx.signal)
       return
     }
@@ -150,7 +151,7 @@ async function runPhase(phase: TaskDeletePhase, task: TaskDoc, ctx: JobContext, 
       await deleteTestRuns({ taskId: task._id }, ctx.signal)
       return
     case 'images':
-      await deleteTaskImages(task._id, ctx.log, { buildsStopped: state.buildsStopped })
+      await deleteTaskImages(task._id, ctx.log)
       return
     case 'storage':
       await deleteTaskStorage(task._id, ctx.signal)
@@ -178,12 +179,11 @@ export const taskDeleteJobKind: JobKindDefinition = {
     if (!task) return
     if (!task.deletingAt) throw new FatalJobError('invalidState', `task ${task._id} is not being deleted`)
     const resume = TASK_DELETE_PHASES.indexOf(job.cursor.phase as TaskDeletePhase)
-    const state: DeleteState = { buildsStopped: job.cursor.buildsStopped === true }
     for (let index = Math.max(0, resume); index < TASK_DELETE_PHASES.length; index++) {
       const phase = TASK_DELETE_PHASES[index]!
       ctx.signal.throwIfAborted()
-      await ctx.saveCursor({ phase, buildsStopped: state.buildsStopped }, { done: index, total: TASK_DELETE_PHASES.length })
-      await runPhase(phase, task, ctx, state)
+      await ctx.saveCursor({ phase }, { done: index, total: TASK_DELETE_PHASES.length })
+      await runPhase(phase, task, ctx)
     }
     await ctx.setProgress(TASK_DELETE_PHASES.length, TASK_DELETE_PHASES.length)
     ctx.log.info('task deleted', { taskId: task._id, name: task.name, userId: task.userId })

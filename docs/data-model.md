@@ -749,7 +749,7 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 | `scanDelete` | reconciler | scan | `{}` | `{phase, afterSeq}` | 2 |
 | `scanRetryFailed` | reconciler | scan | `{round, materialize, cancelledAt?}` (`materialize`: the scan was cancelled, so the job lets the cancelled round settle from `cancelledAt`, then inserts never-run seqs as `cancelled`, [queue](queue.md) §8) | `{phase: "materialize"\|"reset"\|"publish"\|"finish", afterSeq}` | 2 |
 | `export` | reconciler | export | `{exportId}` | `{afterSeq, part}` | `SCANTOR_USER_MAX_CONCURRENT_QUERIES` per user |
-| `taskDelete` | reconciler | task | `{}` | `{phase}`; before `images` and `revisions` it defers itself (60 s) while a non-terminal or deleting scan uses the task, which only a start that resolved its revision just before `deletingAt` can create | 2 |
+| `taskDelete` | reconciler | task | `{}` | `{phase: "stop"\|"testRuns"\|"images"\|"storage"\|"revisions"\|"workspace"\|"task"}`; `images` sweeps the registry for untracked manifests of builds that the deletion stopped after they started (read from the revisions failed with "the task was deleted", so a restarted job and userPurge step 60 still know them); before `images` and `revisions` it defers itself (60 s) while a non-terminal or deleting scan uses the task, which only a start that resolved its revision just before `deletingAt` can create | 2 |
 | `userPurge` | reconciler | user | `{}` | `{phase, scanId?}` | 1 |
 
 ```json

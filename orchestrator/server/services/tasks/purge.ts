@@ -22,10 +22,9 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-async function stopUserWork({ userId, log, signal }: UserPurgeContext): Promise<boolean> {
+async function stopUserWork({ userId, log, signal }: UserPurgeContext): Promise<void> {
   const stopped = await stopTaskWork({ userId }, log)
   if (stopped.running) await sleep(STOP_SETTLE_MS, signal)
-  return stopped.buildsRunning
 }
 
 export async function purgeUserTestRuns(ctx: UserPurgeContext): Promise<void> {
@@ -35,14 +34,14 @@ export async function purgeUserTestRuns(ctx: UserPurgeContext): Promise<void> {
 }
 
 export async function purgeUserRevisions(ctx: UserPurgeContext): Promise<void> {
-  // The user is locked out, so a restarted step finds no running build: a build stopped by an earlier attempt of this
-  // step that still pushed afterwards (rare) is not seen, and only the recorded digests are deleted.
-  const buildsStopped = await stopUserWork(ctx)
+  // Step 50 usually stopped the builds already; deleteTaskImages finds those stopped builds in the failed revisions
+  // and sweeps the registry for the manifests they may still have pushed.
+  await stopUserWork(ctx)
   const { tasks, revisions } = useCollections()
   const owned = await tasks.find({ userId: ctx.userId }, { projection: { _id: 1 } }).toArray()
   for (const task of owned) {
     ctx.signal.throwIfAborted()
-    await deleteTaskImages(task._id, ctx.log, { buildsStopped })
+    await deleteTaskImages(task._id, ctx.log)
     await deleteTaskStorage(task._id, ctx.signal)
   }
   await revisions.deleteMany({ userId: ctx.userId })

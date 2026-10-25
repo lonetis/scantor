@@ -36,6 +36,9 @@ vi.mock('../../../server/services/helpers/ops', () => ({
   deleteTaskFolder: async (userId: string, task: string) => {
     effects.push(`workspace:${userId}/${task}`)
   },
+  purgeUserDirs: async (userId: string) => {
+    effects.push(`purge:${userId}`)
+  },
   scaffold: async () => undefined,
   snapshotHash: async () => null,
 }))
@@ -51,6 +54,7 @@ vi.mock('../../../server/services/revisions/images', () => ({
 }))
 
 const { taskDeleteJobKind, TASK_DELETE_PHASES } = await import('../../../server/services/tasks/delete')
+const { purgeUserRevisions, purgeUserTestRuns } = await import('../../../server/services/tasks/purge')
 const { requestTaskDeletion } = await import('../../../server/services/tasks')
 const { JobDeferredError } = await import('../../../server/utils/jobs')
 const { newTaskDoc } = await import('../../../server/services/tasks/store')
@@ -136,6 +140,34 @@ describe('taskDelete job', () => {
     expect(effects).toContain(`images:${task._id}`)
   })
 
+  it('sweeps the registry for a build it stopped, also when it resumes after the stop phase', async () => {
+    // Revision 2 started building (it may still push a manifest no revision records), and no revision has a digest.
+    store.revisions.docs.splice(0, 1)
+    await store.revisions.updateOne({ _id: 'rev-2' }, { $set: { state: 'building', startedAt: new Date() } })
+    const job = { _id: 'j', kind: 'taskDelete', subject: { kind: 'task', id: task._id }, cursor: {} } as unknown as JobDoc
+    const first = context(job)
+    // The attempt stops after the stop phase (a lease expiry), and the next one resumes at testRuns.
+    const saveCursor = first.ctx.saveCursor
+    first.ctx.saveCursor = async (cursor, step) => {
+      if (cursor.phase === 'testRuns') throw new Error('lease expired')
+      await saveCursor(cursor, step)
+    }
+    await expect(taskDeleteJobKind.handler(job, first.ctx)).rejects.toThrow('lease expired')
+    expect(store.revisions.docs.find((doc) => doc._id === 'rev-2')).toMatchObject({ state: 'failed', image: null })
+    expect(effects).toEqual([])
+
+    const resumed = { ...job, cursor: { phase: 'testRuns' } } as unknown as JobDoc
+    await taskDeleteJobKind.handler(resumed, context(resumed).ctx)
+    expect(effects).toContain(`manifests:${task._id}:`)
+  })
+
+  it('leaves the registry alone for a stopped build that never started', async () => {
+    store.revisions.docs.splice(0, 1)
+    const job = { _id: 'j', kind: 'taskDelete', subject: { kind: 'task', id: task._id }, cursor: {} } as unknown as JobDoc
+    await taskDeleteJobKind.handler(job, context(job).ctx)
+    expect(effects.some((effect) => effect.startsWith('manifests:'))).toBe(false)
+  })
+
   it('resumes at the phase of its cursor', async () => {
     const job = { _id: 'j', kind: 'taskDelete', subject: { kind: 'task', id: task._id }, cursor: { phase: 'workspace' } } as unknown as JobDoc
     const { ctx, cursors } = context(job)
@@ -201,3 +233,17 @@ describe('requestTaskDeletion', () => {
   })
 })
 
+describe('userPurge task steps', () => {
+  const purgeContext = () => ({ userId: 'u1', log: useLogger('test'), signal: new AbortController().signal }) as never
+
+  it('sweeps the registry for a build that the test-run step already stopped', async () => {
+    // Step 50 stops the builds first, so step 60 finds nothing running itself.
+    store.revisions.docs.splice(0, 1)
+    await store.revisions.updateOne({ _id: 'rev-2' }, { $set: { state: 'building', startedAt: new Date() } })
+    await purgeUserTestRuns(purgeContext())
+    expect(store.revisions.docs.find((doc) => doc._id === 'rev-2')).toMatchObject({ state: 'failed' })
+    await purgeUserRevisions(purgeContext())
+    expect(effects).toContain(`manifests:${task._id}:`)
+    expect(store.revisions.docs).toHaveLength(0)
+  })
+})
