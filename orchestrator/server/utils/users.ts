@@ -15,8 +15,9 @@ import { invalidateCachedUser } from './user-cache'
  *
  *   registerUserLockoutHook({ name: 'editor', order: 50, run: async (userId, { cancelScans, reason }) => … })
  *
- * The editor area stops the user's editor (which deletes its editor key); the scans area cancels the user's
- * non-terminal scans when `cancelScans` is true. Hooks run after sessions, API keys and OAuth grants are gone.
+ * The editor area stops the user's editor (which deletes its editor key, order 50); the scans area cancels the user's
+ * non-terminal scans when `cancelScans` is true (order 60). Hooks run after sessions, API keys and OAuth grants are
+ * gone, every one of them even when an earlier one failed.
  */
 
 export interface LockoutOptions {
@@ -180,18 +181,37 @@ export async function revokeUserAccess(userId: string): Promise<void> {
   }
 }
 
-async function runLockoutHooks(userId: string, options: LockoutOptions, log: Logger): Promise<void> {
+/** Thrown after every lockout hook ran when at least one of them failed. */
+export class LockoutHooksError extends AggregateError {
+  constructor(
+    readonly hooks: string[],
+    errors: unknown[],
+  ) {
+    super(errors, `user lockout hooks failed: ${hooks.join(', ')}`)
+    this.name = 'LockoutHooksError'
+  }
+}
+
+/**
+ * Runs every lockout hook in order, also after one failed (a failed editor stop must not leave the scans running, and
+ * the other way round). Throws LockoutHooksError at the end when any of them failed; each failure is logged.
+ */
+export async function runLockoutHooks(userId: string, options: LockoutOptions, log: Logger): Promise<void> {
+  const failed: string[] = []
+  const errors: unknown[] = []
   for (const hook of lockoutHooks()) {
     try {
       await hook.run(userId, options)
     } catch (error) {
-      log.error('user lockout hook failed', { hook: hook.name, userId, err: error })
-      throw error
+      log.error('user lockout hook failed', { hook: hook.name, userId, reason: options.reason, err: error })
+      failed.push(hook.name)
+      errors.push(error)
     }
   }
+  if (errors.length > 0) throw new LockoutHooksError(failed, errors)
 }
 
-/** Ban effects in order (docs/auth.md §5.7). */
+/** Ban effects in order (docs/auth.md §5.7); a failed lockout hook throws after all of them ran (a repeated ban retries). */
 export async function banUserAccount(
   userId: string,
   options: { reason: string | null; cancelScans: boolean },
@@ -223,13 +243,22 @@ export async function unbanUserAccount(userId: string): Promise<AuthUser> {
   return toAuthUser(raw)
 }
 
-/** The immediate part of `deleteUser`: lock the user out (ban steps 1–5 with reason "deleted"). */
+/**
+ * The immediate part of `deleteUser`: lock the user out (ban steps 1–5 with reason "deleted"). The ban flag and the
+ * revoked credentials must succeed (else it throws and no purge job starts). A failed lockout hook does not stop the
+ * deletion: it is logged, and the `userPurge` job's steps 10 and 20 cancel the scans and stop the editor again.
+ */
 export async function lockOutDeletedUser(userId: string, log: Logger = useLogger('users')): Promise<void> {
   const ctx = await useAuthContext()
   await ctx.internalAdapter.updateUser(userId, { banned: true, banReason: 'deleted', banExpires: null, updatedAt: new Date() })
   invalidateCachedUser(userId)
   await revokeUserAccess(userId)
-  await runLockoutHooks(userId, { cancelScans: false, reason: 'delete' }, log)
+  try {
+    await runLockoutHooks(userId, { cancelScans: false, reason: 'delete' }, log)
+  } catch (error) {
+    if (!(error instanceof LockoutHooksError)) throw error
+    log.warn('deleting the user although lockout hooks failed; the purge job repeats them', { userId, hooks: error.hooks })
+  }
 }
 
 /** Final step of the userPurge job: removes the better-auth user and every remaining credential row. */

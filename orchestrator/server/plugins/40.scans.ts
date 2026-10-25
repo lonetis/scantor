@@ -20,7 +20,8 @@ export default defineNitroPlugin(() => {
   for (const step of userPurgeSteps) registerUserPurgeStep(step)
   registerUserLockoutHook({
     name: 'cancelScans',
-    order: 10,
+    // after the editor stop (order 50), as in docs/auth.md §5.7
+    order: 60,
     async run(userId, { cancelScans }) {
       if (cancelScans) await cancelScansOfUser(userId)
     },

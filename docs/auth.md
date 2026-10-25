@@ -623,6 +623,12 @@ Effects of `banUser` (`POST /api/users/{userId}/ban`), all done by `server/utils
 5. stop the user's editor (which deletes its `editor` key) ([editor](editor.md));
 6. if `cancelScans: true`, cancel every non-terminal scan of the user (the UI pre-checks this option).
 
+Steps 5 and 6 are lockout hooks that domain plugins register (`registerUserLockoutHook`, orders 50 and 60). Every
+hook runs, also when an earlier one failed. A failed hook makes `banUser` answer 500 after all of them ran; the ban
+itself and steps 1–4 are in place, and repeating the ban runs the hooks again. `deleteUser` runs steps 1–5 with
+`banReason: "deleted"`; a failed hook there is logged and does not stop the deletion, because the `userPurge` job's
+steps 10 and 20 cancel the scans and stop the editor again ([data model](data-model.md) §5).
+
 A banned user is rejected on every **user principal** (session, API key, MCP over OAuth or API key, tools
 cookie, editor cookie). Worker tokens are not user principals: the scans of a banned user keep running unless
 `cancelScans` was chosen. `unbanUser` only clears the flag; keys, sessions and OAuth grants stay deleted.
