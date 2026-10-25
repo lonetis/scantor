@@ -284,8 +284,8 @@ Image references used by the binary (base images for builds, the scantor image f
 ### 4.3 Images
 
 All images are defined once in `docker-bake.hcl` ([development](development.md) §10), built by GitHub
-Actions and pushed to GHCR: pushes to `main` are tagged `latest` and `sha-<short>`, release tags `vX.Y.Z`
-are tagged `X.Y.Z`, `X.Y` and `sha-<short>`. Dev builds use the same names without the registry prefix and
+Actions and pushed to GHCR: pushes to `main` are tagged `sha-<short>`, and `latest` moves to them once the
+commit's `test.yml` run passed; release tags `vX.Y.Z` are tagged `X.Y.Z`, `X.Y` and `sha-<short>`. Dev builds use the same names without the registry prefix and
 the tag `dev` (`SCANTOR_IMAGE_PREFIX` empty, `SCANTOR_IMAGE_TAG=dev`). The dev stack
 (`docker-compose.dev.yml`) builds every image from source through `docker-bake.hcl`; the orchestrator's
 `dev` target contains the `scantor` binary and runs Nuxt in dev mode with the source bind-mounted for hot

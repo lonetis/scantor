@@ -933,13 +933,15 @@ regenerates the index in the same commit ([development](development.md) §13).
 ## 12. CI workflow (`.github/workflows/test.yml`)
 
 Triggers: `push` to `main` and `pull_request` (all branches). `concurrency: test-${{ github.ref }}` with
-`cancel-in-progress: true` for pull requests. Every job calls the same `just` recipes developers run.
+`cancel-in-progress: true` for pull requests, so the runs on `main` finish in push order. Every job calls the
+same `just` recipes developers run.
 
 | Job | Runs on | Steps |
 |---|---|---|
 | `static` | `ubuntu-latest` | `actions/checkout@v7`, `extractions/setup-just@v4` (just 1.59.0), `just lint`, `just typecheck`, `just docs --check`, `just test-index --check` |
 | `unit` | `ubuntu-latest`, matrix `suite: [go, go-integration, orchestrator, orchestrator-integration, connectors, conformance]` | checkout, setup-just, `docker/setup-buildx-action@v4`, `just test-<suite>`; for `go-integration` first the dev-tagged `scantor` and base images (`docker/bake-action`, `load: true`, reading the GHA cache) and the service images `rabbitmq:4.4-management` and `registry:3.1.2` |
 | `e2e` | `ubuntu-latest`, `timeout-minutes: 120` | checkout; free disk space (remove the preinstalled .NET, Android, GHC, CodeQL, Boost and Swift toolchains and images; move Docker's `data-root` to `/mnt` when that disk has more room); setup-just, setup-buildx; build the `test` bake group and `test-runner` with `docker/bake-action` (`load: true`, `cache-from/to: type=gha` per target), `just test-images-save` (writes `.test-images/*.tar`), `SCANTOR_TEST_IMAGES_DIR=/src/.test-images CI=true just test-e2e`; on failure upload `tests/playwright-report` and `tests/test-results` with `actions/upload-artifact@v7` (7 days) |
+| `latest` | `ubuntu-latest`, pushes to `main` only, `needs` the three jobs above; permissions `actions: read`, `packages: write` | `gh run list --workflow images.yml --commit <sha>` and `gh run watch` until the commit's image run ends; on success `docker buildx imagetools create -t …:latest …:sha-<short>` for the six platform images; a run cancelled by a newer push leaves `latest` alone (a notice), any other failure fails the job. `latest`, the shipped `SCANTOR_IMAGE_TAG`, therefore never names images whose tests did not pass ([development](development.md) §14) |
 
 The privileged DinD runner works on GitHub-hosted Linux runners. Images are built on the CI host (with
 the GitHub Actions cache) and loaded into the runner because the runner's cache volume does not survive

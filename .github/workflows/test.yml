@@ -1,5 +1,6 @@
 # Lint, type checks, unit suites and the dockerized e2e suite (docs/testing.md §12). Every job calls
-# the same just recipes developers run.
+# the same just recipes developers run. On main, the `latest` job then tags the commit's images (pushed
+# as sha-<short> by images.yml) latest, so latest only ever names tested images.
 name: test
 
 on:
@@ -124,3 +125,51 @@ jobs:
             tests/playwright-report
             tests/test-results
           retention-days: 7
+
+  # `latest` is the shipped SCANTOR_IMAGE_TAG: it moves to a main commit's images only after every job above
+  # passed. The images of the commit are those images.yml pushed as sha-<short> for the same push.
+  latest:
+    needs: [static, unit, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    env:
+      REGISTRY_PREFIX: ghcr.io/lonetis/
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Wait for the images of this commit
+        id: images
+        run: |
+          run="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow images.yml --commit "$GITHUB_SHA" --event push \
+            --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
+          if [ -z "$run" ]; then echo "::error::no images.yml run for $GITHUB_SHA"; exit 1; fi
+          gh run watch "$run" --repo "$GITHUB_REPOSITORY" --interval 30 > /dev/null || true
+          conclusion="$(gh run view "$run" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)"
+          echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+          case "$conclusion" in
+            success) ;;
+            # A newer push superseded the run (images.yml queues one run per ref): its own tests move latest.
+            cancelled) echo "::notice::images.yml run $run was cancelled; latest stays where it is" ;;
+            *) echo "::error::images.yml run $run concluded '$conclusion'"; exit 1 ;;
+          esac
+      - uses: docker/setup-buildx-action@v4
+        if: steps.images.outputs.conclusion == 'success'
+      - uses: docker/login-action@v4
+        if: steps.images.outputs.conclusion == 'success'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the images latest
+        if: steps.images.outputs.conclusion == 'success'
+        run: |
+          # metadata-action's type=sha tag: sha- and the first 7 characters of the commit.
+          sha="sha-${GITHUB_SHA::7}"
+          for image in scantor scantor-orchestrator scantor-editor scantor-base-python scantor-base-js scantor-base-go; do
+            echo "==> ${REGISTRY_PREFIX}${image}:${sha} -> latest"
+            docker buildx imagetools create -t "${REGISTRY_PREFIX}${image}:latest" "${REGISTRY_PREFIX}${image}:${sha}"
+          done

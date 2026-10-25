@@ -101,7 +101,8 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
 | (build base) | `${SCANTOR_IMAGE_PREFIX}scantor-base-{python,js,go}:${SCANTOR_IMAGE_TAG}` | `scantor-base-{python,js,go}:dev` | `connectors/<lang>/Dockerfile` |
 
 - In production `SCANTOR_IMAGE_PREFIX` points at GHCR (`ghcr.io/lonetis/`) and `SCANTOR_IMAGE_TAG`
-  selects the release. Pinning a version such as `1.4.0` is recommended over `latest`. The dev compose
+  selects the release. Pinning a version such as `1.4.0` is recommended over `latest`, which follows the newest
+  `main` commit whose tests passed ([development](development.md) §14). The dev compose
   file overrides both, to an empty prefix and the tag `dev`, through `environment:` on the orchestrator.
 - Dev images are tagged `dev` without a registry prefix and built by `docker buildx bake`
   ([development](development.md) §10). The dev orchestrator image has its own name

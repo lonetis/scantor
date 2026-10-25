@@ -1,6 +1,8 @@
 # Platform images for GHCR (docs/development.md §14): every target of the bake release group is
 # built on a native runner per architecture, pushed by digest and merged into one multi-arch
-# manifest. main → latest + sha-<short>; vX.Y.Z → X.Y.Z, X.Y, sha-<short>. Pull requests only build.
+# manifest. main → sha-<short>; vX.Y.Z → X.Y.Z, X.Y, sha-<short>. Pull requests only build. latest
+# (the shipped SCANTOR_IMAGE_TAG) is moved by the `latest` job of test.yml, once the commit's tests
+# passed.
 name: images
 
 on:
@@ -126,11 +128,11 @@ jobs:
         id: meta
         with:
           images: ${{ env.REGISTRY_PREFIX }}${{ env.IMAGE }}
-          # latest=auto would also tag every semver release latest, an older one included.
+          # latest=auto would also tag every semver release latest, an older one included; test.yml
+          # moves latest.
           flavor: |
             latest=false
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
