@@ -5,6 +5,7 @@ import { ConfigError, useConfig } from '../utils/config'
 import { useLogger } from '../utils/logger'
 import { closeMongo } from '../utils/mongo'
 import { scantorVersion } from '../utils/version'
+import { closeWaitWatchers } from '../utils/wait-watchers'
 
 // Last Nitro plugin: runs the registered boot steps in order and starts the components selected by
 // SCANTOR_COMPONENTS (docs/architecture.md §4.1). Any failure before the components run exits with code 1; until
@@ -12,8 +13,8 @@ import { scantorVersion } from '../utils/version'
 //
 // Shutdown (SIGTERM, SIGINT): the components stop as soon as the signal arrives, while Nitro's graceful shutdown drains
 // the open requests, so no reconciler loop acts on a view that this process no longer receives (node offline
-// detection) and the long-polls answer at once instead of holding the drain. The infrastructure clients close on Nitro
-// `close`, after the drain.
+// detection) and the long-polls answer at once instead of holding the drain. The infrastructure clients (and the wait
+// change streams on the MongoDB client) close on Nitro `close`, after the drain.
 
 const SHUTDOWN_SIGNALS = ['SIGTERM', 'SIGINT'] as const
 
@@ -62,6 +63,7 @@ export default defineNitroPlugin((nitroApp) => {
     for (const signal of SHUTDOWN_SIGNALS) process.off(signal, onSignal)
     await stop('close')
     await closeAmqp()
+    await closeWaitWatchers()
     await closeMongo()
     log.info('orchestrator stopped')
   })

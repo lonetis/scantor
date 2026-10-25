@@ -242,8 +242,11 @@ orchestrator begins to stop, every wait returns the current representation at on
 shutdown does not wait for it ([architecture](architecture.md) §4.1). Each user may hold at most
 `SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests`). `publishRevision`, `uploadTask` and `testTask`
 take that slot before they create anything, so their 429 means nothing was created and a retry is safe.
-An open `streamTestRun` holds one of these slots too, until it ends. Implementations watch the document
-with a change stream (fallback: 1 s polling).
+An open `streamTestRun` holds one of these slots too, until it ends. Changes wake a wait at once: each
+orchestrator process keeps one change stream per waited-on collection, shared by all of its waits and closed
+once the collection had no waits for 10 s, so the number of change streams (and of MongoDB connections they
+hold) does not grow with the number of waits (`server/utils/wait-watchers.ts`). While a stream is unavailable
+the waits on its collection poll every second.
 
 | Operation | Settled when |
 |---|---|

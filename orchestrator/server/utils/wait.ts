@@ -1,18 +1,17 @@
 import { type H3Event, setResponseHeader } from 'h3'
-import type { ChangeStream, Collection, Document } from 'mongodb'
 import { shutdownSignal } from './boot'
 import { useConfig } from './config'
 import { apiError } from './errors'
-import { useLogger } from './logger'
+import { useWaitWatchers, type WaitWatch, type WatchedCollection } from './wait-watchers'
 
 // Long-polling with `wait` (docs/api.md §1.9): return at once when the resource is settled, otherwise hold the
 // request until it settles or `wait` seconds elapse, then return the current representation. `Scantor-Wait:
 // settled|timeout` tells which. A client disconnect aborts the wait; each user holds at most
-// SCANTOR_MAX_CONCURRENT_WAITS waits (429). The document is watched with a change stream, polling every second when
-// a change stream cannot be opened. When the orchestrator begins to stop, waits answer at once with the current state
-// (`timeout`), so the shutdown does not wait for them. A route that creates the resource it then waits for reserves
-// the wait first (reserveWait), so its 429 always means nothing was created; the test-run stream holds a reservation
-// for as long as it is open.
+// SCANTOR_MAX_CONCURRENT_WAITS waits (429). Changes of the document wake the wait through the process's shared change
+// stream of its collection (utils/wait-watchers.ts), polling every second while that stream is unavailable. When the
+// orchestrator begins to stop, waits answer at once with the current state (`timeout`), so the shutdown does not wait
+// for them. A route that creates the resource it then waits for reserves the wait first (reserveWait), so its 429
+// always means nothing was created; the test-run stream holds a reservation for as long as it is open.
 
 const POLL_MS = 1000
 const activeWaits = new Map<string, number>()
@@ -26,8 +25,8 @@ export interface WaitOptions<T> {
   load: () => Promise<T>
   /** true when the state is final for this wait */
   settled: (value: T) => boolean
-  /** the document to watch for changes */
-  watch?: { collection: Collection<Document & { _id: string }>; id: string }
+  /** the document whose changes wake the wait (utils/wait-watchers.ts) */
+  watch?: { collection: WatchedCollection; id: string }
   /** the caller holds a reservation of reserveWait for this wait (and releases it) */
   reserved?: boolean
 }
@@ -78,11 +77,9 @@ export async function loadWithWait<T>(event: H3Event, options: WaitOptions<T>): 
   const release = options.reserved ? null : reserveWait(options.userId)
 
   const deadline = Date.now() + waitSeconds * 1000
-  const log = useLogger('api')
-  let stream: ChangeStream | null = null
-  /** false once the change stream failed: the rest of the wait polls every second */
-  let streaming = false
   let wake: (() => void) | null = null
+  /** set by a change notification, so a change that arrives while the state loads is not slept through */
+  let changed = false
   let disconnected = false
   void clientGone(event).then(() => {
     disconnected = true
@@ -91,33 +88,29 @@ export async function loadWithWait<T>(event: H3Event, options: WaitOptions<T>): 
   const stopping = shutdownSignal()
   const onStopping = () => wake?.()
   stopping.addEventListener('abort', onStopping, { once: true })
+  let watch: WaitWatch | null = null
   try {
     if (options.watch) {
-      try {
-        stream = options.watch.collection.watch([{ $match: { 'documentKey._id': options.watch.id } }], { fullDocument: 'default' })
-        streaming = true
-        stream.on('change', () => wake?.())
-        stream.on('error', (error: unknown) => {
-          log.debug('change stream failed; polling', { err: error })
-          streaming = false
-          wake?.()
-        })
-      } catch (error) {
-        log.debug('change stream unavailable; polling', { err: error })
-      }
+      watch = useWaitWatchers().watch(options.watch.collection, options.watch.id, () => {
+        changed = true
+        wake?.()
+      })
     }
     while (!disconnected && !stopping.aborted) {
       const remaining = deadline - Date.now()
       if (remaining <= 0) break
-      await new Promise<void>((resolve) => {
-        // With a change stream the timer is only a safety net; changes wake the wait at once.
-        const timer = setTimeout(resolve, Math.min(remaining, streaming ? 5 * POLL_MS : POLL_MS))
-        wake = () => {
-          clearTimeout(timer)
-          resolve()
-        }
-      })
-      wake = null
+      if (!changed) {
+        await new Promise<void>((resolve) => {
+          // While changes arrive the timer is only a safety net; they wake the wait at once.
+          const timer = setTimeout(resolve, Math.min(remaining, watch?.isStreaming() ? 5 * POLL_MS : POLL_MS))
+          wake = () => {
+            clearTimeout(timer)
+            resolve()
+          }
+        })
+        wake = null
+      }
+      changed = false
       if (disconnected) break
       value = await options.load()
       if (options.settled(value)) {
@@ -129,7 +122,7 @@ export async function loadWithWait<T>(event: H3Event, options: WaitOptions<T>): 
     return value
   } finally {
     stopping.removeEventListener('abort', onStopping)
+    watch?.close()
     release?.()
-    await (stream as ChangeStream | null)?.close().catch((error: unknown) => log.debug('closing the change stream failed', { err: error }))
   }
 }

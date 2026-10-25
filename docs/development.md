@@ -328,7 +328,8 @@ orchestrator/
 │                                 users, user-cache, setup, keys, secrets, redact, logger, mongo, s3, amqp,
 │                                 rabbitmq-management, docker, labels (reads schemas/managed-labels.json), boot
 │                                 (registerBootStep, registerComponentTask), jobs (registerJobKind, createJob),
-│                                 user-purge (registerUserPurgeStep), locks, wait (long-polls), health,
+│                                 user-purge (registerUserPurgeStep), locks, wait (long-polls) and
+│                                 wait-watchers (their change streams, one per collection), health,
 │                                 instance and instance-info, version, client-ip, cors, body-limits,
 │                                 security-headers, guides and guide-assets
 ├── shared/
