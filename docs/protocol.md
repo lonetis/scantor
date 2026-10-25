@@ -553,8 +553,10 @@ connector-visible contract is:
 - Connectors keep the default `SIGTERM` and `SIGINT` dispositions; they must not ignore or trap them to
   keep running.
 - User code may start child processes (browsers, tools). They inherit the process group and are killed
-  with it. Processes that leave the group (`setsid`, double fork) are not tracked; they die with the
-  container. The container runs with `Init: true`, so orphans are reaped.
+  with it, but not the protocol descriptors: connectors set close-on-exec on both (the runtime passes
+  them without it), so a child can neither read requests nor write messages nor keep fd 4 open after
+  the connector exits. Processes that leave the group (`setsid`, double fork) are not tracked; they die
+  with the container. The container runs with `Init: true`, so orphans are reaped.
 - On container stop or a `drain` action the runtime lets in-flight requests finish within the drain grace,
   may send `cancel{drain}`, then kills the remaining process groups and shuts down idle processes
   ([runtime](runtime.md) §14.1).

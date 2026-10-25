@@ -184,6 +184,11 @@ func openProtocolFDs(inFD, outFD int) (io.Reader, io.Writer, bool) {
 	if inFD == outFD || syscall.Fstat(inFD, &st) != nil || syscall.Fstat(outFD, &st) != nil {
 		return nil, nil, false
 	}
+	// The runtime passes the pipes without FD_CLOEXEC, and os/exec does not close inherited
+	// descriptors: child processes of task code (browsers, tools) would otherwise read requests from fd
+	// 3, write into fd 4 or keep fd 4 open after the connector exited.
+	syscall.CloseOnExec(inFD)
+	syscall.CloseOnExec(outFD)
 	in := os.NewFile(uintptr(inFD), "scantor-protocol-in")
 	out := os.NewFile(uintptr(outFD), "scantor-protocol-out")
 	return in, out, true
