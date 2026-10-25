@@ -439,7 +439,9 @@ Additional generated cases:
    admin's own tasks (none: 404).
 4. **Editor key**: A's `editor` key on every admin operation → 403 `adminRequired` (A is promoted to admin for
    this case and demoted afterwards); on `createEditorSession` → 403 `forbidden`.
-5. **Injection**: ids replaced by `{"$ne": null}` (URL-encoded) or `../` → 404 or 400, never 2xx.
+5. **Injection**: a malformed path id (not a uuid, `../`, `..%2f`, a URL-encoded `{"$ne": null}`, a
+   malformed analysis id) on every owner and admin operation → 404 `notFound`, never 400 or 2xx
+   (API-007): an unparseable id names no resource, so it is answered like an unknown one.
 6. **MCP half**: for B's read/write MCP session, `tools/list` equals the read and write tools of [mcp](mcp.md)
    §5. `tools/call` of every tool with A's ids returns `isError` with `httpStatus: 404`. For the read-only
    token, write tools are absent. For a non-admin, `list_nodes` is absent even when `scantor:admin` was
