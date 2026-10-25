@@ -59,7 +59,13 @@ const nameModel = computed({
   set: (value: string) => (state.name = value.trim() === '' ? undefined : value),
 })
 
+/** Counts estimates; a revision change counts too, so only the answer of the latest one for this revision applies. */
+let estimateGeneration = 0
+
 function onRevision(next: Revision | null): void {
+  // An estimate still in flight belongs to the previous revision.
+  estimateGeneration++
+  estimating.value = false
   revision.value = next
   state.revision = next?.id ?? ''
   state.taskConfig = {}
@@ -78,30 +84,35 @@ function onRevision(next: Revision | null): void {
 async function runEstimate(): Promise<void> {
   const current = description.value
   if (!current || current.schedule.kind !== 'template' || !current.schedule.template) return
+  const generation = ++estimateGeneration
   if (validateAgainstSchema(current.schemas.scanConfig, state.scanConfig).length > 0) {
     estimate.value = null
     estimateError.value = null
+    estimating.value = false
     return
   }
   estimating.value = true
   const requested = JSON.stringify(state.scanConfig)
+  // A newer estimate or another revision makes this answer stale, and so does a config edit not yet estimated.
+  const stale = () => generation !== estimateGeneration || requested !== JSON.stringify(state.scanConfig)
   try {
     const result = await api<TemplateEstimate>(`/api/templates/${encodeURIComponent(current.schedule.template)}/estimate`, {
       method: 'POST',
       body: { scanConfig: state.scanConfig },
       toast: false,
     })
-    if (requested !== JSON.stringify(state.scanConfig)) return
+    if (stale()) return
     estimate.value = result
     estimateError.value = null
     if (!result.confirmationRequired) state.confirm = false
   } catch (cause) {
+    if (stale()) return
     const error = toApiError(cause)
     estimate.value = null
     const first = errorIssues(error)[0]
     estimateError.value = first ? `${first.path || 'scan config'}: ${first.message}` : error.message
   } finally {
-    estimating.value = false
+    if (generation === estimateGeneration) estimating.value = false
   }
 }
 
