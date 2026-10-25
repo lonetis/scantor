@@ -1471,7 +1471,7 @@ Upload a task folder and publish a revision
 
 ### Synopsis
 
-Pack the task folder locally and upload it (docs/tasks.md §13): the manifest name selects or creates the task, the upload replaces its platform workspace, and a revision is published and built on the server unless --no-publish is given. The upload fails with workspaceDirty when the platform workspace has changes that were never published or synced (for example editor edits); --force replaces them.
+Pack the task folder locally and upload it (docs/tasks.md §13); the instance applies its own file count and size limits to the upload. The manifest name selects or creates the task, the upload replaces its platform workspace, and a revision is published and built on the server unless --no-publish is given. The upload fails with workspaceDirty when the platform workspace has changes that were never published or synced (for example editor edits); --force replaces them.
 
 Inside the editor (SCANTOR_WORKSPACE set and the folder inside it) the folder already is the workspace, so push only publishes a revision. With --wait the command waits for the build and exits 2 when the revision failed on its content, 3 on a platform failure.
 

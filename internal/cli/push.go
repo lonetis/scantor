@@ -32,7 +32,8 @@ func newPushCommand(app *App) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push [dir]",
 		Short: "Upload a task folder and publish a revision",
-		Long: "Pack the task folder locally and upload it (docs/tasks.md §13): the manifest name selects or creates " +
+		Long: "Pack the task folder locally and upload it (docs/tasks.md §13); the instance applies its own file " +
+			"count and size limits to the upload. The manifest name selects or creates " +
 			"the task, the upload replaces its platform workspace, and a revision is published and built on the " +
 			"server unless --no-publish is given. The upload fails with workspaceDirty when the platform " +
 			"workspace has changes that were never published or synced (for example editor edits); --force " +
@@ -183,12 +184,13 @@ func canonicalPath(p string) (string, error) {
 
 // uploadFolder packs dir locally (docs/tasks.md §9.2) and streams the tar.gz to uploadTask. A 409
 // workspaceDirty gets a hint about --force.
+//
+// The pack applies the content rules but none of the SCANTOR_TASK_MAX_* caps: an upload is bound by the
+// instance's caps, which the API and helper extract enforce (413 payloadTooLarge), and a native CLI does
+// not know them (the CLI reads its own only for local commands, CLI section of .env.example), so its
+// defaults would refuse folders the instance accepts.
 func uploadFolder(ctx context.Context, app *App, client *api.Client, dir string, opts api.UploadTaskOptions) (*api.UploadTaskResult, *taskpipe.Summary, error) {
-	cfg, err := app.Config()
-	if err != nil {
-		return nil, nil, err
-	}
-	pack, err := taskpipe.PackDir(ctx, dir, taskPipelineConfig(cfg).Pack)
+	pack, err := taskpipe.PackDir(ctx, dir, taskpipe.PackLimits{})
 	if err != nil {
 		return nil, nil, packFailure(ctx, app.Output(), err)
 	}

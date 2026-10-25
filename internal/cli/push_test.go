@@ -122,6 +122,17 @@ func TestPushWait(t *testing.T) {
 	}
 }
 
+// The upload is bound by the instance's caps, not by this CLI's SCANTOR_TASK_MAX_* values (CLI-7).
+func TestPushIgnoresLocalPackCaps(t *testing.T) {
+	f := newAPIFake(t)
+	f.reply("POST", "/api/tasks/upload", http.StatusCreated, map[string]any{"task": testTaskJSON("echo"), "revision": testRevisionJSON("queued"), "created": false})
+	caps := map[string]string{"SCANTOR_TASK_MAX_FILES": "1", "SCANTOR_TASK_MAX_BYTES": "100", "SCANTOR_TASK_MAX_PACK_BYTES": "100"}
+	code, _, errOut := f.execEnv(caps, "push", writeTaskDir(t, nil), "--no-publish")
+	if code != 0 || len(f.calls("POST", "/api/tasks/upload")) != 1 || !strings.Contains(errOut, "packed 4 files") {
+		t.Fatalf("exit %d, uploads %d: %s", code, len(f.calls("POST", "/api/tasks/upload")), errOut)
+	}
+}
+
 func TestPushPackErrors(t *testing.T) {
 	f := newAPIFake(t)
 	dir := writeTaskDir(t, nil)
