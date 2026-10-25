@@ -72,7 +72,7 @@ shows all recipes ([docs/development.md](docs/development.md) §4).
 | `just test` | unit suites, then the dockerized Playwright suite |
 | `just test-unit`, `just test-go [pkgs]`, `just test-orchestrator [filter]`, `just test-connectors`, `just test-conformance` | unit layers |
 | `just test-e2e [args]`, `just test-api`, `just test-ui` | Playwright suite (args go to `playwright test`) |
-| `just test-exec [args]` | re-run Playwright in the runner kept alive with `SCANTOR_TEST_KEEP_ALIVE=true` |
+| `just test-up`, `just test-exec [args]`, `just test-down` | start a kept-alive test stack (`SCANTOR_TEST_KEEP_ALIVE=true`), re-run Playwright in it, tear it down |
 | `just test-go-integration`, `just test-orchestrator-integration` | Docker-backed integration tests |
 | `just lint`, `just typecheck`, `just fmt` | linters (incl. terminology, `.env.example`, compose), type checks, formatters |
 | `just docs [--check]` | regenerate `docs/guide/cli.md` and guide snippet includes |
