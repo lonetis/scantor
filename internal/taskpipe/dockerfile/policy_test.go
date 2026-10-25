@@ -125,6 +125,10 @@ func TestCheckRules(t *testing.T) {
 		{"W1 only in the final image", "ARG SCANTOR_BASE\nFROM alpine:3.24 AS tools\nCMD [\"sh\"]\nFROM ${SCANTOR_BASE}\nCMD [\"x\"]\n", nil, []string{"W1"}},
 		{"W3 without a .dockerignore", header, nil, []string{"W3"}},
 		{"BUILDKIT args in lower case", header + "ARG buildkit_syntax=x\n", []string{"D10"}, nil},
+		{"quoted BUILDKIT args", header + "ARG \"BUILDKIT_SBOM_SCAN_STAGE\"=true\nARG 'BUILDKIT_X'\n", []string{"D10", "D10"}, nil},
+		{"escaped BUILDKIT arg", header + "ARG BUILD\\KIT_X=1\n", []string{"D10"}, nil},
+		{"quoted BUILDKIT meta arg", "ARG SCANTOR_BASE\nARG \"BUILDKIT_SYNTAX\"=x\nFROM ${SCANTOR_BASE}\n", []string{"D10"}, nil},
+		{"quoted base arg does not declare it", "ARG \"SCANTOR_BASE\"\nFROM ${SCANTOR_BASE}\n", []string{"D3"}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

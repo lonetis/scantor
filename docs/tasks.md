@@ -1104,7 +1104,7 @@ and the rule id in the message.
 | D7 | `ADD` sources are local paths only: no `http://`, `https://`, `git@`, `git://` or `*.git` URLs, no `--checksum`, no `--keep-git-dir`. | the daemon fetches ADD URLs from the host network namespace |
 | D8 | `RUN --mount` types `bind` and `tmpfs` only (`cache`, `secret`, `ssh` rejected); no `RUN --network=` other than `default`; no `RUN --security=`. | cache mounts are shared across users; host network and insecure entitlements |
 | D9 | No `LABEL` key matching `^(traefik\.\|com\.docker\.compose\.\|scantor\.)` (case-insensitive) and no `LABEL` key containing `$` (ARG expansion would bypass the pattern). The pattern is `forbiddenImageLabelKeys` of `schemas/managed-labels.json`. | image labels become container labels (route hijack); the post-build label check (§9.4) and managed labels at run time are further layers ([security](security.md) LBL-1…LBL-3) |
-| D10 | No `ARG` whose name starts with `BUILDKIT_`. | frontend and builder knobs |
+| D10 | No `ARG` whose name starts with `BUILDKIT_` (case-insensitive), as written or without its shell quoting and escapes (`ARG "BUILDKIT_X"`, `ARG BUILD\KIT_X`). | frontend and builder knobs |
 | D11 | No `ONBUILD` and no `VOLUME`. | ONBUILD hides deferred instructions; anonymous volumes leak worker disk |
 | W1 | `ENTRYPOINT`, `CMD`, `HEALTHCHECK` and `STOPSIGNAL` are ignored (the runtime is the entrypoint) — warning. | |
 | W2 | `ENV` overriding a `SCANTOR_*` variable — warning naming it. | allowed, e.g. to wrap the connector command |

@@ -155,7 +155,8 @@ func (c *checker) directives(data []byte) {
 	}
 }
 
-// metaArgs applies rule D3 and D10 to the ARG instructions before the first FROM.
+// metaArgs applies rule D3 and D10 to the ARG instructions before the first FROM. BuildKit never expands
+// the names of these ARGs, so only the literal name SCANTOR_BASE declares the base argument.
 func (c *checker) metaArgs(args []instructions.ArgCommand) {
 	declared := false
 	for i := range args {
@@ -176,13 +177,17 @@ func (c *checker) metaArgs(args []instructions.ArgCommand) {
 	}
 }
 
-// args applies rule D10 to one ARG instruction.
+// args applies rule D10 to one ARG instruction. The name is checked as written and without its shell
+// quoting: the dispatcher of the vendored BuildKit uses ARG names verbatim, but instructions.ArgCommand's
+// Expand removes quotes and escapes (`ARG "BUILDKIT_X"=1` would set BUILDKIT_X), so the rule must not
+// depend on which of the two a frontend version applies.
 func (c *checker) args(cmd *instructions.ArgCommand) {
+	isBuildkit := func(name string) bool { return strings.HasPrefix(strings.ToUpper(name), "BUILDKIT_") }
 	for _, kv := range cmd.Args {
 		switch {
 		case strings.Contains(kv.Key, "$"):
 			c.fail("D10", cmdLine(cmd), "ARG names must not contain variables")
-		case strings.HasPrefix(strings.ToUpper(kv.Key), "BUILDKIT_"):
+		case isBuildkit(kv.Key) || isBuildkit(c.word(kv.Key)):
 			c.fail("D10", cmdLine(cmd), "ARG %s is not allowed: BUILDKIT_* arguments configure the builder", kv.Key)
 		}
 	}

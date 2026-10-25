@@ -1,0 +1,18 @@
+{
+  "description": "BUILDKIT_* arguments whose names are quoted or escaped",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D10"
+    },
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 4,
+      "rule": "D10"
+    }
+  ],
+  "warnings": []
+}
