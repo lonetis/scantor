@@ -178,15 +178,16 @@ func Inject(ctx context.Context, docker client.APIClient, containerID string, bi
 	written := make(chan error, 1)
 	go func() {
 		err := writeInjectionArchive(pw, entries)
-		pw.CloseWithError(err)
+		_ = pw.CloseWithError(err)
 		written <- err
 	}()
 	_, err = docker.CopyToContainer(ctx, containerID, client.CopyToContainerOptions{
 		DestinationPath: "/",
 		Content:         pr,
 	})
-	// Unblocks the writer when the request ended before it read the whole archive.
-	pr.CloseWithError(errors.New("inject: the copy request ended"))
+	// Unblocks the writer when the request ended before it read the whole archive (CloseWithError of
+	// a pipe always returns nil).
+	_ = pr.CloseWithError(errors.New("inject: the copy request ended"))
 	writeErr := <-written
 	if err != nil {
 		return fmt.Errorf("inject runtime into %s: %w", shortID(containerID), err)
