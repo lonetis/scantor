@@ -303,5 +303,5 @@ func (c *conn) readLine() ([]byte, error) {
 	}
 }
 
-// deadlineCause is the cancellation cause when the connector's deadline timer fires.
-var deadlineCause = errors.New("cancelled: deadline exceeded")
+// errDeadline is the cancellation cause when the connector's deadline timer fires.
+var errDeadline = errors.New("cancelled: deadline exceeded")

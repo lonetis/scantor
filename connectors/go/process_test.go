@@ -122,7 +122,7 @@ func TestProtocolOverFileDescriptors(t *testing.T) {
 					t.Fatalf("exit: %v (stderr: %s)", err, stderr.String())
 				}
 			case <-time.After(5 * time.Second):
-				cmd.Process.Kill()
+				_ = cmd.Process.Kill()
 				t.Fatal("no exit within the shutdown grace")
 			}
 		})

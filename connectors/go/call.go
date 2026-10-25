@@ -50,7 +50,7 @@ func newCall(c *conn, msg *inbound) *call {
 	cl.cancelCause = cancel
 	cl.stopTimer = func() {}
 	if cl.wire.DeadlineMs != nil {
-		ctx, cl.stopTimer = context.WithDeadlineCause(ctx, time.UnixMilli(*cl.wire.DeadlineMs), deadlineCause)
+		ctx, cl.stopTimer = context.WithDeadlineCause(ctx, time.UnixMilli(*cl.wire.DeadlineMs), errDeadline)
 	}
 	cl.Context = ctx
 	return cl
@@ -205,7 +205,7 @@ func (f *callFiles) Put(name string, data []byte, contentType string) (FileRef, 
 
 func (f *callFiles) PutFile(name, path, contentType string) (FileRef, error) {
 	cl := (*call)(f)
-	src, err := os.Open(path)
+	src, err := os.Open(path) //nolint:gosec // the task's own file, which it asks to store
 	if err != nil {
 		return FileRef{}, fmt.Errorf("file %s: %w", name, err)
 	}
@@ -271,12 +271,13 @@ func checkFileName(name string) error {
 }
 
 func writeNewFile(path string, write func(io.Writer) error) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	// The mode the Python and JS connectors get from their defaults (0666 and the usual umask).
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644) //nolint:gosec // see above
 	if err != nil {
 		return err
 	}
 	if err := write(f); err != nil {
-		f.Close()
+		_ = f.Close() // the write error is the one to report
 		return err
 	}
 	return f.Close()

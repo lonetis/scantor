@@ -282,8 +282,12 @@ func TestTemplateFixtures(t *testing.T) {
 				}
 				back, _ := json.Marshal(v)
 				var got, want any
-				json.Unmarshal(back, &got)
-				json.Unmarshal(c.Input, &want)
+				if err := json.Unmarshal(back, &got); err != nil {
+					t.Fatalf("analysisConfig %s: decode the round trip %s: %v", c.Name, back, err)
+				}
+				if err := json.Unmarshal(c.Input, &want); err != nil {
+					t.Fatalf("analysisConfig %s: decode the input: %v", c.Name, err)
+				}
 				if !reflect.DeepEqual(got, want) {
 					t.Errorf("analysisConfig %s: round trip %s, want %s", c.Name, back, c.Input)
 				}

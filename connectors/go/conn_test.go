@@ -263,7 +263,7 @@ func TestRunInvalidConfig(t *testing.T) {
 	rt := start(t, echoTask())
 	rt.handshake()
 	dir := execDir(t)
-	for i, ac := range []map[string]any{{"name": 5}, {"nmae": "x"}} {
+	for i, ac := range []map[string]any{{"name": 5}, {"nmae": "x"}} { //nolint:misspell // an unknown key on purpose
 		run(rt, "r"+itoa(i), runCtx(dir, i, nil), ac, map[string]any{})
 		e := rt.expect("error").obj("error")
 		if e.str("type") != "validation" || len(e.obj("details")["issues"].([]any)) == 0 {

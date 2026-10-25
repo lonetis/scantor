@@ -59,7 +59,7 @@ type configSample struct {
 	Ratio    float64           `json:"ratio" jsonschema:"default=0.5"`
 	When     time.Time         `json:"when,omitzero"`
 	Skipped  string            `json:"-"`
-	hidden   string
+	hidden   string            //nolint:unused // unexported fields stay out of the schema
 }
 
 func TestConfigSchema(t *testing.T) {
