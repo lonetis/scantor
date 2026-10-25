@@ -597,7 +597,9 @@ Actions: "Copy as JSON", "Query similar" (opens the query tab with `{"error.type
   "Download" (`download.url`, navigation) and delete (`ConfirmModal` "Delete export?"). `ExportModal`:
   format (`jsonl`/`csv`), status quick filter or JSON filter, `fields` (comma-separated dot paths, CSV
   default columns hint) → `exportScan` (no `wait`) → the row polls `getExport` every 2 s until
-  `ready`/`failed`, then a toast with a "Download" action. The UI always uses background exports (never
+  `ready`/`failed`, then a toast with a "Download" action. Like every poll (§9) it pauses while the tab is
+  hidden and doubles its interval after each failure up to 60 s; it ends when the export expired, was
+  deleted, or the API refuses it (a 4xx other than 429). The UI always uses background exports (never
   `exportScanInline`).
 
 ### 5.14 Templates catalog (`/templates`)

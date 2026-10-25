@@ -1,4 +1,4 @@
-import type { MaybeRefOrGetter } from 'vue'
+import { computed, defineAsyncComponent, shallowRef, toValue, type MaybeRefOrGetter } from 'vue'
 import type { Page } from '#shared/types/common'
 import type { Export } from '#shared/types/exports'
 import type { Scan } from '#shared/types/scans'
@@ -7,9 +7,34 @@ import type { AnalysisStatus, ExportFormat } from '#shared/utils/enums'
 // Background exports of a scan (docs/ui.md §5.13.6; docs/api.md §4.15). The UI always uses exportScan (never the
 // inline export). A created export is followed with getExport every 2 s until it is ready or failed, then a toast
 // offers the download. Following is module-wide, so an export started from the scan controls is still followed
-// when the exports tab is not open.
+// when the exports tab is not open; like every poll (docs/ui.md §9) it pauses while the tab is hidden and doubles its
+// interval after each failure up to 60 s, and it ends when the export expired or was deleted or the API refuses it.
 
 export const EXPORT_POLL_MS = 2000
+const EXPORT_POLL_MAX_MS = 60_000
+
+/** The delay before the next read of a followed export after `failures` consecutive failed reads. */
+export function exportPollDelay(failures: number): number {
+  return Math.min(EXPORT_POLL_MAX_MS, EXPORT_POLL_MS * 2 ** failures)
+}
+
+/** Resolves once the tab is visible; reads of followed exports wait while it is hidden. */
+function whenVisible(): Promise<void> {
+  if (typeof document === 'undefined' || document.visibilityState === 'visible') return Promise.resolve()
+  return new Promise((resolve) => {
+    const onChange = (): void => {
+      if (document.visibilityState !== 'visible') return
+      document.removeEventListener('visibilitychange', onChange)
+      resolve()
+    }
+    document.addEventListener('visibilitychange', onChange)
+  })
+}
+
+/** True for an answer that retrying cannot change (4xx except 429); 404 means the export is gone. */
+function isFinalRefusal(status: number): boolean {
+  return status >= 400 && status < 500 && status !== 429
+}
 const EXPORTS_PAGE_SIZE = 50
 
 export interface ExportRequest {
@@ -76,14 +101,25 @@ export function useExports(scanId: MaybeRefOrGetter<string | null | undefined> =
     }
   }
 
-  /** Follows an export until it settles (once per export and tab). */
+  /** Follows an export until it settles, expires, is deleted or refused (once per export and tab). */
   function follow(item: Export): void {
     remember(item)
     if (exportSettled(item.state) || following.has(item.id)) return
     following.add(item.id)
+    let failures = 0
+    const schedule = (): void => {
+      setTimeout(() => void whenVisible().then(tick), exportPollDelay(failures))
+    }
     const tick = async (): Promise<void> => {
+      // remove() stops following; an expired export is never settled.
+      if (!following.has(item.id)) return
+      if (Date.parse(item.expiresAt) <= Date.now()) {
+        following.delete(item.id)
+        return
+      }
       try {
         const current = await api<Export>(`/api/exports/${encodeURIComponent(item.id)}`, { background: true })
+        failures = 0
         remember(current)
         if (exportSettled(current.state)) {
           following.delete(item.id)
@@ -92,16 +128,18 @@ export function useExports(scanId: MaybeRefOrGetter<string | null | undefined> =
         }
       } catch (cause) {
         const error = toApiError(cause)
-        if (error.status === 404) {
+        if (isFinalRefusal(error.status)) {
           following.delete(item.id)
-          forget(item.id)
+          if (error.status === 404) forget(item.id)
+          else console.warn('[exports] following an export stopped', error)
           return
         }
+        failures++
         console.warn('[exports] polling an export failed; retrying', error)
       }
-      setTimeout(() => void tick(), EXPORT_POLL_MS)
+      schedule()
     }
-    setTimeout(() => void tick(), EXPORT_POLL_MS)
+    schedule()
   }
 
   async function create(targetScanId: string, request: ExportRequest): Promise<Export> {
