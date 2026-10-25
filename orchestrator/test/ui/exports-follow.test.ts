@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCursorList } from '../../app/composables/useCursorList'
-import { EXPORT_POLL_MS, exportPollDelay, useExports } from '../../app/composables/useExports'
+import type { Export } from '#shared/types/exports'
+import { EXPORT_POLL_MS, exportPollDelay, exportRows, useExports } from '../../app/composables/useExports'
 
 // Following an export until it is ready (docs/ui.md §5.13.6, §9): every 2 s, doubling after failures up to 60 s, and
 // never after the export expired or the API refused it for good.
@@ -86,5 +87,28 @@ describe('following an export', () => {
     expect(reads).toBe(1)
     await vi.advanceTimersByTimeAsync(120_000)
     expect(reads).toBe(1)
+  })
+})
+
+describe('exportRows (the exports tab)', () => {
+  const at = (minute: number) => `2026-10-25T10:${String(minute).padStart(2, '0')}:00.000Z`
+  const item = (id: string, minute: number, state = 'ready', scanId = 'scan') => ({ id, scanId, state, createdAt: at(minute) }) as unknown as Export
+
+  it('puts followed exports of the scan that the list lacks first, newest first', () => {
+    const listed = [item('b', 20), item('a', 10)]
+    const followed = new Map([['d', item('d', 40, 'running')], ['c', item('c', 30, 'queued')]])
+    expect(exportRows(listed, followed, 'scan').map((row) => row.id)).toEqual(['d', 'c', 'b', 'a'])
+  })
+
+  it('shows listed exports in their followed state', () => {
+    const followed = new Map([['a', item('a', 10, 'ready')]])
+    expect(exportRows([item('a', 10, 'running')], followed, 'scan').map((row) => row.state)).toEqual(['ready'])
+  })
+
+  it('leaves out exports of other scans and followed exports older than the newest listed one', () => {
+    const listed = [item('b', 20)]
+    const followed = new Map([['other', item('other', 50, 'running', 'other-scan')], ['old', item('old', 5, 'running')]])
+    expect(exportRows(listed, followed, 'scan').map((row) => row.id)).toEqual(['b'])
+    expect(exportRows([], followed, 'scan').map((row) => row.id)).toEqual(['old'])
   })
 })

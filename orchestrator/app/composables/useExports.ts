@@ -64,6 +64,20 @@ function remember(item: Export): void {
   followed.value = next
 }
 
+/**
+ * The rows of an exports list: the listed exports in their latest followed state, after the followed exports of the
+ * scan that are not listed and are newer than the newest listed one (the list is newest first; an older followed
+ * export that is not listed lies beyond the loaded pages).
+ */
+export function exportRows(listed: readonly Export[], followedExports: ReadonlyMap<string, Export>, scanId: string | null): Export[] {
+  const listedIds = new Set(listed.map((item) => item.id))
+  const newest = listed[0] ? Date.parse(listed[0].createdAt) : Number.NEGATIVE_INFINITY
+  const unlisted = [...followedExports.values()]
+    .filter((item) => !listedIds.has(item.id) && (scanId === null || item.scanId === scanId) && Date.parse(item.createdAt) >= newest)
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+  return [...unlisted, ...listed.map((item) => followedExports.get(item.id) ?? item)]
+}
+
 function forget(id: string): void {
   if (!followed.value.has(id)) return
   const next = new Map(followed.value)
@@ -84,8 +98,11 @@ export function useExports(scanId: MaybeRefOrGetter<string | null | undefined> =
     { immediate: false },
   )
 
-  /** The listed exports with the latest state of followed ones. */
-  const items = computed(() => list.items.value.map((item) => followed.value.get(item.id) ?? item))
+  /**
+   * The listed exports with the latest state of followed ones, after the followed exports of this scan that the list
+   * does not hold yet: an export started elsewhere (the scan controls, the query console) shows up without a reload.
+   */
+  const items = computed(() => (list.loaded.value ? exportRows(list.items.value, followed.value, toValue(scanId) ?? null) : []))
 
   function announce(item: Export): void {
     if (item.state === 'ready') {

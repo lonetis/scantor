@@ -856,7 +856,7 @@ Mechanisms: [ui](../docs/ui.md) §5.13.2–§5.13.6.
 - **UI-RES-020** [ui] The in-flight table lists running analyses with seq, attempt, round, a live "running for" timer, worker, node and progress, captioned with the last update.
 - **UI-RES-021** [ui] The Events tab lists events newest first with level, type, time and message, filters all, scan or worker events, expands an event's data, and loads older events with "Load more".
 - **UI-RES-022** [ui] The Exports tab lists format, state (with the error when failed), rows, size, selection, created and expiry; "Download <format> export <id>" appears for ready exports, delete asks "Delete export?", and "New export" is disabled for deleted scans.
-- **UI-RES-023** [ui] The export dialog takes JSON Lines or CSV, a status selection or a JSON filter, and fields (at most 64 dot paths), shows server errors at their field, and "Start export" shows "Export started"; the export is followed until it settles with "Export ready" (with "Download") or "Export failed".
+- **UI-RES-023** [ui] The export dialog takes JSON Lines or CSV, a status selection or a JSON filter, and fields (at most 64 dot paths), shows server errors at their field, and "Start export" shows "Export started"; the export is followed until it settles with "Export ready" (with "Download") or "Export failed", and an export started from the scan controls or the query console appears in the open Exports tab.
 
 ## UI-FORM. Schema forms
 

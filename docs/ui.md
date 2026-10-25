@@ -599,7 +599,9 @@ Actions: "Copy as JSON", "Query similar" (opens the query tab with `{"error.type
   default columns hint) → `exportScan` (no `wait`) → the row polls `getExport` every 2 s until
   `ready`/`failed`, then a toast with a "Download" action. Like every poll (§9) it pauses while the tab is
   hidden and doubles its interval after each failure up to 60 s; it ends when the export expired, was
-  deleted, or the API refuses it (a 4xx other than 429). The UI always uses background exports (never
+  deleted, or the API refuses it (a 4xx other than 429). An export started elsewhere ("Export results" in
+  the scan controls, "Export these results" in the query console) is followed the same way and shows at
+  the top of the open exports table without a reload. The UI always uses background exports (never
   `exportScanInline`).
 
 ### 5.14 Templates catalog (`/templates`)

@@ -639,6 +639,30 @@ test.describe('results of a finished scan', () => {
     },
   )
 
+  test('an export started from the scan controls shows in the open Exports tab', { tag: ['@UI-RES-023'] }, async ({ page, user, openapi }) => {
+    const { scan } = await resultsScan(user, openapi)
+    const api = await tenantApi(user, openapi)
+    const listed = page.waitForResponse((response) => response.request().method() === 'GET' && new URL(response.url()).pathname === '/api/exports')
+    await openScanPage(page, scan.id, '?tab=exports')
+    await listed
+    const table = uTable(page, 'Exports')
+    await page.getByRole('toolbar', { name: 'Scan controls' }).getByRole('button', { name: 'Export results' }).click()
+    const dialog = page.getByRole('dialog', { name: `Export results of ${scan.name}` })
+    const created = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith(`/api/scans/${scan.id}/exports`))
+    await dialog.getByRole('button', { name: 'Start export' }).click()
+    const exported = (await (await created).json()) as { id: string }
+    try {
+      // The followed export joins the loaded table without "Refresh exports" and settles there.
+      const exportRow = row(table, exported.id)
+      await expect(exportRow).toBeVisible()
+      await expect(badges(exportRow)).toHaveText('ready', { timeout: 90_000 })
+      await expect(table.locator('tbody tr[data-row-id]').first()).toHaveAttribute('data-row-id', exported.id)
+    } finally {
+      const deleted = await api.call('deleteExport', { path: { exportId: exported.id } })
+      expect([200, 202, 204, 404]).toContain(deleted.status)
+    }
+  })
+
   test('a failed export is reported, and deleted scans offer no new export', { tag: ['@UI-RES-022', '@UI-RES-023'] }, async ({ page, user, openapi }) => {
     const { scan } = await resultsScan(user, openapi)
     const api = await tenantApi(user, openapi)

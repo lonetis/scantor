@@ -5,7 +5,8 @@ import type { Scan } from '#shared/types/scans'
 
 // The exports tab of a scan (docs/ui.md §5.13.6): listExports?scanId= with format, state, rows, size, created and
 // expiry; "Download" follows a fresh presigned link, delete asks first. Unsettled exports are followed every 2 s by
-// useExports, which also announces ready exports with a toast. New exports start in the ExportModal.
+// useExports, which also announces ready exports with a toast. New exports start in the ExportModal; one started from
+// the scan controls or the query console joins the table as it is followed.
 const props = defineProps<{
   scan: Pick<Scan, 'id' | 'name' | 'state'>
 }>()
