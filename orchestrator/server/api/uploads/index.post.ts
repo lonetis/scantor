@@ -53,7 +53,7 @@ import { defineEventHandler, getRequestHeader, setResponseStatus } from 'h3'
 import { createUploadQuery } from '#shared/schemas/tasks'
 import { createUpload, uploadContentType } from '../../services/uploads'
 import { requireUser } from '../../utils/authz'
-import { closeConnectionWhenTooLarge } from '../../utils/byte-cap'
+import { closeConnectionOnFailure } from '../../utils/byte-cap'
 import { useConfig } from '../../utils/config'
 import { validateQuery } from '../../utils/zod'
 
@@ -62,7 +62,7 @@ export default defineEventHandler(async (event) => {
   const query = validateQuery(event, createUploadQuery)
   const contentType = uploadContentType(getRequestHeader(event, 'content-type'))
   const maxBytes = typeof event.context.bodyLimit === 'number' ? event.context.bodyLimit : useConfig().maxUploadBytes
-  const { upload, created } = await closeConnectionWhenTooLarge(event.node.res, () =>
+  const { upload, created } = await closeConnectionOnFailure(event.node.req, event.node.res, () =>
     createUpload(principal, {
       body: event.node.req,
       contentType,

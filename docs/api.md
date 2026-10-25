@@ -140,7 +140,9 @@ Further rules of the global middleware ([auth](auth.md) §5):
   `Content-Length` above the cap is rejected before the body is read; a body without one (chunked) is counted
   while it streams, and at the cap the route stops reading it (it pauses the request, never destroys it) and
   answers 413 `payloadTooLarge` with `details.limit` and `Connection: close`: the unread rest of the body stays on
-  the connection, so it must not carry another request (`closeConnectionWhenTooLarge`).
+  the connection, so it must not carry another request. Every other error a streaming route answers before it
+  read the whole body (an invalid archive entry, no free helper slot, 429) closes the connection the same way
+  (`closeConnectionOnFailure`).
 - Lifecycle actions are idempotent: requesting the state a resource is already in returns 200 with the
   unchanged resource; any other forbidden transition is 409 `invalidState`.
 
