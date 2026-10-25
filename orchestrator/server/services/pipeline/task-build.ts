@@ -123,7 +123,9 @@ export function runTaskBuild(options: TaskBuildOptions): Promise<TaskBuildOutcom
       if (options.pushGate) await options.pushGate(gateAbort.signal)
       gate.end('push\n')
     } catch (error) {
-      log.warn('push gate closed', { err: error })
+      // A stopped build (its job cancelled, its lease lost) closes the gate on purpose; whoever stopped it reports that.
+      if (options.signal?.aborted) log.debug('push gate closed: the build was stopped', { err: error })
+      else log.warn('push gate closed', { err: error })
       gate.end()
     }
   }
@@ -144,7 +146,10 @@ export function runTaskBuild(options: TaskBuildOptions): Promise<TaskBuildOutcom
       try {
         await options.onEvent(event)
       } catch (error) {
-        log.error('handling a task pipeline event failed', { err: error, seq: event.seq })
+        // Once the build was stopped, a failing handler is a consequence of the stop (the cursor write of a cancelled
+        // job throws LeaseLostError), which the caller reports.
+        if (options.signal?.aborted) log.debug('a task pipeline event was not handled: the build was stopped', { err: error, seq: event.seq })
+        else log.error('handling a task pipeline event failed', { err: error, seq: event.seq })
       }
       if (isPushGateEvent(event)) void answerGate()
     })

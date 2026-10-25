@@ -18,9 +18,9 @@ vi.mock('../../../server/utils/mongo', () => ({
   useCollections: () => ({ tasks: store.tasks.asCollection(), revisions: store.revisions.asCollection(), jobs: store.jobs.asCollection() }),
 }))
 
-const { requeueRevision, revisionBuildJobKind } = await import('../../../server/services/revisions/build')
+const { buildCursorWriter, requeueRevision, revisionBuildJobKind } = await import('../../../server/services/revisions/build')
 const { JobsRunner } = await import('../../../server/services/jobs/runner')
-const { createJob } = await import('../../../server/utils/jobs')
+const { createJob, LeaseLostError } = await import('../../../server/utils/jobs')
 
 const log = useLogger('test').child({})
 const TASK_ID = '7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c'
@@ -122,5 +122,44 @@ describe('the revisionBuild job kind', () => {
     expect(job(created._id)).toMatchObject({ state: 'queued', lease: null, active: true })
     expect(revision().state).toBe('queued')
     expect(mirrored()).toBe('queued')
+  })
+})
+
+describe('buildCursorWriter', () => {
+  function recordingLog() {
+    const entries: { level: string; message: string }[] = []
+    const record = (level: string) => (message: string) => {
+      entries.push({ level, message })
+    }
+    const logger = { debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error') }
+    return { logger: logger as unknown as typeof log, entries }
+  }
+  const losing = async () => {
+    throw new LeaseLostError('j')
+  }
+
+  it('reports the lost lease of a cancelled build job once at info and rethrows it', async () => {
+    await store.jobs.insertOne({ _id: 'j', kind: 'revisionBuild', state: 'cancelled', active: false } as unknown as JobDoc)
+    const { logger, entries } = recordingLog()
+    const saveCursor = buildCursorWriter({ _id: 'j' }, { saveCursor: losing, log: logger })
+    await expect(saveCursor({ phase: 'finalize' })).rejects.toBeInstanceOf(LeaseLostError)
+    await expect(saveCursor({ phase: 'push' })).rejects.toBeInstanceOf(LeaseLostError)
+    expect(entries).toEqual([{ level: 'info', message: 'the build job was cancelled; stopping the build' }])
+  })
+
+  it('reports a lease lost to another runner as a warning', async () => {
+    await store.jobs.insertOne({ _id: 'j', kind: 'revisionBuild', state: 'running', active: true, lease: { owner: 'runner-2' } } as unknown as JobDoc)
+    const { logger, entries } = recordingLog()
+    await expect(buildCursorWriter({ _id: 'j' }, { saveCursor: losing, log: logger })({ phase: 'push' })).rejects.toBeInstanceOf(LeaseLostError)
+    expect(entries).toEqual([{ level: 'warn', message: 'the build job lost its lease; stopping the build' }])
+  })
+
+  it('passes other errors on without logging', async () => {
+    const { logger, entries } = recordingLog()
+    const failing = async () => {
+      throw new Error('mongo down')
+    }
+    await expect(buildCursorWriter({ _id: 'j' }, { saveCursor: failing, log: logger })({ phase: 'push' })).rejects.toThrow('mongo down')
+    expect(entries).toEqual([])
   })
 })

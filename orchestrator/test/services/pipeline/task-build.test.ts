@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest'
 import type { PipelineEvent } from '../../../server/services/pipeline/events'
 import { runTaskBuild, taskBuildArgs, type TaskBuildOptions } from '../../../server/services/pipeline/task-build'
 import { classifyRevisionBuild, pushGateHandshake } from '../../../server/services/revisions/build'
-import { useLogger } from '../../../server/utils/logger'
+import { LeaseLostError } from '../../../server/utils/jobs'
+import { type Logger, useLogger } from '../../../server/utils/logger'
 
 // The task-pipeline driver with a fake `scantor task build` subprocess (docs/testing.md §4.2, security.md BLD-9):
 // event decoding, the push gate on fd 3, the wall-clock limit and the image-size cap.
@@ -83,6 +84,31 @@ describe('runTaskBuild', () => {
     const result = await outcome
     expect(result.timedOut).toBe(true)
     expect(result.exitCode).toBeNull()
+  })
+
+  it('does not report an event handler failure of a stopped build as an error', async () => {
+    const entries: { level: string; message: string }[] = []
+    const record = (level: string) => (message: string) => {
+      entries.push({ level, message })
+    }
+    const recording = { debug: record('debug'), info: record('info'), warn: record('warn'), error: record('error') } as unknown as Logger
+    const controller = new AbortController()
+    // The cursor write of a job cancelled meanwhile: the runner aborts the job's signal, then throws.
+    const stopping = (event: PipelineEvent) => {
+      if (event.type !== 'result') return
+      controller.abort(new LeaseLostError('j'))
+      throw new LeaseLostError('j')
+    }
+    await run('ok', { log: recording, signal: controller.signal, onEvent: stopping }).outcome
+    expect(entries.filter((entry) => entry.level === 'error' || entry.level === 'warn')).toEqual([])
+    expect(entries).toContainEqual({ level: 'debug', message: 'a task pipeline event was not handled: the build was stopped' })
+
+    entries.length = 0
+    const failing = (event: PipelineEvent) => {
+      if (event.type === 'result') throw new Error('mongo down')
+    }
+    await run('ok', { log: recording, onEvent: failing }).outcome
+    expect(entries).toContainEqual({ level: 'error', message: 'handling a task pipeline event failed' })
   })
 
   it('reports aborts', async () => {

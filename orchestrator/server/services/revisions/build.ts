@@ -1,6 +1,6 @@
 import type { BuildErrorDoc, JobDoc, RevisionDoc } from '../../types/documents'
 import type { Config } from '../../utils/config'
-import { FatalJobError, type JobContext, type JobKindDefinition } from '../../utils/jobs'
+import { FatalJobError, type JobContext, type JobKindDefinition, LeaseLostError } from '../../utils/jobs'
 import { useKeys } from '../../utils/keys'
 import type { Logger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
@@ -83,6 +83,34 @@ export async function pushGateHandshake(
     if (!(await gcHeld())) return
     await ctx.saveCursor({ phase: 'waitRegistry' satisfies BuildCursorPhase })
     await sleep(waitMs, signal)
+  }
+}
+
+/**
+ * ctx.saveCursor for the cursor writes of a build. A LeaseLostError means that the job was cancelled (task deletion,
+ * a failed publish) or that another runner took it over; both stop the build through the job's signal. The first one
+ * is logged once: a cancellation is expected (info), a lease lost to another runner is a warning. The error is
+ * rethrown either way, so the push gate never opens without the lease.
+ */
+export function buildCursorWriter(job: Pick<JobDoc, '_id'>, ctx: Pick<JobContext, 'saveCursor' | 'log'>): JobContext['saveCursor'] {
+  let reported = false
+  return async (cursor, progress) => {
+    try {
+      await ctx.saveCursor(cursor, progress)
+    } catch (error) {
+      if (error instanceof LeaseLostError && !reported) {
+        reported = true
+        const current = await useCollections()
+          .jobs.findOne({ _id: job._id }, { projection: { state: 1 } })
+          .catch((readError: unknown) => {
+            ctx.log.debug('reading the state of a build job failed', { err: readError })
+            return null
+          })
+        if (current?.state === 'cancelled') ctx.log.info('the build job was cancelled; stopping the build', { phase: cursor.phase })
+        else ctx.log.warn('the build job lost its lease; stopping the build', { phase: cursor.phase, state: current?.state ?? null })
+      }
+      throw error
+    }
   }
 }
 
@@ -199,7 +227,8 @@ async function buildRevision(job: JobDoc, ctx: JobContext): Promise<void> {
     return
   }
 
-  await ctx.saveCursor({ phase: 'build' satisfies BuildCursorPhase })
+  const saveCursor = buildCursorWriter(job, ctx)
+  await saveCursor({ phase: 'build' satisfies BuildCursorPhase })
   const release = await useBuildSlots().acquire({ signal: ctx.signal })
   const buildLog = startBuildLog(revision._id, revision.buildLogKey)
   let outcome: TaskBuildOutcome
@@ -221,9 +250,9 @@ async function buildRevision(job: JobDoc, ctx: JobContext): Promise<void> {
       env: pipelineEnv(ctx.config, { SCANTOR_REGISTRY_PUSH_PASSWORD: useKeys().registryPushPassword() }),
       onEvent: async (event: PipelineEvent) => {
         buildLog.append(event)
-        if (event.type === 'result') await ctx.saveCursor({ phase: 'finalize' satisfies BuildCursorPhase })
+        if (event.type === 'result') await saveCursor({ phase: 'finalize' satisfies BuildCursorPhase })
       },
-      pushGate: (signal) => pushGateHandshake(ctx, signal),
+      pushGate: (signal) => pushGateHandshake({ saveCursor }, signal),
       timeoutMs,
       signal: ctx.signal,
       log: ctx.log,
