@@ -116,11 +116,12 @@ export async function clientFor(
 }
 
 /**
- * Keys whose values change without any write to the resource: caches, presigned links, request bookkeeping, and the
+ * Keys whose values change without any write to the resource: caches, presigned links, request bookkeeping, the
  * reconciler's final recount of a terminal scan two minutes after its completion (`stats.recountedAt`; a recount that
- * changed a count would still show in the counters).
+ * changed a count would still show in the counters), and the ingestor's rate of the scan, which decays to 0 once its
+ * results stopped (`stats.ratePerMin`, docs/queue.md §6.8), with the ETA derived from it.
  */
-const VOLATILE_KEYS = new Set(['checkedAt', 'lastRequest', 'download', 'serverTime', 'recountedAt'])
+const VOLATILE_KEYS = new Set(['checkedAt', 'lastRequest', 'download', 'serverTime', 'recountedAt', 'ratePerMin', 'etaSeconds'])
 
 function normalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalize)

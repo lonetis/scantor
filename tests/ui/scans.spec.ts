@@ -992,7 +992,8 @@ test.describe('scan detail', () => {
       await expect(progress).toContainText('4 / 4 analyses (100.0 %)')
       await expect(progress).toContainText('4 scheduled')
       await expect(progress.locator('[data-state="done"]')).toBeVisible()
-      await expect(progress).toContainText(`${new Intl.NumberFormat('en-US').format(Math.round(finished.stats.ratePerMin))} / min`)
+      // The rate of a finished scan decays to 0 while the test runs (docs/queue.md §6.8), so only its caption is fixed.
+      await expect(progress).toContainText(/\d[\d,]* \/ min/)
       await expect(progress.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100')
       await expect(progress).not.toContainText('≈')
       const stats = page.getByTestId('scan-stats')
