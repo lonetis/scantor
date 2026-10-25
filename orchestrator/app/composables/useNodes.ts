@@ -1,5 +1,6 @@
-import type { MaybeRefOrGetter } from 'vue'
+import { computed, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import type { CreateNodeBody, NodeForm, UpdateNodeBody } from '#shared/schemas/nodes'
+import { isSlug } from '#shared/utils/slug'
 import type { NodeJoin, NodeWithToken, ScantorNode } from '#shared/types/nodes'
 import type { ScanWorker } from '#shared/types/workers'
 import type { ScantorEvent } from '#shared/types/events'
@@ -30,32 +31,47 @@ export interface NodeFilters {
   pool?: string | null
 }
 
+/** Why a typed pool filter cannot be sent (listNodes accepts only pool slugs), or null when it can. */
+export function poolFilterProblem(pool: string | null | undefined): string | null {
+  const value = pool?.trim() ?? ''
+  return value === '' || isSlug(value) ? null : 'A pool is 1–64 lowercase letters, digits or hyphens.'
+}
+
 export function useNodes(filters: MaybeRefOrGetter<NodeFilters>) {
   const api = useApi()
   const nodes = shallowRef<ScantorNode[]>([])
   const loaded = ref(false)
   const error = shallowRef<ApiError | null>(null)
+  /** Shown at the pool filter; no request is sent while it is set. */
+  const filterProblem = computed(() => poolFilterProblem(toValue(filters).pool))
+  /** Counts list reads: only the answer of the latest one (the current filters) is applied. */
+  let generation = 0
 
   async function load(options: { background?: boolean } = {}): Promise<void> {
     const current = toValue(filters)
+    if (poolFilterProblem(current.pool)) return
+    const read = ++generation
     try {
       const result = await api<ItemList<ScantorNode>>('/api/nodes', {
         query: apiQuery({ state: current.state ?? null, pool: current.pool?.trim() || null }),
         background: options.background ?? false,
         toast: false,
       })
+      if (read !== generation) return
       nodes.value = result.items
       error.value = null
       loaded.value = true
     } catch (cause) {
+      if (read !== generation) return
       error.value = toApiError(cause)
       throw error.value
     }
   }
 
   const poll = usePoll(() => load({ background: true }), { intervalMs: NODES_POLL_MS })
+  // A filter change reads at once, also while a poll is in flight (the poll skips a tick then; its answer is stale).
   watch(() => JSON.stringify(toValue(filters)), () => {
-    void poll.refresh()
+    load().catch((cause: unknown) => console.error('[nodes] loading the nodes failed', cause))
   })
 
   function replace(node: ScantorNode): void {
@@ -101,6 +117,7 @@ export function useNodes(filters: MaybeRefOrGetter<NodeFilters>) {
     nodes,
     loaded,
     error,
+    filterProblem,
     refreshing: poll.running,
     refresh: poll.refresh,
     createNode,

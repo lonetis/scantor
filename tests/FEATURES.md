@@ -886,7 +886,7 @@ Mechanisms: [ui](../docs/ui.md) §5.14.
 
 Mechanisms: [ui](../docs/ui.md) §5.15–§5.16, §5.20.
 
-- **UI-ADMIN-001** [ui] The nodes table shows name (with a "built-in" pill), state and "cordoned" badges, pool and labels, platform, CPUs, memory, free disk, active workers / capacity, DinD mode, version and last seen, plus warnings such as "Egress deny list not applied"; it filters by state and pool.
+- **UI-ADMIN-001** [ui] The nodes table shows name (with a "built-in" pill), state and "cordoned" badges, pool and labels, platform, CPUs, memory, free disk, active workers / capacity, DinD mode, version and last seen, plus warnings such as "Egress deny list not applied"; it filters by state and pool (a change reads the list at once; a pool that is no slug is explained under the filter and not sent).
 - **UI-ADMIN-002** [ui] "Add node" (name, pool, labels, worker limit) reveals "Token of node <name>" (`data-testid=secret-reveal`) once, with copy buttons for the token, the `docker run` and compose snippets and the host checklist; it does not close on an outside click and never shows the token again after "Done".
 - **UI-ADMIN-003** [ui] A duplicate node name shows "A node with this name already exists.", and an invalid name or label is blocked before any request.
 - **UI-ADMIN-004** [ui] "Node actions for <name>" offer Edit (with a "Cordoned" switch; only changed fields are saved, "Node <name> saved") and "Show join command" with the `${SCANTOR_NODE_TOKEN}` placeholder; cordoning shows the "cordoned" badge.

@@ -173,6 +173,23 @@ test.describe('nodes table', () => {
         await page.getByRole('combobox', { name: 'Filter by state' }).click()
         await page.getByRole('option', { name: 'online', exact: true }).click()
         await expect(page.getByLabel('Nodes', { exact: true }).getByText('No nodes match.')).toBeVisible()
+
+        // A pool that is no slug is explained under the filter and never sent (listNodes would answer 400).
+        const sentPools: string[] = []
+        page.on('request', (request) => {
+          const url = new URL(request.url())
+          if (url.pathname === '/api/nodes' && url.searchParams.has('pool')) sentPools.push(url.searchParams.get('pool')!)
+        })
+        const poolBox = page.getByRole('textbox', { name: 'Filter by pool' })
+        await poolBox.fill('EU-')
+        await expect(page.getByRole('alert').filter({ hasText: 'A pool is 1–64 lowercase letters, digits or hyphens.' })).toBeVisible()
+        await expect(poolBox).toHaveAttribute('aria-invalid', 'true')
+        // A valid pool again reads the list at once.
+        const validAgain = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/nodes' && new URL(r.url()).searchParams.get('pool') === pool)
+        await poolBox.fill(pool)
+        await validAgain
+        await expect(page.getByRole('alert').filter({ hasText: 'A pool is 1–64' })).toHaveCount(0)
+        expect(sentPools).not.toContain('EU-')
       } finally {
         await deleteNodesNamed(adminApi, names)
       }

@@ -610,7 +610,9 @@ A note links to the authoring guides ([templates](templates.md) is the internal 
 
 ### 5.15 Nodes (`/admin/nodes`, `/admin/nodes/:nodeId`)
 
-- `NodeTable` from `listNodes` (filters state, pool): name (mono) + "built-in" pill, state badge, cordoned
+- `NodeTable` from `listNodes` (filters state, pool; a filter change reads the list at once, and only the
+  latest read is applied; a pool that is no slug shows "A pool is 1–64 lowercase letters, digits or
+  hyphens." under the filter instead of a request): name (mono) + "built-in" pill, state badge, cordoned
   badge, pool, labels (chips), arch, CPUs, memory, free disk, workers `activeWorkers / capacity`, DinD
   mode, version, last seen (relative), warnings: egress deny not applied (`info.egressDenyApplied ===
   false`), clock offset > 2 s.

@@ -127,7 +127,19 @@ async function remove(node: ScantorNode): Promise<void> {
       <UDashboardToolbar>
         <div class="flex flex-wrap items-center gap-2">
           <USelect v-model="stateFilter" :items="STATE_ITEMS" aria-label="Filter by state" size="sm" class="w-36" />
-          <UInput v-model="poolFilter" icon="i-lucide-filter" placeholder="Pool" aria-label="Filter by pool" size="sm" class="w-40 font-mono" />
+          <UInput
+            v-model="poolFilter"
+            icon="i-lucide-filter"
+            placeholder="Pool"
+            aria-label="Filter by pool"
+            size="sm"
+            class="w-40 font-mono"
+            :color="nodes.filterProblem.value ? 'error' : undefined"
+            :highlight="Boolean(nodes.filterProblem.value)"
+            :aria-invalid="Boolean(nodes.filterProblem.value)"
+            :aria-describedby="nodes.filterProblem.value ? 'pool-filter-problem' : undefined"
+          />
+          <p v-if="nodes.filterProblem.value" id="pool-filter-problem" class="text-xs text-error" role="alert">{{ nodes.filterProblem.value }}</p>
         </div>
       </UDashboardToolbar>
     </template>
