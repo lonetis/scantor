@@ -296,6 +296,11 @@ const RATE_LIMIT = {
 }
 ```
 
+`SCANTOR_AUTH_RATE_LIMIT_SCALE` multiplies every `max` above (the default and each custom rule; the windows
+stay) in `rateLimitConfig` (`auth-policy.ts`). Only the dockerized test stack raises it, because the whole
+suite signs in from one client IP ([testing](testing.md) §7.3); `security/rate-limits.spec.ts` checks the
+real limits on a throwaway orchestrator with the factor 1.
+
 The OAuth provider's built-in per-endpoint limits (token, authorize, introspect, revoke) stay at their
 defaults. API keys have no per-key limit; the scantor API protects itself with concurrency caps
 (`SCANTOR_MAX_CONCURRENT_WAITS`, `SCANTOR_USER_MAX_CONCURRENT_QUERIES`) and body caps. Exceeding a limit
