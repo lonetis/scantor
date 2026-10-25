@@ -102,6 +102,14 @@ func TestTruncation(t *testing.T) {
 	if string(TruncateDetails(json.RawMessage(`{ "a" : 1 }`), MaxDetailsBytes)) != `{"a":1}` {
 		t.Fatal("details not compacted")
 	}
+	// Measured as the message body carries it: < > & are not HTML-escaped (6 bytes each).
+	markup := `{"html":"` + strings.Repeat("<&>", MaxDetailsBytes/3-5) + `"}`
+	if got := string(TruncateDetails(json.RawMessage(markup), MaxDetailsBytes)); got != markup {
+		t.Fatalf("details of %d bytes with markup: %.40s…", len(markup), got)
+	}
+	if got := string(New(api.ErrorValidation, api.PhaseValidate, "x").WithDetails(map[string]string{"a": "<b>"}).Details); got != `{"a":"<b>"}` {
+		t.Fatalf("WithDetails %s", got)
+	}
 	if string(TruncateDetails(json.RawMessage(`[1]`), MaxDetailsBytes)) != `{"truncated":true}` {
 		t.Fatal("non-object details kept")
 	}

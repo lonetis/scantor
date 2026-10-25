@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"encoding/json"
 	"strconv"
 
@@ -37,6 +38,19 @@ const HeaderDeliveryTime = "x-opt-delivery-time"
 // ContentTypeJSON is the content type of every body.
 const ContentTypeJSON = "application/json"
 
+// EncodeMessage encodes an AMQP body without HTML escaping. encoding/json's default turns every <, > and & in
+// results, configs and log tails into a 6-byte escape, so a body would outgrow the compact JSON that the size
+// limits measure.
+func EncodeMessage(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
+}
+
 // AnalysisMessage is the body of an analysis message on scantor.analyses. Consumers ignore unknown
 // fields.
 type AnalysisMessage struct {
@@ -70,7 +84,7 @@ func (e MessageError) MarshalJSON() ([]byte, error) {
 	if len(p.Details) == 0 {
 		p.Details = json.RawMessage("null")
 	}
-	return json.Marshal(p)
+	return EncodeMessage(p)
 }
 
 // Timings are the timings of one attempt (epoch ms).
@@ -113,7 +127,7 @@ func (m ResultMessage) MarshalJSON() ([]byte, error) {
 	if p.Files == nil {
 		p.Files = []api.FileRef{}
 	}
-	return json.Marshal(p)
+	return EncodeMessage(p)
 }
 
 // AttemptMessage is the body of an attempt event on scantor.results (kind "attempt"): a retryable

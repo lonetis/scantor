@@ -2,7 +2,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -473,7 +472,7 @@ func (s *Scheduler) runOnce(ctx context.Context, attempt int) error {
 			s.abandon(src)
 			return scerr.Newf(api.ErrorValidation, api.PhaseSchedule, "analysis config %d: %v", seq, err)
 		}
-		body, err := json.Marshal(runtime.AnalysisMessage{
+		body, err := runtime.EncodeMessage(runtime.AnalysisMessage{
 			V: runtime.MessageVersion, AnalysisID: runtime.AnalysisID(s.boot.Worker.ScanID, seq), ScanID: s.boot.Worker.ScanID,
 			Seq: seq, Round: s.boot.Scan.Round, Attempt: 1, Config: cfg, ScheduledAt: s.cfg.Now().UnixMilli(),
 		})

@@ -68,7 +68,7 @@ func (e ScantorError) WithDetails(v any) ScantorError {
 		e.Details = nil
 		return e
 	}
-	b, err := json.Marshal(v)
+	b, err := runtime.EncodeMessage(v)
 	if err != nil {
 		e.Details = json.RawMessage(`{"detailsError":"unencodable details"}`)
 		return e
@@ -211,7 +211,7 @@ func TruncateDetails(d json.RawMessage, limit int) json.RawMessage {
 	if err := json.Unmarshal(d, &obj); err != nil || obj == nil {
 		return json.RawMessage(`{"truncated":true}`)
 	}
-	compact, err := json.Marshal(obj)
+	compact, err := runtime.EncodeMessage(obj) // the size it has in the message body
 	if err != nil || len(compact) > limit {
 		return json.RawMessage(`{"truncated":true}`)
 	}

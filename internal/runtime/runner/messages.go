@@ -149,7 +149,7 @@ func resultBody(id identity, t runtime.Timings, result json.RawMessage, e *scerr
 		me := e.AMQP()
 		msg.Error = &me
 	}
-	b, err := json.Marshal(msg)
+	b, err := runtime.EncodeMessage(msg)
 	if err != nil {
 		v := scerr.New(api.ErrorValidation, api.PhaseValidate, "result message cannot be encoded: "+err.Error())
 		return nil, &v
@@ -169,7 +169,7 @@ func resultBody(id identity, t runtime.Timings, result json.RawMessage, e *scerr
 		} else {
 			return nil
 		}
-		out, err := json.Marshal(msg)
+		out, err := runtime.EncodeMessage(msg)
 		if err != nil {
 			return nil
 		}
@@ -188,7 +188,7 @@ func resultBody(id identity, t runtime.Timings, result json.RawMessage, e *scerr
 
 // attemptBody builds the attempt event of a retried failure.
 func attemptBody(id identity, t runtime.Timings, e scerr.ScantorError, logTail string) ([]byte, error) {
-	return json.Marshal(runtime.AttemptMessage{
+	return runtime.EncodeMessage(runtime.AttemptMessage{
 		V: runtime.MessageVersion, Kind: runtime.KindAttempt, AnalysisID: runtime.AnalysisID(id.ScanID, id.Seq),
 		ScanID: id.ScanID, Seq: id.Seq, Round: id.Round, Attempt: id.Attempt, ExecutionID: id.ExecutionID,
 		WorkerID: id.WorkerID, NodeID: id.NodeID, Config: id.Config, Error: e.AMQP(), LogTail: logTail, Timings: t,
@@ -197,7 +197,7 @@ func attemptBody(id identity, t runtime.Timings, e scerr.ScantorError, logTail s
 
 // retryBody builds the republished analysis message (attempt + 1, same seq, round, config, scheduledAt).
 func retryBody(id identity) ([]byte, error) {
-	return json.Marshal(runtime.AnalysisMessage{
+	return runtime.EncodeMessage(runtime.AnalysisMessage{
 		V: runtime.MessageVersion, AnalysisID: runtime.AnalysisID(id.ScanID, id.Seq), ScanID: id.ScanID, Seq: id.Seq,
 		Round: id.Round, Attempt: id.Attempt + 1, Config: id.Config, ScheduledAt: id.ScheduledAt,
 	})

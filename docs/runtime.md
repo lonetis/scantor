@@ -698,9 +698,11 @@ The outcome (after §8.7 and §8.8) leads to exactly one of three publish plans.
 | **retry** | retryable error and `attempt < settings.maxAttempts` | (1) attempt event `{kind: "attempt", error, logTail ≤ logTailEarlierBytes}` to `scantor.results`; (2) the analysis message with `attempt + 1` (same `seq`, `round`, `config`, `scheduledAt`) to `scantor.analyses`, header `x-opt-delivery-time` (§10.2) | ack |
 | **failed** | non-retryable error, or retryable with `attempt == settings.maxAttempts` | result `{kind: "result", status: "failed", error, files: [], logTail ≤ logTailBytes}` to `scantor.results` | ack |
 
-Building the result message: if its serialized size exceeds `limits.maxResultMessageBytes`, the runtime first
-shortens `logTail` (keeping the end), then error `details`, then `stack`; if it is still too large, the plan
-becomes **failed** with `validation` "result message exceeds <max> bytes".
+Building the result message: every AMQP body is compact JSON without HTML escaping (`<`, `>` and `&` stay one
+byte), so a result within `limits.maxResultBytes` keeps its size in the message. If the serialized size exceeds
+`limits.maxResultMessageBytes`, the runtime first shortens `logTail` (keeping the end), then error `details`,
+then `stack`; if it is still too large, the plan becomes **failed** with `validation` "result message exceeds
+<max> bytes".
 
 Publish outcomes:
 
