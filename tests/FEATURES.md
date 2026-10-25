@@ -847,7 +847,7 @@ Mechanisms: [ui](../docs/ui.md) §5.13.2–§5.13.6.
 - **UI-RES-012** [ui] The drawer's log view shows the final log tail with "Wrap lines" and "Follow log", or "No output captured."
 - **UI-RES-013** [ui, security] A file chip shows name, size and type; "Download <name>" downloads through a presigned URL, and png, jpeg, gif and webp files show a preview image with `referrerpolicy=no-referrer` ("Preview unavailable." on failure).
 - **UI-RES-014** [ui] The query console has Query (filter, projection, sort, limit, after seq) and Aggregate (pipeline, limit) modes; invalid JSON disables "Run query", and Ctrl/⌘+Enter runs it.
-- **UI-RES-015** [ui] Query output shows `N items` as JSON or, for flat items, as a table; "Load more" follows the cursor for unsorted queries, and a cut aggregation shows "Output truncated".
+- **UI-RES-015** [ui] Query output shows `N items` as JSON or, for flat items, as a table; "Load more" follows the cursor of the query that was run (not of edited, unrun editors) for unsorted queries, and a cut aggregation shows "Output truncated".
 - **UI-RES-016** [ui, security] Query errors stay inline: a rejected operator shows under its editor with `(at <path>)`, timeouts and rate limits show as an alert, and a filter naming another scan returns no rows.
 - **UI-RES-017** [ui] The last 20 queries per scan are kept, "Recent queries" restores one, `?filter=<json>` prefills the filter once, and "Export these results" opens the export dialog with the filter.
 - **UI-RES-018** [ui] The Workers tab shows `N active · N pending · N desired` and a table of workers (role, state, node, processes, restarts, last exit with an OOM badge, runtime version, last seen), filtered to non-terminal states by default.

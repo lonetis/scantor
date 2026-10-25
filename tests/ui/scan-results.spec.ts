@@ -490,8 +490,13 @@ test.describe('results of a finished scan', () => {
       await expect(results.getByRole('columnheader', { name: 'seq', exact: true })).toBeVisible()
       await expect(results.getByRole('columnheader', { name: 'status', exact: true })).toBeVisible()
       await expect(results.locator('tbody tr')).toHaveCount(2)
+      // "Load more" continues the query that was run, also after the editors changed without running.
+      await filter.fill('{"status": "failed"}')
+      const more = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === `/api/scans/${scan.id}/analyses/query`)
       await page.getByRole('button', { name: 'Load more' }).click()
+      expect((await more).postDataJSON()).toEqual(expect.objectContaining({ filter: { status: 'succeeded' }, projection: { seq: 1, status: 1 }, limit: 2, afterSeq: expect.any(Number) }))
       await expect(queryOutput(page)).toHaveText(`${SUCCEEDED.length} items`)
+      await filter.fill('{"status": "succeeded"}')
 
       // Nested items have no table view: they stay JSON.
       await queryEditor(page, 'Projection').fill('{"result": 1}')

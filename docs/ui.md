@@ -569,7 +569,8 @@ Actions: "Copy as JSON", "Query similar" (opens the query tab with `{"error.type
   (default `[{"$group": {"_id": "$error.type", "n": {"$sum": 1}}}]`) and `limit`.
 - "Run" (aria "Run query", `Ctrl/⌘+Enter`) → `queryAnalyses` / `aggregateAnalyses`. Output toggle
   "JSON | Table" (table only when items are flat objects); "Load more" uses `nextCursor` (query mode
-  without `sort`); `truncated` notice for aggregations.
+  without `sort`) with the body of the query that produced the shown items, also after the editors
+  changed; `truncated` notice for aggregations.
 - Errors stay inline (no toast): `400 queryRejected` highlights `details.path`, `504 queryTimeout`, `429
   tooManyRequests`.
 - "Export these results" (query mode) opens `ExportModal` with the filter prefilled.

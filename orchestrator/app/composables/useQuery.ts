@@ -1,4 +1,4 @@
-import type { MaybeRefOrGetter } from 'vue'
+import { computed, reactive, ref, shallowRef, toRaw, toValue, type MaybeRefOrGetter } from 'vue'
 
 // State of the query console (docs/ui.md §5.13.4): JSON editors for queryAnalyses (filter, projection, sort, limit,
 // afterSeq) and aggregateAnalyses (pipeline, limit), "Load more" over `nextCursor`, inline errors with the editor
@@ -16,6 +16,15 @@ export interface QueryInputs {
   afterSeq: number | null
   pipeline: string
   aggregateLimit: number | null
+}
+
+/** The body of queryAnalyses. */
+export interface QueryBody {
+  filter: Record<string, unknown>
+  projection?: Record<string, unknown>
+  sort?: Record<string, unknown>
+  limit: number
+  afterSeq?: number
 }
 
 export const QUERY_DEFAULT_LIMIT = 20
@@ -96,6 +105,8 @@ export function useQuery(scanId: MaybeRefOrGetter<string>) {
   const error = shallowRef<ApiError | null>(null)
   /** The mode of the shown output (inputs may have switched since). */
   const resultMode = ref<QueryMode>('query')
+  /** The query that produced the shown items: "Load more" continues it, whatever the editors hold now. */
+  let shownQuery: QueryBody | null = null
   let generation = 0
 
   const parsed = computed(() => ({
@@ -123,8 +134,8 @@ export function useQuery(scanId: MaybeRefOrGetter<string>) {
 
   const recent = computed(() => prefs.getQueries(toValue(scanId)).filter(isQueryInputs))
 
-  function queryBody(afterSeq: number | null) {
-    const body: { filter: Record<string, unknown>, projection?: Record<string, unknown>, sort?: Record<string, unknown>, limit: number, afterSeq?: number } = {
+  function queryBody(afterSeq: number | null): QueryBody {
+    const body: QueryBody = {
       filter: parsed.value.filter.value as Record<string, unknown>,
       limit: Math.min(Math.max(1, Math.trunc(inputs.limit) || QUERY_DEFAULT_LIMIT), QUERY_MAX_LIMIT),
     }
@@ -141,11 +152,13 @@ export function useQuery(scanId: MaybeRefOrGetter<string>) {
     error.value = null
     try {
       if (inputs.mode === 'query') {
-        const result = await analyses.query(queryBody(inputs.afterSeq))
+        const body = queryBody(inputs.afterSeq)
+        const result = await analyses.query(body)
         if (current !== generation) return
         items.value = result.items
         nextCursor.value = result.nextCursor
         truncated.value = false
+        shownQuery = body
       } else {
         const body: { pipeline: Record<string, unknown>[], limit?: number } = { pipeline: parsed.value.pipeline.value as Record<string, unknown>[] }
         if (inputs.aggregateLimit) body.limit = inputs.aggregateLimit
@@ -154,6 +167,7 @@ export function useQuery(scanId: MaybeRefOrGetter<string>) {
         items.value = result.items
         nextCursor.value = null
         truncated.value = result.truncated
+        shownQuery = null
       }
       resultMode.value = inputs.mode
       ranOnce.value = true
@@ -165,13 +179,13 @@ export function useQuery(scanId: MaybeRefOrGetter<string>) {
     }
   }
 
-  /** Next page of a query without sort (`nextCursor` is the last seq). */
+  /** Next page of the shown query (without sort; `nextCursor` is the last seq), even when the editors changed since. */
   async function loadMore(): Promise<void> {
-    if (!nextCursor.value || running.value || resultMode.value !== 'query' || !valid.value) return
+    if (!nextCursor.value || running.value || resultMode.value !== 'query' || !shownQuery) return
     const current = ++generation
     running.value = true
     try {
-      const result = await analyses.query(queryBody(Number(nextCursor.value)))
+      const result = await analyses.query({ ...shownQuery, afterSeq: Number(nextCursor.value) })
       if (current !== generation) return
       items.value = [...items.value, ...result.items]
       nextCursor.value = result.nextCursor
