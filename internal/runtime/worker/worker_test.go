@@ -14,6 +14,7 @@ import (
 	"github.com/lonetis/scantor/internal/api"
 	"github.com/lonetis/scantor/internal/runtime"
 	"github.com/lonetis/scantor/internal/runtime/internal/fakeapi"
+	"github.com/lonetis/scantor/internal/runtime/runner"
 )
 
 const workerID = "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d"
@@ -105,4 +106,24 @@ func TestAMQPTransportRefusedIsReported(t *testing.T) {
 			t.Fatalf("reports %+v", s.Errors)
 		}
 	})
+}
+
+// The AMQP callbacks run on the connection goroutine, which starts before the role exists: they read the role
+// without a race, and a stop that came first stops the role once it is set.
+func TestRoleIsSetSafely(t *testing.T) {
+	boot := &api.Bootstrap{Worker: api.BootstrapWorker{ID: workerID, Role: api.RoleRunner, ScanID: "s"}}
+	w := &worker{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w.reconnected()
+		w.accessRefused(0)
+		w.stop()
+	}()
+	r := runner.New(runner.Config{Boot: boot})
+	w.setRunner(r)
+	<-done
+	if !r.Stopping() {
+		t.Fatal("a stop before the role existed did not stop the runner")
+	}
 }

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -104,8 +105,11 @@ type worker struct {
 	conn   *amqpx.Conn
 	daemon *dind.Daemon
 
-	runner *runner.Worker
-	sched  *scheduler.Scheduler
+	// The role, set once before it starts. The AMQP callbacks run on the connection goroutine, which starts
+	// earlier, so every access is atomic; stopped records a stop that came before the role existed.
+	runner  atomic.Pointer[runner.Worker]
+	sched   atomic.Pointer[scheduler.Scheduler]
+	stopped atomic.Bool
 	// handoff ends the start-up signal handling (earlySignals).
 	handoff func()
 
@@ -294,8 +298,8 @@ func (w *worker) connect(ctx context.Context) (int, bool) {
 
 // accessRefused handles reconnects refused with ACCESS_REFUSED (docs/runtime.md §6.6 step 4).
 func (w *worker) accessRefused(streak time.Duration) {
-	if w.runner != nil {
-		w.runner.Abort()
+	if r := w.runner.Load(); r != nil {
+		r.Abort()
 	}
 	if w.poller != nil {
 		w.poller.PollNow()
@@ -307,31 +311,48 @@ func (w *worker) accessRefused(streak time.Duration) {
 }
 
 func (w *worker) reconnected() {
-	if w.runner != nil {
-		w.runner.Resume()
+	if r := w.runner.Load(); r != nil {
+		r.Resume()
 	}
 }
 
-// stop ends the worker with exit 0 (state `stop`, 401, persistent ACCESS_REFUSED).
+// stop ends the worker with exit 0 (state `stop`, 401, persistent ACCESS_REFUSED). A role that does not
+// exist yet stops as soon as it is set (setRunner, setScheduler).
 func (w *worker) stop() {
-	switch {
-	case w.runner != nil:
-		w.runner.Stop()
-	case w.sched != nil:
-		w.sched.Stop()
+	w.stopped.Store(true)
+	if r := w.runner.Load(); r != nil {
+		r.Stop()
+	}
+	if s := w.sched.Load(); s != nil {
+		s.Stop()
+	}
+}
+
+func (w *worker) setRunner(r *runner.Worker) {
+	w.runner.Store(r)
+	if w.stopped.Load() {
+		r.Stop()
+	}
+}
+
+func (w *worker) setScheduler(s *scheduler.Scheduler) {
+	w.sched.Store(s)
+	if w.stopped.Load() {
+		s.Stop()
 	}
 }
 
 func (w *worker) drain(now bool) {
+	r, s := w.runner.Load(), w.sched.Load()
 	switch {
-	case w.runner != nil && now:
-		w.runner.DrainNow()
-	case w.runner != nil:
-		w.runner.Drain()
-	case w.sched != nil && now:
-		w.sched.DrainNow()
-	case w.sched != nil:
-		w.sched.Drain()
+	case r != nil && now:
+		r.DrainNow()
+	case r != nil:
+		r.Drain()
+	case s != nil && now:
+		s.DrainNow()
+	case s != nil:
+		s.Drain()
 	}
 }
 
@@ -343,8 +364,8 @@ func (w *worker) handleState(resp *api.RuntimeStateResponse) {
 	case api.ActionDrain:
 		w.drain(false)
 	case api.ActionRun:
-		if w.runner != nil && resp.Processes > 0 {
-			w.runner.Resize(resp.Processes)
+		if r := w.runner.Load(); r != nil && resp.Processes > 0 {
+			r.Resize(resp.Processes)
 		}
 	}
 }
@@ -355,11 +376,10 @@ func (w *worker) stateRequest() api.RuntimeStateRequest {
 	if free, err := freeSpace(w.cfg.WorkRoot); err == nil {
 		req.TmpFreeBytes = free
 	}
-	switch {
-	case w.runner != nil:
-		req.Processes, req.Busy, req.Consuming, req.Counters = w.runner.State()
-	case w.sched != nil:
-		procs, progress := w.sched.State()
+	if r := w.runner.Load(); r != nil {
+		req.Processes, req.Busy, req.Consuming, req.Counters = r.State()
+	} else if s := w.sched.Load(); s != nil {
+		procs, progress := s.State()
 		req.Processes, req.Scheduler = procs, &progress
 	}
 	return req
@@ -476,7 +496,7 @@ func (w *worker) runRunner(ctx context.Context, publisher *amqpx.Publisher, aux 
 		Presigner: w.api, HTTP: w.api.HTTPClient(), Policy: w.policy,
 		Timeout: time.Duration(b.Uploads.TimeoutMs) * time.Millisecond, Now: w.api.Clock().Now, Logger: w.log,
 	}
-	w.runner = runner.New(runner.Config{
+	r := runner.New(runner.Config{
 		Boot: b, WorkRoot: w.cfg.WorkRoot, Spawner: w.launcher(),
 		Broker:   runner.AMQPBroker{Conn: w.conn, Publisher: publisher, Queue: b.AMQP.Queue},
 		Uploader: uploader, Status: w.api.AnalysesStatus, Now: w.api.Clock().Now, PollNow: func() { w.poller.PollNow() },
@@ -487,8 +507,9 @@ func (w *worker) runRunner(ctx context.Context, publisher *amqpx.Publisher, aux 
 		Probe:     w.poller.Poll,
 		Logger:    w.log,
 	})
-	uploader.OnTransient = func(err error) { w.runner.Health().Transient(api.PhaseUpload, err) }
-	if err := w.runner.Start(ctx); err != nil {
+	uploader.OnTransient = func(err error) { r.Health().Transient(api.PhaseUpload, err) }
+	w.setRunner(r)
+	if err := r.Start(ctx); err != nil {
 		var se *runner.StartError
 		if errors.As(err, &se) && ctx.Err() == nil {
 			w.reportSpawnFailure(ctx, se.Err)
@@ -502,7 +523,7 @@ func (w *worker) runRunner(ctx context.Context, publisher *amqpx.Publisher, aux 
 	done := make(chan struct{})
 	aux.Go(func() { w.poller.Run(ctx) })
 	aux.Go(func() { w.watch(ctx, done) })
-	w.runner.Run(ctx)
+	r.Run(ctx)
 	close(done)
 	return w.exit()
 }
@@ -520,16 +541,17 @@ func (w *worker) runScheduler(ctx context.Context, publisher *amqpx.Publisher, a
 		w.fatal(ctx, scerr.Newf(api.ErrorPlatform, api.PhaseBootstrap, "%v", err), "")
 		return ExitFatal
 	}
-	w.sched = scheduler.New(scheduler.Config{
+	s := scheduler.New(scheduler.Config{
 		Boot: b, Publisher: publisher, Depth: amqpx.Queue{Conn: w.conn, Name: b.AMQP.Queue}, API: w.api, Spawner: w.launcher(), Env: env, Now: w.api.Clock().Now,
 		PollNow: func() { w.poller.PollNow() }, WorkRoot: w.cfg.WorkRoot, Logger: w.log,
 	})
+	w.setScheduler(s)
 	// The scheduler handles signals as a drain from its start-up on (the watch loop).
 	w.handoff()
 	done := make(chan struct{})
 	aux.Go(func() { w.poller.Run(ctx) })
 	aux.Go(func() { w.watch(ctx, done) })
-	err = w.sched.Run(ctx)
+	err = s.Run(ctx)
 	close(done)
 	if err != nil {
 		if ctx.Err() != nil {
