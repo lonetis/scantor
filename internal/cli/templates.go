@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	registerGroup("", "templates", "List scan templates and estimate scan sizes", false)
+	registerGroup("", "templates", "List the templates and estimate scan sizes", false)
 	registerCommand("templates", newTemplatesListCommand)
 	registerCommand("templates", newTemplatesEstimateCommand)
 }
@@ -27,8 +27,8 @@ const templatesMaxConfigBytes = 16 << 20
 func newTemplatesListCommand(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
-		Short: "List the scan templates",
-		Long: "List the built-in scan templates with their scan and analysis config schemas.\n\n" +
+		Short: "List the templates",
+		Long: "List the built-in templates with their scan and analysis config schemas.\n\n" +
 			"With -o json the output is {\"items\": [...]} with the fields of GET /api/templates " +
 			"(name, title, description, scanConfigSchema, analysisConfigSchema, example, resolves) plus " +
 			"version, estimate, dataSources and uploads.",

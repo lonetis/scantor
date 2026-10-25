@@ -61,7 +61,7 @@ scantor [flags]
 * [scantor revisions](#scantor-revisions)	 - Publish and inspect task revisions
 * [scantor scans](#scantor-scans)	 - Start, follow and control scans
 * [scantor tasks](#scantor-tasks)	 - Manage tasks and their workspace files
-* [scantor templates](#scantor-templates)	 - List scan templates and estimate scan sizes
+* [scantor templates](#scantor-templates)	 - List the templates and estimate scan sizes
 * [scantor uploads](#scantor-uploads)	 - Upload list files for scans of the list template
 * [scantor validate](#scantor-validate)	 - Run every publish check on a task folder with local Docker
 * [scantor version](#scantor-version)	 - Print the scantor version
@@ -2777,7 +2777,7 @@ scantor tasks pull <task> [flags]
 
 ## scantor templates
 
-List scan templates and estimate scan sizes
+List the templates and estimate scan sizes
 
 ```
 scantor templates [flags]
@@ -2799,7 +2799,7 @@ scantor templates [flags]
 
 * [scantor](#scantor)	 - Run scanning tasks at scale
 * [scantor templates estimate](#scantor-templates-estimate)	 - Validate a scan config and estimate the number of analyses
-* [scantor templates list](#scantor-templates-list)	 - List the scan templates
+* [scantor templates list](#scantor-templates-list)	 - List the templates
 
 
 ## scantor templates estimate
@@ -2845,16 +2845,16 @@ scantor templates estimate <template> [flags]
 
 ### SEE ALSO
 
-* [scantor templates](#scantor-templates)	 - List scan templates and estimate scan sizes
+* [scantor templates](#scantor-templates)	 - List the templates and estimate scan sizes
 
 
 ## scantor templates list
 
-List the scan templates
+List the templates
 
 ### Synopsis
 
-List the built-in scan templates with their scan and analysis config schemas.
+List the built-in templates with their scan and analysis config schemas.
 
 With -o json the output is {"items": [...]} with the fields of GET /api/templates (name, title, description, scanConfigSchema, analysisConfigSchema, example, resolves) plus version, estimate, dataSources and uploads.
 
@@ -2876,7 +2876,7 @@ scantor templates list [flags]
 
 ### SEE ALSO
 
-* [scantor templates](#scantor-templates)	 - List scan templates and estimate scan sizes
+* [scantor templates](#scantor-templates)	 - List the templates and estimate scan sizes
 
 
 ## scantor uploads
