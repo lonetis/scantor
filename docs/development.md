@@ -31,8 +31,14 @@ devcontainer (§2) or run `just deps` (installs `node_modules` for IDEs, in a co
   "name": "scantor",
   "build": { "dockerfile": "../editor/Dockerfile", "context": "..", "target": "toolchain" },
   "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "vscode", "userUid": "1000", "userGid": "1000",
+      "installZsh": false, "installOhMyZsh": false, "upgradePackages": false
+    },
     "ghcr.io/devcontainers/features/docker-in-docker:4": { "moby": false }
   },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
@@ -54,6 +60,12 @@ devcontainer (§2) or run `just deps` (installs `node_modules` for IDEs, in a co
   stage makes these paths writable by the container user (owned by uid 1000).
 - The docker-in-docker feature gives the devcontainer its own Docker daemon, so `just up`, `just test`
   and the dockerized test runner work unchanged inside it.
+- The devcontainer runs as `vscode`, a non-root user that the `common-utils` feature creates with uid 1000
+  (the `toolchain` stage has no user of its own; the `editor` stage adds `coder` with the same uid) and
+  passwordless sudo; the docker-in-docker feature adds it to the `docker` group. On Linux,
+  `updateRemoteUserUID` gives it the host user's uid, so the recipes' `-u "$(id -u):$(id -g)"` (§3) and
+  `post-create.sh` leave `.env`, `node_modules/` and `bin/` in the bind-mounted checkout owned by the
+  contributor, never by root.
 - `.devcontainer/post-create.sh` makes the repository's connectors live at the well-known paths, so edits
   are visible to IntelliSense, `dev run` builds in the devcontainer and the language servers without a
   rebuild:
@@ -62,11 +74,13 @@ devcontainer (§2) or run `just deps` (installs `node_modules` for IDEs, in a co
 #!/usr/bin/env bash
 set -euo pipefail
 repo="$(pwd)"
-uv pip install --system --break-system-packages --no-deps --editable "$repo/connectors/python"
+# as_owner runs a command directly while the user can write the uid-1000 connector paths, otherwise with
+# sudo (a user remapped to another host uid)
+as_owner uv pip install --system --break-system-packages --no-deps --editable "$repo/connectors/python"
 # The image ships real directories at these paths; ln -sfn would create the link inside them.
-rm -rf /node_modules/@scantor/connector /opt/scantor/connectors/go
-ln -sfn "$repo/connectors/js" /node_modules/@scantor/connector
-ln -sfn "$repo/connectors/go" /opt/scantor/connectors/go
+as_owner rm -rf /node_modules/@scantor/connector /opt/scantor/connectors/go
+as_owner ln -sfn "$repo/connectors/js" /node_modules/@scantor/connector
+as_owner ln -sfn "$repo/connectors/go" /opt/scantor/connectors/go
 just init
 just deps
 ```

@@ -1,11 +1,19 @@
 // Development container of this repository (docs/development.md §2): the toolchain stage of
-// editor/Dockerfile plus its own Docker daemon, so every just recipe works unchanged inside it.
+// editor/Dockerfile plus its own Docker daemon, so every just recipe works unchanged inside it. It runs
+// as the non-root user vscode (uid 1000, remapped to the host user's uid on Linux), so files the recipes
+// write into the bind-mounted checkout stay owned by the contributor.
 {
   "name": "scantor",
   "build": { "dockerfile": "../editor/Dockerfile", "context": "..", "target": "toolchain" },
   "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "username": "vscode", "userUid": "1000", "userGid": "1000",
+      "installZsh": false, "installOhMyZsh": false, "upgradePackages": false
+    },
     "ghcr.io/devcontainers/features/docker-in-docker:4": { "moby": false }
   },
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "customizations": {
     "vscode": {
