@@ -29,6 +29,9 @@ code_server_image := "codercom/code-server:4.141.0"
 # docker run as the invoking user with the repository at /src (docs/development.md §3).
 run := 'docker run --rm --init -u "$(id -u):$(id -g)" -e HOME=/tmp -v ' + quote(root) + ':/src -w /src --label scantor.dev=true'
 go_caches := "-v scantor-dev-gomod:/go/pkg/mod -v scantor-dev-gobuild:/tmp/.cache/go-build"
+# golangci-lint analyses with the Go of its image: GOTOOLCHAIN=local keeps the go command from downloading the
+# go.mod toolchain, which cannot be verified without a writable GOPATH when the container runs as the user.
+golangci_env := "-e GOLANGCI_LINT_CACHE=/tmp/golangci-lint -e GOTOOLCHAIN=local"
 npm_cache := "-v scantor-dev-npm:/tmp/.npm"
 uv_cache := "-v scantor-dev-uv:/tmp/.cache/uv"
 cache_volumes := "scantor-dev-gomod scantor-dev-gobuild scantor-dev-npm scantor-dev-uv"
@@ -264,7 +267,7 @@ lint: _caches
     set -euo pipefail
     for module in . connectors/go; do
       echo "==> golangci-lint ($module)"
-      {{run}} {{go_caches}} -e GOLANGCI_LINT_CACHE=/tmp/golangci-lint -w "/src/$module" {{golangci_image}} \
+      {{run}} {{go_caches}} {{golangci_env}} -w "/src/$module" {{golangci_image}} \
         golangci-lint run ./...
     done
     echo "==> ruff check"
@@ -308,7 +311,7 @@ fmt: _caches
     set -euo pipefail
     for module in . connectors/go; do
       echo "==> golangci-lint fmt ($module)"
-      {{run}} {{go_caches}} -e GOLANGCI_LINT_CACHE=/tmp/golangci-lint -w "/src/$module" {{golangci_image}} \
+      {{run}} {{go_caches}} {{golangci_env}} -w "/src/$module" {{golangci_image}} \
         golangci-lint fmt ./...
     done
     echo "==> ruff format"

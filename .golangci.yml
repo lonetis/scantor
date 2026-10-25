@@ -39,6 +39,11 @@ linters:
       - path: _test\.go
         linters:
           - gosec
+      # So does the fixtures server of the test stack (tests/docker/fixtures): it serves test repositories through
+      # git's CGI backend, under names its routes validate.
+      - path: ^tests/
+        linters:
+          - gosec
 
 formatters:
   enable:
