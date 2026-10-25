@@ -52,6 +52,7 @@ type spawner struct {
 	mode  string
 	fail  atomic.Int32 // fail the next n spawns
 	count atomic.Int32
+	last  atomic.Pointer[pool.Process] // the last process that completed the handshake
 }
 
 func (s *spawner) Spawn(ctx context.Context, slot, gen int, output pool.Sink) (*pool.Process, error) {
@@ -62,22 +63,30 @@ func (s *spawner) Spawn(ctx context.Context, slot, gen int, output pool.Sink) (*
 		mode = "exitbeforeready"
 	}
 	argv, extra := fakeconn.Command(mode)
-	return pool.Spawn(ctx, pool.Options{
+	p, err := pool.Spawn(ctx, pool.Options{
 		Argv: argv, Env: append(os.Environ(), extra...), Dir: os.TempDir(), Mode: protocol.ModeWorker, RuntimeVersion: "1.0.0",
 		Limits: protocol.Limits{MaxResultBytes: 1 << 20, MaxAnalysisConfigBytes: 1 << 16, MaxFileBytes: 1 << 20, MaxFilesPerAnalysis: 10},
 		Output: output, HelloTimeout: 10 * time.Second, ReadyTimeout: 10 * time.Second,
 	})
+	if err == nil {
+		s.last.Store(p)
+	}
+	return p, err
 }
 
 type fakeUploader struct {
 	mu    sync.Mutex
 	calls []upload.Target
 	err   error
+	wait  func() // runs before every upload
 }
 
 func (u *fakeUploader) Upload(_ context.Context, t upload.Target, _ []upload.File) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	if u.wait != nil {
+		u.wait()
+	}
 	u.calls = append(u.calls, t)
 	return u.err
 }
@@ -570,6 +579,28 @@ func TestLaterSpawnFailuresMakeTheWorkerUnhealthy(t *testing.T) {
 	reason, _ := h.w.Health().Reason()
 	if reason.Phase != api.PhaseBootstrap {
 		t.Fatalf("reason %+v", reason)
+	}
+}
+
+// A process that dies after its reply is respawned without a consumer: no delivery waits in the slot's channel
+// through the respawn backoff, also not after the failed respawns made the worker unhealthy (docs/runtime.md §7.3,
+// §7.5, §12).
+func TestRespawnHoldsNoDelivery(t *testing.T) {
+	h := newHarness(t, "ok")
+	h.start()
+	h.spawner.fail.Store(1000)
+	h.uploader.wait = func() { <-h.spawner.last.Load().Exited() } // the process is gone before the result is published
+	h.b.Enqueue(analysisBody(1, 1, `{"mode":"file","files":[{"name":"a.bin","content":"abc"}],"exitAfterReply":true}`))
+	h.waitPublished(runtime.TypeResult, 1)
+	waitFor(t, "a failed respawn", func() bool { return h.spawner.count.Load() >= 2 })
+	h.b.Enqueue(analysisBody(2, 1, `{}`))
+	waitFor(t, "unhealthy", func() bool { return !h.w.Health().Healthy() })
+	time.Sleep(100 * time.Millisecond)
+	if r, _ := h.b.Ready(); r != 1 || h.b.Consumers() != 0 {
+		t.Fatalf("%d ready, %d consumers: the respawning slot holds the delivery", r, h.b.Consumers())
+	}
+	if n := len(h.published(runtime.TypeResult)); n != 1 {
+		t.Fatalf("%d results", n)
 	}
 }
 

@@ -498,8 +498,9 @@ Graceful shutdown: send `shutdown {graceMs: 5000}` ([protocol](protocol.md) §5.
 exit, then `kill(-pgid, SIGKILL)` and reap. Its `proc-<s>-<g>` directory is removed.
 
 Recycling never holds a queued message: when the slot knows the process must be replaced after the current
-analysis, it cancels its consumer (§6.2) **before** acking, then recycles, then re-consumes after the new
-process sent `ready`.
+analysis (also when it exited or violated the protocol after its reply), it cancels its consumer (§6.2)
+**before** acking, then recycles, then re-consumes after the new process sent `ready`. A slot that finds its
+process gone between analyses cancels its consumer and gives back what arrived meanwhile before it respawns.
 
 ### 7.4 Live resize
 

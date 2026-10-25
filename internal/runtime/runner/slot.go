@@ -175,6 +175,11 @@ func (s *slot) run(ctx context.Context) {
 		if ctx.Err() != nil || s.shouldExit() {
 			return
 		}
+		if s.proc == nil || !s.proc.Usable() {
+			// Never hold a delivery while the slot respawns with backoff: cancel the consumer and give back
+			// what arrived meanwhile first (docs/runtime.md §7.3, §7.5, §12).
+			closeChannel()
+		}
 		if !s.ensureProcess() {
 			continue
 		}
@@ -267,6 +272,9 @@ func (s *slot) handle(ctx context.Context, ch SlotChannel, msg amqp.Delivery) bo
 	d := &delivery{ch: ch, tag: msg.DeliveryTag, deliveredAt: time.Now()}
 	d.budget = d.deliveredAt.Add(consumerTimeout - holdingMargin)
 	disp, recycle := s.process(ctx, d, msg)
+	// A process that became unusable while the plan ran (it exited or violated the protocol after its reply) is
+	// replaced like a recycle, so the consumer is cancelled before the ack and no next delivery arrives.
+	recycle = recycle || s.proc == nil || !s.proc.Usable()
 
 	keep := !recycle && s.w.mayConsume(s) && !d.detached()
 	if !keep && !d.detached() {

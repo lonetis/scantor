@@ -192,6 +192,8 @@ type runConfig struct {
 	// "exit") after SleepMs; later attempts succeed at once.
 	FailAttempts int    `json:"failAttempts"`
 	FailWith     string `json:"failWith"`
+	// ExitAfterReply makes the connector exit right after its result, as an idle process that dies would.
+	ExitAfterReply bool `json:"exitAfterReply"`
 }
 
 type fileSpec struct {
@@ -322,6 +324,9 @@ func (c *conn) run(m protocol.Run, cancel <-chan string) {
 		result["files"] = refs
 	}
 	c.send(protocol.Result{ID: m.ID, Result: mustJSON(result)})
+	if cfg.ExitAfterReply {
+		os.Exit(0)
+	}
 }
 
 type scheduleConfig struct {
