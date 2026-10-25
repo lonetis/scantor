@@ -312,6 +312,79 @@ func TestPackRejects(t *testing.T) {
 	}
 }
 
+// Each symlink is resolved against the pack's own entries, so a chain of in-tree symlinks that leaves
+// the root is rejected even though every target stays inside it lexically.
+func TestPackLinkChains(t *testing.T) {
+	type link struct{ name, target string }
+	tests := []struct {
+		name     string
+		dirs     []string
+		links    []link
+		rejected map[string]string
+	}{
+		{name: "dot then dot-dot", links: []link{{"x", "."}, {"s", "x/.."}}, rejected: map[string]string{"s": "through other symlinks"}},
+		{name: "through a directory link", dirs: []string{"a/b"}, links: []link{{"a/b/top", "../.."}, {"a/s", "b/top/../x"}}, rejected: map[string]string{"a/s": "through other symlinks"}},
+		{name: "through a link to a link", dirs: []string{"d"}, links: []link{{"d/p", ".."}, {"q", "d/p"}, {"r", "q/.."}}, rejected: map[string]string{"r": "through other symlinks"}},
+		{name: "a link that passes an escaping link", links: []link{{"x", "."}, {"s", "x/.."}, {"t", "s/main.py"}}, rejected: map[string]string{"s": "through other symlinks", "t": "through other symlinks"}},
+		{name: "loop", links: []link{{"a", "b"}, {"b", "a"}}, rejected: map[string]string{"a": "loop", "b": "loop"}},
+		{name: "self", links: []link{{"a", "a/x"}}, rejected: map[string]string{"a": "loop"}},
+		{name: "missing components are lexical", links: []link{{"x", "."}, {"m", "x/missing/../.."}}, rejected: map[string]string{"m": "through other symlinks"}},
+		// A pnpm layout: a package is a symlink into .pnpm, and .bin links go through it.
+		{
+			name:  "pnpm layout",
+			dirs:  []string{"node_modules/.pnpm/foo@1.0.0/node_modules/foo/bin", "node_modules/.bin"},
+			links: []link{{"node_modules/foo", ".pnpm/foo@1.0.0/node_modules/foo"}, {"node_modules/.bin/foo", "../foo/bin/cli.js"}, {"node_modules/.pnpm/foo@1.0.0/node_modules/up", "../../.."}},
+		},
+		{name: "dangling and back", links: []link{{"x", "."}, {"y", "x/x/x/main.py"}, {"z", "nowhere/.."}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := writeTree(t, minimalTask())
+			for _, d := range tt.dirs {
+				if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(d)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var entries []tarEntry
+			for _, l := range tt.links {
+				symlink(t, l.target, filepath.Join(dir, filepath.FromSlash(l.name)))
+				entries = append(entries, tarEntry{Name: l.name, Type: tar.TypeSymlink, Linkname: l.target})
+			}
+			check := func(t *testing.T, p *Pack, err error) {
+				t.Helper()
+				if len(tt.rejected) == 0 {
+					if err != nil {
+						t.Fatalf("rejected: %v", err)
+					}
+					_ = p.Close()
+					return
+				}
+				var problems PackErrors
+				if !errors.As(err, &problems) || len(problems) != len(tt.rejected) {
+					t.Fatalf("err = %v, want problems for %v", err, tt.rejected)
+				}
+				for _, pe := range problems {
+					if want, ok := tt.rejected[pe.Path]; !ok || !strings.Contains(pe.Message, want) {
+						t.Errorf("problem %v, want %v", pe, tt.rejected)
+					}
+				}
+			}
+			p, err := PackDir(context.Background(), dir, testLimits())
+			check(t, p, err)
+
+			// The same entries in an archive (the directories come from their files' parents).
+			for _, name := range []string{"scantor.yaml", "Dockerfile", "main.py", "requirements.txt", ".dockerignore"} {
+				entries = append(entries, tarEntry{Name: name, Type: tar.TypeReg, Content: minimalTask()[name]})
+			}
+			for _, d := range tt.dirs {
+				entries = append(entries, tarEntry{Name: d, Type: tar.TypeDir, Mode: 0o755})
+			}
+			p, err = ReadPack(context.Background(), bytes.NewReader(archive(t, entries...)), testLimits())
+			check(t, p, err)
+		})
+	}
+}
+
 func symlink(t *testing.T, target, name string) {
 	t.Helper()
 	if err := os.Symlink(target, name); err != nil {
@@ -479,6 +552,7 @@ func TestReadPackRejects(t *testing.T) {
 		{"device", []tarEntry{{Name: "dev", Type: tar.TypeChar}}, "unsupported entry type"},
 		{"duplicate", []tarEntry{{Name: "a", Type: tar.TypeReg, Content: "x"}, {Name: "a", Type: tar.TypeReg, Content: "y"}}, "twice"},
 		{"escaping symlink", []tarEntry{{Name: "l", Type: tar.TypeSymlink, Linkname: "../x"}}, "outside"},
+		{"escaping symlink chain", []tarEntry{{Name: "x", Type: tar.TypeSymlink, Linkname: "."}, {Name: "s", Type: tar.TypeSymlink, Linkname: "x/.."}}, "through other symlinks"},
 		{"file as parent", []tarEntry{{Name: "a", Type: tar.TypeReg, Content: "x"}, {Name: "a/b", Type: tar.TypeReg, Content: "y"}}, "not a directory"},
 	}
 	for _, tt := range tests {

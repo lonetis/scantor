@@ -34,6 +34,10 @@ func ReadPack(ctx context.Context, r io.Reader, limits PackLimits) (*Pack, error
 		return nil, err
 	}
 	sortSources(sources)
+	var errs PackErrors
+	if checkLinkChains(sources, &errs); len(errs) > 0 {
+		return nil, errs
+	}
 	return writePack(ctx, sources, limits)
 }
 

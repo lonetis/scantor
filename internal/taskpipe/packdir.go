@@ -39,10 +39,11 @@ func PackDir(ctx context.Context, dir string, limits PackLimits) (*Pack, error) 
 		}
 	}
 	w.checkHardLinks()
+	sortSources(w.sources)
+	checkLinkChains(w.sources, &w.errs)
 	if len(w.errs) > 0 {
 		return nil, w.errs
 	}
-	sortSources(w.sources)
 	return writePack(ctx, w.sources, limits)
 }
 

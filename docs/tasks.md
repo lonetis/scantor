@@ -1174,8 +1174,11 @@ The pack is the build context, the revision snapshot and the unit of change dete
   matched; always exclude `.git/` and `.scantor/` at any depth.
 - Entry types: regular files (mode normalised to `0755` if any execute bit is set, else `0644`),
   directories (`0755`), and symlinks whose target is relative and resolves inside the root (stored as
-  symlinks, never dereferenced). Absolute or escaping symlinks, hardlinks to outside files, devices,
-  FIFOs and sockets are errors.
+  symlinks, never dereferenced). Each target is resolved against the pack's own entries the way the
+  kernel resolves it, following symlinks to symlinks, so a chain such as `x -> .` with `s -> x/..` that
+  leaves the root is rejected although every target stays inside it lexically; a component that is no
+  entry is read lexically. Absolute or escaping symlinks, symlink loops, hardlinks to outside files,
+  devices, FIFOs and sockets are errors.
 - Deterministic tar: entries sorted by path (bytewise), each directory before its contents; uid/gid 0,
   empty uname/gname, mtime 0, PAX headers only for names that need them (with fixed fields); USTAR
   otherwise.

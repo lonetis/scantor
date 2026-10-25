@@ -205,6 +205,114 @@ func checkLink(p, target string) string {
 	return ""
 }
 
+// checkLinkChains completes checkLink for the pack as a whole. checkLink sees one target lexically, but
+// a component of the target may itself be a symlink of the pack (`x -> .` and `s -> x/..` resolve to the
+// parent of the root), so every symlink is resolved against the pack's own entries the way the kernel
+// resolves it, following symlinks to symlinks. Symlinks that leave the root on the way, and symlinks
+// that never resolve (a loop), are reported. Entries below a symlink do not exist in a pack (their
+// parents are directories), so a resolution passes only through directory and symlink entries.
+func checkLinkChains(sources []source, errs *PackErrors) {
+	r := linkResolver{kinds: make(map[string]EntryKind, len(sources)), links: map[string]string{}, results: map[string]linkResult{}}
+	for _, s := range sources {
+		r.kinds[s.Path] = s.Kind
+		if s.Kind == KindSymlink {
+			r.links[s.Path] = s.Link
+		}
+	}
+	for _, s := range sources {
+		if s.Kind != KindSymlink {
+			continue
+		}
+		switch r.resolve(s.Path).problem {
+		case linkOutside:
+			errs.add(s.Path, "the symlink target %q resolves outside the task folder through other symlinks", s.Link)
+		case linkLoop:
+			errs.add(s.Path, "the symlink target %q never resolves: the symlinks form a loop", s.Link)
+		}
+	}
+}
+
+type linkProblem int
+
+const (
+	linkOK linkProblem = iota
+	linkOutside
+	linkLoop
+)
+
+// linkResult is where a path resolves to: the deepest existing entry ("" for the root) and the number
+// of components below it that are not entries of the pack. Such components cannot be followed, so they
+// are read lexically (a later ".." removes them), the conservative choice.
+type linkResult struct {
+	entry   string
+	missing int
+	problem linkProblem
+	// active marks a symlink whose resolution is in progress: reaching it again is a loop.
+	active bool
+}
+
+// linkResolver resolves the symlinks of a pack, each once.
+type linkResolver struct {
+	kinds   map[string]EntryKind
+	links   map[string]string
+	results map[string]linkResult
+}
+
+func (r *linkResolver) resolve(p string) linkResult {
+	if res, ok := r.results[p]; ok {
+		if res.active {
+			return linkResult{problem: linkLoop}
+		}
+		return res
+	}
+	r.results[p] = linkResult{active: true}
+	dir := ""
+	if i := strings.LastIndexByte(p, '/'); i >= 0 {
+		dir = p[:i]
+	}
+	res := r.walk(linkResult{entry: dir}, r.links[p])
+	r.results[p] = res
+	return res
+}
+
+// walk resolves target from cur, a directory of the pack.
+func (r *linkResolver) walk(cur linkResult, target string) linkResult {
+	for seg := range strings.SplitSeq(target, "/") {
+		switch {
+		case seg == "" || seg == ".":
+		case seg == ".." && cur.missing > 0:
+			cur.missing--
+		case seg == "..":
+			if cur.entry == "" {
+				return linkResult{problem: linkOutside}
+			}
+			if i := strings.LastIndexByte(cur.entry, '/'); i >= 0 {
+				cur.entry = cur.entry[:i]
+			} else {
+				cur.entry = ""
+			}
+		case cur.missing > 0:
+			cur.missing++
+		default:
+			next := seg
+			if cur.entry != "" {
+				next = cur.entry + "/" + seg
+			}
+			switch kind, ok := r.kinds[next]; {
+			case !ok:
+				cur.missing = 1
+			case kind == KindSymlink:
+				if cur = r.resolve(next); cur.problem != linkOK {
+					return cur
+				}
+			default:
+				cur.entry = next
+			}
+		}
+	}
+	return cur
+}
+
 // Pack is a packed task: the canonical uncompressed tar spooled to a temporary file, its summary and
 // an index of its entries. Close removes the temporary file.
 type Pack struct {
