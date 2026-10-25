@@ -30,6 +30,10 @@ const (
 // BaseArg is the build argument that carries the pinned base image.
 const BaseArg = "SCANTOR_BASE"
 
+// scratchImage is BuildKit's reserved name of the empty image: FROM scratch, COPY --from=scratch and
+// RUN --mount from=scratch never pull anything (exactly this spelling; BuildKit compares it verbatim).
+const scratchImage = "scratch"
+
 // Options configure Check.
 type Options struct {
 	// ForbiddenHosts are registry hosts (without port, lower case) that image references must never
@@ -235,7 +239,7 @@ func (c *checker) stage(i int, inFinalImage bool) {
 		c.fail("D6", line, "FROM --platform is not allowed: tasks are built for the platform of the build daemon")
 	}
 	if !isBaseRef(st.BaseName) {
-		if _, ok := c.stageIndex(st.BaseName, i); !ok {
+		if _, ok := c.stageIndex(st.BaseName, i); !ok && st.BaseName != scratchImage {
 			c.imageRef("FROM", st.BaseName, line)
 		}
 	}
@@ -278,10 +282,10 @@ func (c *checker) command(stage int, cmd instructions.Command, inFinalImage bool
 	}
 }
 
-// stageOrImage accepts an earlier stage (by name or index) or ${SCANTOR_BASE}, and checks anything else
-// as a literal image reference (COPY --from, RUN --mount from=).
+// stageOrImage accepts an earlier stage (by name or index), ${SCANTOR_BASE} or scratch, and checks
+// anything else as a literal image reference (COPY --from, RUN --mount from=).
 func (c *checker) stageOrImage(stage int, what, ref string, line int) {
-	if isBaseRef(ref) {
+	if isBaseRef(ref) || ref == scratchImage {
 		return
 	}
 	if _, ok := c.stageIndex(ref, stage); ok {

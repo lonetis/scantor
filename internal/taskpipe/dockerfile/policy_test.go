@@ -107,6 +107,20 @@ func TestCheckCollectsExternalImages(t *testing.T) {
 	}
 }
 
+// scratch is BuildKit's empty image: it is never an external image to pull.
+func TestCheckScratch(t *testing.T) {
+	res := Check([]byte("ARG SCANTOR_BASE\n"+
+		"FROM scratch AS files\n"+
+		"COPY data /data\n"+
+		"FROM ${SCANTOR_BASE}\n"+
+		"COPY --from=files /data /task/data\n"+
+		"COPY --from=scratch / /empty\n"+
+		"RUN --mount=type=bind,from=scratch,target=/x true\n"), Options{HasDockerignore: true})
+	if !res.OK() || len(res.External) != 0 {
+		t.Fatalf("errors %v, external %v", res.Errors, res.External)
+	}
+}
+
 func TestCheckRules(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -129,6 +143,8 @@ func TestCheckRules(t *testing.T) {
 		{"escaped BUILDKIT arg", header + "ARG BUILD\\KIT_X=1\n", []string{"D10"}, nil},
 		{"quoted BUILDKIT meta arg", "ARG SCANTOR_BASE\nARG \"BUILDKIT_SYNTAX\"=x\nFROM ${SCANTOR_BASE}\n", []string{"D10"}, nil},
 		{"quoted base arg does not declare it", "ARG \"SCANTOR_BASE\"\nFROM ${SCANTOR_BASE}\n", []string{"D3"}, nil},
+		{"scratch is spelled in lower case", "ARG SCANTOR_BASE\nFROM Scratch AS files\nFROM ${SCANTOR_BASE}\n", []string{"D5"}, nil},
+		{"final stage from scratch", "ARG SCANTOR_BASE\nFROM scratch\n", []string{"D4"}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

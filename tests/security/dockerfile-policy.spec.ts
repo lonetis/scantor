@@ -196,7 +196,14 @@ const UNSPECIFIED_SAMPLES: PolicyCase[] = ['0.0.0.0:5000/x', '[::]:5000/x'].map(
 }))
 
 /** Valid cases whose builds need nothing beyond the base image and the task folder (the others pull public images). */
-const SELF_CONTAINED = new Set(['valid-python-minimal', 'valid-lowercase-instructions', 'valid-escape-directive', 'valid-labels', 'valid-add-local'])
+const SELF_CONTAINED = new Set([
+  'valid-python-minimal',
+  'valid-lowercase-instructions',
+  'valid-escape-directive',
+  'valid-labels',
+  'valid-add-local',
+  'valid-from-scratch',
+])
 
 test.describe('Dockerfile policy', () => {
   test('every case of the corpus gets exactly its static errors and warnings from the pipeline’s static check', { tag: ['@SEC-001', '@SEC-002'] }, async () => {

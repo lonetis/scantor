@@ -1,0 +1,5 @@
+{
+  "description": "a stage FROM scratch, BuildKit's empty image, which is never pulled",
+  "errors": [],
+  "warnings": []
+}
