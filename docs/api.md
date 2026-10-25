@@ -132,7 +132,8 @@ Further rules of the global middleware ([auth](auth.md) §5):
   query API's filter after its allowlist check (§5.2).
 - Request paths are canonical: a path that a URL parser would rewrite (`.` and `..` segments, also
   percent-encoded, backslashes, repeated leading slashes, characters it percent-encodes) is 400 `badRequest` on
-  every route, before any other check ([auth](auth.md) §5.5). Path parameters that contain `/` are sent as `%2F`.
+  every route, before any other check ([auth](auth.md) §5.5), in the §1.7 envelope when the path or its rewritten
+  form is under `/api`, `/mcp` or `/.well-known`. Path parameters that contain `/` are sent as `%2F`.
 - Query parameters: booleans `true`/`false`, integers in decimal, lists comma-separated.
 - Body caps: `SCANTOR_MAX_REQUEST_BYTES` for every JSON body (413 `payloadTooLarge`); streaming routes have
   their own cap (task upload `SCANTOR_TASK_MAX_PACK_BYTES`, list upload `SCANTOR_MAX_UPLOAD_BYTES`); machine

@@ -2,6 +2,7 @@ import { send, setResponseHeader, setResponseStatus, type H3Event } from 'h3'
 import type { NitroErrorHandler } from 'nitropack/types'
 import { normalizeError } from './errors'
 import { useLogger } from './logger'
+import { resolvedPathname } from './request-path'
 
 // Nitro error handler, prepended to Nuxt's in nuxt.config.ts: every error of `/api/*`, `/mcp` and
 // `/.well-known/*` leaves the dashboard listener as the envelope of docs/api.md §1.7. Unexpected errors are logged
@@ -10,9 +11,16 @@ import { useLogger } from './logger'
 
 const log = useLogger('api')
 
-/** Paths whose errors use the scantor envelope. */
-export function usesErrorEnvelope(path: string): boolean {
+function isEnvelopePath(path: string): boolean {
   return path === '/api' || path.startsWith('/api/') || path === '/mcp' || path.startsWith('/.well-known/')
+}
+
+/**
+ * Paths whose errors use the scantor envelope: by the raw path, or by the path a URL parser makes of it, so that the
+ * 400 of a non-canonical spelling of an API path (`//api/…`, `/api\…`; middleware/01.path.ts) is an envelope too.
+ */
+export function usesErrorEnvelope(path: string): boolean {
+  return isEnvelopePath(path) || isEnvelopePath(resolvedPathname(path) ?? path)
 }
 
 function requestIdOf(event: H3Event): string | undefined {

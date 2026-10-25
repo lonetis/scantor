@@ -54,4 +54,13 @@ describe('normalizeError', () => {
     expect(usesErrorEnvelope('/scans/abc')).toBe(false)
     expect(usesErrorEnvelope('/apiary')).toBe(false)
   })
+
+  it('judges a non-canonical path also by the path a URL parser makes of it', () => {
+    expect(usesErrorEnvelope('/api\\auth\\get-session')).toBe(true)
+    expect(usesErrorEnvelope('//api/auth/get-session')).toBe(true)
+    expect(usesErrorEnvelope('/x/../mcp')).toBe(true)
+    expect(usesErrorEnvelope('/x/%2e%2e/.well-known/openid-configuration')).toBe(true)
+    expect(usesErrorEnvelope('/x/../scans')).toBe(false)
+    expect(usesErrorEnvelope('//scans')).toBe(false)
+  })
 })
