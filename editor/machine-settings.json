@@ -9,6 +9,7 @@
   "extensions.ignoreRecommendations": true,
   "workbench.startupEditor": "none",
   "workbench.enableExperiments": false,
+  "chat.disableAIFeatures": true,
   "files.exclude": { ".scantor-staging": true },
   "files.watcherExclude": { "**/node_modules/**": true, "**/.venv/**": true, "**/.scantor/**": true },
   "python.defaultInterpreterPath": "/usr/local/bin/python3",

@@ -128,6 +128,7 @@ permanently:
   "extensions.ignoreRecommendations": true,
   "workbench.startupEditor": "none",
   "workbench.enableExperiments": false,
+  "chat.disableAIFeatures": true,
   "files.exclude": { ".scantor-staging": true },
   "files.watcherExclude": { "**/node_modules/**": true, "**/.venv/**": true, "**/.scantor/**": true },
   "python.defaultInterpreterPath": "/usr/local/bin/python3",
@@ -143,6 +144,11 @@ permanently:
 Workspace trust stays **on**; the `--disable-workspace-trust` flag is never passed. Folders a user opens
 start in restricted mode until the user trusts them. Together with `task.allowAutomaticTasks: off`, this
 means a git-imported `.vscode/tasks.json` (`runOn: folderOpen`) never runs automatically.
+
+`chat.disableAIFeatures` hides code-server's built-in chat and its AI features (a window-scoped setting,
+so it applies from the machine settings). They would offer to sign in to a third-party AI service from
+inside a workspace that holds task code and the editor's API key; agents reach scantor through MCP instead
+([mcp](mcp.md)).
 
 ### 2.4 Entrypoint and code-server flags
 
