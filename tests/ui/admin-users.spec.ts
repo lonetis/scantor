@@ -140,6 +140,8 @@ test.describe('creating and editing users', () => {
       await dialog.getByRole('combobox', { name: 'Role' }).click()
       await page.getByRole('option', { name: 'admin', exact: true }).click()
       await dialog.getByRole('switch', { name: 'Can run privileged tasks' }).click()
+      // A user created without a limit gets the instance default.
+      await expect(dialog).toContainText('Empty uses the instance default.')
       await dialog.getByLabel('Worker limit').fill('7')
       const post = page.waitForRequest((r) => r.method() === 'POST' && new URL(r.url()).pathname === '/api/users')
       await dialog.getByRole('button', { name: 'Create user' }).click()
@@ -182,6 +184,9 @@ test.describe('creating and editing users', () => {
         await expect(dialog.getByRole('combobox', { name: 'Role' })).toBeEnabled()
         const renamed = `${target.name} renamed`
         await dialog.getByRole('textbox', { name: 'Name' }).fill(renamed)
+        // updateUser cannot reset a limit to the instance default: an emptied field keeps the stored one.
+        await expect(dialog).toContainText('Empty keeps the current limit.')
+        await expect(dialog).not.toContainText('Empty uses the instance default.')
         await dialog.getByLabel('Worker limit').fill('9')
         const patch = page.waitForRequest((r) => r.method() === 'PATCH' && new URL(r.url()).pathname === `/api/users/${target!.id}`)
         await dialog.getByRole('button', { name: 'Save user' }).click()

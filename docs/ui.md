@@ -640,7 +640,9 @@ A note links to the authoring guides ([templates](templates.md) is the internal 
   soft), banned badge with reason, `canRunPrivileged`, `maxWorkers` (0 = unlimited), usage (active
   workers, tasks, scans), created. The caller's row says "(you)".
 - Navbar "New user" → `UserFormModal` (`createUserBody`: email, name, password optional ≥ 8, role,
-  `canRunPrivileged`, `maxWorkers`) → `createUser`.
+  `canRunPrivileged`, `maxWorkers`) → `createUser`. An empty worker limit gives the user the instance
+  default (`SCANTOR_USER_MAX_WORKERS`); `updateUser` has no reset to it, so when editing, an emptied worker
+  limit keeps the stored one, and the field's help says which applies.
 - Row actions: Edit (`updateUser`), Set password (`setUserPassword`), Ban (`BanUserModal`: reason, "Also
   cancel all their scans" **checked by default**, with the hint "Unchecked, their running scans continue
   until they end" ([auth](auth.md) §5.7) → `banUser {reason, cancelScans}`), Unban (`unbanUser`), Delete (`ConfirmModal`

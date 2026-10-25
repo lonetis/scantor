@@ -71,6 +71,11 @@ const title = computed(() => {
   if (props.mode === 'password') return `Set password of ${props.user?.email ?? 'user'}`
   return `Edit ${props.user?.email ?? 'user'}`
 })
+// A user gets the instance default when created without a limit (docs/data-model.md §3); updateUser has no reset
+// to it, so an emptied field keeps the stored limit.
+const workerLimitHelp = computed(() => `Active workers across all scans of this user; 0 = unlimited. ${
+  props.mode === 'create' ? 'Empty uses the instance default.' : 'Empty keeps the current limit.'
+}`)
 const submitLabel = computed(() => (props.mode === 'create' ? 'Create user' : props.mode === 'password' ? 'Set password' : 'Save user'))
 
 async function run(action: () => Promise<User | null>): Promise<void> {
@@ -136,8 +141,15 @@ async function submitPassword(event: FormSubmitEvent<z.output<typeof passwordSch
     <UFormField name="canRunPrivileged" help="Privileged tasks run Docker-in-Docker on nodes with DinD enabled.">
       <USwitch v-model="profile.canRunPrivileged" label="Can run privileged tasks" />
     </UFormField>
-    <UFormField label="Worker limit" name="maxWorkers" help="Active workers across all scans of this user; 0 = unlimited. Empty uses the instance default.">
-      <NumberInput :model-value="profile.maxWorkers ?? null" :min="0" :max="100000" class="w-40" placeholder="default" @update:model-value="profile.maxWorkers = $event ?? undefined" />
+    <UFormField label="Worker limit" name="maxWorkers" :help="workerLimitHelp">
+      <NumberInput
+        :model-value="profile.maxWorkers ?? null"
+        :min="0"
+        :max="100000"
+        class="w-40"
+        :placeholder="mode === 'create' ? 'default' : undefined"
+        @update:model-value="profile.maxWorkers = $event ?? undefined"
+      />
     </UFormField>
     <p v-if="error" class="text-xs text-error" role="alert">{{ error }}</p>
   </DefineProfileFields>

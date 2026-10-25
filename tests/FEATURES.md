@@ -895,7 +895,7 @@ Mechanisms: [ui](../docs/ui.md) §5.15–§5.16, §5.20.
 - **UI-ADMIN-006** [ui] The node page shows the node's info, lease, labels, workers (with "Active only") and events, and "Node not found" for an unknown id.
 - **UI-ADMIN-007** [ui] The users table searches by name or email and shows name (with "(you)"), email, role, status (active, banned with reason, or the deletion job's progress), privileged flag, worker limit ("unlimited"), usage and created time.
 - **UI-ADMIN-008** [ui] "New user" creates a user with email, name, password, role, "Can run privileged tasks" and worker limit, shows "User <email> created", and a duplicate email shows "A user with this email already exists."
-- **UI-ADMIN-009** [ui] Editing a user sends only changed fields; on the admin's own row the role is locked ("You cannot change your own role.") and "Set password", Ban and Delete are disabled.
+- **UI-ADMIN-009** [ui] Editing a user sends only changed fields; on the admin's own row the role is locked ("You cannot change your own role.") and "Set password", Ban and Delete are disabled; the worker limit's help says "Empty keeps the current limit." when editing and "Empty uses the instance default." when creating.
 - **UI-ADMIN-010** [ui] "Set password" (with confirmation) notes that it signs the user out everywhere and shows "Password of <email> set".
 - **UI-ADMIN-011** [ui] Ban takes an optional reason and "Also cancel all their scans" (checked by default); the row then shows "banned", and Unban returns it to active.
 - **UI-ADMIN-012** [ui] Deleting a user requires typing their email, shows the purge job's progress on the row, and removes the row with "User deleted"; a failed or cancelled job unlocks the row again.
