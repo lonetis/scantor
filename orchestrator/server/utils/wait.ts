@@ -11,7 +11,8 @@ import { useLogger } from './logger'
 // SCANTOR_MAX_CONCURRENT_WAITS waits (429). The document is watched with a change stream, polling every second when
 // a change stream cannot be opened. When the orchestrator begins to stop, waits answer at once with the current state
 // (`timeout`), so the shutdown does not wait for them. A route that creates the resource it then waits for reserves
-// the wait first (reserveWait), so its 429 always means nothing was created.
+// the wait first (reserveWait), so its 429 always means nothing was created; the test-run stream holds a reservation
+// for as long as it is open.
 
 const POLL_MS = 1000
 const activeWaits = new Map<string, number>()

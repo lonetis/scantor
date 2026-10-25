@@ -236,7 +236,8 @@ orchestrator begins to stop, every wait returns the current representation at on
 shutdown does not wait for it ([architecture](architecture.md) §4.1). Each user may hold at most
 `SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests`). `publishRevision`, `uploadTask` and `testTask`
 take that slot before they create anything, so their 429 means nothing was created and a retry is safe.
-Implementations watch the document with a change stream (fallback: 1 s polling).
+An open `streamTestRun` holds one of these slots too, until it ends. Implementations watch the document
+with a change stream (fallback: 1 s polling).
 
 | Operation | Settled when |
 |---|---|
@@ -568,7 +569,7 @@ With `revision`, the S3 snapshot is streamed into a `list --archive` / `read --a
 | `POST /api/tasks/{task}/test-runs` | `testTask` | owner | **yes** | `{taskConfig?, scanConfig?, analysisConfig?, limit? (5, 1–50), maxAttempts? (1, 1–5), timeoutMs? (per analysis; default from the manifest)}`; `?wait`. The whole test run is bounded by `SCANTOR_TEST_RUN_TIMEOUT`. With `analysisConfig`, `run` is called once and `schedule` is skipped. | 201 `TestRun` |
 | `GET /api/tasks/{task}/test-runs` | `listTestRuns` | owner | no | `?cursor, limit` | `Page<TestRun>` without `analyses` |
 | `GET /api/test-runs/{testRunId}` | `getTestRun` | owner | **yes** | `?wait, analyses (true)` | `TestRun` |
-| `GET /api/test-runs/{testRunId}/stream` | `streamTestRun` | owner | no | – | `text/event-stream` with events `state` `{state}`, `log` `{seq\|null, stream: "stdout"\|"stderr"\|"build", text, at}`, `analysis` `TestRunAnalysis`, `error` `BuildError`, `end` `TestRun` (without `analyses`) |
+| `GET /api/test-runs/{testRunId}/stream` | `streamTestRun` | owner | no | – | `text/event-stream` with events `state` `{state}`, `log` `{seq\|null, stream: "stdout"\|"stderr"\|"build", text, at}`, `analysis` `TestRunAnalysis`, `error` `BuildError`, `end` `TestRun` (without `analyses`). The open stream counts as one of the caller's `SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests` before it starts, §1.9). While the client reads too slowly, `log` events are dropped and one `stderr` line `[N log lines dropped: …]` follows once it caught up; a client that stops reading is disconnected once 8 MiB are queued for it. The stream ends when the orchestrator begins to stop; clients then poll `getTestRun` |
 | `POST /api/test-runs/{testRunId}/cancel` | `cancelTestRun` (`x-destructive`) | owner | no | – | `TestRun` |
 | `GET /api/test-runs/{testRunId}/files/{fileId}` | `getTestRunFileDownload` | owner | no | `?redirect (false)` | `FileDownload` or 302 |
 

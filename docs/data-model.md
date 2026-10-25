@@ -1110,7 +1110,7 @@ All limits are enforced at the earliest point listed. Values come from the named
 | image size | `SCANTOR_MAX_IMAGE_BYTES` | task pipeline |
 | query time / documents | `SCANTOR_QUERY_MAX_TIME` / `SCANTOR_QUERY_MAX_DOCS` | query API |
 | concurrent queries and exports per user | `SCANTOR_USER_MAX_CONCURRENT_QUERIES` | query/export API |
-| concurrent `wait` requests per user | `SCANTOR_MAX_CONCURRENT_WAITS` | API |
+| concurrent `wait` requests per user | `SCANTOR_MAX_CONCURRENT_WAITS` (open test-run streams count as waits) | API |
 | running editors | `SCANTOR_EDITOR_MAX_RUNNING` | editor manager (429) |
 | concurrent workspace helpers | `SCANTOR_HELPER_CONCURRENCY` (a request waits ≤ 30 s for a slot, then 503); per user `SCANTOR_HELPER_CONCURRENCY_PER_USER` (≤ 30 s, then 429) | helper runner |
 | inline export size | `SCANTOR_EXPORT_INLINE_MAX` analyses | export API |
