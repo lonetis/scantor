@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"path/filepath"
 	"slices"
@@ -142,6 +143,64 @@ func TestWriteFilesEntryCapCountsNewDirectories(t *testing.T) {
 	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"a/b/c": "y"})); err != nil {
 		t.Fatalf("overwrite: %v", err)
 	}
+}
+
+// The task caps count what the pack contains: files .dockerignore excludes (an installed node_modules/)
+// do not count, so such a folder stays editable. The workspace cap still counts every byte.
+func TestWriteFilesCapsFollowDockerignore(t *testing.T) {
+	setup := func(t *testing.T, limits Limits, ignore string) *testWorkspace {
+		t.Helper()
+		ws := newTestWorkspace(t, limits)
+		tree := map[string]node{"scantor.yaml": file(testManifest), ".dockerignore": file(ignore), "main.ts": file("x")}
+		for i := range 60 {
+			tree[fmt.Sprintf("node_modules/pkg%d/index.js", i)] = file(strings.Repeat("x", 100))
+		}
+		writeTree(t, filepath.Join(ws.dir, "echo"), tree)
+		return ws
+	}
+	// scantor.yaml, .dockerignore, main.ts: 3 entries of the pack.
+	ws := setup(t, Limits{MaxFiles: 6, MaxBytes: 1000}, "node_modules/\n")
+	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"main.ts": "y", "lib/a.ts": "a"})); err != nil {
+		t.Fatalf("write next to an ignored node_modules: %v", err)
+	}
+	// Ignored paths in the request do not count either.
+	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"node_modules/new/x.js": strings.Repeat("x", 2000)})); err != nil {
+		t.Fatalf("write into node_modules: %v", err)
+	}
+	// 5 entries now (lib and lib/a.ts added): two more files exceed the cap.
+	_, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"b.ts": "b", "c.ts": "c"}))
+	wantCode(t, err, CodeTooManyFiles)
+	_, err = ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"b.ts": strings.Repeat("x", 1000)}))
+	wantCode(t, err, CodeTooLarge)
+
+	// A request that changes .dockerignore so the folder is included is counted with the new rules.
+	ws = setup(t, Limits{MaxFiles: 50}, "node_modules/\n")
+	_, err = ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{".dockerignore": "*.md\n"}))
+	wantCode(t, err, CodeTooManyFiles)
+
+	// An exception re-includes one package: it and the excluded directories above it are entries.
+	// scantor.yaml, .dockerignore, main.ts, node_modules, node_modules/pkg1, its index.js = 6.
+	ws = setup(t, Limits{MaxFiles: 7}, "node_modules\n!node_modules/pkg1\n")
+	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"a.ts": "a"})); err != nil {
+		t.Fatalf("7 entries: %v", err)
+	}
+	// The pack agrees: 7 entries fit a cap of 7, not one of 6.
+	for limit, fits := range map[int]bool{7: true, 6: false} {
+		pack, err := taskpipe.PackDir(bg, filepath.Join(ws.dir, "echo"), taskpipe.PackLimits{MaxFiles: limit})
+		if (err == nil) != fits {
+			t.Fatalf("pack with MaxFiles %d: %v", limit, err)
+		}
+		if pack != nil {
+			_ = pack.Close()
+		}
+	}
+	_, err = ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"node_modules/pkg1/b.js": "b"}))
+	wantCode(t, err, CodeTooManyFiles)
+
+	// The workspace cap counts the ignored bytes on disk.
+	ws = setup(t, Limits{MaxWorkspaceBytes: 7000}, "node_modules/\n")
+	_, err = ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"node_modules/big.js": strings.Repeat("x", 2000)}))
+	wantCode(t, err, CodeWorkspaceFull)
 }
 
 func TestDeleteFiles(t *testing.T) {

@@ -16,6 +16,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/lonetis/scantor/internal/taskpipe"
 )
 
 // MaxWriteFiles is the maximum number of files of one write-files request (the validated API body).
@@ -170,13 +172,12 @@ func checkPathConflicts(sorted []string) error {
 }
 
 // checkWriteCaps checks every target and the caps before anything is written: every existing component
-// is a real directory, the task folder after the write stays within MaxFiles entries and MaxBytes (both
-// as the pack counts them, so .git/ and .scantor/ do not count), and the workspace within
-// MaxWorkspaceBytes.
+// is a real directory, the task folder after the write stays within MaxFiles entries and MaxBytes, and
+// the workspace within MaxWorkspaceBytes. The task caps count what the pack of the folder after the write
+// contains (taskpipe.FileSet: no .git/ or .scantor/, and nothing .dockerignore excludes, such as an
+// installed node_modules/), so a folder that packs within the caps can always be edited. The workspace
+// cap counts every byte on disk.
 func (w *Workspace) checkWriteCaps(ctx context.Context, task string, exists bool, files map[string][]byte) error {
-	var taskUsage treeUsage
-	var replaced, added int64
-	newDirs := map[string]bool{}
 	var root *os.Root
 	if exists {
 		var err error
@@ -184,10 +185,14 @@ func (w *Workspace) checkWriteCaps(ctx context.Context, task string, exists bool
 			return err
 		}
 		defer root.Close()
-		if taskUsage, err = measure(ctx, root, isHardExcluded); err != nil {
+	}
+	usage := newPackUsage(w.writeFileSet(root, files))
+	if root != nil {
+		if err := usage.measure(ctx, root); err != nil {
 			return err
 		}
 	}
+	var replaced, added int64
 	for p, content := range files {
 		size := int64(len(content))
 		added += size
@@ -201,25 +206,17 @@ func (w *Workspace) checkWriteCaps(ctx context.Context, task string, exists bool
 		if old != nil {
 			replaced += old.Size()
 		}
-		if isHardExcluded(p) {
+		if usage.classify(p, false) != taskpipe.Included {
 			continue
 		}
 		if old != nil {
-			taskUsage.Bytes += size - old.Size()
+			// The walk counted the old file with the same FileSet.
+			usage.Bytes += size - old.Size()
 			continue
 		}
-		taskUsage.add(size)
-		for dir := path.Dir(p); dir != "." && !newDirs[dir]; dir = path.Dir(dir) {
-			if root != nil {
-				if _, err := root.Lstat(dir); err == nil {
-					break
-				}
-			}
-			newDirs[dir] = true
-			taskUsage.add(0)
-		}
+		usage.addEntry(p, false, size)
 	}
-	if err := checkTaskCaps(w.limits, taskUsage); err != nil {
+	if err := checkTaskCaps(w.limits, usage.treeUsage); err != nil {
 		return err
 	}
 	wsBytes, err := w.workspaceBytes(ctx)
@@ -227,6 +224,95 @@ func (w *Workspace) checkWriteCaps(ctx context.Context, task string, exists bool
 		return err
 	}
 	return w.checkWorkspaceCap(wsBytes - replaced + added)
+}
+
+// writeFileSet returns the FileSet of the task folder after a write: with the request's .dockerignore
+// when it writes one, else with the folder's. When that .dockerignore cannot be used, the caps count
+// every entry except .git/ and .scantor/ (a warning event says so); the pack then reports the problem
+// in the write's summary.
+func (w *Workspace) writeFileSet(root *os.Root, files map[string][]byte) *taskpipe.FileSet {
+	var set *taskpipe.FileSet
+	var err error
+	switch data, writes := files[taskpipe.DockerignoreName]; {
+	case writes:
+		set, err = taskpipe.NewFileSet(data)
+	case root != nil:
+		set, err = taskpipe.LoadFileSet(root)
+	default:
+		return nil
+	}
+	if err != nil {
+		w.events.Warnf("the .dockerignore cannot be applied (%v); the task caps count every file", err)
+		return nil
+	}
+	return set
+}
+
+// packUsage counts the entries and bytes of a task folder the way the pack does.
+type packUsage struct {
+	treeUsage
+	set *taskpipe.FileSet
+	// included holds the directories that are pack entries.
+	included map[string]bool
+}
+
+func newPackUsage(set *taskpipe.FileSet) *packUsage {
+	return &packUsage{set: set, included: map[string]bool{}}
+}
+
+// classify is the FileSet's decision for p. A .dockerignore pattern that cannot be matched counts the
+// path, the conservative choice for a cap (the pack reports the pattern).
+func (u *packUsage) classify(p string, isDir bool) taskpipe.Inclusion {
+	inclusion, err := u.set.Classify(p, isDir)
+	if err != nil {
+		return taskpipe.Included
+	}
+	return inclusion
+}
+
+// measure walks the existing folder with lstat only (symlinks are never followed) and counts what the
+// pack contains.
+func (u *packUsage) measure(ctx context.Context, root *os.Root) error {
+	return fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return internalError(err, "walk %s", p)
+		}
+		if p == "." {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		switch u.classify(p, d.IsDir()) {
+		case taskpipe.Excluded:
+			return skipEntry(d)
+		case taskpipe.ExcludedDescend:
+			return nil
+		}
+		var size int64
+		if d.Type().IsRegular() {
+			info, err := d.Info()
+			if err != nil {
+				return internalError(err, "stat %s", p)
+			}
+			size = info.Size()
+		}
+		u.addEntry(p, d.IsDir(), size)
+		return nil
+	})
+}
+
+// addEntry counts an included entry of size bytes and every directory above it that is not an entry
+// yet: a new parent, or an excluded directory that the entry re-includes.
+func (u *packUsage) addEntry(p string, isDir bool, size int64) {
+	for dir := path.Dir(p); dir != "." && !u.included[dir]; dir = path.Dir(dir) {
+		u.included[dir] = true
+		u.add(0)
+	}
+	if isDir {
+		u.included[p] = true
+	}
+	u.add(size)
 }
 
 // existingTarget checks the components of p in root: no symlinks, every parent a directory, and the

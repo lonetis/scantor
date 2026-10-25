@@ -204,6 +204,41 @@ func TestPackDockerignore(t *testing.T) {
 	}
 }
 
+// FileSet is the pack's decision exported for the workspace's cap checks.
+func TestFileSetClassify(t *testing.T) {
+	set, err := NewFileSet([]byte("build/\n!build/keep.txt\nnode_modules\nDockerfile\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		path  string
+		isDir bool
+		want  Inclusion
+	}{
+		{"main.py", false, Included},
+		{"Dockerfile", false, Included},
+		{".git", true, Excluded},
+		{"sub/.scantor/x", false, Excluded},
+		{"node_modules", true, Excluded},
+		{"node_modules/x/index.js", false, Excluded},
+		{"build", true, ExcludedDescend},
+		{"build/out.bin", false, Excluded},
+		{"build/keep.txt", false, Included},
+	}
+	for _, tt := range tests {
+		if got, err := set.Classify(tt.path, tt.isDir); got != tt.want || err != nil {
+			t.Errorf("Classify(%q) = %v, %v; want %v", tt.path, got, err, tt.want)
+		}
+	}
+	var none *FileSet
+	if got, _ := none.Classify("node_modules", true); got != Included {
+		t.Errorf("a nil FileSet excludes %v", got)
+	}
+	if _, err := NewFileSet(make([]byte, maxIgnoreFileBytes+1)); err == nil {
+		t.Error("an oversized .dockerignore is accepted")
+	}
+}
+
 func TestPackRejects(t *testing.T) {
 	tests := []struct {
 		name  string

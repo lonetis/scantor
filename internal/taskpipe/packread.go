@@ -167,7 +167,7 @@ func archiveError(err error) error {
 // filterEntries applies the hard excludes and the pack's own .dockerignore to entries read from an
 // archive, keeps the directories above included entries and returns the sources to write.
 func filterEntries(entries []Entry, spool *os.File) ([]source, error) {
-	var ignore *ignoreMatcher
+	var files *FileSet
 	for _, e := range entries {
 		if e.Path != DockerignoreName {
 			continue
@@ -183,7 +183,7 @@ func filterEntries(entries []Entry, spool *os.File) ([]source, error) {
 			return nil, fmt.Errorf("read .dockerignore: %w", err)
 		}
 		var err error
-		if ignore, err = newIgnoreMatcher(data); err != nil {
+		if files, err = NewFileSet(data); err != nil {
 			return nil, PackErrors{{Path: DockerignoreName, Message: err.Error()}}
 		}
 	}
@@ -212,17 +212,17 @@ func filterEntries(entries []Entry, spool *os.File) ([]source, error) {
 		sources = append(sources, s)
 	}
 	for _, e := range entries {
-		if hardExcluded(e.Path) {
-			continue
-		}
-		excluded := false
-		if !forcedIncludes[e.Path] {
-			var err error
-			if excluded, err = ignore.excluded(e.Path); err != nil {
-				return nil, PackErrors{{Path: DockerignoreName, Message: err.Error()}}
+		// Each entry is decided on its own path, so an excluded directory is dropped here and comes back
+		// below when an exception re-includes something under it.
+		inclusion, err := files.Classify(e.Path, false)
+		if err != nil {
+			var pe *PackError
+			if errors.As(err, &pe) {
+				return nil, PackErrors{pe}
 			}
+			return nil, err
 		}
-		if !excluded {
+		if inclusion == Included {
 			keep(e)
 		}
 	}

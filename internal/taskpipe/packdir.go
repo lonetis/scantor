@@ -27,7 +27,7 @@ func PackDir(ctx context.Context, dir string, limits PackLimits) (*Pack, error) 
 	defer root.Close()
 
 	w := &dirWalker{ctx: ctx, root: root, limits: limits, included: map[string]bool{}, pending: map[string]bool{}, links: map[inodeKey]*linkUse{}}
-	if err := w.loadIgnore(); err != nil {
+	if w.files, err = LoadFileSet(root); err != nil {
 		return nil, err
 	}
 	if err := fs.WalkDir(root.FS(), ".", w.visit); err != nil {
@@ -50,7 +50,7 @@ type dirWalker struct {
 	ctx    context.Context
 	root   *os.Root
 	limits PackLimits
-	ignore *ignoreMatcher
+	files  *FileSet
 	// included holds the directories that are part of the pack; pending holds excluded directories the
 	// walk descended into because an exception may re-include something below them.
 	included map[string]bool
@@ -67,30 +67,6 @@ type linkUse struct {
 	path  string
 	nlink uint64
 	seen  uint64
-}
-
-func (w *dirWalker) loadIgnore() error {
-	info, err := w.root.Lstat(DockerignoreName)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return PackErrors{{Path: DockerignoreName, Message: err.Error()}}
-	}
-	if !info.Mode().IsRegular() {
-		return PackErrors{{Path: DockerignoreName, Message: "must be a regular file"}}
-	}
-	if info.Size() > maxIgnoreFileBytes {
-		return PackErrors{{Path: DockerignoreName, Message: fmt.Sprintf("is larger than %d bytes", maxIgnoreFileBytes)}}
-	}
-	data, err := w.root.ReadFile(DockerignoreName)
-	if err != nil {
-		return PackErrors{{Path: DockerignoreName, Message: err.Error()}}
-	}
-	if w.ignore, err = newIgnoreMatcher(data); err != nil {
-		return PackErrors{{Path: DockerignoreName, Message: err.Error()}}
-	}
-	return nil
 }
 
 func (w *dirWalker) visit(p string, d fs.DirEntry, walkErr error) error {
@@ -112,25 +88,22 @@ func (w *dirWalker) visit(p string, d fs.DirEntry, walkErr error) error {
 		w.errs.add(p, "%s", msg)
 		return skip(isDir)
 	}
-	excluded := false
-	if !forcedIncludes[p] {
-		var err error
-		if excluded, err = w.ignore.excluded(p); err != nil {
-			return &PackError{Path: DockerignoreName, Message: err.Error()}
-		}
+	inclusion, err := w.files.Classify(p, isDir)
+	if err != nil {
+		return err
 	}
 	switch mode := d.Type(); {
 	case mode.IsDir():
-		if excluded {
-			if w.ignore.mayIncludeBelow(p) {
-				w.pending[p] = true
-				return nil
-			}
+		switch inclusion {
+		case ExcludedDescend:
+			w.pending[p] = true
+			return nil
+		case Excluded:
 			return fs.SkipDir
 		}
 		w.included[p] = true
 		return w.add(source{Entry: Entry{Path: p, Kind: KindDir, Mode: modeDir}})
-	case excluded:
+	case inclusion != Included:
 		return nil
 	case mode&fs.ModeSymlink != 0:
 		target, err := w.root.Readlink(p)
