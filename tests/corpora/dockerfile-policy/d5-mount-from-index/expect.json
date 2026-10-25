@@ -1,0 +1,12 @@
+{
+  "description": "RUN --mount from= with a number, which BuildKit reads as the Docker Hub image library/<n>, not as a stage index",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 5,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

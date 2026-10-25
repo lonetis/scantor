@@ -253,7 +253,7 @@ func (c *checker) command(stage int, cmd instructions.Command, inFinalImage bool
 	switch cmd := cmd.(type) {
 	case *instructions.CopyCommand:
 		if cmd.From != "" {
-			c.stageOrImage(stage, "COPY --from="+cmd.From, cmd.From, line)
+			c.stageOrImage(stage, "COPY --from="+cmd.From, cmd.From, line, true)
 		}
 	case *instructions.AddCommand:
 		c.add(cmd, line)
@@ -282,9 +282,11 @@ func (c *checker) command(stage int, cmd instructions.Command, inFinalImage bool
 	}
 }
 
-// stageOrImage accepts an earlier stage (by name or index), ${SCANTOR_BASE} or scratch, and checks
-// anything else as a literal image reference (COPY --from, RUN --mount from=).
-func (c *checker) stageOrImage(stage int, what, ref string, line int) {
+// stageOrImage accepts an earlier stage by name, ${SCANTOR_BASE} or scratch, and checks anything else as
+// a literal image reference (COPY --from, RUN --mount from=). A number is a stage index only where BuildKit
+// reads it as one (indexes: COPY --from); RUN --mount from= resolves only stage names, so BuildKit would
+// read a number there as the Docker Hub image library/<n>, which is rejected.
+func (c *checker) stageOrImage(stage int, what, ref string, line int, indexes bool) {
 	if isBaseRef(ref) || ref == scratchImage {
 		return
 	}
@@ -292,7 +294,10 @@ func (c *checker) stageOrImage(stage int, what, ref string, line int) {
 		return
 	}
 	if n, err := strconv.Atoi(ref); err == nil {
-		if n < 0 || n >= stage {
+		switch {
+		case !indexes:
+			c.fail("D5", line, "%s is not allowed: BuildKit reads a number there as the Docker Hub image library/%s, not as a stage index; use the stage's name", what, ref)
+		case n < 0 || n >= stage:
 			c.fail("D5", line, "%s is not allowed: stage %d is not an earlier stage", what, n)
 		}
 		return
@@ -363,7 +368,7 @@ func (c *checker) run(stage int, cmd *instructions.RunCommand, line int) {
 			continue
 		}
 		if m.From != "" {
-			c.stageOrImage(stage, "RUN --mount from="+m.From, m.From, line)
+			c.stageOrImage(stage, "RUN --mount from="+m.From, m.From, line, false)
 		}
 	}
 }

@@ -121,6 +121,15 @@ func TestCheckScratch(t *testing.T) {
 	}
 }
 
+// A numeric RUN --mount from= is no stage index for BuildKit, so it is rejected rather than recorded or
+// accepted as an index.
+func TestCheckNumericMountSource(t *testing.T) {
+	res := Check([]byte("ARG SCANTOR_BASE\nFROM ${SCANTOR_BASE} AS a\nRUN true\nFROM ${SCANTOR_BASE}\nRUN --mount=type=bind,from=0,target=/x true\n"), Options{HasDockerignore: true})
+	if len(res.Errors) != 1 || res.Errors[0].Line != 5 || !strings.Contains(res.Errors[0].Message, "library/0") || len(res.External) != 0 {
+		t.Fatalf("errors %v, external %v", res.Errors, res.External)
+	}
+}
+
 func TestCheckRules(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -143,6 +152,7 @@ func TestCheckRules(t *testing.T) {
 		{"escaped BUILDKIT arg", header + "ARG BUILD\\KIT_X=1\n", []string{"D10"}, nil},
 		{"quoted BUILDKIT meta arg", "ARG SCANTOR_BASE\nARG \"BUILDKIT_SYNTAX\"=x\nFROM ${SCANTOR_BASE}\n", []string{"D10"}, nil},
 		{"quoted base arg does not declare it", "ARG \"SCANTOR_BASE\"\nFROM ${SCANTOR_BASE}\n", []string{"D3"}, nil},
+		{"mount source by stage name", "ARG SCANTOR_BASE\nFROM ${SCANTOR_BASE} AS a\nRUN true\nFROM ${SCANTOR_BASE}\nRUN --mount=type=bind,from=a,target=/x true\n", nil, nil},
 		{"scratch is spelled in lower case", "ARG SCANTOR_BASE\nFROM Scratch AS files\nFROM ${SCANTOR_BASE}\n", []string{"D5"}, nil},
 		{"final stage from scratch", "ARG SCANTOR_BASE\nFROM scratch\n", []string{"D4"}, nil},
 	}
