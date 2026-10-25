@@ -17,15 +17,22 @@ MCP client ──POST /mcp  Authorization: Bearer <access JWT | sk_scantor_…>�
   orchestrator/server/routes/mcp.ts
     ├─ canonicalise the request URL to ${SCANTOR_PUBLIC_URL}/mcp
     ├─ API key?  → user principal (auth.md §5.2), level write|admin                    (§3.7)
-    │  else      → requireMcpAuth: signature, iss, aud, exp, scope, DPoP (JWKS over loopback)
+    │  else      → requireMcpAuth: signature, iss, aud, exp, scope, DPoP (JWKS over the loopback listener)
     │              → resolveTokenUser: user exists, not banned, consent exists → level read|write|admin
     └─ createMcpHandler (SDK v2, stateless) → new McpServer for this request
          instructions + resources (guides) + tools filtered by level
            tools/call ─► bridge: buildHttpRequest (mcp-from-openapi)
                          + mint single-use capability sic_… bound to (method, path, operationId)
-                         ─► fetch http://127.0.0.1:3000/api/…   (same routes, zod validation, ownership)
+                         ─► fetch http://127.0.0.1:<ephemeral port>/api/…   (the loopback listener:
+                             same routes, zod validation, ownership)
                          ◄─ response → untrusted_data wrapping → 256 KiB cap → CallToolResult
 ```
+
+The loopback listener (`server/utils/loopback.ts`) is a private HTTP listener of the orchestrator process on
+`127.0.0.1` with an ephemeral port, started on first use, that serves the same Nitro app as the dashboard
+listener. Tool calls and the JWKS fetch go there, never to `SCANTOR_PORT` (3000) or the public URL: it reaches this
+process whatever the public listener is (in `nuxt dev` the app runs behind a unix socket, and the production port is
+configurable), and internal capabilities are accepted only on its connections (§4.3).
 
 One source of truth: a REST route's `defineRouteMeta` (operationId, description, schemas, `x-mcp`,
 `x-scantor-scope`, `x-read-only`, `x-admin-only`, `x-destructive`) defines both the HTTP operation and the MCP
@@ -103,7 +110,7 @@ protected-resource metadata lacks.
    ```ts
    {
      resource: `${publicUrl}/mcp`,
-     jwksUrl: 'http://127.0.0.1:3000/api/auth/jwks',   // never depend on the public URL from inside
+     jwksUrl: `${loopbackOrigin}/api/auth/jwks`,   // the loopback listener (§1): never the public URL
      requiredScopes: ['scantor:read'],
      isScopeSatisfied: (required, granted) =>
        required === 'scantor:read'
@@ -299,14 +306,16 @@ request's level (`read < write < admin`).
 2. Validate the arguments against the tool's input schema (§4.1). A violation returns the structured error
    `validationFailed` with `details.issues: [{path, message}]` (dot paths, as in [api](api.md) §1.5), and no
    request is made.
-3. `buildHttpRequest(tool, input, { baseUrl: 'http://127.0.0.1:3000' })`. If it throws, return the
+3. `buildHttpRequest(tool, input, { baseUrl: loopbackOrigin })`, where `loopbackOrigin` is
+   `http://127.0.0.1:<port>` of the loopback listener (§1). If it throws, return the
    structured error `validationFailed` (§4.7).
 4. Mint a capability `sic_<43 chars>` (32 random bytes) in the in-memory map with `{principal snapshot (user,
    via mcp, level, clientId or apiKey), method, pathname, operationId, expiresAt: now + 60 s}`
    ([auth](auth.md) §5.2).
 5. `fetch(url, { method, headers: { ...headers, 'x-scantor-internal-auth': cap, 'x-request-id': <mcp request
    id> }, body, redirect: 'manual' })` against the loopback listener. The REST middleware accepts the
-   capability only from a loopback peer, only for the bound method and path, and only once.
+   capability only on a connection of that listener and from a loopback peer, only for the bound method and
+   path, and only once; the same header on the dashboard listener, even from `127.0.0.1`, is 401.
 6. Read the body through a stream reader capped at 16 MiB. Above that, cancel and return the structured error
    `payloadTooLarge` with a hint to narrow the request.
 7. Map the response (§4.4), apply the cap (§4.5) to the value with untrusted data wrapped (§4.6), and return

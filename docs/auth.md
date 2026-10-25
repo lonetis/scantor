@@ -38,7 +38,7 @@ request
 |---|---|---|---|
 | `user` via `session` | better-auth cookie `scantor.session_token` (`__Secure-scantor.session_token` on https) | user routes | better-auth `session` |
 | `user` via `apiKey` | `x-api-key: sk_scantor_…` or `Authorization: Bearer sk_scantor_…` | user routes, `/mcp` | better-auth `apikey` (hashed) |
-| `user` via `mcp` | `x-scantor-internal-auth: sic_…` (loopback only) | user routes | in-memory capability minted by the MCP bridge |
+| `user` via `mcp` | `x-scantor-internal-auth: sic_…` (loopback listener only) | user routes | in-memory capability minted by the MCP bridge |
 | `node` | `Authorization: Bearer snt_…`; Basic `node:snt_…` on the registry token route | `/api/node/*`, `/api/registry/token` | `nodes.tokenHash` |
 | `worker` | `Authorization: Bearer swt_<workerId>.<mac>` | `/api/runtime/*` | HMAC over the `workers` document |
 | `registry` (orchestrator credential) | Basic `orchestrator:<derived>` | `/api/registry/token` | HKDF-derived, never stored |
@@ -46,9 +46,12 @@ request
 | `setup` | header `X-Scantor-Setup-Token: sst_…` | `/api/setup/*` mutations | in-memory, per boot |
 | `editor` | cookie `scantor_editor` (editor origin) | the editor listener only (container port 3001, [editor](editor.md) §8.1) | HMAC-signed cookie bound to `editors.startedAt` |
 
-This middleware chain runs on the dashboard listener (container port 3000) only. The editor origin is a
-separate HTTP listener outside Nitro ([editor](editor.md) §8.1). `00.request` answers 421 Misdirected
-Request when `Host` is the editor host, so no dashboard route is ever reachable there.
+This middleware chain runs wherever the Nitro app serves requests: on the dashboard listener (container port
+3000) and on the loopback listener, a private listener on `127.0.0.1` with an ephemeral port that only the MCP
+bridge of the same process uses for tool calls and the JWKS fetch (`server/utils/loopback.ts`, [mcp](mcp.md) §1,
+§4.3). Internal capabilities are accepted only on connections of the loopback listener (§5.2). The editor origin is
+a separate HTTP listener outside Nitro ([editor](editor.md) §8.1). `00.request` answers 421 Misdirected Request
+when `Host` is the editor host, so no dashboard route is ever reachable there.
 
 MCP OAuth access tokens are not principals of the REST API. They are verified only on `/mcp`, which turns
 them into `user` principals via `mcp` ([mcp](mcp.md)).
@@ -468,7 +471,7 @@ The middleware stores it as `event.context.principal`; nothing else in `event.co
 
 | Credential | Exact recognition | Validation | Failure |
 |---|---|---|---|
-| internal capability | header `x-scantor-internal-auth` matching `^sic_[A-Za-z0-9_-]{43}$` | TCP peer address is loopback (`127.0.0.1`, `::1`); entry exists in the in-memory map and is unexpired (60 s); request method and pathname equal the values bound at mint time; entry deleted on first use (single use). The user is re-read through the user cache. | 401 `unauthorized` |
+| internal capability | header `x-scantor-internal-auth` matching `^sic_[A-Za-z0-9_-]{43}$` | the request arrived on a connection of this process's loopback listener (`isLoopbackListenerSocket`), never on the dashboard listener, and its TCP peer address is loopback (`127.0.0.1`, `::1`); entry exists in the in-memory map and is unexpired (60 s); request method and pathname equal the values bound at mint time; entry deleted on first use (single use), whatever the outcome. The user is re-read through the user cache. | 401 `unauthorized` |
 | API key | header `x-api-key`, or `Authorization: Bearer` whose value starts with `sk_scantor_` | `auth.api.getSession({ headers: new Headers({ 'x-api-key': key }) })`. The api-key plugin hook hashes the key (SHA-256, base64url), looks it up, and checks `enabled` and `expiresAt` (expired keys are deleted). The returned session carries the fresh user. `configId` = `editor` iff the key matches `^sk_scantor_editor_[A-Za-z]{64}$`, else `default`. | 401 `unauthorized` (never falls back to the cookie) |
 | session cookie | better-auth session cookie present | `auth.api.getSession({ headers: new Headers({ cookie }) })`: DB lookup of session and user | 401 `unauthorized` |
 | node token | `Authorization: Bearer snt_…` (or Basic `node:snt_…` on the token route) | §10.1 | 401 `unauthorized` |
