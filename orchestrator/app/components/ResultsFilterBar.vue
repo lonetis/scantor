@@ -3,8 +3,8 @@ import { ANALYSIS_STATUSES, type AnalysisStatus } from '#shared/utils/enums'
 import type { ResultsFilters } from '~/composables/useAnalyses'
 
 // Filters of the results tab (docs/ui.md §5.13.2): status multi-select (listAnalyses?status=), "Go to seq", an
-// advanced JSON filter that switches the table to queryAnalyses, the result-column picker (at most four columns,
-// persisted per task by the table) and the auto-refresh switch.
+// advanced JSON filter that switches the table to queryAnalyses, the result-column picker (at most four columns; a
+// choice is announced with `chooseColumns`, which the table persists per task) and the auto-refresh switch.
 const props = defineProps<{
   /** Top-level properties of the revision's Result schema. */
   resultProperties: readonly string[]
@@ -13,7 +13,7 @@ const props = defineProps<{
 }>()
 
 const filters = defineModel<ResultsFilters>({ required: true })
-const emit = defineEmits<{ goToSeq: [seq: number] }>()
+const emit = defineEmits<{ goToSeq: [seq: number], chooseColumns: [columns: string[]] }>()
 
 const statusItems = ANALYSIS_STATUSES.map((status) => ({ label: status, value: status }))
 const columnItems = computed(() => props.resultProperties.map((property) => ({ label: property, value: property })))
@@ -27,7 +27,9 @@ const statuses = computed({
 const columns = computed({
   get: () => filters.value.columns,
   set: (value: string[]) => {
-    filters.value = { ...filters.value, columns: value.slice(0, MAX_RESULT_COLUMNS) }
+    const chosen = value.slice(0, MAX_RESULT_COLUMNS)
+    filters.value = { ...filters.value, columns: chosen }
+    emit('chooseColumns', chosen)
   },
 })
 const autoRefresh = computed({

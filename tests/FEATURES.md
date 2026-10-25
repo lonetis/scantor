@@ -835,7 +835,7 @@ Mechanisms: [ui](../docs/ui.md) §5.13.2–§5.13.6.
 
 - **UI-RES-001** [ui] The results status filter syncs with `?status=` and reloads the table from the start; "Go to seq" accepts digits only and starts the table at that seq with "Show from the start".
 - **UI-RES-002** [ui] The advanced filter takes a JSON filter (default `{"status": "failed"}`), disables "Apply filter" for invalid JSON, switches the table to the query API, and shows a rejected filter with `(at <path>)`.
-- **UI-RES-003** [ui] "Result columns" allows up to 4 result fields (default the first four of the result schema) and remembers the choice per task.
+- **UI-RES-003** [ui] "Result columns" allows up to 4 result fields (default the first four of the result schema) and remembers the choice per task; columns a later revision's result schema lacks are dropped (the defaults return when none remain).
 - **UI-RES-004** [ui, security] The results table shows seq, status, attempt, round (when above 1), duration, error, the chosen result columns and finished time; FileRef values render as file chips, other values as plain text cut at 200 characters, never as links; a row opens `?analysis=<seq>`.
 - **UI-RES-005** [ui] Results load 50 rows per page through "Load more" or scrolling, and stop at 5000 rows with "Showing the first 5,000 rows. Use the query console or an export for more."
 - **UI-RES-006** [ui] "Auto-refresh" appears only while the scan runs, is on by default and reloads the loaded rows (the first 1000; rows loaded beyond them stay).

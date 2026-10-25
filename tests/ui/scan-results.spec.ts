@@ -237,6 +237,28 @@ test.describe('results of a finished scan', () => {
         'Finished',
       ])
 
+      // A stored choice loses the properties this revision's Result schema lacks (a later revision may rename or drop
+      // them), and the defaults return when none remain. The page flushes its own preferences when it unloads, so the
+      // edited choice is written before the reloaded app starts.
+      type StoredPrefs = { resultColumns: Record<string, { at: number; value: string[] }> }
+      const storedPrefs = async () => JSON.parse((await page.evaluate(() => localStorage.getItem('scantor-ui'))) ?? '{}') as StoredPrefs
+      await expect.poll(async () => (await storedPrefs()).resultColumns?.[scan.task.id]?.value).toEqual(['value', 'label', 'long', 'report'])
+      const reloadWithStoredColumns = async (columns: string[]) => {
+        const prefs = await storedPrefs()
+        prefs.resultColumns[scan.task.id] = { at: Date.now(), value: columns }
+        const marker = `stored-columns-${columns.join(',')}`
+        await page.addInitScript(([stored, once]) => {
+          if (sessionStorage.getItem(once)) return
+          sessionStorage.setItem(once, '1')
+          localStorage.setItem('scantor-ui', stored!)
+        }, [JSON.stringify(prefs), marker])
+        await reloadApp(page)
+      }
+      await reloadWithStoredColumns(['gone', 'label'])
+      await expect(table.getByRole('columnheader')).toHaveText(['Seq', 'Status', 'Attempt', 'Duration', 'Error', 'label', 'Finished'])
+      await reloadWithStoredColumns(['gone'])
+      await expect(table.getByRole('columnheader')).toHaveText(['Seq', 'Status', 'Attempt', 'Duration', 'Error', 'value', 'label', 'long', 'url', 'Finished'])
+
       // A row opens the analysis drawer.
       await table
         .locator(`tr[data-row-id="${seq(2)}"]`)

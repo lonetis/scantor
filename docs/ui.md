@@ -524,8 +524,10 @@ Tabs (`?tab=`): `overview` (default), `results`, `query`, `workers`, `events`, `
 
 - `ResultsFilterBar`: status multi-select (→ `listAnalyses?status=`), "Go to seq" (`afterSeq = seq − 1`),
   "Advanced filter" (a JSON filter; switches the table source to `queryAnalyses {filter, projection,
-  limit, afterSeq}`), column picker (persisted per task id, §14), auto-refresh switch (default on while
-  the scan is `running`).
+  limit, afterSeq}`), column picker (a choice in the picker is persisted per task id, §14; the defaults
+  are never stored, so they follow each revision's schema, and stored columns the revision's Result
+  schema lacks are dropped, falling back to the defaults when none remain), auto-refresh switch (default
+  on while the scan is `running`).
 - `ScanResultsTable` (`UTable sticky virtualize`, fixed height): columns seq (mono), status badge, attempt,
   round (when > 1), duration, error type and message (truncated), up to four result columns (default: the
   first four top-level properties of the Result schema from `getRevision(scan.task.id,

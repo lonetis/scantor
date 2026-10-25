@@ -59,16 +59,20 @@ watch(() => filters.value.statuses, (statuses) => {
 /** Start after this seq ("Go to seq"). */
 const startAfter = ref<number | null>(null)
 
-// Default columns: the first four properties of the Result schema, unless the user chose columns for this task.
-watch(properties, (available) => {
-  if (prefs.getResultColumns(props.scan.task.id) === null && filters.value.columns.length === 0) {
-    filters.value = { ...filters.value, columns: available.slice(0, MAX_RESULT_COLUMNS) }
-  }
+// Columns, once the revision's Result schema is known: the user's choice for this task without the properties this
+// revision's schema lacks (a later revision may rename or drop them), else the first four properties. Only a choice
+// in the filter bar is stored, so the defaults follow each revision's schema. An explicit choice of no columns stays.
+watch([properties, () => revision.value !== undefined], ([available, known]) => {
+  if (!known) return
+  const stored = prefs.getResultColumns(props.scan.task.id)
+  const kept = stored?.filter((column) => available.includes(column)) ?? []
+  const columns = stored !== null && (kept.length > 0 || stored.length === 0) ? kept : available.slice(0, MAX_RESULT_COLUMNS)
+  if (JSON.stringify(columns) !== JSON.stringify(filters.value.columns)) filters.value = { ...filters.value, columns }
 }, { immediate: true })
 
-watch(() => filters.value.columns, (columns, previous) => {
-  if (previous && JSON.stringify(columns) !== JSON.stringify(previous)) prefs.setResultColumns(props.scan.task.id, columns)
-})
+function chooseColumns(columns: string[]): void {
+  prefs.setResultColumns(props.scan.task.id, columns)
+}
 
 const advancedFilter = computed(() => {
   if (filters.value.advanced === null) return null
@@ -170,7 +174,7 @@ const limitMessage = computed(() => (list.limitReached.value ? `Showing the firs
 
 <template>
   <div class="space-y-3">
-    <ResultsFilterBar v-model="filters" :result-properties="properties" :live="live" @go-to-seq="goToSeq" />
+    <ResultsFilterBar v-model="filters" :result-properties="properties" :live="live" @go-to-seq="goToSeq" @choose-columns="chooseColumns" />
     <div v-if="startAfter !== null" class="flex items-center gap-2 text-xs text-muted">
       <span>Starting at seq {{ formatCount(startAfter + 1) }}</span>
       <UButton label="Show from the start" color="neutral" variant="link" size="xs" @click="startAfter = null" />
