@@ -7,6 +7,8 @@ import { type Logger, useLogger } from './logger'
 // docs/architecture.md §4.1 step 6. Builds never use dockerode (they run `scantor task build`).
 
 export const EGRESS_NETWORK = 'scantor-egress'
+/** The compose network of master workers and editors (docs/nodes.md §6.8, editor.md §4): user code runs on it. */
+export const SANDBOX_NETWORK = 'scantor-sandbox'
 export const WORKSPACES_VOLUME = 'scantor-workspaces'
 export const EDITOR_HOME_VOLUME = 'scantor-editor-home'
 

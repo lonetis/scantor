@@ -229,7 +229,7 @@ describe.skipIf(!enabled)('editor against a real code-server', () => {
       },
       log,
     })
-    listener = createEditorServer({ editorUrl: EDITOR_URL, publicUrl: PUBLIC_URL, trustProxy: false, sessions, proxy, limiter: new FailureLimiter(), log })
+    listener = createEditorServer({ editorUrl: EDITOR_URL, publicUrl: PUBLIC_URL, isTrustedProxy: () => false, sessions, proxy, limiter: new FailureLimiter(), log })
     await new Promise<void>((resolve) => listener.listen(0, '127.0.0.1', resolve))
     port = (listener.address() as { port: number }).port
   })

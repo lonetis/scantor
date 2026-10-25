@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { APIRequestContext, APIResponse } from '@playwright/test'
+import { docker } from '../helpers/docker'
 import { ThrowawayOrchestrator } from '../helpers/orchestrator'
 import { withSecurityTenants } from '../helpers/security-tenants'
 import { expect, test as base } from '../fixtures'
@@ -10,9 +11,18 @@ const test = withSecurityTenants(base)
 // Per-IP auth rate limits (docs/auth.md §2.7, §4.3; security.md AUTH-6) against throwaway orchestrators, so the
 // shared stack's sign-in budget (helpers/limiter.ts) is untouched. better-auth keys its in-memory limiter by
 // `<client IP>|<path>` with the client IP that scantor computes itself: the socket peer, or the rightmost
-// X-Forwarded-For entry only with SCANTOR_TRUST_PROXY=true.
+// X-Forwarded-For entry only with SCANTOR_TRUST_PROXY=true and a peer of SCANTOR_TRUSTED_PROXIES.
 
 const password = () => randomBytes(18).toString('base64url')
+
+/**
+ * The address a throwaway orchestrator sees for this runner: the gateway of the stack network, from which the
+ * runner (in the root network namespace of the inner Docker host) reaches the containers on it.
+ */
+async function runnerPeerAddress(): Promise<string> {
+  const { stdout } = await docker(['network', 'inspect', '--format', '{{(index .IPAM.Config 0).Gateway}}', 'scantor'])
+  return stdout.trim()
+}
 
 /** Sends `count` requests one after the other (each with a different spoofed X-Forwarded-For) and returns the statuses. */
 async function burst(count: number, send: (index: number, headers: Record<string, string>) => Promise<APIResponse>): Promise<APIResponse[]> {
@@ -77,12 +87,41 @@ test.describe('auth rate limits', () => {
     },
   )
 
-  test('with a trusted proxy the rightmost X-Forwarded-For entry is the client', { tag: ['@AUTH-010'] }, async ({ throwawayInfra }) => {
-    // The contrast case: behind Traefik (SCANTOR_TRUST_PROXY=true) each forwarded address has its own bucket.
+  test(
+    'with SCANTOR_TRUST_PROXY=true, X-Forwarded-For from a peer that is not a trusted proxy is ignored',
+    { tag: ['@AUTH-010'] },
+    async ({ throwawayInfra }) => {
+      // The default SCANTOR_TRUSTED_PROXIES (`traefik`) names the stack's Traefik, never this runner: a direct client,
+      // like task code or an editor terminal on scantor-sandbox, cannot spread its attempts across buckets.
+      const adminPassword = password()
+      orchestrator = await ThrowawayOrchestrator.start({
+        name: 'rate-direct',
+        infra: throwawayInfra,
+        env: { SCANTOR_TRUST_PROXY: 'true', SCANTOR_ADMIN_EMAIL: 'direct@example.test', SCANTOR_ADMIN_PASSWORD: adminPassword },
+      })
+      await orchestrator.waitReady()
+      const client = await orchestrator.context()
+      const responses = await burst(11, (index, headers) =>
+        client.post('/api/auth/sign-in/email', { headers, data: { email: 'direct@example.test', password: `wrong-${index}-${password()}` } }),
+      )
+      expectLimited(responses, 10, '/sign-in/email')
+      const attempts = (await orchestrator.logLines()).filter((line) => line.msg === 'request' && line.path === '/api/auth/sign-in/email')
+      expect(attempts.map((line) => line.clientIp)).toEqual(Array(11).fill(await runnerPeerAddress()))
+    },
+  )
+
+  test('behind a trusted proxy the rightmost X-Forwarded-For entry is the client', { tag: ['@AUTH-010'] }, async ({ throwawayInfra }) => {
+    // The contrast case: this runner is the trusted proxy (SCANTOR_TRUSTED_PROXIES), so each forwarded address has
+    // its own bucket.
     orchestrator = await ThrowawayOrchestrator.start({
       name: 'rate-proxy',
       infra: throwawayInfra,
-      env: { SCANTOR_TRUST_PROXY: 'true', SCANTOR_ADMIN_EMAIL: 'proxied@example.test', SCANTOR_ADMIN_PASSWORD: password() },
+      env: {
+        SCANTOR_TRUST_PROXY: 'true',
+        SCANTOR_TRUSTED_PROXIES: await runnerPeerAddress(),
+        SCANTOR_ADMIN_EMAIL: 'proxied@example.test',
+        SCANTOR_ADMIN_PASSWORD: password(),
+      },
     })
     await orchestrator.waitReady()
     const client = await orchestrator.context()

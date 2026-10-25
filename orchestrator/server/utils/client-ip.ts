@@ -1,15 +1,20 @@
 import { isIP } from 'node:net'
 import { stripIpv4Mapped } from './internal-auth'
+import type { ProxyTrust } from './trusted-proxy'
 
-// Client IP (docs/auth.md §4.3): the socket peer, or with SCANTOR_TRUST_PROXY=true the rightmost
-// X-Forwarded-For entry (the address the trusted proxy saw). Handed to better-auth through x-scantor-client-ip,
-// which clients cannot inject because middleware/00.request.ts deletes any incoming value.
+// Client IP (docs/auth.md §4.3): the socket peer, or, when that peer is a trusted proxy (utils/trusted-proxy.ts),
+// the rightmost X-Forwarded-For entry (the address the proxy saw). Handed to better-auth through
+// x-scantor-client-ip, which clients cannot inject because middleware/00.request.ts replaces any incoming value.
 
 export const CLIENT_IP_HEADER = 'x-scantor-client-ip'
 
-export function computeClientIp(peerAddress: string | undefined, forwardedFor: string | string[] | undefined, trustProxy: boolean): string {
+export function computeClientIp(
+  peerAddress: string | undefined,
+  forwardedFor: string | string[] | undefined,
+  isTrustedProxy: ProxyTrust,
+): string {
   const peer = peerAddress ? stripIpv4Mapped(peerAddress) : 'unknown'
-  if (!trustProxy || !forwardedFor) return peer
+  if (!forwardedFor || !peerAddress || !isTrustedProxy(peer)) return peer
   const header = Array.isArray(forwardedFor) ? forwardedFor.join(',') : forwardedFor
   const rightmost = header
     .split(',')

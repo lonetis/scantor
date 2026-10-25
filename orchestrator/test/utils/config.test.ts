@@ -25,6 +25,7 @@ describe('parseConfig', () => {
       SCANTOR_QUERY_MAX_TIME: '1m30s',
       SCANTOR_MAX_REQUEST_BYTES: '2MiB',
       SCANTOR_TRUST_PROXY: 'true',
+      SCANTOR_TRUSTED_PROXIES: 'Traefik, 10.0.0.0/8 ,fd00::/8,192.0.2.1,traefik',
       SCANTOR_WORKER_CAP_ADD: '',
       SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS: 'https://app.example.com, https://other.example.com/',
       SCANTOR_AMQP_PUBLIC_URL: 'amqps://amqp.example.com:443',
@@ -38,6 +39,7 @@ describe('parseConfig', () => {
     expect(config.queryMaxTimeMs).toBe(90_000)
     expect(config.maxRequestBytes).toBe(2 * 1024 ** 2)
     expect(config.trustProxy).toBe(true)
+    expect(config.trustedProxies).toEqual(['traefik', '10.0.0.0/8', 'fd00::/8', '192.0.2.1'])
     expect(config.workerCapAdd).toEqual([])
     expect(config.mcpAllowedRedirectOrigins).toEqual(['https://app.example.com', 'https://other.example.com'])
     expect(config.amqpPublicUrl).toBe('amqps://amqp.example.com:443')
@@ -56,6 +58,10 @@ describe('parseConfig', () => {
     ['SCANTOR_BIND_ADDRESS', 'localhost'],
     ['SCANTOR_ADMIN_BIND_ADDRESS', '127.0.0'],
     ['SCANTOR_TRUST_PROXY', 'yes'],
+    ['SCANTOR_TRUSTED_PROXIES', 'traefik, not a host!'],
+    ['SCANTOR_TRUSTED_PROXIES', '10.0.0.0/33'],
+    ['SCANTOR_TRUSTED_PROXIES', 'fd00::/129'],
+    ['SCANTOR_TRUSTED_PROXIES', 'traefik/8'],
     ['SCANTOR_ALLOW_INSECURE_DEFAULTS', '1'],
     ['SCANTOR_ALLOW_INSECURE_TRANSPORT', 'yes'],
     ['SCANTOR_GIT_ALLOW_PRIVATE', 'TRUE'],

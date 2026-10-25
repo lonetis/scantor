@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto'
+import { BlockList, isIP } from 'node:net'
 import type { APIRequestContext } from '@playwright/test'
 import type { Account } from '#shared/types/account'
 import type { NodeWithToken } from '#shared/types/nodes'
@@ -18,8 +19,10 @@ import {
   unknownApiKey,
   withAuthTenants,
 } from '../helpers/api-auth'
+import { CONTAINERS, docker } from '../helpers/docker'
 import { stackKeys } from '../helpers/keys'
 import { reserve } from '../helpers/limiter'
+import { containerImage } from '../helpers/security'
 import { newApiContext } from '../helpers/users'
 import { expect, test as base, unique } from '../fixtures'
 
@@ -299,6 +302,7 @@ test.describe('sessions', () => {
       const admin = await users.create(adminApi, { prefix: 'cookie', role: 'admin' })
       const spoofed = '203.0.113.7'
       const forwarded = '198.51.100.9'
+      const sandboxForwarded = '198.51.100.77'
 
       // Sign-in through Traefik with spoofed client IP headers.
       const context = await users.context()
@@ -318,7 +322,8 @@ test.describe('sessions', () => {
       expect(stored.domain, 'host-only: never sent to the editor, S3, registry or tool hosts').toBe(env.domain)
       expect(stored.secure && stored.httpOnly).toBe(true)
 
-      // A second sign-in straight to the dashboard listener with a forwarded chain: the rightmost entry is the client.
+      // A second sign-in straight to the dashboard listener with a forwarded chain: only Traefik's X-Forwarded-For
+      // counts, so this session carries the socket peer and none of the forwarded entries.
       await reserve('/sign-in/email')
       const direct = await rawRequest(`${dashboardListenerUrl()}/api/auth/sign-in/email`, {
         method: 'POST',
@@ -333,14 +338,43 @@ test.describe('sessions', () => {
       })
       expect(direct.status, direct.text()).toBe(200)
 
+      // A third one from the workers' network, as task code on a master worker or an editor terminal would send it to
+      // orchestrator:3000: the sandbox peer is never a trusted proxy.
+      await reserve('/sign-in/email')
+      const fromSandbox = await docker(
+        [
+          'run',
+          '--rm',
+          '--name',
+          unique('scantor-test-xff'),
+          '--label',
+          'scantor.test=true',
+          '--network',
+          'scantor-sandbox',
+          '-e',
+          `BODY=${JSON.stringify({ email: admin.email, password: admin.password })}`,
+          '--entrypoint',
+          'sh',
+          await containerImage(CONTAINERS.node),
+          '-c',
+          `wget -q -S -O /dev/null --header "Host: ${env.domain}" --header "Origin: ${env.publicUrl}" --header "Content-Type: application/json" ` +
+            `--header "X-Forwarded-For: ${sandboxForwarded}" --post-data "$BODY" http://orchestrator:3000/api/auth/sign-in/email 2>&1; true`,
+        ],
+        { timeoutMs: 60_000 },
+      )
+      expect(fromSandbox.stdout).toMatch(/HTTP\/1\.1 200/)
+
       const sessions = (await (await context.get('/api/auth/list-sessions')).json()) as { ipAddress?: string | null }[]
-      const addresses = sessions.map((s) => s.ipAddress)
-      expect(addresses).toHaveLength(2)
-      expect(addresses).toContain('198.51.100.2')
-      expect(addresses).not.toContain(spoofed)
-      // Traefik overwrites client-supplied forwarded headers, so the session through it carries the real peer.
-      expect(addresses).not.toContain(forwarded)
-      expect(addresses.every((address) => typeof address === 'string' && address.length > 0)).toBe(true)
+      const addresses = sessions.map((s) => s.ipAddress ?? '')
+      expect(addresses).toHaveLength(3)
+      for (const value of [spoofed, forwarded, '198.51.100.1', '198.51.100.2', sandboxForwarded]) expect(addresses).not.toContain(value)
+      // Traefik overwrites client-supplied forwarded headers, so the session through it carries the real peer; the
+      // others carry their socket addresses, one of them inside scantor-sandbox.
+      expect(addresses.every((address) => isIP(address) !== 0)).toBe(true)
+      const subnet = (await docker(['network', 'inspect', '--format', '{{(index .IPAM.Config 0).Subnet}}', 'scantor-sandbox'])).stdout.trim()
+      const sandbox = new BlockList()
+      sandbox.addSubnet(subnet.slice(0, subnet.indexOf('/')), Number(subnet.slice(subnet.indexOf('/') + 1)))
+      expect(addresses.filter((address) => isIP(address) === 4 && sandbox.check(address, 'ipv4')), subnet).toHaveLength(1)
 
       // The tools cookie of this admin session is cleared by signing out.
       const client = new ApiClient(context, adminApi.openapi)

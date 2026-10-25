@@ -1,6 +1,6 @@
 import type Docker from 'dockerode'
 import type { Config } from '../../utils/config'
-import { EDITOR_HOME_VOLUME, WORKSPACES_VOLUME } from '../../utils/docker'
+import { EDITOR_HOME_VOLUME, SANDBOX_NETWORK, WORKSPACES_VOLUME } from '../../utils/docker'
 import { isManagedContainer, managedLabels } from '../../utils/labels'
 import { WORKSPACE_ROOT } from './sessions'
 
@@ -13,7 +13,6 @@ import { WORKSPACE_ROOT } from './sessions'
 
 export const EDITOR_NAME_PREFIX = 'scantor-editor-'
 export const EDITOR_IMAGE = 'scantor-editor'
-export const SANDBOX_NETWORK = 'scantor-sandbox'
 export const EDITOR_SOCKETS_VOLUME = 'scantor-editor-sockets'
 export const EDITOR_SOCKET_MOUNT = '/run/scantor-editor'
 export const EDITOR_HOME = '/home/coder'

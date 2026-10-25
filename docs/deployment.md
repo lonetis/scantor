@@ -1033,7 +1033,7 @@ orchestrator logs a warning at boot when a URL host does not match its fixed Tra
 | `SCANTOR_REGISTRY_PUBLIC_HOST` | `registry.scantor.example.com` |
 | `SCANTOR_RUSTFS_CONSOLE_URL` | `https://rustfs.scantor.example.com` |
 | `SCANTOR_TRAEFIK_CERT_RESOLVER` | `acme` |
-| `SCANTOR_TRUST_PROXY` | `true` (better-auth trusts `X-Forwarded-For` only from Traefik) |
+| `SCANTOR_TRUST_PROXY` | `true` (`X-Forwarded-For` counts only on connections from `SCANTOR_TRUSTED_PROXIES`, which names the `traefik` service; direct and `scantor-sandbox` peers keep their own address, [auth](auth.md) §4.3) |
 | `SCANTOR_BIND_ADDRESS` | `127.0.0.1` (keep: only Traefik is public) |
 
 DNS needs records for `scantor.example.com` and `*.scantor.example.com` pointing at the master. For S3,

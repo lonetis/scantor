@@ -4,6 +4,7 @@ import { CLIENT_IP_HEADER, computeClientIp, normalizeHost } from '../utils/clien
 import { useConfig } from '../utils/config'
 import { useLogger } from '../utils/logger'
 import type { Principal } from '../utils/principal'
+import { proxyTrust } from '../utils/trusted-proxy'
 
 // First middleware (docs/auth.md §1, §4.3): request id, client IP header, 421 Misdirected Request for the editor
 // host on the dashboard listener, and the access log line of every API, MCP and discovery request.
@@ -36,7 +37,7 @@ export default defineEventHandler((event) => {
 
   // Clients can never inject the client IP header: it is replaced on every request.
   const headers = event.node.req.headers
-  const clientIp = computeClientIp(event.node.req.socket.remoteAddress, headers['x-forwarded-for'], useConfig().trustProxy)
+  const clientIp = computeClientIp(event.node.req.socket.remoteAddress, headers['x-forwarded-for'], proxyTrust())
   headers[CLIENT_IP_HEADER] = clientIp
   event.context.clientIp = clientIp
 

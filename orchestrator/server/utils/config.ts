@@ -65,6 +65,8 @@ export interface Config {
   composeProfiles: string[]
   domain: string | null
   trustProxy: boolean
+  /** IP addresses, CIDR ranges and host names whose X-Forwarded-For counts (with trustProxy) */
+  trustedProxies: string[]
   exposeMongo: boolean
   // admin tools
   mongoExpressReadonly: boolean
@@ -280,6 +282,24 @@ const components = () =>
 const capabilities = () =>
   fromParser(parseList).pipe(z.array(z.enum(['NET_BIND_SERVICE', 'NET_RAW'])).transform((list) => [...new Set(list)]))
 
+/** An IP address, a CIDR range (`10.0.0.0/8`, `fd00::/8`) or a DNS host name, returned lowercase. */
+function parseProxyEntry(entry: string): string {
+  const value = entry.toLowerCase()
+  const slash = value.indexOf('/')
+  if (slash === -1) {
+    if (isIP(value) !== 0 || HOSTNAME.test(value)) return value
+    throw new Error(`"${entry}" is not an IP address, CIDR range or host name`)
+  }
+  const family = isIP(value.slice(0, slash))
+  const bits = value.slice(slash + 1)
+  if (family === 0 || !/^\d{1,3}$/.test(bits) || Number(bits) > (family === 4 ? 32 : 128)) {
+    throw new Error(`"${entry}" is not a valid CIDR range`)
+  }
+  return value
+}
+
+const proxyList = () => fromParser((value) => [...new Set(parseList(value).map(parseProxyEntry))])
+
 const httpsOrigins = () =>
   fromParser((value) =>
     parseList(value).map((entry) => {
@@ -365,6 +385,7 @@ const VARIABLES = {
   composeProfiles: v('COMPOSE_PROFILES', '', fromParser(parseList), true),
   domain: v('SCANTOR_DOMAIN', '', z.union([z.literal(''), hostname()]).transform((value) => value || null), true),
   trustProxy: v('SCANTOR_TRUST_PROXY', 'false', boolean(), true),
+  trustedProxies: v('SCANTOR_TRUSTED_PROXIES', 'traefik', proxyList(), true),
   exposeMongo: v('SCANTOR_EXPOSE_MONGO', 'false', boolean(), true),
 
   mongoExpressReadonly: v('SCANTOR_MONGO_EXPRESS_READONLY', 'true', boolean(), true),

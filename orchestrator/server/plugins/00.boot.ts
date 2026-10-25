@@ -59,7 +59,9 @@ export default defineNitroPlugin((nitroApp) => {
       configureLogger({ level: config.logLevel, format: config.logFormat })
       for (const warning of warnings) log.warn('invalid configuration value', { variable: warning.variable, problem: warning.message })
       if (config.trustProxy && !config.composeProfiles.includes('traefik')) {
-        log.warn('SCANTOR_TRUST_PROXY=true without the traefik profile: direct requests can spoof their client IP')
+        log.warn('SCANTOR_TRUST_PROXY=true without the traefik profile: X-Forwarded-For counts only from the peers of SCANTOR_TRUSTED_PROXIES', {
+          trustedProxies: config.trustedProxies,
+        })
       }
       switch (guard.outcome) {
         case 'abort':

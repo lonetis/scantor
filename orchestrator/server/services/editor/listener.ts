@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { Duplex } from 'node:stream'
 import { computeClientIp, normalizeHost } from '../../utils/client-ip'
 import type { Logger } from '../../utils/logger'
+import type { ProxyTrust } from '../../utils/trusted-proxy'
 import { editorCookieHeader } from './cookie'
 import type { FailureLimiter } from './codes'
 import { editorSecurityHeaders, type SecurityHeaderOptions } from './headers'
@@ -31,7 +32,8 @@ export const HEADERS_TIMEOUT_MS = 60_000
 export interface EditorListenerOptions {
   editorUrl: string
   publicUrl: string
-  trustProxy: boolean
+  /** whether a socket peer is a trusted reverse proxy whose X-Forwarded-For counts (utils/trusted-proxy.ts) */
+  isTrustedProxy: ProxyTrust
   sessions: EditorSessions
   proxy: EditorProxy
   limiter: FailureLimiter
@@ -82,7 +84,7 @@ export function createEditorRequestHandlers(options: EditorListenerOptions): Edi
   const { sessions, proxy, limiter, log } = options
 
   function clientIp(req: IncomingMessage): string {
-    return computeClientIp(req.socket.remoteAddress, req.headers['x-forwarded-for'], options.trustProxy)
+    return computeClientIp(req.socket.remoteAddress, req.headers['x-forwarded-for'], options.isTrustedProxy)
   }
 
   async function handleAuth(req: IncomingMessage, res: ServerResponse, target: URL): Promise<void> {

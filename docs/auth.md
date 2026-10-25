@@ -414,18 +414,28 @@ client can set. Scantor therefore always computes the client IP itself and hands
 header that clients cannot inject:
 
 1. Middleware `00.request` deletes any incoming `x-scantor-client-ip` header.
-2. If `SCANTOR_TRUST_PROXY=true`, the client IP is the **rightmost** entry of `X-Forwarded-For`, which is
-   the address the trusted proxy saw. If the header is absent, the socket peer address is used.
-   Otherwise the client IP is the socket peer address.
+2. If `SCANTOR_TRUST_PROXY=true` **and the socket peer is a trusted proxy**, the client IP is the
+   **rightmost** entry of `X-Forwarded-For`, which is the address the proxy saw. If the header is absent or
+   its rightmost entry is not an IP address, the socket peer address is used. In every other case the client
+   IP is the socket peer address.
 3. It sets `x-scantor-client-ip` to that address. better-auth uses
    `advanced.ipAddress.ipAddressHeaders: ['x-scantor-client-ip']` for rate limiting and `session.ipAddress`,
-   and scantor uses the same value in logs and its own limits.
+   and scantor uses the same value in logs and its own limits. The editor listener (port 3001) computes the
+   client IP of its `/_auth` failure limit the same way.
 
-`SCANTOR_TRUST_PROXY=true` is correct only when every request reaches the orchestrator through Traefik (the
-`traefik` profile). Traefik's entrypoints do not trust incoming forwarded headers, so they overwrite
-`X-Forwarded-For` with the real peer. The orchestrator port stays bound to `SCANTOR_BIND_ADDRESS`. Requests
-that reach it directly (from that address, normally loopback) could then spoof their IP. This only affects rate-limit
-fairness and is accepted. The orchestrator logs a warning at boot when `SCANTOR_TRUST_PROXY=true` and
+The trusted proxies are `SCANTOR_TRUSTED_PROXIES`: IP addresses, CIDR ranges and host names, in compose the
+service name `traefik` (`server/utils/trusted-proxy.ts`). Host names are resolved when the `api` component
+starts, every 30 seconds, and at most every 5 seconds after a forwarded request from an unknown peer, because a
+restarted Traefik can get another address; a failed lookup keeps the previous addresses. Addresses inside the
+subnets of `scantor-sandbox` are never trusted, whatever the list says. The check is per connection, not a
+global switch: master workers, editor terminals and anything else that reaches `orchestrator:3000` or `:3001`
+directly (the orchestrator is on `scantor-sandbox`, and its ports are published on `SCANTOR_BIND_ADDRESS`) are
+rate-limited by their own socket address, whatever `X-Forwarded-For` they send.
+
+Set `SCANTOR_TRUST_PROXY=true` when the dashboard is served through Traefik (the `traefik` profile).
+Traefik's entrypoints do not trust incoming forwarded headers, so they overwrite `X-Forwarded-For` with the
+real peer. Without it every request through Traefik counts as Traefik's own address, so all users share one
+rate-limit bucket. The orchestrator logs a warning at boot when `SCANTOR_TRUST_PROXY=true` and
 `COMPOSE_PROFILES` does not contain `traefik`.
 
 ### 4.4 Passkeys
@@ -1006,7 +1016,7 @@ Specified in [mcp](mcp.md) §3:
 
 | File | Contents |
 |---|---|
-| `orchestrator/server/utils/config.ts` | env parsing (`publicUrl`, `editorUrl`, `domain`, `trustProxy`, `passkeyRpId`, `userMaxWorkers`, `mcpEnabled`, `mcpAllowedRedirectOrigins`, …) |
+| `orchestrator/server/utils/config.ts` | env parsing (`publicUrl`, `editorUrl`, `domain`, `trustProxy`, `trustedProxies`, `passkeyRpId`, `userMaxWorkers`, `mcpEnabled`, `mcpAllowedRedirectOrigins`, …) |
 | `orchestrator/server/utils/keys.ts` | HKDF derivations (mirror of `internal/keys`) |
 | `orchestrator/server/utils/auth.ts` | better-auth instance, plugin configurations, hooks, indexes |
 | `orchestrator/server/utils/auth-policy.ts` | pure policy: the HTTP allowlist (`isAuthHttpEndpoint`, `authHttpAllowlist`), rate limits, `trustedOrigins`, `resolvePasskeyConfig`, `resolveMcpConfig`, `isAllowedMcpRedirect` |
@@ -1019,6 +1029,7 @@ Specified in [mcp](mcp.md) §3:
 | `orchestrator/server/utils/node-tokens.ts`, `worker-tokens.ts` | node token generation/validation; worker token mint/verify |
 | `orchestrator/server/utils/internal-auth.ts` | `sic_` capability mint/consume |
 | `orchestrator/server/middleware/00.request.ts` | request id, client IP header, 421 for the editor host |
+| `orchestrator/server/utils/client-ip.ts`, `trusted-proxy.ts` | client IP from the socket peer or a trusted proxy's `X-Forwarded-For`; the trusted proxy addresses and their refresh (§4.3) |
 | `orchestrator/server/middleware/01.path.ts`, `orchestrator/server/utils/request-path.ts` | canonical request paths (§5.5) |
 | `orchestrator/server/middleware/10.auth.ts`, `orchestrator/server/utils/credential-lookup.ts` | §5.5; session and API key lookups (401 only for a rejected credential, §5.2) |
 | `orchestrator/server/middleware/11.passkey-guard.ts` | §6.4 |
@@ -1039,8 +1050,10 @@ Decisions made in this document, flagged for lead review:
 3. **API keys are rejected on `/api/auth/*`.** Otherwise a stolen key becomes a better-auth session, which can
    register passkeys, change the email or approve OAuth consents.
 4. **Client IP through `x-scantor-client-ip`**, set by middleware from the socket or, with
-   `SCANTOR_TRUST_PROXY=true`, from the rightmost `X-Forwarded-For` entry. better-auth's `ipAddressHeaders` is
-   always this header, because its default trusts `x-forwarded-for` unconditionally.
+   `SCANTOR_TRUST_PROXY=true` and a socket peer in `SCANTOR_TRUSTED_PROXIES`, from the rightmost
+   `X-Forwarded-For` entry. better-auth's `ipAddressHeaders` is always this header, because its default trusts
+   `x-forwarded-for` unconditionally. Trust is decided per connection, because the orchestrator shares
+   `scantor-sandbox` with user code that could otherwise choose its own rate-limit bucket (§4.3).
 5. **Central operation registry with deny-by-default.** `x-scantor-scope`, `x-admin-only`, `x-read-only`,
    `x-session-only` and the MCP level are enforced in the middleware from the runtime OpenAPI document, and
    handlers re-assert them. `x-session-only` and `x-destructive` are defined in [api](api.md) §1.1.
