@@ -175,14 +175,17 @@ func pointer(segments []string) string {
 }
 
 // Fill parses raw (a JSON value), fills defaults, validates the result and returns it re-encoded. The
-// error is non-nil only when raw is not valid JSON; validation failures are returned as issues together
-// with the filled value.
+// error is non-nil only when raw is not valid JSON or the defaults expand without bound
+// (ErrDefaultsUnbounded); validation failures are returned as issues together with the filled value.
 func (s *Schema) Fill(raw []byte) (json.RawMessage, []Issue, error) {
 	instance, err := ParseJSON(raw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse JSON: %w", err)
 	}
-	instance = s.ApplyDefaults(instance)
+	instance, bounded := s.applyDefaults(instance)
+	if !bounded {
+		return nil, nil, ErrDefaultsUnbounded
+	}
 	issues := s.Validate(instance)
 	out, err := json.Marshal(instance)
 	if err != nil {

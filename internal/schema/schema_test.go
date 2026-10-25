@@ -2,8 +2,11 @@ package schema
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The expectation below was produced by ajv 8.20 (ajv/dist/2020, useDefaults: true) on the same schema
@@ -152,4 +155,149 @@ func TestRecursiveRefTerminates(t *testing.T) {
 		return
 	}
 	s.ApplyDefaults(map[string]any{})
+}
+
+// A $ref or allOf cycle that consumes no instance level doubled the work with every level up to the
+// depth bound; it is now followed once.
+func TestDefaultsCycleAtOneLevel(t *testing.T) {
+	s, err := Compile([]byte(`{"type":"object","allOf":[{"$ref":"#"},{"$ref":"#"}],"properties":{"a":{"default":1},"o":{"type":"object","allOf":[{"$ref":"#"},{"$ref":"#"}]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	out, _, err := s.Fill([]byte(`{"o":{"o":{}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	jsonEqual(t, out, `{"a":1,"o":{"a":1,"o":{"a":1}}}`)
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("took %s", elapsed)
+	}
+}
+
+// Diamonds (the same definition reached through several branches) are applied again only after an
+// insert, so a chain of them stays polynomial. (Validating such a chain is still exponential, so the
+// test applies the defaults without validating.)
+func TestDefaultsDiamondChain(t *testing.T) {
+	defs := map[string]any{"A40": map[string]any{"properties": map[string]any{"x": map[string]any{"default": 1}}}}
+	for i := range 40 {
+		next := map[string]any{"$ref": fmt.Sprintf("#/$defs/A%d", i+1)}
+		defs[fmt.Sprintf("A%d", i)] = map[string]any{"allOf": []any{next, next}}
+	}
+	doc, _ := json.Marshal(map[string]any{"type": "object", "$ref": "#/$defs/A0", "$defs": defs})
+	s, err := Compile(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	out, _ := json.Marshal(s.ApplyDefaults(map[string]any{}))
+	jsonEqual(t, out, `{"x":1}`)
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("took %s", elapsed)
+	}
+}
+
+// A default that recurses into its own schema twice would grow the instance exponentially within the
+// depth bound: the work bound stops it and Fill reports it.
+func TestDefaultsUnbounded(t *testing.T) {
+	s, err := Compile([]byte(`{"type":"object","properties":{"a":{"$ref":"#","default":{}},"b":{"$ref":"#","default":{}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if _, _, err := s.Fill([]byte(`{}`)); !errors.Is(err, ErrDefaultsUnbounded) {
+		t.Fatalf("err = %v", err)
+	}
+	s.ApplyDefaults(map[string]any{})
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("took %s", elapsed)
+	}
+}
+
+// referenceDefaults is the unbounded algorithm the bounded one replaces; on schemas without cycles both
+// fill exactly the same defaults.
+func referenceDefaults(root map[string]any, node, instance any, depth int) {
+	sch, ok := node.(map[string]any)
+	if !ok || depth > maxDefaultsDepth {
+		return
+	}
+	if ref, ok := sch["$ref"].(string); ok {
+		if target, ok := resolveLocalRef(root, ref); ok {
+			referenceDefaults(root, target, instance, depth+1)
+		}
+	}
+	if all, ok := sch["allOf"].([]any); ok {
+		for _, sub := range all {
+			referenceDefaults(root, sub, instance, depth+1)
+		}
+	}
+	switch inst := instance.(type) {
+	case map[string]any:
+		props, _ := sch["properties"].(map[string]any)
+		for name, sub := range props {
+			subSchema, ok := sub.(map[string]any)
+			if !ok {
+				continue
+			}
+			if _, present := inst[name]; !present {
+				if def, hasDefault := subSchema["default"]; hasDefault {
+					b, _ := json.Marshal(def)
+					inst[name], _ = ParseJSON(b)
+				}
+			}
+			if v, present := inst[name]; present {
+				referenceDefaults(root, subSchema, v, depth+1)
+			}
+		}
+		if additional, ok := sch["additionalProperties"].(map[string]any); ok {
+			for name, v := range inst {
+				if _, listed := props[name]; !listed {
+					referenceDefaults(root, additional, v, depth+1)
+				}
+			}
+		}
+	case []any:
+		prefix, _ := sch["prefixItems"].([]any)
+		for i, v := range inst {
+			if i < len(prefix) {
+				referenceDefaults(root, prefix[i], v, depth+1)
+				continue
+			}
+			if items, ok := sch["items"].(map[string]any); ok {
+				referenceDefaults(root, items, v, depth+1)
+			}
+		}
+	}
+}
+
+func TestDefaultsMatchReference(t *testing.T) {
+	// T is applied before S1's own property y is inserted, so only the second S1 branch fills y/z: the
+	// repeated branch is not idle and must run again.
+	const orderDependent = `{"allOf":[{"$ref":"#/$defs/S1"},{"$ref":"#/$defs/S1"}],"$defs":{
+	  "S1":{"$ref":"#/$defs/T","properties":{"y":{"default":{}}}},
+	  "T":{"properties":{"y":{"properties":{"z":{"default":1}}}}}}}`
+	const shared = `{"type":"object","properties":{"p":{"$ref":"#/$defs/P"},"q":{"$ref":"#/$defs/P"},"l":{"type":"array","items":{"$ref":"#/$defs/P"}},
+	  "m":{"type":"object","additionalProperties":{"allOf":[{"$ref":"#/$defs/P"},{"$ref":"#/$defs/P"}]}}},
+	  "$defs":{"P":{"type":"object","properties":{"k":{"default":{"n":[{}]}},"j":{"type":"object","properties":{"i":{"default":3}},"default":{}}}}}}`
+	for name, tc := range map[string]struct{ schema, instance string }{
+		"ajv":             {ajvSchema, ajvInstance},
+		"order dependent": {orderDependent, `{}`},
+		"shared":          {shared, `{"l":[{},{"j":{}}],"m":{"a":{},"b":{"k":1}},"q":{}}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, err := Compile([]byte(tc.schema))
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, _ := ParseJSON([]byte(tc.instance))
+			root, _ := s.doc.(map[string]any)
+			referenceDefaults(root, s.doc, want, 0)
+			wantJSON, _ := json.Marshal(want)
+			got, _, err := s.Fill([]byte(tc.instance))
+			if err != nil {
+				t.Fatal(err)
+			}
+			jsonEqual(t, got, string(wantJSON))
+		})
+	}
 }

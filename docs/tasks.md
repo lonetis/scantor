@@ -939,6 +939,12 @@ against the inserted value. Evaluation follows `properties`, `items`, present `p
 never filled, and `null` values are kept. describe fails when a `default` does not validate against its
 own subschema. Configs should give every field a default so `{}` is valid (scaffolds do).
 
+`ApplyDefaults` bounds its work for schemas outside the subset of §6.4 (ajv overflows its stack on
+them): a `$ref` or `allOf` cycle that descends into no instance value is followed once, a subschema
+reached again (a diamond) is applied again only when a default was inserted since its last application
+(otherwise it changes nothing), and filling stops after 1 048 576 steps (a default that recurses into
+its own schema), which `scantor dev run` reports as a config error.
+
 The runtime checks only that payloads are well-formed JSON within the size limits; the connector is the
 authoritative validator of everything user code consumes and produces ([architecture](architecture.md)
 D19).
