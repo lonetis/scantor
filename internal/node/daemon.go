@@ -134,12 +134,55 @@ func (d *Daemon) Run(ctx context.Context) error {
 			}
 			hello = h
 		}
-		next := d.runSession(ctx, hello)
+		end := d.runSession(ctx, hello)
+		if end.supersededFor > 0 && ctx.Err() == nil {
+			d.standBy(ctx, end.supersededFor)
+		}
 		if ctx.Err() != nil {
 			d.log.Info("node daemon stopped; workers keep running")
 			return nil
 		}
-		hello = next
+		hello = end.next
+	}
+}
+
+// standBy waits while another instance holds the lease this one lost (docs/nodes.md §5.2): a 409 on a
+// request after hello means a daemon of the same engine took the lease over, or this one was silent
+// for the offline window. A hello would take a lease of the same engine over at once, so two daemons on
+// one engine (a second daemon with the same token, or an old instance that was frozen and resumed)
+// would evict each other forever. Instead the superseded daemon probes with a request only the lease
+// holder may make (the assignments call with wait=0), whose 409 carries the holder's remaining lease
+// time and changes nothing, and says hello again only when that lease has expired, or when the probe
+// fails in another way. retryAfter is the remaining lease time from the 409 that ended the session.
+func (d *Daemon) standBy(ctx context.Context, retryAfter time.Duration) {
+	delay := d.conflictDelay(retryAfter)
+	d.log.Warn("another daemon instance holds this node's lease; standing by until its lease expires (is a second daemon running with the same token?)",
+		"retryIn", delay.Round(time.Millisecond))
+	b := backoff{min: d.t.apiBackoffMin, max: d.t.apiBackoffMax}
+	for sleep(ctx, delay) {
+		_, _, err := d.api.GetNodeAssignments(ctx, -1, 0)
+		if ctx.Err() != nil {
+			return
+		}
+		switch kind := kindOf(err); {
+		case err == nil:
+			d.log.Info("this instance holds the node's lease again; registering")
+			return
+		case kind == errConflict:
+			remaining := conflictRetryAfter(err)
+			if remaining <= 0 {
+				d.log.Info("the other daemon instance's lease expired; registering again")
+				return
+			}
+			b.reset()
+			delay = d.conflictDelay(remaining)
+			d.log.Debug("standing by: another daemon instance still holds the lease", "retryIn", delay.Round(time.Millisecond))
+		case kind == errTransient:
+			delay = b.next()
+			d.log.Debug("standing by: the lease probe failed; retrying", "retryIn", delay.Round(time.Millisecond), "err", err)
+		default: // 401 and 426 are handled by the hello loop
+			return
+		}
 	}
 }
 
@@ -338,7 +381,7 @@ func (d *Daemon) helloOnce(ctx context.Context, b *backoff) (*api.NodeHelloRespo
 		d.log.Warn("the orchestrator rejected the node token (401); retrying hello", "retryIn", d.t.unauthorizedRetry, "err", err)
 		return nil, d.t.unauthorizedRetry, errUnauthorized
 	case errConflict:
-		retry := conflictRetry(err)
+		retry := d.conflictDelay(conflictRetryAfter(err))
 		d.log.Warn("another daemon instance holds this node's lease (409 nodeInstanceConflict)", "retryIn", retry)
 		return nil, retry, errConflict
 	case errIncompatible:
@@ -356,14 +399,20 @@ func (d *Daemon) helloOnce(ctx context.Context, b *backoff) (*api.NodeHelloRespo
 	}
 }
 
-// conflictRetry returns details.retryAfterMs plus jitter (at least one second).
-func conflictRetry(err error) time.Duration {
+// conflictRetryAfter returns details.retryAfterMs of a 409 nodeInstanceConflict: the remaining lease
+// time of the instance that holds the lease (0 when the lease is free).
+func conflictRetryAfter(err error) time.Duration {
 	var details api.NodeInstanceConflictDetails
 	if e, ok := api.AsError(err); ok {
 		_ = e.DecodeDetails(&details)
 	}
-	base := time.Duration(max(details.RetryAfterMs, 0)) * time.Millisecond
-	return base + jitter(max(base/5, time.Second), 0.5)
+	return time.Duration(max(details.RetryAfterMs, 0)) * time.Millisecond
+}
+
+// conflictDelay returns retryAfter plus jitter of a fifth of it, but at least of apiBackoffMin (one
+// second).
+func (d *Daemon) conflictDelay(retryAfter time.Duration) time.Duration {
+	return retryAfter + jitter(max(retryAfter/5, d.t.apiBackoffMin), 0.5)
 }
 
 // apiErrKind classifies node API errors.

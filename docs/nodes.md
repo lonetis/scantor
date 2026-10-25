@@ -196,7 +196,7 @@ containers found at start (`containers[]`, for adoption). On the orchestrator:
 | unknown or revoked token | 401 `unauthorized` |
 | version outside the window (same or previous minor) | 426 `incompatibleVersion` |
 | `node.instance` is null, or `instance.id == instanceId`, or `instance.lastSeenAt < now − SCANTOR_NODE_OFFLINE_AFTER` | lease granted |
-| `instance.id` has the **same engine ID** (part before `:`) but a different nonce | lease taken over immediately: a restarted daemon on the same host. The previous instance gets 409 on its next request and stops (below). |
+| `instance.id` has the **same engine ID** (part before `:`) but a different nonce | lease taken over immediately: a restarted daemon on the same host. The previous instance gets 409 on its next request and stands by (below). |
 | a live lease of a **different** engine | 409 `nodeInstanceConflict`, `details.retryAfterMs` = remaining lease time; event `node.instanceConflict` |
 
 On success the orchestrator sets `instance = {id, version, startedAt, lastSeenAt}`, stores `info`, sets
@@ -209,7 +209,29 @@ On success the orchestrator sets `instance = {id, version, startedAt, lastSeenAt
 
 Every later request carries `X-Scantor-Instance-Id`. When a request returns 409 `nodeInstanceConflict`,
 the daemon immediately stops reconciling, cancels its long-poll and pulls, and **does not touch any
-container**. It then goes back to the hello loop.
+container**. With `retryAfterMs` = 0 (the lease is free) it goes back to the hello loop at once.
+
+With `retryAfterMs` > 0 another instance holds a live lease: one of the same engine that took the lease
+over (a second daemon with the same token on this host, or this instance was paused or frozen and then
+resumed), or, after this instance was silent for the offline window, one of another engine. The daemon
+then **stands by** instead of saying hello, because a hello from the same engine would take the lease
+back at once, and two daemons on one engine would evict each other forever, each re-adopting and
+reconciling the same containers.
+
+```
+log warn "another daemon instance holds this node's lease; standing by …"
+delay := retryAfterMs + jitter
+loop:
+  sleep delay
+  GET /api/node/assignments?wait=0        // only the lease holder may call it; changes nothing
+  409 with retryAfterMs > 0  → delay := retryAfterMs + jitter   // the other instance is alive
+  409 with retryAfterMs = 0, 200, 401, 426 → back to the hello loop
+  network error, 5xx         → delay := backoff (1 s … 30 s)
+```
+
+So the instance that said hello last keeps the lease, and a superseded instance takes over only when the
+other one has been silent for the offline window (`SCANTOR_NODE_OFFLINE_AFTER`). The jitter is a fifth of
+`retryAfterMs`, at least 1 s, ±50 %.
 
 The hello loop retries as follows:
 
@@ -226,7 +248,7 @@ The hello loop retries as follows:
 rev := -inf; first := true
 loop:
   resp := GET /api/node/assignments?rev=<rev>&wait=<first ? 0 : config.assignmentsWaitSeconds>
-  on 409 → back to hello; on 401 → unauthorized mode (§7.4); on error → backoff (keep the last desired set)
+  on 409 → stand by or back to hello (§5.2); on 401 → unauthorized mode (§7.4); on error → backoff (keep the last desired set)
   desired.store(resp.workers, resp.logRequests); rev = resp.rev; first = false
   trigger reconcile
 ```
@@ -936,7 +958,8 @@ The state poll returns `min(desired, applied)` while scaling up and `desired` at
 | Symptom | Where to look |
 |---|---|
 | workers stay `pending` | scan condition `workersPending` → reasons (§12.3); `GET /api/nodes` capacity |
-| node `offline` while the daemon runs | daemon logs: transport refusals, 401, 409 `nodeInstanceConflict` (two daemons with one token) |
+| node `offline` while the daemon runs | daemon logs: transport refusals, 401 |
+| daemon logs 409 `nodeInstanceConflict` or "standing by" | two daemons run with one token (§5.2); stop one of them |
 | `imagePullFailed` | realm reachability from the node host (§10.1), registry TLS trust (§10.3), `insufficient_scope` (the worker is not assigned to the node) |
 | `crashLoop` with `oomKilled: true` | raise `resources.memoryMiB` per process, or lower `processes` |
 | `egressDenyApplied: false` | daemon warn log: firewall backend, rootless Docker, IPv6 |

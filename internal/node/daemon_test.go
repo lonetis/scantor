@@ -350,6 +350,35 @@ func TestConflictStopsWithoutTouchingContainers(t *testing.T) {
 	}
 }
 
+// A 409 after hello means another instance holds the lease now (docs/nodes.md §5.2). A hello would take
+// a lease of the same engine over at once, so two daemons on one engine would evict each other forever.
+// The superseded daemon stands by instead: it probes with wait=0 assignments calls, touches no
+// container, and says hello again only when the other instance's lease has expired.
+func TestSupersededInstanceStandsByUntilTheLeaseExpires(t *testing.T) {
+	h := newHarness(t, nil)
+	h.start()
+	h.orch.setDesired(testAssignment(testWorker1))
+	h.waitWorkerState(testWorker1, api.NodeWorkerRunning)
+	hellos := h.orch.helloCount()
+	h.orch.fail("assignments", fakeFailure{status: http.StatusConflict, code: api.CodeNodeInstanceConflict, details: map[string]any{"retryAfterMs": 100}})
+	eventually(t, 5*time.Second, "lease probes while standing by", func() bool { return h.orch.failureCount("assignments") >= 5 })
+	if n := h.orch.helloCount(); n != hellos {
+		t.Errorf("%d hellos while another instance held the lease", n-hellos)
+	}
+	if h.docker.callCount("stop ") != 0 || h.docker.callCount("remove ") != 0 {
+		t.Error("containers were touched while standing by")
+	}
+	if !h.logContains("standing by until its lease expires") {
+		t.Error("the stand-by was not logged")
+	}
+
+	// The other instance's lease expired: the next probe says so, and the daemon registers again.
+	h.orch.fail("assignments", fakeFailure{status: http.StatusConflict, code: api.CodeNodeInstanceConflict, details: map[string]any{"retryAfterMs": 0}, times: 1})
+	eventually(t, 5*time.Second, "hello after the lease expired", func() bool { return h.orch.helloCount() > hellos })
+	h.orch.setDesired(testAssignment(testWorker1), testAssignment(testWorker2))
+	h.waitWorkerState(testWorker2, api.NodeWorkerRunning)
+}
+
 func TestUnauthorizedModeRemovesWorkersAfterTheOfflineWindow(t *testing.T) {
 	h := newHarness(t, nil)
 	h.orch.config.OfflineAfterMs = 400

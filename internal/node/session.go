@@ -17,8 +17,9 @@ import (
 )
 
 // A session is the life of one registered instance: it starts with a successful hello and ends at
-// shutdown, at a 409 nodeInstanceConflict (stop at once, touch no container, back to hello), at a 426,
-// or when unauthorized mode ends with a new hello.
+// shutdown, at a 409 nodeInstanceConflict (stop at once, touch no container, stand by while another
+// instance holds the lease, then back to hello), at a 426, or when unauthorized mode ends with a new
+// hello.
 //
 // Three contexts govern it:
 //   - apiCtx: the assignments long-poll and the status loop; cancelled first on every exit.
@@ -61,6 +62,8 @@ type session struct {
 	removals     chan struct{}
 	networkOK    atomic.Bool
 	unauthorized atomic.Bool
+	// conflictAfter is details.retryAfterMs of the first 409 nodeInstanceConflict.
+	conflictAfter atomic.Pointer[time.Duration]
 	// nextStatus is the interval the last status response asked for (nextStatusMs; 0 = the hello
 	// config's statusIntervalMs).
 	nextStatus atomic.Int64
@@ -122,9 +125,17 @@ func newSession(ctx context.Context, d *Daemon, hello *api.NodeHelloResponse) *s
 	return s
 }
 
-// runSession runs a session and returns the hello response of the next one when unauthorized mode ended
-// with a successful hello, or nil (back to the hello loop, or shutdown when ctx ended).
-func (d *Daemon) runSession(ctx context.Context, hello *api.NodeHelloResponse) *api.NodeHelloResponse {
+// sessionEnd is how a session ended. next is the hello response of the next session when unauthorized
+// mode ended with a successful hello; supersededFor is the remaining lease time of the instance that
+// took this one's lease over (Daemon.standBy waits for it). Both zero: back to the hello loop, or
+// shutdown when ctx ended.
+type sessionEnd struct {
+	next          *api.NodeHelloResponse
+	supersededFor time.Duration
+}
+
+// runSession runs a session until it ends.
+func (d *Daemon) runSession(ctx context.Context, hello *api.NodeHelloResponse) sessionEnd {
 	s := newSession(ctx, d, hello)
 	d.current.Store(s)
 	defer d.current.Store(nil)
@@ -136,26 +147,30 @@ func (d *Daemon) runSession(ctx context.Context, hello *api.NodeHelloResponse) *
 		case <-ctx.Done():
 			apiCancel()
 			s.shutdown()
-			return nil
+			return sessionEnd{}
 		case ev := <-s.events:
 			apiCancel()
 			switch ev {
 			case eventConflict:
 				s.log.Warn("another daemon instance took over this node's lease; stopping without touching containers")
 				s.abort()
-				return nil
+				var after time.Duration
+				if p := s.conflictAfter.Load(); p != nil {
+					after = *p
+				}
+				return sessionEnd{supersededFor: after}
 			case eventIncompatible:
 				s.log.Error("the orchestrator no longer accepts this daemon version; stopping without touching containers")
 				s.abort()
-				return nil
+				return sessionEnd{}
 			case eventUnauthorized:
 				next := s.unauthorizedMode(ctx)
 				if ctx.Err() != nil {
 					s.shutdown()
-					return nil
+					return sessionEnd{}
 				}
 				s.abort()
-				return next
+				return sessionEnd{next: next}
 			}
 		}
 	}
@@ -195,6 +210,8 @@ func (s *session) signal(ev sessionEvent) {
 func (s *session) handleAPIError(err error) bool {
 	switch kindOf(err) {
 	case errConflict:
+		after := conflictRetryAfter(err)
+		s.conflictAfter.CompareAndSwap(nil, &after)
 		s.signal(eventConflict)
 		return true
 	case errUnauthorized:

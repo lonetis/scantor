@@ -35,8 +35,10 @@ type fakeOrchestrator struct {
 	assignCalls  int
 	instanceIDs  []string
 
-	// failNext makes the next requests of a route fail with a status and code.
+	// failRoutes makes the next requests of a route fail with a status and code; failures counts the
+	// failed requests per route.
 	failRoutes map[string]fakeFailure
+	failures   map[string]int
 }
 
 type fakeFailure struct {
@@ -61,6 +63,7 @@ func newFakeOrchestrator(t *testing.T, token string) *fakeOrchestrator {
 		},
 		logs:       map[string][]api.WorkerLogsUpload{},
 		failRoutes: map[string]fakeFailure{},
+		failures:   map[string]int{},
 	}
 	o.cond = sync.NewCond(&o.mu)
 	mux := http.NewServeMux()
@@ -102,6 +105,7 @@ func (o *fakeOrchestrator) check(w http.ResponseWriter, r *http.Request, route s
 	o.mu.Lock()
 	f, ok := o.failRoutes[route]
 	if ok {
+		o.failures[route]++
 		if f.times > 0 {
 			f.times--
 			if f.times == 0 {
@@ -123,6 +127,13 @@ func (o *fakeOrchestrator) fail(route string, f fakeFailure) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.failRoutes[route] = f
+}
+
+// failureCount returns how many requests of route were answered with a configured failure.
+func (o *fakeOrchestrator) failureCount(route string) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.failures[route]
 }
 
 func (o *fakeOrchestrator) clearFailures() {

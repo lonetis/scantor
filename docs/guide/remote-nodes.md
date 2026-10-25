@@ -110,9 +110,11 @@ give a remote node `SCANTOR_SECRET`.
 | delete | `scantor nodes delete <node>` | as revoke, then the record is removed |
 
 A daemon whose token stops working keeps its workers for a short while, retries every minute and then
-removes its worker containers. Two daemons with the same token on different hosts conflict
-(`nodeInstanceConflict` in the daemon log); only one is accepted. The built-in node's token is derived
-from the master's secret and cannot be rotated, revoked or deleted.
+removes its worker containers. Only one daemon per token is accepted. A second daemon with the same token
+on another host is refused (`nodeInstanceConflict` in its log). On the same host the daemon started last
+takes over, and the other one logs that it is standing by because another daemon instance holds the
+node's lease; it touches no containers and takes over only when the active daemon stops reporting. The
+built-in node's token is derived from the master's secret and cannot be rotated, revoked or deleted.
 
 ## Pools, labels and capacity
 
@@ -223,7 +225,8 @@ unfinished analyses are processed again. The daemon removes the replaced workers
 |---|---|
 | the node stays `pending` | the daemon never reached the master: check `docker logs scantor-node` for refused plaintext connections, TLS errors or `401` (wrong token) |
 | the daemon exits at start | an invalid setting (unknown `SCANTOR_NODE_DIND`, malformed CIDRs, a token together with `SCANTOR_NODE_BUILTIN=true`) or a refused plaintext URL; the log names it |
-| the node goes `offline` although the daemon runs | the log shows `401` (token rotated or revoked: restart with the new token) or `nodeInstanceConflict` (a second daemon uses the same token) |
+| the node goes `offline` although the daemon runs | the log shows `401` (token rotated or revoked: restart with the new token) |
+| the daemon log shows `nodeInstanceConflict` or says it is standing by | a second daemon runs with the same token, on this host or another: stop one of them |
 | scans show `imagePullFailed` | the node host's Docker cannot reach or trust the registry or the master's API URL: check DNS and firewall from the host, the CA in `/etc/docker/certs.d/` and the host trust store, or `insecure-registries` |
 | scans show `workersPending` | read the reason: `selectorMismatch` (pool or labels), `archMismatch` (no node with the image's architecture), `insufficientCapacity`, `dindUnavailable`, `diskLow` |
 | workers cannot reach the broker on port 443 | the broker is routed by TLS server name: the URL must use the hostname `amqp.<domain>`, never an IP address |
