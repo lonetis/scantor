@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
 import { chmod, cp, link, mkdir, readdir, readFile, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import { createServer as createHttpServer } from 'node:http'
@@ -16,7 +16,8 @@ import { copyGitRepo, GIT_REPOS, moveGitMain } from '../helpers/fixtures-server'
 import { exampleTaskDir } from '../helpers/tasks'
 import { deleteUser } from '../helpers/users'
 import { buildTarGz } from '../helpers/tar'
-import { jsonLines, scantorBytes, spawnScantor } from '../helpers/e2e-examples-cli-process'
+import { CliProcess, jsonLines, scantorBytes, scantorEnv, spawnScantor } from '../helpers/e2e-examples-cli-process'
+import { childEnv } from '../helpers/env'
 import {
   describeRun,
   errorJson,
@@ -1745,16 +1746,20 @@ test.describe('configuration and containers', () => {
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ id: user.id, email: user.email, name: user.name, role: 'user', canRunPrivileged: false, maxWorkers: 1 }))
     })
-    await new Promise<void>((resolve) => server.listen(0, '0.0.0.0', resolve))
+    // Loopback only, like the dev stack's ports on SCANTOR_BIND_ADDRESS: the runner's dockerd is a Linux Docker
+    // Engine, whose host gateway does not reach a port bound to 127.0.0.1, so this needs the shim's host network.
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const port = (server.address() as AddressInfo).port
     try {
       for (const host of ['localhost', '127.0.0.1', '[::1]']) {
-        const cli = spawnScantor(['whoami', '-o', 'json'], {
-          image: true,
-          token: user.apiKey,
-          env: { SCANTOR_URL: `http://${host}:${port}` },
-          dockerArgs: ['--add-host', 'host.docker.internal:host-gateway'],
+        // scantor.sh itself, with the image pair of the stack (scantor:dev).
+        const cwd = env.paths.tests
+        const child = spawn('sh', [join(env.paths.repo, 'scantor.sh'), 'whoami', '-o', 'json'], {
+          cwd,
+          env: childEnv(scantorEnv({ token: user.apiKey, env: { SCANTOR_URL: `http://${host}:${port}` } }), { inherit: false }),
+          stdio: ['ignore', 'pipe', 'pipe'],
         })
+        const cli = new CliProcess(child, `scantor.sh whoami (${host})`)
         const exit = await cli.wait(120_000)
         expect(exit.exitCode, cli.output()).toBe(0)
         expect(JSON.parse(cli.stdout)).toMatchObject({ url: `http://host.docker.internal:${port}` })

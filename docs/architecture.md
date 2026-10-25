@@ -272,8 +272,11 @@ Image references used by the binary (base images for builds, the scantor image f
   normally has neither variable set and uses its own version. The docker shim `scantor.sh` always passes
   the pair of the image it runs (default `ghcr.io/lonetis/` and the release the shim was downloaded
   with), so the containerized CLI references the base images of its own version; it runs as the invoking
-  user with the Docker socket's group, `HOME=/tmp`, the current directory mounted at the same path, and
-  `--add-host host.docker.internal:host-gateway`.
+  user with the Docker socket's group, `HOME=/tmp` and the current directory mounted at the same path.
+  `host.docker.internal` names the host for the CLI's loopback rewrite: `--add-host
+  host.docker.internal:host-gateway` on Docker Desktop, and on a Linux Docker Engine `--network host` with
+  `--add-host host.docker.internal:127.0.0.1`, because Docker publishes a port bound to `127.0.0.1` (the dev
+  stack's `SCANTOR_BIND_ADDRESS`) only on the host's loopback, never on the gateway address.
 - The reference is `<prefix><image>:<tag>` (for example `ghcr.io/lonetis/scantor-base-python:1.4.0`); the
   task pipeline pins base images by digest at build time.
 

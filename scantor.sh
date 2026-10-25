@@ -9,7 +9,9 @@
 # image is <SCANTOR_IMAGE_PREFIX>scantor:<SCANTOR_IMAGE_TAG>; unset, the prefix is ghcr.io/lonetis/
 # and the tag is the release this file belongs to. Only paths below the current directory are
 # visible to the CLI. Inside the container the CLI reaches a localhost URL through
-# host.docker.internal.
+# host.docker.internal: the host gateway on Docker Desktop, and on a Linux Docker Engine the
+# host's own loopback, because the container then shares the host network (Docker publishes a
+# port bound to 127.0.0.1 only there, not on the gateway address).
 set -eu
 
 # Replaced with the release version by .github/workflows/release.yml.
@@ -25,6 +27,16 @@ if [ "$(uname -s)" = Linux ] && [ -S /var/run/docker.sock ]; then
   socket_gid="$(stat -L -c %g /var/run/docker.sock)"
 fi
 
+# How the container reaches the host's localhost. Docker Desktop (also on Linux) routes the host
+# gateway to it; a Linux Docker Engine does not for ports bound to 127.0.0.1, such as the dev stack's.
+network="--add-host host.docker.internal:host-gateway"
+if [ "$(uname -s)" = Linux ]; then
+  case "$(docker info --format '{{.OperatingSystem}}' 2>/dev/null || true)" in
+    "Docker Desktop"*) ;;
+    *) network="--network host --add-host host.docker.internal:127.0.0.1" ;;
+  esac
+fi
+
 tty=""
 if [ -t 0 ] && [ -t 1 ]; then
   tty="-t"
@@ -32,11 +44,12 @@ fi
 
 # Variables the CLI reads (.env.example, section CLI); each is passed only when it is set. The image
 # pair is always passed, so base images match the CLI image.
+# shellcheck disable=SC2086 # $network and $tty are lists of flags
 exec docker run --rm -i $tty --init \
   -u "$(id -u):$(id -g)" --group-add "$socket_gid" -e HOME=/tmp \
   -v "$PWD:$PWD" -w "$PWD" \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  --add-host host.docker.internal:host-gateway \
+  $network \
   -e SCANTOR_URL -e SCANTOR_TOKEN -e SCANTOR_CA_CERT -e SCANTOR_DEV_MODE \
   -e SCANTOR_IMAGE_PREFIX="$prefix" -e SCANTOR_IMAGE_TAG="$tag" \
   -e SCANTOR_TRANCO_URL -e SCANTOR_CRUX_URL \

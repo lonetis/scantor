@@ -247,7 +247,11 @@ Additional conventions:
   data-source overrides, the per-component table of [architecture](architecture.md) §10) are listed in the
   CLI section of `.env.example`. Inside a container (both `/.dockerenv` exists and `host.docker.internal`
   resolves, as with the shim's `--add-host`) the CLI rewrites a loopback host in `SCANTOR_URL` to
-  `host.docker.internal`; otherwise the URL is kept.
+  `host.docker.internal`; otherwise the URL is kept. The shim (`scantor.sh`, also behind `just cli` and
+  `just dev-run`) maps that name to the host gateway on Docker Desktop; on a Linux Docker Engine, including
+  the devcontainer's Docker-in-Docker, it runs the CLI container with `--network host` and maps the name to
+  `127.0.0.1`, because the gateway address does not reach the dev stack's ports on `127.0.0.1`
+  ([architecture](architecture.md) §4.2).
 - Dependency direction: `cli` → domain packages (`node`, `runtime`, `taskpipe`, `workspace`, `templates`,
   `conformance`) → shared packages (`api`, `protocol`, `manifest`, `languages`, `schema`, `container`,
   `keys`, `redact`, `envconf`, `version`). No package imports `cli`; no import cycles; `internal/api` holds
