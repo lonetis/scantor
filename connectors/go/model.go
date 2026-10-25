@@ -97,37 +97,78 @@ func (m *model) encode(v any, what string) (*object, error) {
 	return o, nil
 }
 
-// applyDefaults inserts a copy of the default of every missing property, recursively, with the
-// semantics of ajv's useDefaults and the platform's ApplyDefaults (docs/tasks.md §6.3): local $ref is
-// followed; defaults inside anyOf/oneOf branches, items and additionalProperties are not applied.
+// maxDefaultsDepth bounds the schema traversal of applyDefaults for reference cycles that do not
+// consume instance depth (the bound of internal/schema).
+const maxDefaultsDepth = 128
+
+// applyDefaults inserts a copy of the default of every missing property, recursively, and returns x
+// (objects and arrays are filled in place). The semantics are those of ajv's useDefaults and the
+// platform's internal/schema.ApplyDefaults (docs/tasks.md §6.3): wherever properties is evaluated
+// against an object, a missing property with a default gets a deep copy of it, and the property's
+// subschema is then evaluated against the (possibly inserted) value. Evaluation follows properties,
+// items, present prefixItems entries, additionalProperties (for keys not listed in properties), allOf
+// and local $ref. Defaults inside anyOf, oneOf, not and if/then/else are never applied, missing tuple
+// items are never filled, and null values are kept.
 func applyDefaults(doc, schema, x any) any {
+	fillDefaults(doc, schema, x, 0)
+	return x
+}
+
+func fillDefaults(doc, schema, x any, depth int) {
 	s, ok := schema.(*object)
-	if !ok {
-		return x
+	if !ok || depth > maxDefaultsDepth {
+		return
 	}
 	if ref, ok := s.values["$ref"].(string); ok && strings.HasPrefix(ref, "#") {
 		if target, err := resolvePointer(doc, ref[1:]); err == nil {
-			x = applyDefaults(doc, target, x)
+			fillDefaults(doc, target, x, depth+1)
 		}
 	}
-	o, ok := x.(*object)
-	props := s.getObject("properties")
-	if !ok || props == nil {
-		return x
-	}
-	for _, name := range props.keys {
-		ps := props.values[name]
-		if v, present := o.get(name); present {
-			o.values[name] = applyDefaults(doc, ps, v)
-			continue
+	if all, ok := s.values["allOf"].([]any); ok {
+		for _, sub := range all {
+			fillDefaults(doc, sub, x, depth+1)
 		}
-		if psObj, ok := ps.(*object); ok {
-			if def, has := psObj.get("default"); has {
-				o.set(name, applyDefaults(doc, ps, cloneValue(def)))
+	}
+	switch v := x.(type) {
+	case *object:
+		props := s.getObject("properties")
+		if props != nil {
+			for _, name := range props.keys {
+				ps, ok := props.values[name].(*object)
+				if !ok {
+					continue
+				}
+				if _, present := v.get(name); !present {
+					if def, has := ps.get("default"); has {
+						v.set(name, cloneValue(def))
+					}
+				}
+				if value, present := v.get(name); present {
+					fillDefaults(doc, ps, value, depth+1)
+				}
+			}
+		}
+		if additional, ok := s.values["additionalProperties"].(*object); ok {
+			for _, name := range v.keys {
+				if props != nil {
+					if _, listed := props.get(name); listed {
+						continue
+					}
+				}
+				fillDefaults(doc, additional, v.values[name], depth+1)
+			}
+		}
+	case []any:
+		prefix, _ := s.values["prefixItems"].([]any)
+		items, hasItems := s.values["items"].(*object)
+		for i, item := range v {
+			if i < len(prefix) {
+				fillDefaults(doc, prefix[i], item, depth+1)
+			} else if hasItems {
+				fillDefaults(doc, items, item, depth+1)
 			}
 		}
 	}
-	return o
 }
 
 // cloneValue deep-copies a decoded JSON value.

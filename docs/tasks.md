@@ -929,15 +929,15 @@ The scan stores only effective configs, and every connector call receives comple
 | wrapped template calls | runtime: canonical template schema | filled |
 | every `run`/`schedule` call | connector native model (authoritative; the Go connector validates against its exported schema, §5.9) | native (Go: `ApplyDefaults` semantics) |
 
-Default semantics (ajv 8 `useDefaults: true`; `ApplyDefaults` is identical, pinned by the
-`internal/schema` tests against ajv): wherever a `properties` keyword is evaluated against an object,
-every property that is missing and has a `default` gets a deep copy of the default, and the property's
-subschema is then evaluated (and filled) against the inserted value. Evaluation follows `properties`,
-`items`, present `prefixItems` entries, `additionalProperties` (for keys not listed in `properties`),
-`allOf` and local `$ref`. Defaults inside `anyOf`/`oneOf`/`not`/`if`/`then`/`else` are never applied,
-missing tuple items (`prefixItems`) are never filled, and `null` values are kept. describe fails when a
-`default` does not validate against its own subschema. Configs should give every field a default so
-`{}` is valid (scaffolds do).
+Default semantics (ajv 8 `useDefaults: true`; `ApplyDefaults` and the Go connector are identical,
+pinned by the `internal/schema` and `connectors/go` tests against the same ajv output): wherever a
+`properties` keyword is evaluated against an object, every property that is missing and has a
+`default` gets a deep copy of the default, and the property's subschema is then evaluated (and filled)
+against the inserted value. Evaluation follows `properties`, `items`, present `prefixItems` entries,
+`additionalProperties` (for keys not listed in `properties`), `allOf` and local `$ref`. Defaults inside
+`anyOf`/`oneOf`/`not`/`if`/`then`/`else` are never applied, missing tuple items (`prefixItems`) are
+never filled, and `null` values are kept. describe fails when a `default` does not validate against its
+own subschema. Configs should give every field a default so `{}` is valid (scaffolds do).
 
 The runtime checks only that payloads are well-formed JSON within the size limits; the connector is the
 authoritative validator of everything user code consumes and produces ([architecture](architecture.md)
