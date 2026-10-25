@@ -85,7 +85,7 @@ func TestVersionCommand(t *testing.T) {
 }
 
 func TestUsageErrors(t *testing.T) {
-	for _, args := range [][]string{{"frobnicate"}, {"version", "--bogus"}, {"version", "extra"}, {"-o", "yaml", "version"}} {
+	for _, args := range [][]string{{"frobnicate"}, {"version", "--bogus"}, {"version", "extra"}, {"-o", "yaml", "version"}, {"conformance"}} {
 		app, _, errOut := testApp(nil)
 		if code := run(app, args...); code != ExitValidation {
 			t.Errorf("%v: exit %d, want 2 (stderr %q)", args, code, errOut.String())
@@ -94,6 +94,32 @@ func TestUsageErrors(t *testing.T) {
 			t.Errorf("%v: no error message on stderr: %q", args, errOut.String())
 		}
 	}
+}
+
+// Required flags and flag groups are usage errors (exit 2), also with a PreRun hook of the command.
+func TestRequiredFlagsAreUsageErrors(t *testing.T) {
+	withRegistry(t, func() {
+		var preRan bool
+		registerCommand("", func(*App) *cobra.Command {
+			cmd := &cobra.Command{Use: "needs", PreRun: func(*cobra.Command, []string) { preRan = true }, RunE: func(*cobra.Command, []string) error { return nil }}
+			cmd.Flags().String("name", "", "")
+			cmd.Flags().String("a", "", "")
+			cmd.Flags().String("b", "", "")
+			_ = cmd.MarkFlagRequired("name")
+			cmd.MarkFlagsRequiredTogether("a", "b")
+			return cmd
+		})
+		for _, args := range [][]string{{"needs"}, {"needs", "--name", "x", "--a", "1"}} {
+			app, _, errOut := testApp(nil)
+			if code := run(app, args...); code != ExitValidation || !strings.Contains(errOut.String(), "run 'scantor needs --help'") {
+				t.Errorf("%v: exit %d, stderr %q", args, code, errOut.String())
+			}
+		}
+		app, _, errOut := testApp(nil)
+		if code := run(app, "needs", "--name", "x", "--a", "1", "--b", "2"); code != 0 || !preRan {
+			t.Fatalf("valid flags: exit %d, PreRun ran %v, stderr %q", code, preRan, errOut.String())
+		}
+	})
 }
 
 // withRegistry runs f with an isolated command registry.

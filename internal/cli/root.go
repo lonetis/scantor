@@ -244,8 +244,36 @@ func reportErrors(cmd *cobra.Command, app *App) {
 			return nil
 		}
 	}
+	if cmd.Runnable() {
+		requireFlags(cmd)
+	}
 	for _, sub := range cmd.Commands() {
 		reportErrors(sub, app)
+	}
+}
+
+// requireFlags makes a missing required flag (MarkFlagRequired) or a violated flag group a usage error
+// (exit 2). Cobra checks both after PreRunE and before RunE, outside SetFlagErrorFunc, so its error would
+// otherwise carry no exit class; the checks now run at the end of PreRunE, where cobra would run them.
+func requireFlags(cmd *cobra.Command) {
+	pre := cmd.PreRunE
+	if pre == nil && cmd.PreRun != nil {
+		run := cmd.PreRun
+		pre = func(c *cobra.Command, args []string) error { run(c, args); return nil }
+		cmd.PreRun = nil
+	}
+	cmd.PreRunE = func(c *cobra.Command, args []string) error {
+		if pre != nil {
+			if err := pre(c, args); err != nil {
+				return err
+			}
+		}
+		for _, validate := range []func() error{c.ValidateRequiredFlags, c.ValidateFlagGroups} {
+			if err := validate(); err != nil {
+				return UsageError(fmt.Errorf("%w; run '%s --help'", err, c.CommandPath()))
+			}
+		}
+		return nil
 	}
 }
 
