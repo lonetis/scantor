@@ -75,7 +75,8 @@ daemon does not report them and cannot change them.
 The daemon must run as a container with the Docker socket mounted. It uses its own container image as the
 image of the egress helper (§9), and its own rootfs to measure free disk (§7.2). The `scantor` image runs as
 root by default, which is required for the Docker socket. Docker Engine 25 or newer (API ≥ 1.44) is
-required. Docker 29 is the tested version.
+required: on an older engine the daemon exits with code 2 at start (§5.1). Docker 29 is the tested
+version.
 
 ## 3. Built-in node vs remote nodes
 
@@ -172,6 +173,7 @@ The UI shows both snippets next to a checklist:
 2. check transport for SCANTOR_URL (§11); exit 2 when refused
 3. connect to Docker (client.FromEnv, API version negotiation, User-Agent scantor-node/<version>)
 4. info := docker /info; self := inspect own container (§2)
+   exit 2 when the engine's API is older than 1.44 (Docker Engine 25); other Docker errors are retried
 5. instanceId := info.ID + ":" + 8 random hex chars           // engine ID + boot nonce
 6. found := list managed worker containers (§6.1)
 7. hello loop (§5.2) with containers = found, until 200

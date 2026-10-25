@@ -522,6 +522,27 @@ func TestPlaintextToPublicHostIsAConfigError(t *testing.T) {
 	}
 }
 
+// An engine older than Docker Engine 25 cannot become supported while the daemon runs, so start-up fails
+// with exit 2 instead of retrying it as "Docker is not available yet" forever (docs/nodes.md §5.1).
+func TestOldDockerEngineIsAConfigError(t *testing.T) {
+	h := newHarness(t, nil)
+	h.docker.apiVersion = "1.43"
+	done := make(chan error, 1)
+	go func() { done <- h.d.Run(t.Context()) }()
+	select {
+	case err := <-done:
+		var cfgErr *ConfigError
+		if !errors.As(err, &cfgErr) || !strings.Contains(err.Error(), "Docker Engine 25 or newer (API 1.44)") {
+			t.Fatalf("Run = %v, want a ConfigError naming the required version", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the daemon kept retrying an engine that is too old")
+	}
+	if h.orch.helloCount() != 0 || h.logContains("Docker is not available yet") {
+		t.Error("an engine that is too old was treated as unavailable")
+	}
+}
+
 func TestStatusReportsCapacityAndClockOffset(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.MaxWorkers = 3 })
 	h.start()

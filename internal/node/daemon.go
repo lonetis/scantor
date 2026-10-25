@@ -106,7 +106,7 @@ func New(opts Options) (*Daemon, error) {
 
 // Run runs the daemon until ctx ends (SIGTERM), then shuts down gracefully: workers keep running and
 // are adopted by the next daemon instance (docs/nodes.md §7.5). It returns a *ConfigError when the
-// transport check refuses SCANTOR_URL.
+// transport check refuses SCANTOR_URL or the Docker engine is older than Docker Engine 25.
 func (d *Daemon) Run(ctx context.Context) error {
 	d.started = d.now()
 	d.gc = newImageGC(d.started)
@@ -213,7 +213,7 @@ func (d *Daemon) policy() api.Policy {
 }
 
 // connect creates the API client and learns about the Docker host (docs/nodes.md §5.1 steps 3–5).
-// Docker errors are retried until the engine answers.
+// Docker errors are retried until the engine answers; an engine that is too old is a *ConfigError.
 func (d *Daemon) connect(ctx context.Context) error {
 	c, err := api.New(api.Options{
 		BaseURL:    d.cfg.URL,
@@ -235,6 +235,9 @@ func (d *Daemon) connect(ctx context.Context) error {
 		}
 		if ctx.Err() != nil {
 			return nil
+		}
+		if tooOld := (*engineTooOldError)(nil); errors.As(err, &tooOld) {
+			return &ConfigError{Err: err}
 		}
 		d.log.Warn("Docker is not available yet; retrying", "err", err)
 		if !sleep(ctx, b.next()) {

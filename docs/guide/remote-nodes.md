@@ -226,7 +226,7 @@ unfinished analyses are processed again. The daemon removes the replaced workers
 | Symptom | Cause and fix |
 |---|---|
 | the node stays `pending` | the daemon never reached the master: check `docker logs scantor-node` for refused plaintext connections, TLS errors or `401` (wrong token) |
-| the daemon exits at start | an invalid setting (unknown `SCANTOR_NODE_DIND`, malformed CIDRs, a token together with `SCANTOR_NODE_BUILTIN=true`) or a refused plaintext URL; the log names it |
+| the daemon exits at start | an invalid setting (unknown `SCANTOR_NODE_DIND`, malformed CIDRs, a token together with `SCANTOR_NODE_BUILTIN=true`), a refused plaintext URL or a Docker Engine older than 25; the log names it |
 | the node goes `offline` although the daemon runs | the log shows `401` (token rotated or revoked: restart with the new token) |
 | the daemon log shows `nodeInstanceConflict` or says it is standing by | a second daemon runs with the same token, on this host or another: stop one of them |
 | the daemon log says the worker network is not usable | a network named `scantor-workers` exists that scantor did not create as an isolated network (the log names what differs): remove it with `docker network rm scantor-workers` and the daemon creates it again |

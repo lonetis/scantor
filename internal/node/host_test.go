@@ -1,10 +1,12 @@
 package node
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 
 	dcontainer "github.com/moby/moby/api/types/container"
@@ -38,8 +40,9 @@ func TestAPIVersionAtLeast(t *testing.T) {
 func TestProbeHostRejectsOldEngines(t *testing.T) {
 	docker := newFakeDocker()
 	docker.apiVersion = "1.43"
-	if _, err := probeHost(t.Context(), docker); err == nil {
-		t.Error("Docker Engine < 25 must be rejected")
+	var tooOld *engineTooOldError
+	if _, err := probeHost(t.Context(), docker); !errors.As(err, &tooOld) || !strings.Contains(err.Error(), "Docker Engine 25 or newer") {
+		t.Errorf("Docker Engine < 25: err = %v, want an engineTooOldError", err)
 	}
 	docker.apiVersion = "1.56"
 	docker.runtimes = []string{"sysbox-runc"}

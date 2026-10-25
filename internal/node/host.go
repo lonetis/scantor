@@ -21,6 +21,14 @@ import (
 // minAPIVersion is the oldest Engine API the daemon supports (Docker Engine 25, docs/nodes.md §2).
 const minAPIVersion = "1.44"
 
+// engineTooOldError is a Docker engine older than minAPIVersion. Unlike an unreachable engine it cannot
+// change while the daemon runs, so start-up fails instead of retrying.
+type engineTooOldError struct{ apiVersion string }
+
+func (e *engineTooOldError) Error() string {
+	return fmt.Sprintf("docker API %s is too old: Docker Engine 25 or newer (API %s) is required", e.apiVersion, minAPIVersion)
+}
+
 // hostInfo is what the daemon learns about its Docker host at start (docs/nodes.md §5.1 step 4).
 type hostInfo struct {
 	engineID      string
@@ -34,14 +42,15 @@ type hostInfo struct {
 	runtimes      []string
 }
 
-// probeHost reads /info and /version of the Docker daemon.
+// probeHost reads /info and /version of the Docker daemon. An engine older than minAPIVersion is an
+// *engineTooOldError.
 func probeHost(ctx context.Context, docker client.APIClient) (hostInfo, error) {
 	v, err := docker.ServerVersion(ctx, client.ServerVersionOptions{})
 	if err != nil {
 		return hostInfo{}, fmt.Errorf("docker version: %w", err)
 	}
 	if !apiVersionAtLeast(v.APIVersion, minAPIVersion) {
-		return hostInfo{}, fmt.Errorf("docker API %s is too old: Docker Engine 25 or newer (API %s) is required", v.APIVersion, minAPIVersion)
+		return hostInfo{}, &engineTooOldError{apiVersion: v.APIVersion}
 	}
 	res, err := docker.Info(ctx, client.InfoOptions{})
 	if err != nil {
