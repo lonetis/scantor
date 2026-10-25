@@ -46,7 +46,7 @@ func parseYAML(data []byte) (*document, []Issue) {
 		return nil, []Issue{yamlError(err)}
 	}
 	c := converter{positions: map[string]position{}}
-	value, err := c.convert(&root, "", 0)
+	value, err := c.convert(&root, "", 0, false)
 	if err != nil {
 		return nil, c.issues
 	}
@@ -74,11 +74,26 @@ func yamlError(err error) Issue {
 	return Issue{Rule: "M1", Line: line, Message: "invalid YAML: " + msg}
 }
 
-const maxYAMLDepth = 64
+const (
+	maxYAMLDepth = 64
+	// maxYAMLNodes, maxYAMLScalarBytes and maxYAMLPointerBytes bound the expanded document. yaml.v3
+	// checks its alias ratio only when it decodes into Go values, never into a yaml.Node, so the
+	// converter counts every value it produces, aliases and merge sources included: nested anchors
+	// (billion laughs) would otherwise expand a few hundred bytes into gigabytes. The pointer budget
+	// charges the instance path of every value, which contains every key above it, so it also bounds
+	// the keys a long key repeated through aliases, or above many values, makes the converter, the JSON
+	// encoding and the schema validator copy. An ordinary manifest of MaxBytes stays far below all three.
+	maxYAMLNodes        = 1 << 17
+	maxYAMLScalarBytes  = 1 << 20
+	maxYAMLPointerBytes = 4 << 20
+)
 
 type converter struct {
-	positions map[string]position
-	issues    []Issue
+	positions    map[string]position
+	issues       []Issue
+	nodes        int
+	scalarBytes  int
+	pointerBytes int
 }
 
 var errConvert = errors.New("convert")
@@ -88,11 +103,27 @@ func (c *converter) fail(n *yaml.Node, format string, args ...any) error {
 	return errConvert
 }
 
-func (c *converter) convert(n *yaml.Node, ptr string, depth int) (any, error) {
+// convert converts the node n at the instance path ptr. inAlias is set below an alias: such values
+// record no position, so document.position reports the alias, and an expansion adds no map entries.
+func (c *converter) convert(n *yaml.Node, ptr string, depth int, inAlias bool) (any, error) {
 	if depth > maxYAMLDepth {
 		return nil, c.fail(n, "the manifest is nested too deeply")
 	}
-	if _, seen := c.positions[ptr]; !seen {
+	c.nodes++
+	if c.nodes > maxYAMLNodes {
+		return nil, c.fail(n, "the manifest expands to more than %d values (check its anchors and aliases)", maxYAMLNodes)
+	}
+	c.pointerBytes += len(ptr)
+	if c.pointerBytes > maxYAMLPointerBytes {
+		return nil, c.fail(n, "the manifest expands to more than %d bytes of keys and paths (check its anchors, aliases and key lengths)", maxYAMLPointerBytes)
+	}
+	if n.Kind == yaml.ScalarNode {
+		c.scalarBytes += len(n.Value)
+		if c.scalarBytes > maxYAMLScalarBytes {
+			return nil, c.fail(n, "the manifest expands to more than %d bytes of values (check its anchors and aliases)", maxYAMLScalarBytes)
+		}
+	}
+	if _, seen := c.positions[ptr]; !seen && !inAlias {
 		c.positions[ptr] = position{n.Line, n.Column}
 	}
 	switch n.Kind {
@@ -100,16 +131,16 @@ func (c *converter) convert(n *yaml.Node, ptr string, depth int) (any, error) {
 		if len(n.Content) == 0 {
 			return nil, nil
 		}
-		return c.convert(n.Content[0], ptr, depth+1)
+		return c.convert(n.Content[0], ptr, depth+1, inAlias)
 	case yaml.AliasNode:
 		if n.Alias == nil {
 			return nil, c.fail(n, "unknown alias")
 		}
-		return c.convert(n.Alias, ptr, depth+1)
+		return c.convert(n.Alias, ptr, depth+1, true)
 	case yaml.SequenceNode:
 		out := make([]any, 0, len(n.Content))
 		for i, item := range n.Content {
-			v, err := c.convert(item, ptr+"/"+strconv.Itoa(i), depth+1)
+			v, err := c.convert(item, ptr+"/"+strconv.Itoa(i), depth+1, inAlias)
 			if err != nil {
 				return nil, err
 			}
@@ -117,7 +148,7 @@ func (c *converter) convert(n *yaml.Node, ptr string, depth int) (any, error) {
 		}
 		return out, nil
 	case yaml.MappingNode:
-		return c.mapping(n, ptr, depth)
+		return c.mapping(n, ptr, depth, inAlias)
 	case yaml.ScalarNode:
 		return c.scalar(n)
 	default:
@@ -125,7 +156,7 @@ func (c *converter) convert(n *yaml.Node, ptr string, depth int) (any, error) {
 	}
 }
 
-func (c *converter) mapping(n *yaml.Node, ptr string, depth int) (any, error) {
+func (c *converter) mapping(n *yaml.Node, ptr string, depth int, inAlias bool) (any, error) {
 	out := map[string]any{}
 	explicit := map[string]int{}
 	var merges []*yaml.Node
@@ -143,7 +174,7 @@ func (c *converter) mapping(n *yaml.Node, ptr string, depth int) (any, error) {
 		}
 		explicit[key.Value] = key.Line
 		childPtr := ptr + "/" + escapePointer(key.Value)
-		v, err := c.convert(val, childPtr, depth+1)
+		v, err := c.convert(val, childPtr, depth+1, inAlias)
 		if err != nil {
 			return nil, err
 		}
@@ -155,7 +186,7 @@ func (c *converter) mapping(n *yaml.Node, ptr string, depth int) (any, error) {
 			sources = m.Content
 		}
 		for _, src := range sources {
-			v, err := c.convert(src, ptr, depth+1)
+			v, err := c.convert(src, ptr, depth+1, inAlias)
 			if err != nil {
 				return nil, err
 			}

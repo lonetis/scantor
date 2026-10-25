@@ -145,7 +145,8 @@ built. Each problem is reported with its line and column, for example:
 | renamed task | `scantor.yaml:2:7: name "echo" does not match task "echo2"; task names are immutable` |
 | privileged without permission | `scantor.yaml:6:15: privileged tasks require the canRunPrivileged permission` |
 
-Other rules: the manifest is at most 64 KiB, its root is a mapping, and for Python, TypeScript and
+Other rules: the manifest is at most 64 KiB, anchors and aliases may expand it to at most 131 072
+values, 1 MiB of text and 4 MiB of key paths, its root is a mapping, and for Python, TypeScript and
 JavaScript the entry must exist in the folder as a regular file (`./` and `..` are not allowed in the
 path). For Go the entry binary must exist in the built image, which describe checks. A local
 `scantor validate` accepts `privileged: true`; the permission is checked when you publish.

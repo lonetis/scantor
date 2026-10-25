@@ -2,8 +2,11 @@ package manifest
 
 import (
 	"encoding/json"
+	"fmt"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lonetis/scantor/internal/api"
 )
@@ -191,5 +194,95 @@ func TestTooLarge(t *testing.T) {
 	_, issues := check(t, big, Options{})
 	if len(issues) != 1 || issues[0].Rule != "M1" {
 		t.Fatalf("issues: %v", issues)
+	}
+}
+
+// Nested anchors (billion laughs) expand a few hundred bytes into 8^8 values: the converter's budget
+// stops the expansion with an M1 issue long before it allocates them.
+func TestAliasExpansionBudget(t *testing.T) {
+	var b strings.Builder
+	b.WriteString("scantor: 1\nname: echo\nlanguage: python\nx-a0: &a0 [a,a,a,a,a,a,a,a]\n")
+	for i := 1; i <= 8; i++ {
+		fmt.Fprintf(&b, "x-a%d: &a%d [", i, i)
+		for j := 0; j < 8; j++ {
+			if j > 0 {
+				b.WriteString(",")
+			}
+			fmt.Fprintf(&b, "*a%d", i-1)
+		}
+		b.WriteString("]\n")
+	}
+	start := time.Now()
+	res, issues := check(t, b.String(), Options{})
+	if res != nil || len(issues) != 1 || issues[0].Rule != "M1" || !strings.Contains(issues[0].Message, "expands to more than") {
+		t.Fatalf("issues: %v", issues)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("took %s", elapsed)
+	}
+
+	// One alias to a large string, repeated, is bounded by the scalar budget.
+	b.Reset()
+	b.WriteString("scantor: 1\nname: echo\nlanguage: python\nx-s: &s \"" + strings.Repeat("x", 60<<10) + "\"\nx-l: [")
+	for j := 0; j < 20; j++ {
+		b.WriteString("*s,")
+	}
+	b.WriteString("]\n")
+	if _, issues := check(t, b.String(), Options{}); len(issues) != 1 || !strings.Contains(issues[0].Message, "bytes of values") {
+		t.Fatalf("scalar budget: %v", issues)
+	}
+}
+
+// A long key above many values makes every one of their instance paths long: the pointer budget stops
+// both the aliased and the plain variant before the paths, the positions and the JSON copies grow.
+func TestLongKeyBudget(t *testing.T) {
+	list := func(item string, n int) string {
+		return "[" + strings.TrimSuffix(strings.Repeat(item+",", n), ",") + "]"
+	}
+	var aliased strings.Builder
+	aliased.WriteString("scantor: 1\nname: echo\nlanguage: python\nx-m: &m\n  ? " + strings.Repeat("k", 60<<10) + "\n  : " + list("a", 200) + "\n")
+	aliased.WriteString("x-a0: &a0 " + list("*m", 8) + "\n")
+	for i := 1; i <= 3; i++ {
+		fmt.Fprintf(&aliased, "x-a%d: &a%d %s\n", i, i, list(fmt.Sprintf("*a%d", i-1), 8))
+	}
+	plain := "scantor: 1\nname: echo\nlanguage: python\nx-m:\n  ? " + strings.Repeat("k", 30<<10) + "\n  : " + list("a", 15000) + "\n"
+	for name, doc := range map[string]string{"aliased": aliased.String(), "plain": plain} {
+		t.Run(name, func(t *testing.T) {
+			if len(doc) > MaxBytes {
+				t.Fatalf("the document is %d bytes", len(doc))
+			}
+			var before, after runtime.MemStats
+			runtime.ReadMemStats(&before)
+			res, issues := check(t, doc, Options{})
+			runtime.ReadMemStats(&after)
+			if res != nil || len(issues) != 1 || issues[0].Rule != "M1" || !strings.Contains(issues[0].Message, "bytes of keys and paths") {
+				t.Fatalf("issues: %v", issues)
+			}
+			if alloc := after.TotalAlloc - before.TotalAlloc; alloc > 64<<20 {
+				t.Fatalf("allocated %d MiB", alloc>>20)
+			}
+		})
+	}
+}
+
+// Ordinary anchors, aliases and merge keys stay well inside the budget.
+func TestSmallAnchorsPass(t *testing.T) {
+	const doc = `scantor: 1
+name: anchors
+language: go
+defaults:
+  backoff: &b
+    initial: 2s
+    factor: 3
+  resources:
+    <<: [{cpus: 0.5}, {memory: 256MiB}]
+description: &d "same text"
+`
+	res, issues := check(t, doc, Options{})
+	if issues != nil {
+		t.Fatalf("issues: %v", issues)
+	}
+	if res.SettingsDefaults.Backoff.Factor != 3 || res.SettingsDefaults.Resources.MemoryMiB != 256 {
+		t.Fatalf("result: %+v", res.SettingsDefaults)
 	}
 }

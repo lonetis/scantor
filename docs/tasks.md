@@ -63,7 +63,10 @@ Rules:
 ## 3. Manifest `scantor.yaml`
 
 The manifest is YAML 1.2 (parsed with `go.yaml.in/yaml/v3`; duplicate keys are an error; anchors are
-allowed) and validated by the strict JSON Schema `schemas/task-manifest.schema.json`
+allowed, but the expanded document may hold at most 131 072 values, 1 MiB of scalar text and 4 MiB of
+instance paths (the JSON pointer of every value, which repeats every key above it), so nested aliases
+or a long key above many values cannot multiply a small file; an error inside an aliased value is
+reported at the alias) and validated by the strict JSON Schema `schemas/task-manifest.schema.json`
 (`$id: https://scantor.dev/schemas/task-manifest.schema.json`), plus the semantic rules of §3.2. Editors
 bind the schema with a modeline on the first line (unknown keys such as `$schema` are rejected, so the
 schema is never referenced from inside the document):
@@ -113,7 +116,7 @@ describe (§7). A worker container gets `processes × cpus` CPUs and `processes 
 
 | Id | Rule | Error (`phase: static`, `file: scantor.yaml`) |
 |---|---|---|
-| M1 | YAML parses, has no duplicate keys, ≤ 64 KiB, root is a mapping | `scantor.yaml:4: duplicate key "name"` |
+| M1 | YAML parses, has no duplicate keys, ≤ 64 KiB, expands (aliases included) to ≤ 131 072 values, ≤ 1 MiB of scalars and ≤ 4 MiB of instance paths, root is a mapping | `scantor.yaml:4: duplicate key "name"` |
 | M2 | JSON Schema validation passes | one error per schema violation with the instance path, e.g. `/defaults/timeout: must match pattern …` |
 | M3 | `language` exists in `languages.json` (schema enum and table are kept identical by a unit test) | |
 | M4 | source languages: `entry` is relative, normalised (no `.`/`..` segments, no leading `./`), has an extension listed in `languages.json` `extensions`, and exists in the pack as a regular file | `entry "src/main.rs" must end in .ts or .mts` |
