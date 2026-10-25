@@ -626,22 +626,28 @@ test-clean: test-down
 prune:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "==> Stopping the dev stack and removing its volumes"
-    if [ -f .env ]; then
-      {{dev_compose}} down -v --remove-orphans
-    else
-      {{dev_compose}} --env-file .env.example down -v --remove-orphans
-    fi
+    compose="{{dev_compose}}"
+    if [ ! -f .env ]; then compose="$compose --env-file .env.example"; fi
+    # Master workers and editors belong to no compose project but use scantor-sandbox and the editor sockets
+    # volume, so they go before `down -v`; the stack is stopped first, so the node daemon and the orchestrator
+    # cannot recreate them in between.
+    echo "==> Stopping the dev stack"
+    $compose stop
     echo "==> Removing scantor-managed, dev and test containers"
     for label in scantor.managed=true scantor.dev=true scantor.test=true; do
       ids="$(docker ps -aq --filter "label=$label")"
       if [ -n "$ids" ]; then docker rm -f $ids >/dev/null; fi
     done
-    echo "==> Removing the networks scantor created"
-    ids="$(docker network ls -q --filter label=scantor.kind=network)"
+    echo "==> Removing the dev stack and its volumes"
+    $compose down -v --remove-orphans
+    echo "==> Removing the networks and volumes scantor created"
+    ids="$( {
+      docker network ls -q --filter label=scantor.kind=network
+      docker network ls -q --filter label=com.docker.compose.project=scantor
+    } | sort -u)"
     if [ -n "$ids" ]; then docker network rm $ids >/dev/null; fi
-    echo "==> Removing the volumes the orchestrator created"
-    docker volume rm -f scantor-workspaces scantor-editor-home >/dev/null
+    ids="$(docker volume ls -q --filter label=com.docker.compose.project=scantor)"
+    docker volume rm -f $ids scantor-workspaces scantor-editor-home >/dev/null
     echo "==> Deleting bin/ and .test-images/"
     rm -rf bin .test-images
 
