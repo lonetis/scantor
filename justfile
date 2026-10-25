@@ -297,7 +297,8 @@ typecheck: _caches
     echo "==> basedpyright"
     {{run}} {{uv_cache}} -e UV_CONSTRAINT=/src/connectors/python/constraints.txt {{uv_image}} sh -euc '
       uv venv --quiet /tmp/venv
-      uv pip install --quiet --python /tmp/venv/bin/python --editable connectors/python basedpyright==1.40.2
+      # The dev group brings basedpyright and what tests/ imports (pytest, jsonschema, ...), as in the connector test stage.
+      uv pip install --quiet --python /tmp/venv/bin/python --editable connectors/python --group connectors/python/pyproject.toml:dev
       cd connectors/python && /tmp/venv/bin/basedpyright --pythonpath /tmp/venv/bin/python'
 
 # Format Go (gofmt, goimports), Python (ruff) and TypeScript/Vue (prettier)
