@@ -45,11 +45,20 @@ func newWhoamiCommand(app *App) *cobra.Command {
 				kv.add("id", account.ID)
 				kv.add("role", account.Role)
 				kv.add("privileged", apiYesNo(account.CanRunPrivileged))
-				kv.add("max workers", fmt.Sprintf("%d", account.MaxWorkers))
+				kv.add("max workers", apiUserWorkerCap(account.MaxWorkers))
 				return kv.write(w)
 			})
 		},
 	}
+}
+
+// apiUserWorkerCap renders a user's cap on active workers across all scans; 0 means no cap
+// (docs/data-model.md §4, users).
+func apiUserWorkerCap(maxWorkers int) string {
+	if maxWorkers <= 0 {
+		return "unlimited"
+	}
+	return fmt.Sprintf("%d", maxWorkers)
 }
 
 func newInstanceCommand(app *App) *cobra.Command {

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -121,6 +122,13 @@ func TestAPIJobsAndWhoami(t *testing.T) {
 	who := apiDecode[map[string]any](t, []byte(out))
 	if code != 0 || who["url"] != f.srv.URL || who["email"] != "ada@example.com" {
 		t.Fatalf("whoami: exit %d, out %q", code, out)
+	}
+	if code, out, _ := f.exec("whoami"); code != 0 || !regexp.MustCompile(`max workers\s+50\n`).MatchString(out) {
+		t.Fatalf("whoami with a cap: exit %d, out %q", code, out)
+	}
+	f.reply("GET", "/api/account", 200, map[string]any{"id": "u1", "email": "ada@example.com", "name": "Ada", "role": "user", "canRunPrivileged": false, "maxWorkers": 0, "credentials": map[string]any{"hasPassword": true, "passkeyCount": 0}, "createdAt": "2026-10-21T10:00:00.000Z"})
+	if code, out, _ := f.exec("whoami"); code != 0 || !regexp.MustCompile(`max workers\s+unlimited\n`).MatchString(out) {
+		t.Fatalf("whoami without a cap: exit %d, out %q", code, out)
 	}
 	f.reply("GET", "/api/info", 200, map[string]any{"version": "1.4.0", "publicUrl": "https://scantor.example.com", "editorUrl": "https://editor.example.com", "mcpUrl": nil, "registryPublicHost": "registry.example.com", "cliImage": "ghcr.io/lonetis/scantor:1.4.0",
 		"features": map[string]any{"passkeys": true, "mcp": false, "mcpOAuth": false, "editor": true}, "limits": map[string]any{"maxWorkersPerScan": 100, "maxProcessesPerWorker": 64, "maxResultBytes": 1048576, "maxFileBytes": 1073741824, "scanConfirmThreshold": 1000000, "waitMaxSeconds": 120}, "user": map[string]any{"id": "u1", "role": "admin"}})
