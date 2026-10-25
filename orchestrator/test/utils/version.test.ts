@@ -23,6 +23,9 @@ describe('checkClientVersion', () => {
     ['1.4.0', '1.5.0', false],
     ['1.4.0', '2.4.0', false],
     ['1.4.0', 'dev', false],
+    // A build from main counts by its leading X.Y.Z (docs/api.md §1.10).
+    ['1.4.0', '1.4.0-3-gabc1234', true],
+    ['1.4.0', '1.2.0-7-gabc1234', false],
     ['1.4.0', undefined, false],
     ['1.0.0', '1.0.1', true],
     ['dev', 'anything', true],

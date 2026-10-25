@@ -265,8 +265,12 @@ calls at 60 s. The node long-poll (`GET /api/node/assignments`) uses its own `wa
 - No version in the path; OpenAPI `info.version` is the scantor version. The user API changes only
   additively within a major version.
 - Machine clients send `User-Agent: scantor-node/<version>` or `scantor-runtime/<version>` and
-  `X-Scantor-Version: <version>`. The orchestrator accepts its own and the previous minor version; others
-  get 426 `incompatibleVersion`.
+  `X-Scantor-Version: <version>`. A release orchestrator (version exactly `X.Y.Z`) accepts its own and the
+  previous minor version of its major version, with any patch level; a client version counts by its
+  leading `X.Y.Z`, so a build from `main` such as `1.4.0-3-gabc1234` counts as 1.4. Other versions, and a
+  client version without such a prefix (`dev`), get 426 `incompatibleVersion`. A non-release orchestrator
+  (`dev`, or a `git describe` version of a build from `main`) has no comparable version and accepts every
+  daemon and runtime version (`checkClientVersion` in `server/utils/version.ts`).
 
 ## 2. Resource representations
 
