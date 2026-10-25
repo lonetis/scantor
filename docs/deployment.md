@@ -198,7 +198,7 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 | networks | `scantor`, `scantor-sandbox` (master workers reach `rabbitmq:5672`) |
 | ports | AMQP on `SCANTOR_BIND_ADDRESS`, management on `SCANTOR_ADMIN_BIND_ADDRESS` (§1) |
 | volumes | `scantor-rabbitmq-data:/var/lib/rabbitmq` |
-| env | `RABBITMQ_DEFAULT_USER=${SCANTOR_RABBITMQ_USER}` and `RABBITMQ_DEFAULT_PASS=${SCANTOR_RABBITMQ_PASSWORD}` (**first boot only**); `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS` (below) |
+| env | `RABBITMQ_DEFAULT_USER=${SCANTOR_RABBITMQ_USER}` and `RABBITMQ_DEFAULT_PASS=${SCANTOR_RABBITMQ_PASSWORD}` (**first boot only**); `RABBITMQ_ENABLED_PLUGINS=rabbitmq_management` with `RABBITMQ_ENABLED_PLUGINS_FILE=/var/lib/rabbitmq/enabled_plugins` (below); `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS` (below) |
 | labels | HTTP router `rabbitmq` (management, forwardAuth); TCP router `amqp` (§7.3) |
 
 `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS` sets the broker configuration without a config file:
@@ -218,8 +218,15 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
 - The vhost `scantor`, exchanges and global queues are ensured idempotently by the orchestrator at boot
   ([queue](queue.md); scantor defines no RabbitMQ policies). There is no definitions file, because it
   would carry secrets and would suppress the default user.
-- The management plugin and the Prometheus plugin (`:15692/metrics`, internal only) are enabled in the
-  `-management` image.
+- Only the management plugin runs. The `-management` image also enables the Prometheus plugin, whose
+  endpoint (`:15692/metrics`, including `/metrics/per-object` with the depth and consumers of every scan
+  queue) answers without credentials; rabbitmq is attached to `scantor-sandbox`, so every master worker and
+  editor could read it ([security](security.md) SB-5). `RABBITMQ_ENABLED_PLUGINS` replaces the image's
+  plugin list at every boot; RabbitMQ writes it to the enabled-plugins file first, and the image's
+  `/etc/rabbitmq/enabled_plugins` is not writable for the broker, so `RABBITMQ_ENABLED_PLUGINS_FILE` moves
+  that file into the data volume (verified on RabbitMQ 4.4: without it the broker fails to boot). A listener
+  bound to the container's loopback is no alternative, because `check_port_connectivity` (the healthcheck)
+  dials every listener through the node's host name.
 - Do not set any deprecated `RABBITMQ_*_FILE` or `RABBITMQ_SSL_*` variable; the entrypoint exits with an
   error on them.
 
@@ -514,6 +521,8 @@ services:
     environment:
       - RABBITMQ_DEFAULT_USER=${SCANTOR_RABBITMQ_USER}
       - RABBITMQ_DEFAULT_PASS=${SCANTOR_RABBITMQ_PASSWORD}
+      - RABBITMQ_ENABLED_PLUGINS=rabbitmq_management
+      - RABBITMQ_ENABLED_PLUGINS_FILE=/var/lib/rabbitmq/enabled_plugins
       - "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbit max_message_size 4194304 -rabbit vm_memory_high_watermark {absolute,\"${SCANTOR_RABBITMQ_MEMORY_WATERMARK}\"} -rabbit disk_free_limit {absolute,\"${SCANTOR_RABBITMQ_DISK_FREE_LIMIT}\"} -rabbit consumer_timeout 1800000 -rabbit anonymous_login_user none -rabbit auth_mechanisms ['PLAIN','AMQPLAIN']"
 
   rustfs:
@@ -1240,8 +1249,9 @@ table is the complete metric catalogue; other documents ([queue](queue.md) §6.1
 | `scantor_http_request_duration_seconds` | histogram | `method`, `route` | API latency |
 | `scantor_registry_gc_last_success_timestamp_seconds` | gauge | – | registry GC (§14.1) |
 
-The RabbitMQ Prometheus endpoint (`rabbitmq:15692/metrics`) and the registry metrics (`registry:5001/metrics`)
-are reachable only inside the `scantor` network; a future monitoring profile scrapes them.
+The registry metrics (`registry:5001/metrics`) are reachable only inside the `scantor` network; a future
+monitoring profile scrapes them. RabbitMQ runs without its Prometheus plugin (§4.4); the orchestrator's
+`scantor_scan_queue_messages`, `scantor_ingest_lag_messages` and `scantor_rabbitmq_alarm` cover the broker.
 
 ### 13.2 Logs
 
@@ -1416,7 +1426,7 @@ fixed subdomains of 14, are flagged for lead review:
 | Extension | How the design accommodates it |
 |---|---|
 | Multi-replica orchestrator / split components | Same image with `SCANTOR_COMPONENTS=ingestor,reconciler` as an extra service. Locks and leased jobs already make loops singleton-safe. Only the editor listener and helper runner must stay on the host with the Docker socket. |
-| Prometheus/Grafana containers | An opt-in compose profile `monitoring` scraping `/api/metrics` (admin key), `rabbitmq:15692` and `registry:5001`. |
+| Prometheus/Grafana containers | An opt-in compose profile `monitoring` scraping `/api/metrics` (admin key) and `registry:5001`, and RabbitMQ's Prometheus endpoint once it can listen only on the `scantor` network (never on `scantor-sandbox`, §4.4). |
 | Registry S3 backend on RustFS | Registry env `REGISTRY_STORAGE=s3` + `REGISTRY_STORAGE_S3_*` (verified working), optionally `REDIRECTENDPOINT` to `SCANTOR_S3_PUBLIC_URL`; backups then cover one store. |
 | Docker socket proxy for Traefik | Replace the read-only socket mount with a `tecnativa/docker-socket-proxy` sidecar on an internal network. |
 | Multi-node MongoDB / RabbitMQ clusters | The keyFile would be derived from a secret instead of random; the RabbitMQ topology is already quorum-queue based. |

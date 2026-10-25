@@ -53,6 +53,7 @@ The compose files ([deployment](deployment.md)) set:
 |---|---|
 | `RABBITMQ_DEFAULT_USER` | `${SCANTOR_RABBITMQ_USER}` (the orchestrator's admin user, tag `administrator`; applied only at first init) |
 | `RABBITMQ_DEFAULT_PASS` | `${SCANTOR_RABBITMQ_PASSWORD}` (applied only at first init) |
+| `RABBITMQ_ENABLED_PLUGINS` / `RABBITMQ_ENABLED_PLUGINS_FILE` | `rabbitmq_management` / `/var/lib/rabbitmq/enabled_plugins`: the management plugin only, without the image's Prometheus plugin, whose unauthenticated endpoint would be reachable from `scantor-sandbox` ([deployment](deployment.md) §4.4) |
 | `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS` | the line below |
 
 ```

@@ -223,6 +223,8 @@ test.describe('reachability', () => {
         'mongo:27017',
         'registry:5000',
         'mongo-express:8081',
+        // RabbitMQ's Prometheus endpoint would answer without credentials (per-queue series of every scan).
+        'rabbitmq:15692',
         `${await ipOn(CONTAINERS.mongo, 'scantor')}:27017`,
         `${await ipOn(CONTAINERS.registry, 'scantor')}:5000`,
         `${await ipOn(CONTAINERS.mongoExpress, 'scantor')}:8081`,

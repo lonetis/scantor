@@ -95,6 +95,11 @@ const RULES: RuleCase[] = [
     breakRule: (copy) => copy.replace(PROD, '"--slowOpSampleRate", "0", ', ''),
     problem: `${PROD}: mongod must run with --slowOpSampleRate 0`,
   },
+  {
+    title: 'RabbitMQ enables its Prometheus plugin',
+    breakRule: (copy) => copy.replace(PROD, 'RABBITMQ_ENABLED_PLUGINS=rabbitmq_management\n', 'RABBITMQ_ENABLED_PLUGINS=rabbitmq_management,rabbitmq_prometheus\n'),
+    problem: `${PROD}: rabbitmq must enable only the management plugin (RABBITMQ_ENABLED_PLUGINS=rabbitmq_management)`,
+  },
   ...(['orchestrator', 'mongo', 'rabbitmq'] as const).map<RuleCase>((service) => ({
     title: `the ${service} service has no memory limit`,
     breakRule: (copy) => editService(copy, PROD, service, (path, doc) => doc.deleteIn([...path, 'mem_limit'])),

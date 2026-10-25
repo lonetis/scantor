@@ -311,7 +311,7 @@ time and recorded on the revision.
 | Service | Image | Role |
 |---|---|---|
 | mongo | `mongo:9.0` | Single-node replica set `rs0` with keyFile (transactions for better-auth, change streams). Started with `--noscripting`, without a slow-operation log (`--slowOpSampleRate 0`) and with a bounded WiredTiger cache. App database `SCANTOR_MONGO_DB`. |
-| rabbitmq | `rabbitmq:4.4-management` | vhost `scantor` (default queue type quorum), per-scan quorum queues, native delayed delivery for retries, memory and disk limits from env, `max_message_size` 4 MiB. |
+| rabbitmq | `rabbitmq:4.4-management` | vhost `scantor` (default queue type quorum), per-scan quorum queues, native delayed delivery for retries, memory and disk limits from env, `max_message_size` 4 MiB, the management plugin only (no unauthenticated Prometheus endpoint on `scantor-sandbox`). |
 | rustfs | `rustfs/rustfs:1.0.3` | S3 API (bucket `SCANTOR_S3_BUCKET`, private) for snapshots, build logs, files, exports, uploads; console for admins. |
 | registry | `registry:3.1.2` | CNCF distribution with native token auth (realm `${SCANTOR_PUBLIC_URL}/api/registry/token`, service `scantor-registry`, issuer `scantor`, JWKS from the shared volume), `REGISTRY_HTTP_SECRET` from the derived `http-secret` file, storage delete enabled (task deletion removes manifests; blobs are reclaimed by registry GC). |
 | mongo-express | `mongo-express:1.0.2-20-alpine3.19` | Read-only DB browser, connected as the read-only analytics user (root only with `SCANTOR_MONGO_EXPRESS_READONLY=false`), bound to `SCANTOR_ADMIN_BIND_ADDRESS`, behind Traefik forwardAuth when Traefik is on ([deployment](deployment.md) §4.7). |

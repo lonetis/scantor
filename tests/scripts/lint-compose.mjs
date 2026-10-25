@@ -5,9 +5,10 @@
 //   - the compose rules of docs/security.md hold: Traefik with exposedbydefault=false, the compose-project constraint and
 //     api.insecure=false; admin GUIs and MongoDB published only on SCANTOR_ADMIN_BIND_ADDRESS; the MongoDB TCP router
 //     only with SCANTOR_EXPOSE_MONGO; mongo-express read-only; mongod --noscripting and --slowOpSampleRate 0 (slow
-//     operations are logged with their documents, session tokens included); memory limits on the orchestrator,
-//     mongo and rabbitmq; the orchestrator never mounts scantor-workspaces; the orchestrator and Traefik get
-//     `env_file: .env`;
+//     operations are logged with their documents, session tokens included); RabbitMQ with the management plugin
+//     only (its Prometheus endpoint answers without credentials, also on scantor-sandbox); memory limits on the
+//     orchestrator, mongo and rabbitmq; the orchestrator never mounts scantor-workspaces; the orchestrator and
+//     Traefik get `env_file: .env`;
 //   - no compose file (including the test runner's and the test stack override) gives a variable a default, except the
 //     image prefix fallback `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}`.
 //
@@ -66,6 +67,9 @@ function serviceRules(name, compose) {
   const mongoCommand = asList(services.mongo?.command).map(String)
   const sampleRate = mongoCommand.indexOf('--slowOpSampleRate')
   if (sampleRate < 0 || mongoCommand[sampleRate + 1] !== '0') problems.push(`${name}: mongod must run with --slowOpSampleRate 0`)
+  if (!asList(services.rabbitmq?.environment).map(String).includes('RABBITMQ_ENABLED_PLUGINS=rabbitmq_management')) {
+    problems.push(`${name}: rabbitmq must enable only the management plugin (RABBITMQ_ENABLED_PLUGINS=rabbitmq_management)`)
+  }
   for (const service of ['orchestrator', 'mongo', 'rabbitmq']) {
     if (services[service] && !services[service].mem_limit) problems.push(`${name}: ${service} has no mem_limit`)
   }

@@ -168,6 +168,8 @@ services:
     environment:
       - RABBITMQ_DEFAULT_USER=${SCANTOR_RABBITMQ_USER}
       - RABBITMQ_DEFAULT_PASS=${SCANTOR_RABBITMQ_PASSWORD}
+      - RABBITMQ_ENABLED_PLUGINS=rabbitmq_management
+      - RABBITMQ_ENABLED_PLUGINS_FILE=/var/lib/rabbitmq/enabled_plugins
       - "RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS=-rabbit max_message_size 4194304 -rabbit vm_memory_high_watermark {absolute,\"${SCANTOR_RABBITMQ_MEMORY_WATERMARK}\"} -rabbit disk_free_limit {absolute,\"${SCANTOR_RABBITMQ_DISK_FREE_LIMIT}\"} -rabbit consumer_timeout 1800000 -rabbit anonymous_login_user none -rabbit auth_mechanisms ['PLAIN','AMQPLAIN']"
 
   rustfs:
