@@ -74,10 +74,11 @@ def test_task_configuration_is_honoured(tmp_path: Path) -> None:
     assert "reportMissingParameterType" in completed.stdout
 
 
-def test_missing_entry(tmp_path: Path) -> None:
+def test_missing_entry_is_a_warning(tmp_path: Path) -> None:
     completed = run_check(tmp_path, "nope.py")
-    assert completed.returncode == 1
-    assert ERROR_LINE.match(completed.stdout.splitlines()[0])
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert completed.stdout.splitlines() == ["warning: nope.py is not in the image; type check skipped"]
+    assert not any(ERROR_LINE.match(line) for line in completed.stdout.splitlines())
 
 
 def test_warnings_never_look_like_errors(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

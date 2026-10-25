@@ -2,9 +2,10 @@
 
 Runs basedpyright over the task folder (the working directory, `/task`) and prints every error as one
 line `<file>:<line>:<column>: <message>` with the file relative to the task folder; everything else is
-printed in a form that does not match that pattern. Exits 0 without errors and 1 otherwise. A task's
-own `pyrightconfig.json`, or `[tool.basedpyright]`/`[tool.pyright]` in its `pyproject.toml`, is
-honoured; without one the check uses standard mode.
+printed in a form that does not match that pattern. Exits 0 without errors and 1 otherwise; an entry
+that is not in the image is a single warning with exit 0. A task's own `pyrightconfig.json`, or
+`[tool.basedpyright]`/`[tool.pyright]` in its `pyproject.toml`, is honoured; without one the check uses
+standard mode.
 """
 
 import json
@@ -29,8 +30,10 @@ def main(argv: list[str] | None = None) -> int:
     root = Path.cwd()
     entry = (root / args[0]).resolve()
     if not entry.is_file():
-        print(f"{args[0]}:1: entry file {args[0]} does not exist")
-        return 1
+        # The SCANTOR_CHECK_CMD contract (docs/tasks.md §4.2): an image without the sources is a warning;
+        # describe reports an entry that is really missing.
+        print(f"warning: {args[0]} is not in the image; type check skipped")
+        return 0
     tool = _find_tool()
     if tool is None:
         print("scantor.check: basedpyright is not installed in this image", file=sys.stderr)
