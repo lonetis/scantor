@@ -49,9 +49,9 @@ func apiResolveNode(ctx context.Context, client *api.Client, ref string) (string
 func newNodesListCommand(app *App) *cobra.Command {
 	var state, pool string
 	cmd := &cobra.Command{
-		Use:     "list",
-		Short:   "List nodes",
-		Long:    "List every node with its state, pool, architecture, worker usage and last heartbeat. WORKERS is " +
+		Use:   "list",
+		Short: "List nodes",
+		Long: "List every node with its state, pool, architecture, worker usage and last heartbeat. WORKERS is " +
 			"active/cap, where the cap is the smaller of what the daemon reports and the admin override. Admins only.",
 		Example: "  scantor nodes list --state online",
 		Args:    cobra.NoArgs,

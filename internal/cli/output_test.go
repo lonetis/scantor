@@ -62,7 +62,7 @@ func TestHostileOutputIsEscaped(t *testing.T) {
 		"error":    map[string]any{"type": "taskError", "message": "boom " + osc52, "retryable": false, "phase": "run", "attempt": 1, "at": "2026-10-21T10:00:00.000Z"},
 		"result":   map[string]any{"title": "\x1b]0;owned\x07"},
 		"attempts": []any{}, "files": []any{map[string]any{"id": "f1", "name": "x\x1b[8m.png", "size": 1, "sha256": "x", "contentType": "image/png"}},
-		"logTail":  "log " + osc52 + "\n", "createdAt": "2026-10-21T10:00:00.000Z", "updatedAt": "2026-10-21T10:00:00.000Z"}
+		"logTail": "log " + osc52 + "\n", "createdAt": "2026-10-21T10:00:00.000Z", "updatedAt": "2026-10-21T10:00:00.000Z"}
 	f.reply("GET", base+"/analyses", 200, map[string]any{"items": []any{analysis}, "nextCursor": nil})
 	f.reply("GET", "/api/analyses/"+apiScanID+"-0", 200, analysis)
 
