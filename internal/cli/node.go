@@ -32,8 +32,6 @@ func newNodeCommand(app *App) *cobra.Command {
 			"On SIGTERM the daemon stops and leaves its workers running; the next daemon adopts them.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// LookupEnv, not Getenv: an empty SCANTOR_NODE_EGRESS_DENY disables the egress helper, an unset
-			// one keeps the default deny list.
 			cfg, err := node.LoadConfig(os.LookupEnv)
 			if err != nil {
 				return ValidationError(err)
