@@ -162,8 +162,13 @@ these changes:
 | set | `TMPDIR=/tmp/scantor/proc-<slot>-<gen>` (deleted when the process is recycled) |
 | set | the protocol variables defined in [protocol](protocol.md) (fd numbers, protocol versions offered) |
 
-User code therefore never sees platform credentials. The per-scan AMQP password and presigned URLs live only
-in the runtime's memory.
+So platform credentials are not in the environment of user code: the per-scan AMQP password and presigned URLs
+live only in the runtime's memory, and the worker token is removed from the runtime's own environment at start.
+This keeps them out of anything that prints or forwards the environment, but it is no isolation boundary. User
+code runs as the same user in the same container, so it can still read the container's initial environment,
+which holds `SCANTOR_WORKER_TOKEN` (`/proc/1/environ` of docker-init and the runtime's `/proc/<pid>/environ`,
+which `unsetenv` does not rewrite). Code in a worker is therefore treated as holding the worker's credentials;
+their scope bounds what it can do ([security](security.md) A4, MC-3).
 
 ## 4. Worker mode startup
 
