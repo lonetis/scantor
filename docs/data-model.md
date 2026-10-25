@@ -749,7 +749,7 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 |---|---|---|---|---|---|
 | `revisionBuild` | api | revision | `{revisionId}` | `{phase: "build"\|"push"\|"waitRegistry"\|"finalize"}`, set as in [tasks](tasks.md) §9.7; registry GC waits while any job has `phase: "push"` ([deployment](deployment.md) §14.1); restarts from scratch (from the stored snapshot) after a lease expiry | `SCANTOR_BUILD_CONCURRENCY` (shared with test-run builds), FIFO |
 | `testRun` | api | testRun | `{testRunId}` | `{phase}` | `SCANTOR_TEST_RUN_CONCURRENCY` |
-| `scanDelete` | reconciler | scan | `{}` | `{phase, afterSeq}` | 2 |
+| `scanDelete` | reconciler | scan | `{}` | `{phase: "broker"\|"workers"\|"analyses"\|"files"\|"exports"\|"events"\|"settle"\|"sweep"\|"finish", afterSeq, settleUntil}`; `broker` sets `settleUntil` (ms) to the ingestor's settle delay after the broker objects are gone, and `settle` defers the job until then, so the wait holds no slot | 2 |
 | `scanRetryFailed` | reconciler | scan | `{round, materialize, cancelledAt?}` (`materialize`: the scan was cancelled, so the job lets the cancelled round settle from `cancelledAt`, then inserts never-run seqs as `cancelled`, [queue](queue.md) §8) | `{phase: "materialize"\|"reset"\|"publish"\|"finish", afterSeq}` | 2 |
 | `export` | reconciler | export | `{exportId}` | `{afterSeq, part}` | `SCANTOR_USER_MAX_CONCURRENT_QUERIES` per user |
 | `taskDelete` | reconciler | task | `{}` | `{phase: "stop"\|"testRuns"\|"images"\|"storage"\|"revisions"\|"workspace"\|"task"}`; `images` sweeps the registry for untracked manifests of builds that the deletion stopped after they started (read from the revisions failed with "the task was deleted", so a restarted job and userPurge step 60 still know them); before `images` and `revisions` it defers itself (60 s) while a non-terminal or deleting scan uses the task, which only a start that resolved its revision just before `deletingAt` can create | 2 |
@@ -913,6 +913,7 @@ creating ──topology──► running ──pause / breaker──► paused
     └──────cancel───────┴──────cancel (also from paused)──► cancelled
 
 completed | failed | cancelled ──retry-failed──► running
+running (scheduling done | failed) ──retry-failed──► running (round + 1)
 completed | failed | cancelled ──delete──► deleting ──job──► deleted ──TTL purgeAfter──► (purged)
 ```
 
@@ -925,7 +926,7 @@ completed | failed | cancelled ──delete──► deleting ──job──►
 | `paused` | `running` | `resumeScan` | API |
 | `running` | `completed` | completion function with `scheduling.error == null` | ingestor / reconciler |
 | `running` | `failed` | completion function with `scheduling.error != null` | ingestor / reconciler |
-| `completed`, `failed`, `cancelled` | `running` | `retryFailedAnalyses` | API |
+| `completed`, `failed`, `cancelled`; `running` with `scheduling.state ∈ {done, failed}` | `running` (round + 1, `scheduling.state=retrying`) | `retryFailedAnalyses` | API |
 | `completed`, `failed`, `cancelled` | `deleting` | `deleteScan` | API |
 | `deleting` | `deleted` | `scanDelete` job finished | jobs runner |
 
