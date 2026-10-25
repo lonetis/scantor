@@ -14,8 +14,11 @@ Add only machines you trust like the master.
 On the node host:
 
 - Docker Engine 25 or newer (29 is tested).
-- Outbound connections to the four public endpoints of the master (below), and optionally to `ghcr.io`
-  for base image layers.
+- Outbound connections to the four public endpoints of the master (below), and to the registry of the
+  node image: `ghcr.io`, unless the master's `SCANTOR_IMAGE_PREFIX` names a mirror. The `docker run`
+  command of the master pulls the node daemon image `scantor:<version>` from there, for the first start
+  and for every upgrade. The base image layers of task images also come from there when it is reachable;
+  otherwise the master's registry sends them with the task image.
 - For Docker-in-Docker with `sysbox`: [Sysbox](https://github.com/nestybox/sysbox) installed.
 
 On the master, the public endpoints that nodes and their workers use:

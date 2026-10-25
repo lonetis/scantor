@@ -160,7 +160,9 @@ The UI shows both snippets next to a checklist:
 1. Docker Engine ≥ 25 on the node host.
 2. Outbound HTTPS from the node host to `SCANTOR_PUBLIC_URL`, `SCANTOR_REGISTRY_PUBLIC_HOST`,
    `SCANTOR_S3_PUBLIC_URL` and the AMQPS endpoint of `SCANTOR_AMQP_PUBLIC_URL`.
-3. Optionally, outbound HTTPS to `ghcr.io` for base-image layers.
+3. Outbound HTTPS to the registry of the node image (`ghcr.io`, or the mirror that `SCANTOR_IMAGE_PREFIX`
+   names): the join command pulls the daemon image from there, also for upgrades. Base-image layers come
+   from there too when it is reachable (an optimisation, §10).
 4. For a private CA, the host Docker daemon must trust the CA for the registry host (§10.3).
 5. For `SCANTOR_NODE_DIND=sysbox`, Sysbox must be installed on the host.
 

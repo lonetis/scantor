@@ -32,7 +32,7 @@ const snippets = computed<SecretSnippet[]>(() =>
 const checklist = computed(() => [
   'Docker Engine 25 or newer on the node host.',
   `Outbound HTTPS from the node host to ${info.value?.publicUrl ?? 'the dashboard URL'}, ${info.value?.registryPublicHost ?? 'the registry host'}, the S3 endpoint and the AMQPS endpoint.`,
-  'Optionally, outbound HTTPS to ghcr.io for base-image layers.',
+  'Outbound HTTPS to the registry of the node image in the commands below (ghcr.io unless SCANTOR_IMAGE_PREFIX names a mirror): the host pulls it to install and upgrade the node, and base-image layers when it can.',
   'For a private CA, the host Docker daemon must trust it for the registry host (/etc/docker/certs.d/<registry host>/ca.crt).',
   'For SCANTOR_NODE_DIND=sysbox, Sysbox must be installed on the host.',
 ])
