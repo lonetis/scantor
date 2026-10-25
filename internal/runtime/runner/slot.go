@@ -545,10 +545,7 @@ func (s *slot) publishFinal(ctx context.Context, d *delivery, id identity, t run
 		}
 	}
 	pub := amqpx.Publication{Exchange: boot.AMQP.ResultsExchange, RoutingKey: boot.AMQP.RoutingKey, Type: runtime.TypeResult, Body: body}
-	switch s.publish(d, pub, false) {
-	case pubDropped:
-		return dispNone
-	case pubGaveUp:
+	if !s.publish(d, pub) {
 		return s.giveUp(d, api.PhasePublish, "publishing the result", log)
 	}
 	outcome := "succeeded"
@@ -584,10 +581,7 @@ func (s *slot) publishRetry(ctx context.Context, d *delivery, id identity, t run
 		return s.giveUp(d, api.PhasePublish, "building the retry message", log), false
 	}
 	attemptPub := amqpx.Publication{Exchange: boot.AMQP.ResultsExchange, RoutingKey: boot.AMQP.RoutingKey, Type: runtime.TypeAttempt, Body: body}
-	switch s.publish(d, attemptPub, false) {
-	case pubDropped:
-		return dispNone, false
-	case pubGaveUp:
+	if !s.publish(d, attemptPub) {
 		return s.giveUp(d, api.PhasePublish, "publishing the attempt event", log), false
 	}
 	s.w.count(func(c *api.RuntimeCounters) { c.Retried++ })
@@ -710,27 +704,18 @@ func (s *slot) giveBackRefused(log []any) disposition {
 	return dispNack
 }
 
-type pubResult int
-
-const (
-	pubConfirmed pubResult = iota
-	pubDropped             // a returned republish: the scan queue is gone
-	pubGaveUp              // budget exhausted, drain closed or stop
-)
-
-// publish publishes until the broker confirms, within the holding budget (docs/runtime.md §8.9).
-func (s *slot) publish(d *delivery, pub amqpx.Publication, republish bool) pubResult {
+// publish publishes a result or attempt event until the broker confirms it, within the holding budget
+// (docs/runtime.md §8.9). A returned or nacked publish is a transient platform error. It reports false when the
+// budget ran out, the drain closed or the worker stops first. Retry republishes go through republish.
+func (s *slot) publish(d *delivery, pub amqpx.Publication) bool {
 	ctx, cancel := s.budgetContext(d)
 	defer cancel()
 	for attempt := 1; ; attempt++ {
 		outcome := s.w.cfg.Broker.Publish(ctx, pub)
 		switch outcome {
 		case amqpx.Confirmed:
-			return pubConfirmed
+			return true
 		case amqpx.Returned:
-			if republish {
-				return pubDropped
-			}
 			s.w.health.Transient(api.PhasePublish, errors.New("the result was returned as unroutable (ingest binding missing)"))
 		case amqpx.Nacked:
 			s.w.health.Transient(api.PhasePublish, errors.New("the broker nacked the publish"))
@@ -740,12 +725,12 @@ func (s *slot) publish(d *delivery, pub amqpx.Publication, republish bool) pubRe
 			}
 		}
 		if ctx.Err() != nil {
-			return pubGaveUp
+			return false
 		}
 		s.w.log.Warn("publish failed; retrying", append(s.logger(), "type", pub.Type, "outcome", outcome.String(), "attempt", attempt)...)
 		delay := time.Duration(rand.Float64() * float64(min(time.Second<<min(attempt-1, 10), 30*time.Second))) //nolint:gosec // backoff jitter
 		if !sleepCtx(ctx, delay, nil) && ctx.Err() != nil {
-			return pubGaveUp
+			return false
 		}
 	}
 }

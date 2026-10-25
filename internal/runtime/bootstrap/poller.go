@@ -31,7 +31,6 @@ type Poller struct {
 	mu       sync.Mutex
 	next     time.Duration
 	lastWarn time.Time
-	lastOK   time.Time
 }
 
 // stopResponse is what a 401 means for the runtime.
@@ -87,7 +86,6 @@ func (p *Poller) Poll(ctx context.Context) bool {
 		if resp.NextPollMs > 0 {
 			p.next = time.Duration(resp.NextPollMs) * time.Millisecond
 		}
-		p.lastOK = time.Now()
 		p.mu.Unlock()
 		p.Handle(resp)
 		return true
@@ -109,13 +107,6 @@ func (p *Poller) Poll(ctx context.Context) bool {
 		}
 		return false
 	}
-}
-
-// LastSuccess returns the time of the last successful poll (zero before the first).
-func (p *Poller) LastSuccess() time.Time {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.lastOK
 }
 
 func (p *Poller) delay() time.Duration {
