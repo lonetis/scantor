@@ -40,11 +40,18 @@ jobs:
         with:
           just-version: 1.59.0
       - uses: docker/setup-buildx-action@v4
+      # The COMMIT build argument of the justfile's bake (`git rev-parse --short HEAD`): with the same value
+      # here, the images below match the e2e job's cache and the builds of the recipes.
+      - name: Commit
+        id: commit
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
       # The Go integration tests use the dev-tagged scantor and base images and never build them
       # (reading the build cache the e2e job writes).
       - name: Images of the Go integration tests
         if: matrix.suite == 'go-integration'
         uses: docker/bake-action@v7
+        env:
+          COMMIT: ${{ steps.commit.outputs.short }}
         with:
           source: .
           targets: scantor,base-python,base-js,base-go
@@ -87,10 +94,17 @@ jobs:
         with:
           just-version: 1.59.0
       - uses: docker/setup-buildx-action@v4
+      # The COMMIT build argument of the justfile's bake (`git rev-parse --short HEAD`), so the bake of
+      # `just test-e2e` finds the runner image built below in the builder's cache instead of rebuilding it.
+      - name: Commit
+        id: commit
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
       # The runner's own image cache does not survive between CI runs, so the images are built here
       # with the GitHub Actions cache and loaded into the runner; the runner image itself is cached too.
       - name: Build the test images and the runner image
         uses: docker/bake-action@v7
+        env:
+          COMMIT: ${{ steps.commit.outputs.short }}
         with:
           source: .
           targets: test,test-runner
