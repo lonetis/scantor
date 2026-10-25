@@ -13,6 +13,7 @@ export function config<Shape extends z.ZodRawShape>(shape: Shape): z.ZodObject<S
 }
 
 /** The closed config type without fields; the default task, scan and analysis config. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- zod's shape of an object without fields
 export const Empty: z.ZodObject<{}, z.core.$strict> = z.strictObject({});
 export type Empty = z.output<typeof Empty>;
 

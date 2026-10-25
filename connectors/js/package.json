@@ -40,16 +40,20 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --conditions=scantor-source --test --test-concurrency=4 \"test/**/*.test.ts\"",
     "test:all": "npm run typecheck && npm test && npm run test:typing",
-    "test:typing": "tsc -p test/typing/ts/tsconfig.json && tsc -p test/typing/js/jsconfig.json"
+    "test:typing": "tsc -p test/typing/ts/tsconfig.json && tsc -p test/typing/js/jsconfig.json",
+    "lint": "eslint ."
   },
   "dependencies": {
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@types/node": "^26.6.5",
     "ajv": "^8.20.0",
+    "eslint": "10.13.0",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
+    "typescript-eslint": "8.72.0",
     "yaml": "^2.9.1"
   }
 }

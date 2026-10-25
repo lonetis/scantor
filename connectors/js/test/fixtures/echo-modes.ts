@@ -92,7 +92,7 @@ export function common(ctx: Context, ac: Ac, tc: Tc): R | undefined {
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ac.sleepMs);
       return ok(ctx, ac, tc);
     case "exit":
-      process.exit(3);
+      return process.exit(3);
     case "oversized":
       return ok(ctx, ac, tc, [], "x".repeat(ac.bytes));
     case "stdout":

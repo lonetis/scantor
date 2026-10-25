@@ -6,6 +6,7 @@
     "types": ["node"],
     "allowJs": true,
     "checkJs": true,
+    "maxNodeModuleJsDepth": 0,
     "strict": true,
     "noEmit": true,
     "skipLibCheck": false

@@ -477,7 +477,7 @@ function exportSchema(field: string, schema: z.ZodType, mode: SchemaMode): JsonO
   try {
     return exportJsonSchema(schema, mode);
   } catch (error) {
-    throw new Error(`${field} cannot be represented as JSON Schema: ${(error as Error).message}`);
+    throw new Error(`${field} cannot be represented as JSON Schema: ${(error as Error).message}`, { cause: error });
   }
 }
 
