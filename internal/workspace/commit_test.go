@@ -1,9 +1,12 @@
 package workspace
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -414,4 +417,44 @@ func TestArchiveBrowsing(t *testing.T) {
 	wantCode(t, err, CodeNotFound)
 	_, err = ReadArchive(bg, strings.NewReader("not gzip"), "x", 0)
 	wantCode(t, err, CodeInvalidArgument)
+}
+
+// A snapshot entry that the pack allows but a workspace request may not name (deeper than 32 levels, a
+// folder called .scantor-staging) does not break browsing the rest of the revision.
+func TestArchiveBrowsingPackPaths(t *testing.T) {
+	ws := newTestWorkspace(t, DefaultLimits())
+	deep := strings.Repeat("d/", MaxPathDepth) + "x"
+	dir := filepath.Join(ws.dir, "echo")
+	writeTree(t, dir, map[string]node{"scantor.yaml": file(testManifest), "main.py": file("x")})
+	if err := os.MkdirAll(filepath.Join(dir, filepath.FromSlash(path.Dir(deep))), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTree(t, dir, map[string]node{deep: file("deep"), ".scantor-staging/y": file("y")})
+	var pack bytes.Buffer
+	if _, err := ws.Snapshot(bg, "echo", &pack); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func() io.Reader { return bytes.NewReader(pack.Bytes()) }
+
+	res, err := ListArchive(bg, snapshot(), ListOptions{Recursive: true})
+	if err != nil || !slices.ContainsFunc(res.Entries, func(e FileEntry) bool { return e.Path == deep }) {
+		t.Fatalf("list %+v, %v", res, err)
+	}
+	if rr, err := ReadArchive(bg, snapshot(), "main.py", 0); err != nil || rr.Content != "x" {
+		t.Fatalf("read next to unusual paths: %+v, %v", rr, err)
+	}
+	// The requested path itself still follows the request rules.
+	_, err = ReadArchive(bg, snapshot(), deep, 0)
+	wantCode(t, err, CodeInvalidPath)
+	// An entry that breaks the pack rules is a broken snapshot.
+	var bad bytes.Buffer
+	gz := gzip.NewWriter(&bad)
+	tw := tar.NewWriter(gz)
+	if err := tw.WriteHeader(&tar.Header{Name: "a//b", Typeflag: tar.TypeReg, Mode: 0o644}); err != nil {
+		t.Fatal(err)
+	}
+	_ = tw.Close()
+	_ = gz.Close()
+	_, err = ListArchive(bg, &bad, ListOptions{Recursive: true})
+	wantCode(t, err, CodeInvalidPath)
 }

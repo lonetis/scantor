@@ -158,6 +158,11 @@ func filesCapError(limit int) *PackError {
 	return &PackError{Cap: CapFiles, Message: fmt.Sprintf("the task has more than %d files and directories (%s)", limit, CapFiles)}
 }
 
+// CheckPath validates the path of a pack entry against the rules of docs/tasks.md §2 and returns the
+// problem, or "" when the path is valid. Every entry of a pack passes it. Paths of workspace requests
+// follow stricter rules (docs/editor.md §9.5: depth, .scantor-staging).
+func CheckPath(p string) string { return checkPath(p) }
+
 // checkPath validates a '/'-separated relative path against the rules of docs/tasks.md §2 and returns a
 // message, or "" when the path is valid.
 func checkPath(p string) string {

@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/lonetis/scantor/internal/taskpipe"
 )
 
 // Defaults of the browsing operations (docs/editor.md §9.4).
@@ -395,8 +397,11 @@ func walkPack(ctx context.Context, r io.Reader, fn func(name string, hdr *tar.He
 		if isRoot {
 			continue
 		}
-		if err := ValidatePath(name); err != nil {
-			return err
+		// A snapshot is a pack, so its entries follow the pack's path rules; the stricter rules of
+		// workspace requests (depth, .scantor-staging) apply only to the requested path, so one such entry
+		// never hides the rest of the revision.
+		if msg := taskpipe.CheckPath(name); msg != "" {
+			return pathError(name, "invalid path %q in the snapshot: %s", printable(name), msg)
 		}
 		stop, err := fn(name, hdr, tr)
 		if err != nil || stop {
