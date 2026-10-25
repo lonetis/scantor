@@ -62,32 +62,45 @@ function buildTree(entries: readonly TaskFileEntry[]): FileNode[] {
 
 const tree = computed(() => buildTree(listing.value?.entries ?? []))
 
+// Reads count up, so an answer is applied only while it belongs to the latest listing or file read: a slow read of a
+// file selected before (or of the source shown before) never replaces the current one.
+let listingGeneration = 0
+let contentGeneration = 0
+
 async function loadListing(): Promise<void> {
+  const generation = ++listingGeneration
+  contentGeneration++
   loadingList.value = true
+  loadingContent.value = false
   listError.value = null
   selected.value = undefined
   content.value = null
   try {
-    listing.value = await actions.listFiles(props.task.id, { path: '', recursive: true, revision: props.revision })
+    const result = await actions.listFiles(props.task.id, { path: '', recursive: true, revision: props.revision })
+    if (generation === listingGeneration) listing.value = result
   } catch (cause) {
+    if (generation !== listingGeneration) return
     listing.value = null
     listError.value = errorMessage(cause)
   } finally {
-    loadingList.value = false
+    if (generation === listingGeneration) loadingList.value = false
   }
 }
 
 async function open(node: FileNode | undefined): Promise<void> {
   if (!node || node.type !== 'file') return
+  const generation = ++contentGeneration
   loadingContent.value = true
   contentError.value = null
   try {
-    content.value = await actions.readFile(props.task.id, node.path, props.revision)
+    const result = await actions.readFile(props.task.id, node.path, props.revision)
+    if (generation === contentGeneration) content.value = result
   } catch (cause) {
+    if (generation !== contentGeneration) return
     content.value = null
     contentError.value = errorMessage(cause)
   } finally {
-    loadingContent.value = false
+    if (generation === contentGeneration) loadingContent.value = false
   }
 }
 
