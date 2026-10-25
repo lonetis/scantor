@@ -1,8 +1,12 @@
+import { execFile } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { promisify } from 'node:util'
 import type { Locator, Page } from '@playwright/test'
 import type { ApiKey, OAuthApp } from '#shared/types/account'
 import type { InstanceInfo } from '#shared/types/instance'
 import { ok } from '../helpers/api-client'
 import { scantor } from '../helpers/cli'
+import { childEnv } from '../helpers/env'
 import { connectMcpWithKey } from '../helpers/mcp'
 import { startEditorAndReadKey, stopEditor } from '../helpers/mcp-accounts'
 import { authorize, rawMcp, registerTestClient } from '../helpers/mcp-oauth'
@@ -130,9 +134,16 @@ test.describe('CLI & MCP access: API keys', () => {
       expect(key).toMatch(/^sk_scantor_[A-Za-z]{64}$/)
       await expect(codeBlock(page, 'Environment')).toHaveText(`export SCANTOR_URL=${env.publicUrl}\nexport SCANTOR_TOKEN=${key}`)
       expect(info.cliImage).toBeTruthy()
+      // Like scantor.sh: the invoking user with the socket's group, HOME, and the image pair of cliImage.
+      const [, prefix, tag] = /^(.*)scantor:([^:/]+)$/.exec(info.cliImage) ?? []
+      expect(tag, info.cliImage).toBeTruthy()
       await expect(codeBlock(page, 'Docker alias')).toHaveText(
-        `alias scantor='docker run --rm -i -v "$PWD:$PWD" -w "$PWD" -v /var/run/docker.sock:/var/run/docker.sock -e SCANTOR_URL -e SCANTOR_TOKEN --add-host host.docker.internal:host-gateway ${info.cliImage}'`,
+        `alias scantor='docker run --rm -i --init -u "$(id -u):$(id -g)"` +
+          ` --group-add "$([ "$(uname -s)" = Linux ] && stat -L -c %g /var/run/docker.sock || echo 0)" -e HOME=/tmp` +
+          ` -v "$PWD:$PWD" -w "$PWD" -v /var/run/docker.sock:/var/run/docker.sock --add-host host.docker.internal:host-gateway` +
+          ` -e SCANTOR_URL -e SCANTOR_TOKEN -e SCANTOR_CA_CERT -e SCANTOR_IMAGE_PREFIX=${prefix} -e SCANTOR_IMAGE_TAG=${tag} ${info.cliImage}'`,
       )
+      const alias = (await codeBlock(page, 'Docker alias').textContent()) ?? ''
       await expect(codeBlock(page, 'MCP with this key')).toHaveText(
         `claude mcp add --transport http scantor ${env.mcpUrl} --header "Authorization: Bearer ${key}"`,
       )
@@ -150,6 +161,13 @@ test.describe('CLI & MCP access: API keys', () => {
         const whoami = await scantor(['whoami', '-o', 'json'], { token: key })
         expect(whoami.exitCode, whoami.stderr).toBe(0)
         expect(JSON.stringify(whoami.json)).toContain(freshUser.email)
+        // The alias as the page shows it runs the CLI image (bash expands an alias only on a later line).
+        const viaAlias = await promisify(execFile)('bash', ['-O', 'expand_aliases', '-c', `${alias}\nscantor whoami -o json`], {
+          cwd: env.paths.tests,
+          env: childEnv({ SCANTOR_URL: env.publicUrl, SCANTOR_TOKEN: key, SCANTOR_CA_CERT: readFileSync(env.caCertFile, 'utf8') }, { inherit: false }),
+          timeout: 120_000,
+        })
+        expect(JSON.parse(viaAlias.stdout)).toMatchObject({ url: env.publicUrl, email: freshUser.email })
         const client = await connectMcpWithKey(key)
         await client.close()
 

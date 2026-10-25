@@ -680,14 +680,20 @@ Sections (`XxxSection`, each with its own loading, error and success state, load
   ```
 
   ```sh
-  alias scantor='docker run --rm -i -v "$PWD:$PWD" -w "$PWD" -v /var/run/docker.sock:/var/run/docker.sock -e SCANTOR_URL -e SCANTOR_TOKEN --add-host host.docker.internal:host-gateway <cliImage>'
+  alias scantor='docker run --rm -i --init -u "$(id -u):$(id -g)" --group-add "$([ "$(uname -s)" = Linux ] && stat -L -c %g /var/run/docker.sock || echo 0)" -e HOME=/tmp -v "$PWD:$PWD" -w "$PWD" -v /var/run/docker.sock:/var/run/docker.sock --add-host host.docker.internal:host-gateway -e SCANTOR_URL -e SCANTOR_TOKEN -e SCANTOR_CA_CERT -e SCANTOR_IMAGE_PREFIX=<prefix> -e SCANTOR_IMAGE_TAG=<tag> <cliImage>'
   ```
 
   ```sh
   claude mcp add --transport http scantor <mcpUrl> --header "Authorization: Bearer sk_scantor_…"
   ```
 
-  (the MCP snippet only when `mcpUrl` is not null), plus a pointer to the docker shim `scantor.sh` and
+  (the MCP snippet only when `mcpUrl` is not null). The alias mirrors the docker shim (`app/utils/cli-alias.ts`,
+  [architecture](architecture.md) §4.2): it runs as the invoking user with the Docker socket's group and
+  `HOME=/tmp`, so `scantor init` and `.scantor/out/` files stay the user's, and it passes `<prefix>` and
+  `<tag>` of `cliImage` (`<prefix>scantor:<tag>`) as `SCANTOR_IMAGE_PREFIX`/`SCANTOR_IMAGE_TAG`, so the CLI
+  builds on the base images of the deployment, also for builds from `main`, whose version string names no
+  published tag. Unlike the shim it always uses the host gateway, so a `localhost` `SCANTOR_URL` on a Linux
+  Docker Engine needs `scantor.sh`. Then a pointer to the docker shim `scantor.sh` and
   native binary download links, only when `version` is a release version: the release assets
   `https://github.com/lonetis/scantor/releases/download/v<version>/<asset>` with `<asset>` one of
   `scantor-darwin-arm64`, `scantor-darwin-amd64`, `scantor-linux-amd64`, `scantor-linux-arm64`,

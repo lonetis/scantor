@@ -49,7 +49,7 @@ function snippetsFor(key: string): SecretSnippet[] {
   if (info.value?.cliImage) {
     snippets.push({
       title: 'Docker alias',
-      code: `alias scantor='docker run --rm -i -v "$PWD:$PWD" -w "$PWD" -v /var/run/docker.sock:/var/run/docker.sock -e SCANTOR_URL -e SCANTOR_TOKEN --add-host host.docker.internal:host-gateway ${info.value.cliImage}'`,
+      code: cliDockerAlias(info.value.cliImage),
     })
   }
   if (info.value?.mcpUrl) {
