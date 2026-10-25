@@ -1481,13 +1481,14 @@ The entry file of a `source` language is its default `entry` (`main.py`); a `bin
 entry `/task/task`) gets `main` plus its first extension (`main.go`), which its Dockerfile builds.
 
 Rendering uses Go `text/template` with delimiters `[[` `]]` and data `{Name, Description, Language,
-Template, Version, BaseImage, ManifestSchemaURL}` (`Version` = scantor version, `BaseImage` = full base
-image reference, `ManifestSchemaURL` =
-`https://raw.githubusercontent.com/lonetis/scantor/v<Version>/schemas/task-manifest.schema.json` for release
-versions and `…/main/schemas/task-manifest.schema.json` for any other version, such as `dev`, which has no
-tag). Go
-`go.mod`/`go.sum` of the scaffold are stored as `go.mod.tmpl`/`go.sum.tmpl` because `go:embed` silently
-skips directories containing a `go.mod` (the example tasks under `tasks/` are not embedded and keep real
+Template, Version, BaseImage, ManifestSchemaURL, GuideURL}` (`Version` = scantor version, `BaseImage` =
+full base image reference, `ManifestSchemaURL` =
+`https://raw.githubusercontent.com/lonetis/scantor/<ref>/schemas/task-manifest.schema.json` and `GuideURL`
+= `https://github.com/lonetis/scantor/blob/<ref>/<guide>` with the language's `guide` from
+`languages.json`, where `<ref>` is `v<Version>` for release versions and `main` for any other version,
+such as `dev` or an untagged build like `1.4.0-3-gabc1234`, which has no tag). Go `go.mod`/`go.sum` of
+the scaffold are stored as `go.mod.tmpl`/`go.sum.tmpl` because `go:embed` silently skips directories
+containing a `go.mod` (the example tasks under `tasks/` are not embedded and keep real
 `go.mod`/`go.sum`). Unit tests assert that every language of `languages.json` has a non-empty embedded
 scaffold with an entry for every template and `custom`.
 
@@ -1546,7 +1547,7 @@ Commands:
 Rules: keep `name` in scantor.yaml unchanged; `schedule` must be deterministic; put large outputs in
 `ctx.files`; raise `Fatal` for permanent and `Retry` for transient failures.
 
-Guide: https://github.com/lonetis/scantor/blob/v[[.Version]]/docs/guide/authoring-[[.Language]].md
+Guide: [[.GuideURL]]
 ```
 
 ## 13. Workspace

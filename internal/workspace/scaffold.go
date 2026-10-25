@@ -32,6 +32,7 @@ const (
 	templateSuffix    = ".tmpl"
 	templateSchemas   = "schemas/templates"
 	manifestSchemaURL = "https://raw.githubusercontent.com/lonetis/scantor/%s/schemas/task-manifest.schema.json"
+	repositoryFileURL = "https://github.com/lonetis/scantor/blob/%s/%s"
 )
 
 // Files of the host OS that never belong to a scaffold (a native macOS build embeds them when present).
@@ -56,6 +57,7 @@ type ScaffoldData struct {
 	Version           string
 	BaseImage         string
 	ManifestSchemaURL string
+	GuideURL          string
 }
 
 // ScaffoldFile is one rendered file, relative to the task root.
@@ -88,14 +90,24 @@ func Templates() ([]string, error) {
 	return names, nil
 }
 
-// ManifestSchemaURL returns the schema URL of the manifest modeline for a scantor version: the release
-// tag for releases, main for development builds.
+// ManifestSchemaURL returns the schema URL of the manifest modeline for a scantor version.
 func ManifestSchemaURL(v string) string {
-	ref := "main"
+	return fmt.Sprintf(manifestSchemaURL, repositoryRef(v))
+}
+
+// GuideURL returns the URL of a language's authoring guide (its `guide` in languages.json) for a scantor
+// version.
+func GuideURL(v string, lang languages.Language) string {
+	return fmt.Sprintf(repositoryFileURL, repositoryRef(v), lang.Guide)
+}
+
+// repositoryRef is the git ref that holds the files of a scantor version: the release tag for
+// releases, main for development and untagged builds (such as dev or 1.4.0-3-gabc1234).
+func repositoryRef(v string) string {
 	if version.IsRelease(v) {
-		ref = "v" + v
+		return "v" + v
 	}
-	return fmt.Sprintf(manifestSchemaURL, ref)
+	return "main"
 }
 
 // EntryFile returns the file a scaffold renders the entry template to: the language's entry for source
@@ -140,6 +152,7 @@ func RenderScaffold(req ScaffoldRequest) ([]ScaffoldFile, error) {
 		Version:           version.Version,
 		BaseImage:         lang.BaseImageRef(req.Images),
 		ManifestSchemaURL: ManifestSchemaURL(version.Version),
+		GuideURL:          GuideURL(version.Version, lang),
 	}
 	files, err := renderFiles(lang.Scaffold, data)
 	if err != nil {

@@ -39,6 +39,19 @@ func TestManifestSchemaURL(t *testing.T) {
 	}
 }
 
+func TestGuideURL(t *testing.T) {
+	lang := languages.Language{Name: "python", Guide: "docs/guide/authoring-python.md"}
+	for v, want := range map[string]string{
+		"1.4.0":            "https://github.com/lonetis/scantor/blob/v1.4.0/docs/guide/authoring-python.md",
+		"dev":              "https://github.com/lonetis/scantor/blob/main/docs/guide/authoring-python.md",
+		"1.4.0-3-gabc1234": "https://github.com/lonetis/scantor/blob/main/docs/guide/authoring-python.md",
+	} {
+		if got := GuideURL(v, lang); got != want {
+			t.Errorf("GuideURL(%q) = %s, want %s", v, got, want)
+		}
+	}
+}
+
 // TestRenderEveryScaffold renders every language × template and checks that the result passes the
 // task pipeline's static checks (manifest, required files, Dockerfile policy) unchanged.
 func TestRenderEveryScaffold(t *testing.T) {
@@ -139,6 +152,9 @@ func checkRendered(t *testing.T, dir string, written []string, lang languages.La
 	agents, err := os.ReadFile(filepath.Join(dir, "AGENTS.md"))
 	if err != nil || !strings.Contains(string(agents), name) {
 		t.Errorf("AGENTS.md does not name the task (%v)", err)
+	}
+	if guide := "Guide: " + GuideURL(version.Version, lang) + "\n"; !strings.Contains(string(agents), guide) {
+		t.Errorf("AGENTS.md does not link the guide %q:\n%s", guide, agents)
 	}
 }
 
