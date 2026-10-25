@@ -380,4 +380,35 @@ test.describe('test runs', () => {
     await openTestTab(page, throws.task.id)
     await expect(page.getByLabel('Limit', { exact: true })).toHaveValue('5')
   })
+
+  test(
+    'config values typed while no schemas are known are not stored, also not after the run describes the schemas',
+    { tag: ['@UI-TRUN-009'] },
+    async ({ page, api, tasks }) => {
+      // A draft build of a workspace of its own: no revision and no described test run yet.
+      test.setTimeout(180_000)
+      const name = unique('drafts')
+      const uploaded = ok(await api.uploadTask(await packTask(fixtureTaskDir('schema-zoo'), { name }), { publish: false }), 'uploadTask')
+      tasks.track(name)
+      const secret = `draft-secret-${unique('value')}`
+      const stored = () => page.evaluate(() => localStorage.getItem('scantor-ui') ?? '')
+      await openTestTab(page, uploaded.task.id)
+      await expect(page.getByText('No schemas known yet', { exact: true })).toBeVisible()
+      const taskJson = page.getByRole('textbox', { name: 'taskConfig as JSON' })
+      await taskJson.fill(JSON.stringify({ text: 'draft text', api_token: secret }))
+      await taskJson.blur()
+      await page.getByLabel('Limit', { exact: true }).fill('3')
+      await page.getByLabel('Limit', { exact: true }).blur()
+      // Writes are debounced: once the limit is stored, the config must be missing.
+      await expect.poll(stored).toContain('"limit":3')
+      expect(await stored()).not.toContain('draft text')
+      expect(await stored()).not.toContain(secret)
+
+      // The run's description makes the schemas known: the draft is stored again, with the declared values only.
+      await expectRunSettled(page, api, await startRun(page))
+      await expect(page.locator('[data-field-path="text"]').getByRole('textbox')).toHaveValue('draft text')
+      await expect.poll(stored).toContain('draft text')
+      expect(await stored()).not.toContain(secret)
+    },
+  )
 })

@@ -4,7 +4,7 @@ import type { TableColumn, TableRow } from '@nuxt/ui'
 // The test-run panel of a task (docs/ui.md §5.8): inputs rendered from the latest known schemas (the latest
 // revision's description, or a newer test run's), the live run over SSE (state, build and run logs, analyses,
 // errors, summary, cancel) and the history of recent test runs. Unsent inputs are kept per task in the UI prefs
-// without writeOnly values.
+// without writeOnly values (configs only while their schemas are known).
 const props = defineProps<{
   task: Task
   /** description of the latest revision, when there is one */
@@ -78,13 +78,29 @@ if (draft) {
   if (typeof draft.limit === 'number') limit.value = draft.limit
   if (typeof draft.maxAttempts === 'number') maxAttempts.value = draft.maxAttempts
 }
-watch([mode, taskConfig, scanConfig, analysisConfig, limit, maxAttempts], () => {
-  prefs.setTestRunDraft(
-    props.task.id,
-    { mode: mode.value, taskConfig: taskConfig.value, scanConfig: scanConfig.value, analysisConfig: analysisConfig.value, limit: limit.value, maxAttempts: maxAttempts.value },
-    secretPointers.value,
-  )
-}, { deep: true })
+
+/**
+ * Stores the inputs. Which values are secret is known only from a description, so without one only the mode and the
+ * numbers are stored; with one, the configs keep only what its schemas declare (a property a newer workspace added
+ * may be writeOnly) and lose the values at its secret paths.
+ */
+function saveDraft(): void {
+  const settings = { mode: mode.value, limit: limit.value, maxAttempts: maxAttempts.value }
+  const description = formDescription.value
+  if (!description) {
+    prefs.setTestRunDraft(props.task.id, settings, [])
+    return
+  }
+  const configs = {
+    taskConfig: declaredValue(taskConfig.value, description.schemas.taskConfig),
+    scanConfig: declaredValue(scanConfig.value, description.schemas.scanConfig),
+    analysisConfig: declaredValue(analysisConfig.value, description.schemas.analysisConfig),
+  }
+  prefs.setTestRunDraft(props.task.id, { ...settings, ...configs }, secretPointers.value)
+}
+watch([mode, taskConfig, scanConfig, analysisConfig, limit, maxAttempts], saveDraft, { deep: true })
+// A description that arrives or changes stores the draft again under its schemas and secret paths.
+watch(formDescription, saveDraft)
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

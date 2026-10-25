@@ -347,6 +347,35 @@ export function objectProperties(schema: SchemaObject): { name: string, schema: 
     .map(([name, propertySchema]) => ({ name, schema: propertySchema, required: required.has(name) }))
 }
 
+/**
+ * The parts of a value that its schema declares: object properties the schema does not list are dropped, recursively
+ * through local `$ref`s, `properties`, `items` and unions with a single non-null branch. Values the schema does not
+ * describe property by property (maps, other unions, JSON fallbacks) are kept as they are. The test-run drafts store
+ * only these parts (docs/ui.md §14): a property that a newer workspace schema added, possibly a writeOnly one, is
+ * unknown to the schemas the UI has, so it is never stored.
+ */
+export function declaredValue(value: unknown, schema: JsonSchema, root: JsonSchema = schema): unknown {
+  const { schema: node, recursive, unresolved } = dereference(schema, root)
+  if (recursive || unresolved !== undefined || !isSchemaObject(node) || value === null || typeof value !== 'object') return value
+  for (const key of ['anyOf', 'oneOf'] as const) {
+    const branches = node[key]
+    if (!Array.isArray(branches)) continue
+    const valueBranches = branches.filter((branch: unknown) => !(isSchemaObject(branch) && branch.type === 'null'))
+    return valueBranches.length === 1 ? declaredValue(value, valueBranches[0] as JsonSchema, root) : value
+  }
+  if (Array.isArray(value)) {
+    const items = node.items
+    return typeof items === 'boolean' || !isSchemaObject(items) ? value : value.map((item) => declaredValue(item, items, root))
+  }
+  const properties = node.properties
+  if (!isSchemaObject(properties)) return value
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => Object.hasOwn(properties, key))
+      .map(([key, child]) => [key, declaredValue(child, properties[key] as JsonSchema, root)]),
+  )
+}
+
 /** True when the whole config schema can be edited as a form (its root is a renderable object). */
 export function isFormRenderable(schema: JsonSchema | null | undefined): boolean {
   if (schema === null || schema === undefined) return false

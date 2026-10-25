@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAX_FORM_DEPTH,
+  declaredValue,
   detectDiscriminatedUnion,
   flattenSchema,
   isFormRenderable,
@@ -222,5 +223,43 @@ describe('flattenSchema type labels for unions', () => {
     })
     expect(rows[0]).toMatchObject({ type: 'enum', constraints: ['one of: 1, 2'] })
     expect(rows[1]!.type).toBe('union by kind')
+  })
+})
+
+describe('declaredValue (test-run drafts, docs/ui.md §14)', () => {
+  const schema: SchemaObject = {
+    type: 'object',
+    properties: {
+      text: { type: 'string' },
+      auth: { anyOf: [{ $ref: '#/$defs/Auth' }, { type: 'null' }] },
+      servers: { type: 'array', items: { $ref: '#/$defs/Server' } },
+      labels: { type: 'object', additionalProperties: { type: 'string' } },
+      either: { oneOf: [{ type: 'object', properties: { a: { type: 'string' } } }, { type: 'object', properties: { b: { type: 'string' } } }] },
+    },
+    $defs: {
+      Auth: { type: 'object', properties: { user: { type: 'string' } } },
+      Server: { type: 'object', properties: { host: { type: 'string' } } },
+    },
+  }
+
+  it('drops properties the schema does not declare, at every level it describes', () => {
+    expect(declaredValue({
+      text: 'x',
+      apiToken: 'new-secret',
+      auth: { user: 'u', token: 'nested-secret' },
+      servers: [{ host: 'h', password: 'item-secret' }],
+    }, schema)).toEqual({ text: 'x', auth: { user: 'u' }, servers: [{ host: 'h' }] })
+  })
+
+  it('keeps maps, unions of several branches, null and primitives as they are', () => {
+    const value = { labels: { any: 'key' }, either: { b: 'kept', extra: 1 }, auth: null }
+    expect(declaredValue(value, schema)).toEqual(value)
+    expect(declaredValue('text', { type: 'string' })).toBe('text')
+  })
+
+  it('keeps values whose schema has no properties or cannot be resolved', () => {
+    expect(declaredValue({ a: 1 }, true)).toEqual({ a: 1 })
+    expect(declaredValue({ a: 1 }, { $ref: '#/$defs/Missing' })).toEqual({ a: 1 })
+    expect(declaredValue({ a: 1 }, { type: 'object', additionalProperties: true })).toEqual({ a: 1 })
   })
 })

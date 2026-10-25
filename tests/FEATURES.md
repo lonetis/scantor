@@ -778,7 +778,7 @@ Mechanisms: [ui](../docs/ui.md) §5.8.
 - **UI-TRUN-006** [ui] "Cancel test run" cancels the active run, and the history shows it cancelled.
 - **UI-TRUN-007** [ui] An analysis row opens the slideover "Analysis <seq>" with status, attempt, duration, error and stack, config, result, earlier attempts, log tail and "Download <name>" buttons for its files.
 - **UI-TRUN-008** [ui] The history lists earlier runs with state, `x / y succeeded` and pack hash, and a row loads that run.
-- **UI-TRUN-009** [ui, security] Unsent test-run inputs are restored per task after a reload, without the values of `writeOnly` fields.
+- **UI-TRUN-009** [ui, security] Unsent test-run inputs are restored per task after a reload, without the values of `writeOnly` fields; config values typed while no schemas are known are never stored, also not after the run's description arrives.
 
 ## UI-EDIT. Editor page
 

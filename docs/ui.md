@@ -375,7 +375,11 @@ Tabs (`?tab=`):
   2 s until the run settles.
 - Files of test-run analyses render as `FileChip`s using `getTestRunFileDownload`.
 - Cancel (aria "Cancel test run") → `cancelTestRun`.
-- Unsent inputs are kept per task in UI prefs (§14) **without** `writeOnly` fields.
+- Unsent inputs are kept per task in UI prefs (§14) **without** `writeOnly` fields. Which values are secret
+  is known only from a description, so while the forms have none (no revision, no described test run) only
+  the mode, `limit` and `maxAttempts` are stored. With one, each config keeps only the properties its
+  schema declares (a property a newer workspace schema added may be `writeOnly`) and loses the values at
+  `description.secretPaths`; a description that arrives or changes stores the draft again.
 
 ### 5.9 Revision detail (`/tasks/:taskId/revisions/:revision`)
 
@@ -1023,7 +1027,7 @@ presigned URLs with forced `Content-Disposition`/`Content-Type` ([architecture](
 | `tables.<tableId>` | column visibility and page size | – |
 | `resultColumns.<taskId>` | chosen result columns | 200 tasks, LRU |
 | `queries.<scanId>` | recent query console inputs | 20 per scan, 50 scans, LRU |
-| `testRunDrafts.<taskId>` | last test-run inputs **without** `writeOnly` fields | 50 tasks, LRU |
+| `testRunDrafts.<taskId>` | last test-run inputs **without** `writeOnly` fields; configs only while their schemas are known, reduced to the declared properties (§5.8) | 50 tasks, LRU |
 | `filters.<page>` | last list filters (state, language, "Only mine") | – |
 
 - Never stored: tokens, API keys, node tokens, passwords, `writeOnly` values, results. The only exception
