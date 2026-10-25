@@ -872,7 +872,7 @@ Mechanisms: [ui](../docs/ui.md) §6.
 - **UI-FORM-009** [ui] Nullable fields have "Set <field> to null", fields with a default show it and offer "Reset <field>", required fields are marked, and descriptions render code spans as `<code>`.
 - **UI-FORM-010** [ui] Unsupported constructs (`allOf`, `if`/`then`/`else`, `not`, `patternProperties`, `prefixItems`, other unions) render as a `<field> (JSON)` textarea with "Invalid JSON: …" errors and the note "Edited as JSON (<reason>)".
 - **UI-FORM-011** [ui] "Edit as JSON" switches the whole form to JSON and "Edit as form" back (blocked while the JSON is invalid); a missing or non-renderable schema shows "This schema can only be edited as JSON."
-- **UI-FORM-012** [ui] An untouched optional field is absent from the request, so the server applies its default, and clearing a field removes its key.
+- **UI-FORM-012** [ui] An untouched optional field is absent from the request, so the server applies its default, and clearing a field removes its key, also the key of an optional object without a default whose last value was cleared.
 - **UI-FORM-013** [ui, security] The browser validates forms under the production CSP (no `unsafe-eval`) and shows errors such as "is required" and `unknown property "x"` before submitting, for the selected union branch only.
 
 ## UI-TPL. Templates page

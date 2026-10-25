@@ -776,7 +776,10 @@ subtree, parsed on blur and validated with the same validator.
 
 - An untouched optional field is **absent** from the value, so the server's `useDefaults` fills it; the
   UI does not copy defaults into the value.
-- Clearing a field removes the key; the "null" checkbox sends `null` explicitly.
+- Clearing a field removes the key; the "null" checkbox sends `null` explicitly. An optional object, map
+  or array without a default whose last value is cleared or removed is removed as well (an empty `{}`
+  would still be validated, for example its required properties); with a default, the empty value stays
+  (it differs from the default) and "Reset" removes the key.
 - "Edit as JSON" (aria "Edit as JSON") switches the whole form to a JSON editor of the current value and
   back; switching back is blocked while the JSON is invalid (inline parse error).
 - Analysis configs, results and config values from the API are masked (`"***"`) and are never fed back

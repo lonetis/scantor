@@ -426,6 +426,10 @@ test.describe('schema forms', () => {
       await expect(servers.getByText('Item 1', { exact: true })).toBeVisible()
       await schemaField(form, 'servers.0.host').getByRole('textbox').fill('db.internal')
       await expect(schemaField(form, 'servers.0.port').getByRole('spinbutton')).toHaveAttribute('placeholder', '22')
+      // Clearing the only value of an optional object without a default removes the object, not just the value.
+      const city = schemaField(form, 'place.city').getByRole('textbox')
+      await city.fill('Essen')
+      await city.fill('')
 
       // A map with constrained keys; an open map is JSON.
       const labels = schemaField(form, 'labels')

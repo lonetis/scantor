@@ -45,9 +45,22 @@ const hint = computed(() => (defaultText.value !== null ? `default: ${defaultTex
 
 const isContainer = computed(() => ['object', 'objectArray', 'union', 'map'].includes(field.value.kind))
 
+const CLEARABLE_KINDS: readonly string[] = ['object', 'map', 'array', 'enumArray', 'objectArray']
+
+function isEmptyContainer(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length === 0
+  return typeof value === 'object' && value !== null && Object.keys(value).length === 0
+}
+
+/**
+ * Clearing the last value of an optional object, map or array without a default removes its key, as clearing any
+ * field does (docs/ui.md §6.3): an empty `{}` would still be validated (its required properties). With a default the
+ * empty value differs from the default, and "Reset" removes the key.
+ */
 function update(value: unknown): void {
   if (field.value.readOnly) return
-  emit('update:modelValue', value)
+  const clears = !props.required && !field.value.hasDefault && CLEARABLE_KINDS.includes(field.value.kind) && isEmptyContainer(value)
+  emit('update:modelValue', clears ? undefined : value)
 }
 
 function setNull(checked: boolean | 'indeterminate'): void {
