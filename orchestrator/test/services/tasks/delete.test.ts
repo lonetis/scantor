@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { JobDoc, RevisionDoc, TaskDoc, TestRunDoc } from '../../../server/types/documents'
+import type { JobDoc, RevisionDoc, ScanDoc, TaskDoc, TestRunDoc } from '../../../server/types/documents'
 import type { Config } from '../../../server/utils/config'
 import type { JobContext } from '../../../server/utils/jobs'
 import { useLogger } from '../../../server/utils/logger'
 import { FakeCollection } from '../../helpers/fake-collection'
 
 // The taskDelete job (docs/data-model.md §4.12, docs/api.md §4.6): resumable phases that stop builds and test runs,
-// delete test runs, images, snapshots and build logs, revisions, the workspace folder and the task.
+// delete test runs, images, snapshots and build logs, revisions, the workspace folder and the task; and the request
+// (requestTaskDeletion), which marks the task before it checks for scans.
 
 const store = {
   tasks: new FakeCollection<TaskDoc>('tasks'),
@@ -15,6 +16,7 @@ const store = {
   testRunAnalyses: new FakeCollection('testRunAnalyses'),
   jobs: new FakeCollection<JobDoc>('jobs', [{ keys: ['kind', 'subject.id'], partialFilter: { active: true } }]),
   events: new FakeCollection('events'),
+  scans: new FakeCollection<ScanDoc>('scans'),
 }
 const effects: string[] = []
 
@@ -34,6 +36,8 @@ vi.mock('../../../server/services/helpers/ops', () => ({
   deleteTaskFolder: async (userId: string, task: string) => {
     effects.push(`workspace:${userId}/${task}`)
   },
+  scaffold: async () => undefined,
+  snapshotHash: async () => null,
 }))
 vi.mock('../../../server/services/revisions/images', () => ({
   deleteTaskManifests: async (taskId: string, digests: string[]) => {
@@ -47,6 +51,8 @@ vi.mock('../../../server/services/revisions/images', () => ({
 }))
 
 const { taskDeleteJobKind, TASK_DELETE_PHASES } = await import('../../../server/services/tasks/delete')
+const { requestTaskDeletion } = await import('../../../server/services/tasks')
+const { JobDeferredError } = await import('../../../server/utils/jobs')
 const { newTaskDoc } = await import('../../../server/services/tasks/store')
 
 function context(job: JobDoc) {
@@ -138,6 +144,25 @@ describe('taskDelete job', () => {
     expect(effects).toEqual(['workspace:u1/echo'])
   })
 
+  it('waits for a scan that still uses the task before removing its images and revisions', async () => {
+    // A start that resolved its revision just before the deletion mark and inserted the scan after the request's check.
+    await store.scans.insertOne({ _id: 'scan-1', task: { id: task._id, name: 'echo' }, state: 'running' } as unknown as ScanDoc)
+    const job = { _id: 'j', kind: 'taskDelete', subject: { kind: 'task', id: task._id }, cursor: {} } as unknown as JobDoc
+    const first = context(job)
+    await expect(taskDeleteJobKind.handler(job, first.ctx)).rejects.toBeInstanceOf(JobDeferredError)
+    expect(first.cursors).toEqual(['stop', 'testRuns', 'images'])
+    expect(effects).toEqual(['s3:test-runs/tr-1/'])
+    expect(store.revisions.docs).toHaveLength(2)
+
+    await store.scans.updateOne({ _id: 'scan-1' }, { $set: { state: 'completed' } })
+    const resumed = { ...job, cursor: { phase: 'images' } } as unknown as JobDoc
+    const second = context(resumed)
+    await taskDeleteJobKind.handler(resumed, second.ctx)
+    expect(second.cursors).toEqual(['images', 'storage', 'revisions', 'workspace', 'task'])
+    expect(store.revisions.docs).toHaveLength(0)
+    expect(store.tasks.docs).toHaveLength(0)
+  })
+
   it('finishes quietly when the task is already gone', async () => {
     store.tasks.docs.length = 0
     const job = { _id: 'j', kind: 'taskDelete', subject: { kind: 'task', id: task._id }, cursor: {} } as unknown as JobDoc
@@ -146,3 +171,33 @@ describe('taskDelete job', () => {
     expect(cursors).toEqual([])
   })
 })
+
+describe('requestTaskDeletion', () => {
+  beforeEach(async () => {
+    await store.tasks.updateOne({ _id: task._id }, { $set: { deletingAt: null } })
+    store.jobs.docs.length = 0
+  })
+
+  it('marks the task and creates its taskDelete job', async () => {
+    const job = await requestTaskDeletion((await store.tasks.findOne({ _id: task._id }))!)
+    expect(job).toMatchObject({ kind: 'taskDelete', state: 'queued' })
+    expect((await store.tasks.findOne({ _id: task._id }))!.deletingAt).toBeInstanceOf(Date)
+  })
+
+  it('rolls the mark back and answers 409 taskInUse while a scan uses the task', async () => {
+    await store.scans.insertOne({ _id: 'scan-1', task: { id: task._id, name: 'echo' }, state: 'paused' } as unknown as ScanDoc)
+    const marks: unknown[] = []
+    const findOneAndUpdate = store.tasks.findOneAndUpdate.bind(store.tasks)
+    vi.spyOn(store.tasks, 'findOneAndUpdate').mockImplementation(async (filter, update, options) => {
+      const updated = await findOneAndUpdate(filter, update as never, options as never)
+      marks.push(updated?.deletingAt)
+      return updated
+    })
+    await expect(requestTaskDeletion((await store.tasks.findOne({ _id: task._id }))!)).rejects.toMatchObject({ code: 'taskInUse', details: { scanId: 'scan-1' } })
+    // The mark was written before the scans were checked, so a concurrent start could not resolve a revision.
+    expect(marks[0]).toBeInstanceOf(Date)
+    expect((await store.tasks.findOne({ _id: task._id }))!.deletingAt).toBeNull()
+    expect(store.jobs.docs).toHaveLength(0)
+  })
+})
+

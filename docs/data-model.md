@@ -109,7 +109,7 @@ API.
 | `latestRevision` | RevisionPointer \| null | ✓ | highest-numbered revision: `{id, number, state, packSha256, createdAt}` |
 | `latestReadyRevision` | RevisionPointer \| null | ✓ | highest-numbered `ready` revision; target of `@latest` |
 | `privileged` | boolean | ✓ | `settingsDefaults.privileged` of `latestReadyRevision` |
-| `deletingAt` | Date \| null | – | set when a `taskDelete` job starts; the task then behaves as not found |
+| `deletingAt` | Date \| null | – | set by `deleteTask` before it checks for scans (rolled back on 409 `taskInUse`) and before its `taskDelete` job is created; the task then behaves as not found, and so do its revisions, also when a create body addresses one by id |
 | `createdAt`, `updatedAt` | Date | ✓ | |
 
 Derived (API only): `workspace.dirty = workspace.packSha256 != latestRevision.packSha256` (the last
@@ -749,7 +749,7 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 | `scanDelete` | reconciler | scan | `{}` | `{phase, afterSeq}` | 2 |
 | `scanRetryFailed` | reconciler | scan | `{round, materialize, cancelledAt?}` (`materialize`: the scan was cancelled, so the job lets the cancelled round settle from `cancelledAt`, then inserts never-run seqs as `cancelled`, [queue](queue.md) §8) | `{phase: "materialize"\|"reset"\|"publish"\|"finish", afterSeq}` | 2 |
 | `export` | reconciler | export | `{exportId}` | `{afterSeq, part}` | `SCANTOR_USER_MAX_CONCURRENT_QUERIES` per user |
-| `taskDelete` | reconciler | task | `{}` | `{phase}` | 2 |
+| `taskDelete` | reconciler | task | `{}` | `{phase}`; before `images` and `revisions` it defers itself (60 s) while a non-terminal or deleting scan uses the task, which only a start that resolved its revision just before `deletingAt` can create | 2 |
 | `userPurge` | reconciler | user | `{}` | `{phase, scanId?}` | 1 |
 
 ```json

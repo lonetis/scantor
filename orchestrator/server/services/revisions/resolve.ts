@@ -6,7 +6,8 @@ import type { UserPrincipal } from '../../utils/principal'
 
 // Revision references in create bodies (docs/api.md §1.4, §5.1 steps 2–3): `<task>@<N>`, `<task>@latest`, `<task>`
 // (= latest) or a revision id. A top-level create may reference only the caller's own revisions, also for admins
-// (docs/api.md §1.3), so a revision of another user is 404. A resolved revision must be `ready`, else 409
+// (docs/api.md §1.3), so a revision of another user is 404, and so is a revision of a task being deleted (also when
+// it is addressed by its id, docs/data-model.md §4.1). A resolved revision must be `ready`, else 409
 // revisionNotReady; `@latest` of a task whose revisions are all still building or failed is revisionNotReady as well.
 
 function isNotFound(error: unknown): boolean {
@@ -30,6 +31,9 @@ export async function resolveRevisionRef(user: UserPrincipal, ref: string): Prom
     throw error
   }
   if (revision.userId !== user.user.id) throw apiError('notFound', 'revision not found')
+  // The taskDelete job removes the images and revisions of a task with `deletingAt`; nothing may start on them.
+  const task = await useCollections().tasks.findOne({ _id: revision.taskId, deletingAt: null }, { projection: { _id: 1 } })
+  if (!task) throw apiError('notFound', 'revision not found')
   if (revision.state !== 'ready') {
     throw apiError('revisionNotReady', `revision ${revision.taskName}@${revision.number} is ${revision.state}`, {
       state: revision.state,

@@ -3,7 +3,6 @@ import type { CreateTaskBody, ListTasksQuery } from '#shared/schemas/tasks'
 import { CUSTOM_TEMPLATE } from '#shared/schemas/tasks'
 import type { JobRef, Page } from '#shared/types/common'
 import type { Task, TaskWorkspaceStatus } from '#shared/types/tasks'
-import { ACTIVE_SCAN_STATES } from '#shared/utils/enums'
 import type { TaskDoc } from '../../types/documents'
 import { ownerFilter } from '../../utils/authz'
 import { apiError, validationError } from '../../utils/errors'
@@ -15,6 +14,7 @@ import type { UserPrincipal } from '../../utils/principal'
 import { templateNames } from '../catalog/templates'
 import { scaffold, snapshotHash } from '../helpers/ops'
 import { toJobRef } from '../jobs/mappers'
+import { scanUsingTask } from './delete'
 import { toApiTask, toWorkspaceStatus } from './mappers'
 import { applyWorkspaceSummary, insertTask, newTaskDoc } from './store'
 
@@ -77,17 +77,20 @@ export async function getWorkspaceStatus(task: TaskDoc): Promise<TaskWorkspaceSt
 /**
  * deleteTask: 409 taskInUse while a non-terminal scan uses the task; otherwise the task becomes invisible at once
  * (`deletingAt`) and a `taskDelete` job removes the workspace folder, revisions, snapshots, images and test runs.
+ * The mark is written before the scans are checked (a found scan rolls it back): from the mark on, revision
+ * references no longer resolve, so no scan can start on the task; a start that resolved just before the mark and
+ * is inserted after this check is caught by the job, which waits for such scans before removing revisions or images.
  */
 export async function requestTaskDeletion(task: TaskDoc): Promise<JobRef> {
-  const { tasks, scans } = useCollections()
-  const active = await scans.findOne({ 'task.id': task._id, state: { $in: [...ACTIVE_SCAN_STATES, 'deleting'] } }, { projection: { _id: 1, state: 1 } })
-  if (active) throw apiError('taskInUse', `scan ${active._id} (${active.state}) uses task ${task.name}`, { scanId: active._id })
-  const marked = await tasks.findOneAndUpdate(
-    { _id: task._id, deletingAt: null },
-    { $set: { deletingAt: new Date(), updatedAt: new Date() } },
-    { returnDocument: 'after' },
-  )
+  const { tasks } = useCollections()
+  const deletingAt = new Date()
+  const marked = await tasks.findOneAndUpdate({ _id: task._id, deletingAt: null }, { $set: { deletingAt, updatedAt: deletingAt } }, { returnDocument: 'after' })
   if (!marked) throw apiError('notFound', 'task not found')
+  const active = await scanUsingTask(task._id)
+  if (active) {
+    await tasks.updateOne({ _id: task._id, deletingAt }, { $set: { deletingAt: null, updatedAt: new Date() } })
+    throw apiError('taskInUse', `scan ${active._id} (${active.state}) uses task ${task.name}`, { scanId: active._id })
+  }
   const { job } = await createJob({ kind: 'taskDelete', userId: task.userId, subject: { kind: 'task', id: task._id }, params: {} })
   return toJobRef(job)
 }

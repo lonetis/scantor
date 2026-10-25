@@ -1,6 +1,7 @@
 import type { Filter } from 'mongodb'
-import type { JobDoc, TaskDoc, TestRunDoc } from '../../types/documents'
-import { FatalJobError, type JobContext, type JobKindDefinition, cancelActiveJobs } from '../../utils/jobs'
+import { ACTIVE_SCAN_STATES } from '#shared/utils/enums'
+import type { JobDoc, ScanDoc, TaskDoc, TestRunDoc } from '../../types/documents'
+import { FatalJobError, type JobContext, JobDeferredError, type JobKindDefinition, cancelActiveJobs } from '../../utils/jobs'
 import type { Logger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
 import { deleteObject, deletePrefix } from '../../utils/s3'
@@ -15,8 +16,9 @@ import { requestCancellation } from '../test-runs/live'
 // (`deletingAt`); this job (reconciler component, cursor `{phase}`) then stops the task's builds and test runs,
 // deletes its test runs, its registry manifests and local images, its snapshots and build logs, its revisions, the
 // workspace folder (helper `delete-files --path "" --recursive`) and finally the task document. Every phase is
-// idempotent, so a job restarted after a lease expiry resumes at its phase. The same building blocks serve the
-// userPurge steps 50–80 (./purge.ts).
+// idempotent, so a job restarted after a lease expiry resumes at its phase. A scan that started while the deletion
+// was being requested keeps the revisions and images it runs on: the job defers itself before removing them until no
+// non-terminal scan uses the task. The same building blocks serve the userPurge steps 50–80 (./purge.ts).
 
 export const TASK_DELETE_PHASES = ['stop', 'testRuns', 'images', 'storage', 'revisions', 'workspace', 'task'] as const
 export type TaskDeletePhase = (typeof TASK_DELETE_PHASES)[number]
@@ -25,6 +27,17 @@ export type TaskDeletePhase = (typeof TASK_DELETE_PHASES)[number]
 export const STOP_SETTLE_MS = 20_000
 
 const TASK_DELETED = 'the task was deleted'
+
+/** How long the job waits before it checks again whether a scan still uses the task. */
+export const SCAN_IN_USE_RECHECK_MS = 60_000
+
+/** Phases that remove what a running scan needs (its revision documents and images). */
+const SCAN_GUARDED_PHASES: ReadonlySet<TaskDeletePhase> = new Set(['images', 'revisions'])
+
+/** A non-terminal (or deleting) scan of the task, which blocks its deletion (409 taskInUse at request time). */
+export async function scanUsingTask(taskId: string): Promise<Pick<ScanDoc, '_id' | 'state'> | null> {
+  return useCollections().scans.findOne({ 'task.id': taskId, state: { $in: [...ACTIVE_SCAN_STATES, 'deleting'] } }, { projection: { _id: 1, state: 1 } })
+}
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -122,6 +135,10 @@ interface DeleteState {
 
 async function runPhase(phase: TaskDeletePhase, task: TaskDoc, ctx: JobContext, state: DeleteState): Promise<void> {
   const { revisions, tasks } = useCollections()
+  if (SCAN_GUARDED_PHASES.has(phase)) {
+    const scan = await scanUsingTask(task._id)
+    if (scan) throw new JobDeferredError(new Date(Date.now() + SCAN_IN_USE_RECHECK_MS), `scan ${scan._id} (${scan.state}) still uses the task`)
+  }
   switch (phase) {
     case 'stop': {
       const stopped = await stopTaskWork({ taskId: task._id }, ctx.log)
