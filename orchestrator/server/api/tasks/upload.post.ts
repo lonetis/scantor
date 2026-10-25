@@ -39,7 +39,7 @@ defineRouteMeta({
       413: { description: 'Upload or workspace too large', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
       415: { description: 'Not application/gzip', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
       422: { description: 'Invalid manifest or path', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
-      429: { description: 'Too many concurrent workspace operations', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
+      429: { description: 'Too many concurrent workspace operations or waits', content: { 'application/json': { schema: { $ref: '#/components/schemas/Error' } } } },
     },
   },
 })
@@ -54,7 +54,7 @@ import { assertTaskUploadContentType, uploadTask } from '../../services/tasks/up
 import { requireUser } from '../../utils/authz'
 import { closeConnectionOnFailure } from '../../utils/byte-cap'
 import { useCollections } from '../../utils/mongo'
-import { loadWithWait } from '../../utils/wait'
+import { loadWithWait, reserveWaitFor } from '../../utils/wait'
 import { validateQuery } from '../../utils/zod'
 
 export default defineEventHandler(async (event) => {
@@ -62,21 +62,29 @@ export default defineEventHandler(async (event) => {
   const query = validateQuery(event, uploadTaskQuery)
   assertTaskUploadContentType(getRequestHeader(event, 'content-type'))
   const limit = typeof event.context.bodyLimit === 'number' ? event.context.bodyLimit : Number.POSITIVE_INFINITY
-  const outcome = await closeConnectionOnFailure(event.node.req, event.node.res, () =>
-    uploadTask(principal, { body: event.node.req, maxBytes: limit, publish: query.publish, force: query.force, message: query.message }),
-  )
-  let revision = outcome.revision
-  if (revision) {
-    const published = revision
-    revision = await loadWithWait(event, {
-      waitSeconds: query.wait,
-      userId: principal.user.id,
-      load: () => reloadRevision(published),
-      settled: isRevisionSettled,
-      watch: { collection: useCollections().revisions as never, id: published._id },
+  // The wait is reserved before the upload changes anything, so a 429 means nothing was uploaded or published.
+  const wait: { release: (() => void) | null } = { release: null }
+  try {
+    const outcome = await closeConnectionOnFailure(event.node.req, event.node.res, () => {
+      wait.release = query.publish ? reserveWaitFor(principal.user.id, query.wait) : null
+      return uploadTask(principal, { body: event.node.req, maxBytes: limit, publish: query.publish, force: query.force, message: query.message })
     })
+    let revision = outcome.revision
+    if (revision) {
+      const published = revision
+      revision = await loadWithWait(event, {
+        waitSeconds: query.wait,
+        userId: principal.user.id,
+        load: () => reloadRevision(published),
+        settled: isRevisionSettled,
+        watch: { collection: useCollections().revisions as never, id: published._id },
+        reserved: wait.release !== null,
+      })
+    }
+    const task = (await loadTask(outcome.task._id)) ?? outcome.task
+    setResponseStatus(event, 201)
+    return { task: toApiTask(task), revision: revision ? toApiRevision(revision) : null, created: outcome.created }
+  } finally {
+    wait.release?.()
   }
-  const task = (await loadTask(outcome.task._id)) ?? outcome.task
-  setResponseStatus(event, 201)
-  return { task: toApiTask(task), revision: revision ? toApiRevision(revision) : null, created: outcome.created }
 })

@@ -234,8 +234,9 @@ settles or `wait` elapses, then returns the current representation with the norm
 response header `Scantor-Wait: settled|timeout` tells which. A client disconnect aborts the wait. When the
 orchestrator begins to stop, every wait returns the current representation at once with `timeout`, so the
 shutdown does not wait for it ([architecture](architecture.md) §4.1). Each user may hold at most
-`SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests`). Implementations watch the document with a
-change stream (fallback: 1 s polling).
+`SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests`). `publishRevision`, `uploadTask` and `testTask`
+take that slot before they create anything, so their 429 means nothing was created and a retry is safe.
+Implementations watch the document with a change stream (fallback: 1 s polling).
 
 | Operation | Settled when |
 |---|---|

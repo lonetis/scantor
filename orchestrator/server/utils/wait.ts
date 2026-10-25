@@ -10,7 +10,8 @@ import { useLogger } from './logger'
 // settled|timeout` tells which. A client disconnect aborts the wait; each user holds at most
 // SCANTOR_MAX_CONCURRENT_WAITS waits (429). The document is watched with a change stream, polling every second when
 // a change stream cannot be opened. When the orchestrator begins to stop, waits answer at once with the current state
-// (`timeout`), so the shutdown does not wait for them.
+// (`timeout`), so the shutdown does not wait for them. A route that creates the resource it then waits for reserves
+// the wait first (reserveWait), so its 429 always means nothing was created.
 
 const POLL_MS = 1000
 const activeWaits = new Map<string, number>()
@@ -26,6 +27,32 @@ export interface WaitOptions<T> {
   settled: (value: T) => boolean
   /** the document to watch for changes */
   watch?: { collection: Collection<Document & { _id: string }>; id: string }
+  /** the caller holds a reservation of reserveWait for this wait (and releases it) */
+  reserved?: boolean
+}
+
+/**
+ * Takes one of the user's SCANTOR_MAX_CONCURRENT_WAITS slots, or throws 429 tooManyRequests. The returned release is
+ * idempotent.
+ */
+export function reserveWait(userId: string): () => void {
+  const limit = useConfig().maxConcurrentWaits
+  const current = activeWaits.get(userId) ?? 0
+  if (current >= limit) throw apiError('tooManyRequests', `at most ${limit} concurrent waits per user`, { limit })
+  activeWaits.set(userId, current + 1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const count = (activeWaits.get(userId) ?? 1) - 1
+    if (count <= 0) activeWaits.delete(userId)
+    else activeWaits.set(userId, count)
+  }
+}
+
+/** For a create route with `wait`: the reservation to hold across the side effect and the wait, or null without one. */
+export function reserveWaitFor(userId: string, waitSeconds: number | undefined): (() => void) | null {
+  return (waitSeconds ?? 0) > 0 ? reserveWait(userId) : null
 }
 
 /** Resolves when the client disconnects before the response is sent. */
@@ -47,10 +74,7 @@ export async function loadWithWait<T>(event: H3Event, options: WaitOptions<T>): 
     return value
   }
 
-  const limit = useConfig().maxConcurrentWaits
-  const current = activeWaits.get(options.userId) ?? 0
-  if (current >= limit) throw apiError('tooManyRequests', `at most ${limit} concurrent waits per user`, { limit })
-  activeWaits.set(options.userId, current + 1)
+  const release = options.reserved ? null : reserveWait(options.userId)
 
   const deadline = Date.now() + waitSeconds * 1000
   const log = useLogger('api')
@@ -104,9 +128,7 @@ export async function loadWithWait<T>(event: H3Event, options: WaitOptions<T>): 
     return value
   } finally {
     stopping.removeEventListener('abort', onStopping)
-    const count = (activeWaits.get(options.userId) ?? 1) - 1
-    if (count <= 0) activeWaits.delete(options.userId)
-    else activeWaits.set(options.userId, count)
+    release?.()
     await (stream as ChangeStream | null)?.close().catch((error: unknown) => log.debug('closing the change stream failed', { err: error }))
   }
 }

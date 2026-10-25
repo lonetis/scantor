@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resetBootRegistry, stopComponents } from '../../server/utils/boot'
 import { type Config, parseConfig, setConfigForTesting } from '../../server/utils/config'
 import { useLogger } from '../../server/utils/logger'
-import { loadWithWait } from '../../server/utils/wait'
+import { loadWithWait, reserveWait, reserveWaitFor } from '../../server/utils/wait'
 
 // Long-polling with `wait` (docs/api.md §1.9), using the 1 s polling fallback (no change stream).
 
@@ -75,6 +75,18 @@ describe('loadWithWait', () => {
     await pending
     const third = fakeEvent()
     expect(await loadWithWait(third.event, { waitSeconds: 5, userId: 'u', load: async () => 'done', settled: (v) => v === 'done' })).toBe('done')
+  })
+
+  it('lets a create route reserve the wait before its side effect', async () => {
+    const release = reserveWaitFor('u', 5)!
+    // Another wait of the user is refused while the reservation is held, before anything would be created.
+    expect(() => reserveWaitFor('u', 5)).toThrow(expect.objectContaining({ code: 'tooManyRequests' }))
+    expect(reserveWaitFor('u', 0)).toBeNull()
+    expect(await loadWithWait(fakeEvent().event, { waitSeconds: 1, userId: 'u', load: async () => 'running', settled: () => false, reserved: true })).toBe('running')
+    release()
+    release()
+    const again = reserveWait('u')
+    again()
   })
 
   it('stops waiting when the client disconnects', async () => {

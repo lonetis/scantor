@@ -134,7 +134,7 @@ import { isTestRunSettled } from '../../../../services/test-runs/mappers'
 import { requireUser, resolveTask } from '../../../../utils/authz'
 import { useConfig } from '../../../../utils/config'
 import { useCollections } from '../../../../utils/mongo'
-import { loadWithWait } from '../../../../utils/wait'
+import { loadWithWait, reserveWaitFor } from '../../../../utils/wait'
 import { validateBody, validateParams, validateQuery } from '../../../../utils/zod'
 
 export default defineEventHandler(async (event) => {
@@ -142,14 +142,21 @@ export default defineEventHandler(async (event) => {
   const { task } = validateParams(event, taskParams)
   const { wait } = validateQuery(event, waitQuery)
   const body = await validateBody(event, testTaskBody)
-  const created = await createTestRun(await resolveTask(principal, task), body, useConfig())
-  const current = await loadWithWait(event, {
-    waitSeconds: wait,
-    userId: principal.user.id,
-    load: () => reloadTestRun(created),
-    settled: isTestRunSettled,
-    watch: { collection: useCollections().testRuns as never, id: created._id },
-  })
-  setResponseStatus(event, 201)
-  return testRunRepresentation(current, true)
+  // Reserved before the run is created, so a 429 means nothing was queued (clients retry it).
+  const reservation = reserveWaitFor(principal.user.id, wait)
+  try {
+    const created = await createTestRun(await resolveTask(principal, task), body, useConfig())
+    const current = await loadWithWait(event, {
+      waitSeconds: wait,
+      userId: principal.user.id,
+      load: () => reloadTestRun(created),
+      settled: isTestRunSettled,
+      watch: { collection: useCollections().testRuns as never, id: created._id },
+      reserved: reservation !== null,
+    })
+    setResponseStatus(event, 201)
+    return testRunRepresentation(current, true)
+  } finally {
+    reservation?.()
+  }
 })

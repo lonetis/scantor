@@ -35,7 +35,7 @@ import { isRevisionSettled, toApiRevision } from '../../../../services/revisions
 import { publishRevision } from '../../../../services/revisions/publish'
 import { requireUser, resolveTask } from '../../../../utils/authz'
 import { useCollections } from '../../../../utils/mongo'
-import { loadWithWait } from '../../../../utils/wait'
+import { loadWithWait, reserveWaitFor } from '../../../../utils/wait'
 import { validateBody, validateParams, validateQuery } from '../../../../utils/zod'
 
 export default defineEventHandler(async (event) => {
@@ -43,14 +43,21 @@ export default defineEventHandler(async (event) => {
   const { task } = validateParams(event, taskParams)
   const { wait } = validateQuery(event, waitQuery)
   const body = await validateBody(event, publishRevisionBody)
-  const { revision } = await publishRevision(await resolveTask(principal, task), { message: body.message })
-  const current = await loadWithWait(event, {
-    waitSeconds: wait,
-    userId: principal.user.id,
-    load: () => reloadRevision(revision),
-    settled: isRevisionSettled,
-    watch: { collection: useCollections().revisions as never, id: revision._id },
-  })
-  setResponseStatus(event, 201)
-  return toApiRevision(current)
+  // Reserved before the revision is published, so a 429 means nothing was published.
+  const reservation = reserveWaitFor(principal.user.id, wait)
+  try {
+    const { revision } = await publishRevision(await resolveTask(principal, task), { message: body.message })
+    const current = await loadWithWait(event, {
+      waitSeconds: wait,
+      userId: principal.user.id,
+      load: () => reloadRevision(revision),
+      settled: isRevisionSettled,
+      watch: { collection: useCollections().revisions as never, id: revision._id },
+      reserved: reservation !== null,
+    })
+    setResponseStatus(event, 201)
+    return toApiRevision(current)
+  } finally {
+    reservation?.()
+  }
 })
