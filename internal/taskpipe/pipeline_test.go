@@ -57,7 +57,7 @@ func newPipelineEnv() *pipelineEnv {
 	env.cfg.DescribeTimeout = time.Minute
 	env.cfg.MaxImageBytes = 1 << 30
 	env.cfg.BuildCacheMaxBytes = 20 << 30
-	env.docker.addImage(image.InspectResponse{ID: baseID, RepoDigests: []string{"scantor-base-python@" + baseID}}, baseRef)
+	env.docker.addImage(image.InspectResponse{ID: baseID, RepoDigests: []string{"scantor-base-python@" + baseID}, RootFS: image.RootFS{Layers: baseLayers}}, baseRef)
 	env.docker.build = func(client.ImageBuildOptions) ([]jsonstream.Message, *image.InspectResponse, bool) {
 		return []jsonstream.Message{{Stream: "Step 1/3\n"}}, builtImage(nil), false
 	}
@@ -78,9 +78,13 @@ func newPipelineEnv() *pipelineEnv {
 	return env
 }
 
+// baseLayers are the layers of the test base image; images built on it start with them.
+var baseLayers = []string{"sha256:b1", "sha256:b2"}
+
 func builtImage(labels map[string]string) *image.InspectResponse {
 	img := imageWithConfig(builtID, map[string]any{"Labels": labels, "Env": []string{"SCANTOR_DEBUG_PORT=5678"}})
 	img.Size, img.Os, img.Architecture = 123<<20, "linux", "arm64"
+	img.RootFS = image.RootFS{Type: "layers", Layers: append(slices.Clone(baseLayers), "sha256:task")}
 	return &img
 }
 
@@ -434,9 +438,41 @@ func TestBuildReuseExisting(t *testing.T) {
 		t.Fatal("a skipped check has no duration")
 	}
 
+	if res.BaseImage == nil || res.BaseImage.Ref != baseRef || res.BaseImage.Digest != baseID {
+		t.Fatalf("a reused image records its base image: %+v", res.BaseImage)
+	}
+
 	env = newPipelineEnv()
 	if res := env.buildTask(t, minimalTask(), BuildOptions{Tag: "tasks/x:draft-new", ReuseExisting: true}); !res.OK || len(env.docker.buildOpts) != 1 {
 		t.Fatalf("an absent image is built: %+v", res.Errors)
+	}
+
+	// A draft built on an earlier base image (before an upgrade) is rebuilt on the current one.
+	env = newPipelineEnv()
+	stale := builtImage(nil)
+	stale.ID = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	stale.RootFS.Layers = []string{"sha256:old-base", "sha256:task"}
+	env.docker.addImage(*stale, "tasks/x:draft-abc")
+	res = env.buildTask(t, minimalTask(), BuildOptions{Tag: "tasks/x:draft-abc", ReuseExisting: true, SkipCheck: true})
+	if !res.OK || len(env.docker.buildOpts) != 1 || res.Image.ID != builtID || !hasLog(env.eventList(t), api.BuildPhaseBuild, "another base image") {
+		t.Fatalf("ok %v builds %d image %+v", res.OK, len(env.docker.buildOpts), res.Image)
+	}
+}
+
+func TestBuiltOn(t *testing.T) {
+	for _, tt := range []struct {
+		image, base []string
+		want        bool
+	}{
+		{[]string{"a", "b", "c"}, []string{"a", "b"}, true},
+		{[]string{"a", "b"}, []string{"a", "b"}, true},
+		{[]string{"x", "b", "c"}, []string{"a", "b"}, false},
+		{[]string{"a"}, []string{"a", "b"}, false},
+		{[]string{"a"}, nil, false},
+	} {
+		if got := builtOn(tt.image, tt.base); got != tt.want {
+			t.Errorf("builtOn(%v, %v) = %v", tt.image, tt.base, got)
+		}
 	}
 }
 

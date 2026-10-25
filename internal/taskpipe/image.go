@@ -40,15 +40,19 @@ type builder struct {
 
 // build is the build phase (docs/tasks.md §9.4 row 3): resolve and pin the base image, pull and inspect
 // the external images of the Dockerfile, build with BuildKit through the Engine API, check the image and
-// prune the build cache.
+// prune the build cache. With ReuseExisting an image already tagged b.tag that was built on the current
+// base image is used instead of building.
 func (b *builder) build(ctx context.Context) bool {
+	pinned, baseLayers, ok := b.pinBase(ctx)
+	if !ok {
+		return false
+	}
 	if b.opts.ReuseExisting {
-		if reused, ok := b.reuse(ctx); reused || !ok {
+		if reused, ok := b.reuse(ctx, baseLayers); reused || !ok {
 			return ok
 		}
 	}
-	pinned, ok := b.pinBase(ctx)
-	if !ok || !b.checkExternal(ctx) {
+	if !b.checkExternal(ctx) {
 		return false
 	}
 	built := b.imageBuild(ctx, pinned)
@@ -59,10 +63,13 @@ func (b *builder) build(ctx context.Context) bool {
 	return built
 }
 
-// reuse inspects an existing image tagged b.tag. reused is true when the image exists (ok then reports
-// whether it passed the image checks).
-func (b *builder) reuse(ctx context.Context) (reused, ok bool) {
-	_, err := b.p.docker.ImageInspect(ctx, b.tag)
+// reuse inspects an existing image tagged b.tag. reused is true when the image exists and was built on
+// the current base image (ok then reports whether it passed the image checks). Draft tags are keyed by
+// the pack hash only, so after an upgrade that changes the base image (SCANTOR_IMAGE_TAG) a draft of an
+// unchanged task must be rebuilt: the final stage descends from ${SCANTOR_BASE} (D4), so an image built
+// on the current base starts with all of its layers.
+func (b *builder) reuse(ctx context.Context, baseLayers []string) (reused, ok bool) {
+	existing, err := b.p.docker.ImageInspect(ctx, b.tag)
 	switch {
 	case container.IsNotFound(err):
 		return false, true
@@ -70,38 +77,49 @@ func (b *builder) reuse(ctx context.Context) (reused, ok bool) {
 		b.failf(api.BuildPhasePlatform, "inspect %s: %v", b.tag, err)
 		return true, false
 	}
+	if !builtOn(existing.RootFS.Layers, baseLayers) {
+		b.log(api.BuildPhaseBuild, "the existing image %s was built on another base image; rebuilding", b.tag)
+		return false, true
+	}
 	b.log(api.BuildPhaseBuild, "reusing the existing image %s", b.tag)
 	return true, b.inspect(ctx)
 }
 
+// builtOn reports whether an image with the layers image descends from a base image with the layers
+// base. A base without layers cannot be recognised.
+func builtOn(image, base []string) bool {
+	return len(base) > 0 && len(image) >= len(base) && slices.Equal(image[:len(base)], base)
+}
+
 // pinBase resolves the base image of the manifest language, pulls it anonymously when it is absent
-// and returns the SCANTOR_BASE value: <repository>@<digest> when the registry serves that digest, else
-// the tag reference with the local image id recorded as the digest (local development images).
+// and returns the SCANTOR_BASE value and the base image's layers: <repository>@<digest> when the
+// registry serves that digest, else the tag reference with the local image id recorded as the digest
+// (local development images).
 //
 // BuildKit resolves a digest reference against the registry even when the image exists locally, and
 // the containerd image store gives locally built images repo digests too, so a repo digest alone does
 // not prove that the registry has the image. Development builds name their base images without
 // registry and namespace (docs/architecture.md §4.2) and are never looked up; for any other reference
 // the daemon checks the digest anonymously (distribution inspect) before it is pinned.
-func (b *builder) pinBase(ctx context.Context) (string, bool) {
+func (b *builder) pinBase(ctx context.Context) (string, []string, bool) {
 	ref := b.static.Manifest.Language.BaseImageRef(b.p.cfg.Images)
 	named, err := reference.ParseNormalizedNamed(ref)
 	if err != nil {
 		b.failf(api.BuildPhasePlatform, "invalid base image reference %q: %v", ref, err)
-		return "", false
+		return "", nil, false
 	}
 	inspect, err := b.p.docker.ImageInspect(ctx, ref)
 	if container.IsNotFound(err) {
 		b.log(api.BuildPhaseBuild, "pulling the base image %s", ref)
 		if err := container.Pull(ctx, b.p.docker, ref, container.PullOptions{}); err != nil {
 			b.failf(api.BuildPhasePlatform, "pull the base image: %v", err)
-			return "", false
+			return "", nil, false
 		}
 		inspect, err = b.p.docker.ImageInspect(ctx, ref)
 	}
 	if err != nil {
 		b.failf(api.BuildPhasePlatform, "inspect the base image %s: %v", ref, err)
-		return "", false
+		return "", nil, false
 	}
 	pinned, digest := ref, inspect.ID
 	if !localDevelopmentImage(named) {
@@ -116,7 +134,7 @@ func (b *builder) pinBase(ctx context.Context) (string, bool) {
 	}
 	b.res.BaseImage = &api.ImageRef{Ref: ref, Digest: digest}
 	b.log(api.BuildPhaseBuild, "base image %s (%s)", ref, digest)
-	return pinned, true
+	return pinned, inspect.RootFS.Layers, true
 }
 
 // registryCheckTimeout bounds the registry lookup of the base image digest.

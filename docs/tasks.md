@@ -1149,7 +1149,7 @@ by `SCANTOR_DIND=1`.
 |---|---|---|
 | `scantor task pack <dir> [-o <file\|->]` | folder | deterministic tar.gz (§9.2); prints the pack summary |
 | `scantor task check-static <dir\|tgz\|-> [--expect-name <n>] [--allow-privileged]` | folder or pack | pack (if a folder), manifest rules (§3.2), required files (§2), Dockerfile policy (§8.2) |
-| `scantor task build <dir\|tgz\|-> --tag <ref> [--push [--push-gate <fd>]] [--expect-name <n>] [--allow-privileged] [--skip-check] [--reuse-existing] [--debug-build] [--events ndjson\|text]` | folder or pack | pack → static → build → describe → check → push; `--reuse-existing` skips the image build when an image tagged `--tag` already exists locally (used for content-addressed draft tags); `--push-gate` makes the push wait for a go-ahead (§9.7) |
+| `scantor task build <dir\|tgz\|-> --tag <ref> [--push [--push-gate <fd>]] [--expect-name <n>] [--allow-privileged] [--skip-check] [--reuse-existing] [--debug-build] [--events ndjson\|text]` | folder or pack | pack → static → build → describe → check → push; `--reuse-existing` skips the image build when an image tagged `--tag` already exists locally and was built on the current base image (its layers start with the base image's layers; otherwise it is rebuilt, so an upgrade that changes the base image also rebuilds drafts of unchanged tasks), used for content-addressed draft tags; the base image is resolved and recorded in `baseImage` either way; `--push-gate` makes the push wait for a go-ahead (§9.7) |
 
 All three write events (§9.8) to stdout (`--events text` renders them for humans; the CLI default when
 stdout is a terminal) and exit with §9.9 codes. They need no platform credentials except `--push`
