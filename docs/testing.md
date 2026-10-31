@@ -467,7 +467,7 @@ export default defineConfig({
     extraHTTPHeaders: { Origin: env.publicUrl },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    // on CI only the retry is recorded: encoding a 1080p video of every test starves a 2-CPU runner (§12)
+    // on CI only the retry is recorded: encoding a 1080p video of every test starves a CI runner (§12)
     video: { mode: env.ci ? 'on-first-retry' : 'retain-on-failure', size: { width: 1920, height: 1080 } },
   },
   projects: [
@@ -945,7 +945,7 @@ same `just` recipes developers run.
 | `static` | `ubuntu-latest` | `actions/checkout@v7`, `extractions/setup-just@v4` (just 1.59.0), `just lint`, `just typecheck`, `just docs --check`, `just test-index --check` |
 | `unit` | `ubuntu-latest`, matrix `suite: [go, go-integration, orchestrator, orchestrator-integration, connectors, conformance]` | checkout, setup-just, `docker/setup-buildx-action@v4`, `just test-<suite>`; for `go-integration` first the dev-tagged `scantor` and base images (`docker/bake-action`, `load: true`, reading the GHA cache, with the same `COMMIT` as the `e2e-images` job) and the service images `rabbitmq:4.4-management` and `registry:3.1.2`, for `orchestrator-integration` the same way the `scantor` image the recipe bakes |
 | `e2e-images` | `ubuntu-latest`, `timeout-minutes: 60` | checkout; free disk space (`.github/scripts/free-disk-space.sh`: removes the preinstalled .NET, Android, GHC, CodeQL, Boost and Swift toolchains and images and moves Docker's `data-root` to `/mnt` when that disk has more room); setup-buildx; build the `test` bake group and `test-runner` with `docker/bake-action` (no output, `cache-from/to: type=gha` per target, `COMMIT` = `git rev-parse --short HEAD` like the justfile's `bake`), so the e2e groups only read the cache |
-| `e2e` | `ubuntu-latest`, `needs: e2e-images`, `timeout-minutes: 120`, matrix of groups (`fail-fast: false`): `api` (`--project=api --project=authz --project=security --project=mcp`), `e2e` (`--project=e2e`), `ui` (`--project=ui`), `chaos` (`--project=chaos --no-deps`) | checkout; free disk space; setup-just, setup-buildx; the same bake with `load: true` reading the cache; `just test-images-save` (writes `.test-images/*.tar`), `SCANTOR_TEST_IMAGES_DIR=/src/.test-images SCANTOR_TEST_WORKERS=2 CI=true just test-e2e <group args>`; on failure or cancellation upload `tests/playwright-report` and `tests/test-results` as `playwright-report-<group>` with `actions/upload-artifact@v7` (7 days) |
+| `e2e` | `ubuntu-latest`, `needs: e2e-images`, `timeout-minutes: 120`, matrix of groups (`fail-fast: false`): `api` (`--project=api --project=authz --project=security --project=mcp`), `e2e` (`--project=e2e`), `ui` (`--project=ui`), `chaos` (`--project=chaos --no-deps`) | checkout; free disk space; setup-just, setup-buildx; the same bake with `load: true` reading the cache; `just test-images-save` (writes `.test-images/*.tar`), `SCANTOR_TEST_IMAGES_DIR=/src/.test-images SCANTOR_TEST_WORKERS=4 CI=true just test-e2e <group args>`; on failure or cancellation upload `tests/playwright-report` and `tests/test-results` as `playwright-report-<group>` with `actions/upload-artifact@v7` (7 days) |
 | `latest` | `ubuntu-latest`, pushes to `main` only, `needs` `static`, `unit` and `e2e`; permissions `actions: read`, `packages: write` | `gh run list --workflow images.yml --commit <sha>` and `gh run watch` until the commit's image run ends; on success `docker buildx imagetools create -t …:latest …:sha-<short>` for the six platform images; a run cancelled by a newer push leaves `latest` alone (a notice), any other failure fails the job. `latest`, the shipped `SCANTOR_IMAGE_TAG`, therefore never names images whose tests did not pass ([development](development.md) §14) |
 
 The privileged DinD runner works on GitHub-hosted Linux runners. Images are built on the CI host (with
@@ -957,15 +957,16 @@ it, and the pinned third-party images are pulled inside the runner on every CI r
 retried). The images, their tarballs, the runner's volume and the suite's task images need about 40 GB,
 more than a hosted runner's root disk has free by default.
 
-Each e2e group boots its own fresh stack on its own runner. A hosted runner of a private repository has 2 CPUs
-and 7.75 GB (a public one 4 and 16 GB), and the whole suite with its serial `chaos` project outlasts the job
-limit on one such runner, so the groups split it and run with 2 workers. The groups name their projects instead
-of using Playwright's `--shard`, which splits only the top-level projects and runs every dependency project in
-full in each shard: `chaos` depends on all other projects, so every shard would repeat everything but `chaos`.
-`chaos` runs `--no-deps`; its dependencies only order it after the projects it would disturb on a shared stack.
-On CI only the retry of a failed test records a video (§7.5): encoding a 1080p video of every UI test kept both
-CPUs busy, and closing a context waits for the encoder, so the context teardowns outlasted the test timeout. A pull
-request is mergeable only when every job passes.
+Each e2e group boots its own fresh stack on its own runner, a hosted `ubuntu-latest` runner of the public
+repository with 4 CPUs and 16 GB, and runs one worker per CPU. The whole suite on a single runner, with its
+serial `chaos` project at the end, outlasted the job limit; the groups run in parallel, so the e2e stage takes as
+long as its slowest group. The groups name their projects instead of using Playwright's `--shard`, which splits
+only the top-level projects and runs every dependency project in full in each shard: `chaos` depends on all other
+projects, so every shard would repeat everything but `chaos`. `chaos` runs `--no-deps`; its dependencies only
+order it after the projects it would disturb on a shared stack. On CI only the retry of a failed test records a
+video (§7.5): encoding a 1080p video of every UI test kept the runner's CPUs busy, and closing a context waits
+for the encoder, so the context teardowns outlasted the test timeout. A pull request is mergeable only when every
+job passes.
 
 ## 13. Writing a new test (checklist)
 

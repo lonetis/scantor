@@ -121,9 +121,10 @@ jobs:
             test-runner.cache-from=type=gha,scope=test-runner
             test-runner.cache-to=type=gha,scope=test-runner,mode=max
 
-  # The suite in groups of Playwright projects, each on its own runner with its own fresh stack: a hosted runner of a
-  # private repository has 2 CPUs and 7.75 GB, too little for the whole suite within the job limit (docs/testing.md
-  # §12). chaos runs without its dependencies: they order it after the other projects on a shared stack only.
+  # The suite in groups of Playwright projects that run in parallel, each on its own runner with its own fresh stack
+  # and one worker per CPU of the runner: on one runner the whole suite, with its serial chaos project at the end,
+  # outlasted the job limit (docs/testing.md §12). chaos runs without its dependencies: they order it after the
+  # other projects on a shared stack only.
   e2e:
     needs: e2e-images
     runs-on: ubuntu-latest
@@ -177,7 +178,7 @@ jobs:
       - run: just test-e2e ${{ matrix.args }}
         env:
           SCANTOR_TEST_IMAGES_DIR: /src/.test-images
-          SCANTOR_TEST_WORKERS: "2"
+          SCANTOR_TEST_WORKERS: "4"
           CI: "true"
       # A job over its time limit is cancelled, not failed; its report matters most.
       - if: failure() || cancelled()
