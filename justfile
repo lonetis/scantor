@@ -366,7 +366,9 @@ test-go-integration *args: _caches
     # Host network: tests publish service ports (RabbitMQ) on the Docker host's loopback and dial them
     # there. The images they use must exist locally: scantor:dev and the scantor-base-*:dev images
     # (just build-images scantor base-python base-js base-go), rabbitmq:4.4-management, registry:3.1.2.
-    {{run}} {{go_caches}} {{docker_socket}} --network host {{go_image}} go test -count=1 -tags integration "$@" $packages
+    # internal/conformance builds and runs a task image per connector, which outlasts go test's default
+    # 10 minutes per package on a 4-CPU CI runner.
+    {{run}} {{go_caches}} {{docker_socket}} --network host {{go_image}} go test -count=1 -timeout 30m -tags integration "$@" $packages
 
 # vitest unit tests of the orchestrator
 [group('tests')]
