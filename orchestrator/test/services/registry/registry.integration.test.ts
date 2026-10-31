@@ -170,7 +170,7 @@ describe.skipIf(!integrationEnabled)('registry token flow against registry:3.1.2
     try {
       return await follow(await (env.docker.pull(reference, { authconfig: authconfig(username, password) }) as Promise<NodeJS.ReadableStream>))
     } catch (error) {
-      return { error: (error as Error).message, digest: null }
+      return { error: error instanceof Error ? error.message : String(error), digest: null }
     }
   }
 
@@ -249,10 +249,17 @@ describe.skipIf(!integrationEnabled)('registry token flow against registry:3.1.2
   }, 120_000)
 
   it('refuses unknown or revoked node tokens at the realm', async () => {
-    const reference = `${registryHost}/${TASK_A}@${digests[TASK_A]}`
+    // By tag: the classic image store answers a pull by digest from its manifest cache without asking the
+    // registry once the digest was pulled, so the realm would never see the token.
+    const reference = `${registryHost}/${TASK_A}:r1`
     await removeLocal(reference)
+    const before = flows.length
+    issued.length = 0
     const result = await pull(reference, 'node', REVOKED_TOKEN)
+    expect(result.error, 'the pull with a revoked token succeeded').not.toBeNull()
     expect(result.error).toMatch(/denied|unauthorized|authorization failed|401/i)
+    expect(flows.length).toBeGreaterThan(before)
+    expect(issued.flatMap((entry) => entry.access)).toEqual([])
   }, 120_000)
 
   it('scopes node tokens to their repositories on the registry API', async () => {
