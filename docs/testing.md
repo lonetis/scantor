@@ -467,7 +467,8 @@ export default defineConfig({
     extraHTTPHeaders: { Origin: env.publicUrl },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: { mode: 'retain-on-failure', size: { width: 1920, height: 1080 } },
+    // on CI only the retry is recorded: encoding a 1080p video of every test starves a 2-CPU runner (§12)
+    video: { mode: env.ci ? 'on-first-retry' : 'retain-on-failure', size: { width: 1920, height: 1080 } },
   },
   projects: [
     { name: 'api', testMatch: 'api/**/*.spec.ts' },

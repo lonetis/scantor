@@ -21,7 +21,10 @@ export default defineConfig({
     extraHTTPHeaders: { Origin: env.publicUrl },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: { mode: 'retain-on-failure', size: { width: 1920, height: 1080 } },
+    // Encoding a 1080p video of every test costs about a CPU per browser, and closing a context waits for the
+    // encoder: on a 2-CPU CI runner the teardown alone outlasted the test timeout (docs/testing.md §12). On CI only the
+    // retry of a failed test is recorded; failOnFlakyTests fails the run either way.
+    video: { mode: env.ci ? 'on-first-retry' : 'retain-on-failure', size: { width: 1920, height: 1080 } },
   },
   projects: [
     { name: 'api', testMatch: 'api/**/*.spec.ts' },
