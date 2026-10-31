@@ -22,7 +22,7 @@ This file is the index for agents developing this repository. `README.md` is use
 | `docs/`, `docs/guide/` | internal specifications; user guides (embedded into the binary and the orchestrator image, served over MCP) |
 | `skills/`, `.claude-plugin/`, `.mcp.json` | agent skills shipped as a Claude Code plugin, and the MCP client config |
 | `traefik/dynamic/` | Traefik file-provider directory (empty by default) |
-| `.devcontainer/`, `.github/workflows/` | devcontainer; CI (`images.yml`, `release.yml`, `test.yml`) |
+| `.devcontainer/`, `.github/workflows/`, `.github/scripts/` | devcontainer; CI (`images.yml`, `release.yml`, `test.yml`) and its step scripts |
 | root files | `Dockerfile` (scantor image), `docker-bake.hcl` (every image build), `docker-compose.{dev,prod,tests}.yml`, `justfile`, `scantor.sh` (CLI docker shim), `embed.go`, `.env.example` |
 
 ## Terminology

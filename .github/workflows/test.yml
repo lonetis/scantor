@@ -41,12 +41,12 @@ jobs:
           just-version: 1.59.0
       - uses: docker/setup-buildx-action@v4
       # The COMMIT build argument of the justfile's bake (`git rev-parse --short HEAD`): with the same value
-      # here, the images below match the e2e job's cache and the builds of the recipes.
+      # here, the images below match the e2e-images job's cache and the builds of the recipes.
       - name: Commit
         id: commit
         run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
       # The Go integration tests use the dev-tagged scantor and base images and never build them
-      # (reading the build cache the e2e job writes).
+      # (reading the build cache the e2e-images job writes).
       - name: Images of the Go integration tests
         if: matrix.suite == 'go-integration'
         uses: docker/bake-action@v7
@@ -62,7 +62,7 @@ jobs:
             base-js.cache-from=type=gha,scope=test-base-js
             base-go.cache-from=type=gha,scope=test-base-go
       # The helper and task build tests of the orchestrator run the dev-tagged scantor image, which the recipe
-      # bakes; this step fills the builder's cache from the e2e job's.
+      # bakes; this step fills the builder's cache from the e2e-images job's.
       - name: Image of the orchestrator integration tests
         if: matrix.suite == 'orchestrator-integration'
         uses: docker/bake-action@v7
@@ -81,47 +81,28 @@ jobs:
           docker pull registry:3.1.2
       - run: just test-${{ matrix.suite }}
 
-  e2e:
+  # Builds the images of the e2e groups once per commit into the GitHub Actions cache; every group then loads them
+  # from there instead of building them on its own runner.
+  e2e-images:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
-      # The images, their tarballs, the runner's cache volume and the task images of the suite need about
-      # 40 GB: drop the preinstalled toolchains and keep Docker's data on the larger /mnt disk when there is one.
       - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
-            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift
-          sudo docker image prune --all --force >/dev/null
-          if mountpoint -q /mnt && [ "$(df --output=avail -k /mnt | tail -n 1)" -gt "$(df --output=avail -k / | tail -n 1)" ]; then
-            sudo systemctl stop docker.socket docker
-            sudo mkdir -p /mnt/docker
-            config=/etc/docker/daemon.json
-            if [ -s "$config" ]; then current="$(sudo cat "$config")"; else current='{}'; fi
-            jq '. + {"data-root": "/mnt/docker"}' <<< "$current" | sudo tee "$config" >/dev/null
-            sudo systemctl start docker
-          fi
-          df -h / /mnt
-          docker info --format 'Docker data: {{.DockerRootDir}}'
-      - uses: extractions/setup-just@v4
-        with:
-          just-version: 1.59.0
+        run: .github/scripts/free-disk-space.sh
       - uses: docker/setup-buildx-action@v4
-      # The COMMIT build argument of the justfile's bake (`git rev-parse --short HEAD`), so the bake of
-      # `just test-e2e` finds the runner image built below in the builder's cache instead of rebuilding it.
+      # The COMMIT build argument of the justfile's bake (`git rev-parse --short HEAD`): with the same value in every
+      # job, the e2e groups, the unit jobs and the recipes' own bakes all hit the cache written here.
       - name: Commit
         id: commit
         run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
-      # The runner's own image cache does not survive between CI runs, so the images are built here
-      # with the GitHub Actions cache and loaded into the runner; the runner image itself is cached too.
-      - name: Build the test images and the runner image
+      - name: Build the test images and the runner image into the cache
         uses: docker/bake-action@v7
         env:
           COMMIT: ${{ steps.commit.outputs.short }}
         with:
           source: .
           targets: test,test-runner
-          load: true
           set: |
             scantor.cache-from=type=gha,scope=test-scantor
             scantor.cache-to=type=gha,scope=test-scantor,mode=max
@@ -139,15 +120,70 @@ jobs:
             test-fixtures.cache-to=type=gha,scope=test-fixtures,mode=max
             test-runner.cache-from=type=gha,scope=test-runner
             test-runner.cache-to=type=gha,scope=test-runner,mode=max
+
+  # The suite in groups of Playwright projects, each on its own runner with its own fresh stack: a hosted runner of a
+  # private repository has 2 CPUs and 7.75 GB, too little for the whole suite within the job limit (docs/testing.md
+  # §12). chaos runs without its dependencies: they order it after the other projects on a shared stack only.
+  e2e:
+    needs: e2e-images
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: api
+            args: --project=api --project=authz --project=security --project=mcp
+          - group: e2e
+            args: --project=e2e
+          - group: ui
+            args: --project=ui
+          - group: chaos
+            args: --project=chaos --no-deps
+    name: e2e (${{ matrix.group }})
+    steps:
+      - uses: actions/checkout@v7
+      - name: Free disk space
+        run: .github/scripts/free-disk-space.sh
+      - uses: extractions/setup-just@v4
+        with:
+          just-version: 1.59.0
+      - uses: docker/setup-buildx-action@v4
+      # The same COMMIT as in e2e-images, so the bake of `just test-e2e` also finds the runner image in the builder's
+      # cache instead of rebuilding it.
+      - name: Commit
+        id: commit
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+      # The runner's own image cache does not survive between CI runs, so the images come from the cache e2e-images
+      # filled and are loaded into the runner; the runner image itself too.
+      - name: Load the test images and the runner image
+        uses: docker/bake-action@v7
+        env:
+          COMMIT: ${{ steps.commit.outputs.short }}
+        with:
+          source: .
+          targets: test,test-runner
+          load: true
+          set: |
+            scantor.cache-from=type=gha,scope=test-scantor
+            orchestrator.cache-from=type=gha,scope=test-orchestrator
+            editor.cache-from=type=gha,scope=test-editor
+            base-python.cache-from=type=gha,scope=test-base-python
+            base-js.cache-from=type=gha,scope=test-base-js
+            base-go.cache-from=type=gha,scope=test-base-go
+            test-fixtures.cache-from=type=gha,scope=test-fixtures
+            test-runner.cache-from=type=gha,scope=test-runner
       - run: just test-images-save
-      - run: just test-e2e
+      - run: just test-e2e ${{ matrix.args }}
         env:
           SCANTOR_TEST_IMAGES_DIR: /src/.test-images
+          SCANTOR_TEST_WORKERS: "2"
           CI: "true"
-      - if: failure()
+      # A job over its time limit is cancelled, not failed; its report matters most.
+      - if: failure() || cancelled()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.group }}
           path: |
             tests/playwright-report
             tests/test-results

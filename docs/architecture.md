@@ -434,6 +434,7 @@ Flat layout; Go module at the repo root.
 ├── .claude-plugin/             marketplace.json (skills plugin); .mcp.json at the repo root
 ├── .devcontainer/              devcontainer.json (editor toolchain stage + docker-in-docker), post-create.sh
 ├── .github/workflows/          image builds (GHCR), release binaries, test suite
+├── .github/scripts/            CI step scripts (free-disk-space.sh)
 ├── docker-compose.dev.yml      dev stack (hot reload)
 ├── docker-compose.prod.yml     prod stack (GHCR images)
 ├── docker-compose.tests.yml    dockerized test runner
