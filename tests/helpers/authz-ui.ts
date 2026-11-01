@@ -178,9 +178,13 @@ export interface UiPage {
   ready(page: Page): Promise<void>
 }
 
-/** UI assertions get 10 s; pages that read a workspace (a helper container) or a polled list get 20 s. */
+/**
+ * Every ready check gets 20 s, not the 10 s of a UI assertion: the crawl loads six pages at a time through Playwright's
+ * HTTP client (`routeThroughPlaywright`, which also turns off the browser cache), next to the other workers' browsers
+ * and the stack, so on a CI runner the chunks, the session and the data of a plain page can take longer than 10 s.
+ */
 const SLOW = 20_000
-const heading = (page: Page, name: string | RegExp) => expect(page.getByRole('heading', { level: 1, name })).toBeVisible()
+const heading = (page: Page, name: string | RegExp) => expect(page.getByRole('heading', { level: 1, name })).toBeVisible({ timeout: SLOW })
 const row = (page: Page, id: string | number) => expect(page.locator(`tr[data-row-id="${id}"]`).first()).toBeVisible({ timeout: SLOW })
 const testId = (page: Page, id: string) => expect(page.getByTestId(id).first()).toBeVisible({ timeout: SLOW })
 const button = (page: Page, name: string | RegExp) =>
@@ -198,7 +202,7 @@ export function uiPages(world: UiWorld, tenant: UiTenant, node: Node): UiPage[] 
       name: 'consent',
       path: `/oauth/consent?${new URLSearchParams({ client_id: 'authz-ui-unknown', scope: 'offline_access scantor:read scantor:write', redirect_uri: 'http://127.0.0.1:53682/callback' })}`,
       viewer: 'user',
-      ready: (p) => expect(p.getByTestId('oauth-account')).toHaveText(tenant.email),
+      ready: (p) => expect(p.getByTestId('oauth-account')).toHaveText(tenant.email, { timeout: SLOW }),
     },
     { name: 'overview', path: '/', viewer: 'user', ready: (p) => expect(p.getByRole('link', { name: zoo.name }).first()).toBeVisible({ timeout: SLOW }) },
     { name: 'tasks', path: '/tasks', viewer: 'user', ready: (p) => row(p, zoo.id) },
