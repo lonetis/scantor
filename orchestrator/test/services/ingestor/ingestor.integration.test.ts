@@ -507,7 +507,10 @@ describe.skipIf(!enabled)('ingestor against MongoDB and RabbitMQ', () => {
     injectFault = null
     expect(doc).toMatchObject({ status: 'failed', error: { type: 'platform', phase: 'ingest' } })
     expect(String(doc.error.message)).toContain('injected poison')
-    expect(ingestMessages.get({ kind: 'result', outcome: 'failedRecorded' }) - before).toBe(1)
+    // The test's own connection can see the write before the ingestor's bulkWrite resolves and counts the outcome.
+    const recorded = () => ingestMessages.get({ kind: 'result', outcome: 'failedRecorded' }) - before
+    await waitFor('the failedRecorded count', async () => recorded() >= 1)
+    expect(recorded()).toBe(1)
     expect(ingestWholeBatchFailures.get() - failuresBefore).toBe(3)
     expect(ingestWriteFailed.get()).toBe(0)
   }, 40_000)
