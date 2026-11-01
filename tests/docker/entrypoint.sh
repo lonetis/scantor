@@ -380,6 +380,21 @@ if ! node "$opt_dir/join-remote-node.mjs"; then
 fi
 
 # Phase 8c: Playwright.
+# The stack's logs after a failed Playwright run, uploaded with the report (docs/testing.md §7.4): phase 9 tears the
+# stack down, and failures such as a broker that keeps closing the reconciler's connection show only in these logs.
+save_stack_logs() {
+  local dir="$tests_dir/test-results/stack-logs" service
+  mkdir -p "$dir"
+  stack_compose ps -a > "$dir/ps.txt" 2>&1 || err "could not list the stack's containers"
+  for service in $(stack_compose ps -a --services 2>/dev/null); do
+    stack_compose logs --no-color --timestamps "$service" 2>&1 | gzip > "$dir/$service.log.gz" || err "could not save the log of $service"
+  done
+  docker exec scantor-remote-node docker logs --timestamps scantor-node 2>&1 | gzip > "$dir/remote-node.log.gz" ||
+    err "could not save the remote node daemon's log"
+  gzip -c "$dockerd_log" > "$dir/dockerd.log.gz" || err "could not save the inner dockerd's log"
+  log "Saved the stack's logs to test-results/stack-logs"
+}
+
 log "Phase 8c: Playwright"
 cd "$tests_dir"
 if ! cmp -s package-lock.json node_modules/.scantor-package-lock.json; then
@@ -416,6 +431,7 @@ playwright_status=$?
 set -e
 playwright_pid=""
 log "Playwright exited with $playwright_status"
+if [ "$playwright_status" -ne 0 ]; then save_stack_logs; fi
 
 # Phase 8d: keep alive.
 if [ "${SCANTOR_TEST_KEEP_ALIVE:-false}" = true ]; then
