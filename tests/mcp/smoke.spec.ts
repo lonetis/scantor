@@ -1,3 +1,4 @@
+import { env } from '../helpers/env'
 import { callJson } from '../helpers/mcp'
 import { bearerChallenge, rawMcp } from '../helpers/mcp-oauth'
 import { newApiContext } from '../helpers/users'
@@ -71,8 +72,20 @@ test.describe('MCP transport', () => {
       const initialized = await rawMcp(anonApi.request, { Authorization: `Bearer ${user.apiKey}` }, INITIALIZE)
       expect(initialized.status).toBe(200)
       expect(initialized.headers['mcp-session-id'], 'no MCP session is issued').toBeUndefined()
-      const result = initialized.body?.result as { serverInfo: { name: string }; capabilities: Record<string, unknown>; instructions?: string }
+      const result = initialized.body?.result as {
+        serverInfo: { name: string; icons?: Array<{ src: string; mimeType?: string; sizes?: string[] }> }
+        capabilities: Record<string, unknown>
+        instructions?: string
+      }
       expect(result.serverInfo.name).toBe('scantor')
+      // The app icons come from the dashboard's own origin, and the dashboard serves them without a session.
+      expect(result.serverInfo.icons?.map((icon) => icon.mimeType)).toEqual(['image/svg+xml', 'image/png'])
+      for (const icon of result.serverInfo.icons ?? []) {
+        expect(new URL(icon.src).origin).toBe(env.publicUrl)
+        const fetched = await anonApi.request.get(icon.src)
+        expect(fetched.status(), icon.src).toBe(200)
+        expect(fetched.headers()['content-type']).toContain(icon.mimeType)
+      }
       expect(result.capabilities).toEqual(expect.objectContaining({ tools: expect.any(Object), resources: expect.any(Object) }))
       expect(result.instructions?.length).toBeGreaterThan(100)
 

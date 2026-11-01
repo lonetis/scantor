@@ -49,7 +49,7 @@ masking of `writeOnly` secrets and audit logging are identical for every surface
 | protocol versions | the 2026-07-28 revision and the 2025 revisions (2024-11-05 … 2025-11-25, served statelessly) |
 | methods | `POST`. For 2025-era traffic `GET` and `DELETE` answer 405 (stateless serving has no sessions). |
 | state | none: each request builds a new `McpServer` bound to the caller; no MCP session ids are issued |
-| server info | `{ name: "scantor", title: "scantor", version: <scantor version> }` |
+| server info | `{ name: "scantor", title: "scantor", version: <scantor version>, icons }`; `icons` are `${SCANTOR_PUBLIC_URL}/favicon.svg` (`sizes: ["any"]`) and `/android-chrome-192x192.png`, the app icon of `brand/favicons` that the dashboard serves without a session on the origin of `/mcp` ([ui](ui.md) §1) |
 | capabilities | `tools` (no `listChanged`), `resources` (no `subscribe`), `instructions`; no prompts, sampling or elicitation in v1 |
 | CORS | `Access-Control-Allow-Origin: *` without credentials; allowed headers `authorization, content-type, mcp-protocol-version, mcp-session-id, x-api-key`; `OPTIONS` answered by the route |
 | cookies | ignored: `/mcp` never authenticates with the dashboard session, so it needs no CSRF protection |

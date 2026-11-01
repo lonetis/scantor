@@ -61,9 +61,25 @@ function unavailable(message: string): Response {
 /** docs/mcp.md §2: tools without listChanged, resources without subscribe, no prompts, sampling or elicitation. */
 const CAPABILITIES = { tools: { listChanged: false }, resources: { listChanged: false } }
 
+/**
+ * docs/mcp.md §2: the server info, with the app icon of brand/favicons that the dashboard serves on the origin of
+ * `/mcp`, so clients can show it without fetching from another host.
+ */
+function serverInfo(publicUrl: string) {
+  return {
+    name: 'scantor',
+    title: 'scantor',
+    version: scantorVersion,
+    icons: [
+      { src: new URL('/favicon.svg', publicUrl).href, mimeType: 'image/svg+xml', sizes: ['any'] },
+      { src: new URL('/android-chrome-192x192.png', publicUrl).href, mimeType: 'image/png', sizes: ['192x192'] },
+    ],
+  }
+}
+
 async function buildServer(principal: UserPrincipal, requestId: string, readGuide: GuideReader, loopbackOrigin: string): Promise<McpServer> {
   const [catalogue, instructions] = await Promise.all([loadCatalogue(), loadInstructions(readGuide)])
-  const server = new McpServer({ name: 'scantor', title: 'scantor', version: scantorVersion }, { instructions, capabilities: CAPABILITIES })
+  const server = new McpServer(serverInfo(useConfig().publicUrl), { instructions, capabilities: CAPABILITIES })
   const tools = toolsForLevel(catalogue, principal.mcp?.level ?? 'read')
   for (const tool of tools) {
     server.registerTool(tool.name, tool.config, (input: unknown) =>
