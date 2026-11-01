@@ -54,6 +54,16 @@ The SPA reads no runtime configuration. Everything instance-specific (public, ed
 feature flags, limits, version, CLI image) comes from `getInstanceInfo` (`GET /api/info`) and
 `getSetupStatus` (`GET /api/setup/status`).
 
+The brand comes from `brand/` at the repository root ([brand/README.md](../brand/README.md)) and is used in
+place, never copied. Nitro serves `brand/favicons/` at the root (`nitro.publicAssets`: `/favicon.ico`,
+`/favicon.svg`, `/apple-touch-icon.png`, `/site.webmanifest` and the icons the manifest names, no session
+needed), `app.head` links them in the shell HTML with `theme-color` `#111923`, and the Scalar page of §13
+links the same two favicons. Components import SVGs through the alias `#brand`; the build inlines them as
+`data:` URLs, which `img-src` admits (§13), and `vite.server.fs.allow` admits `brand/` for `nuxt dev`.
+`AppLogo` renders the wordmark (`logos/scantor-logo-light.svg` or `-dark.svg` by the resolved color mode,
+`alt="scantor"`) or, with `variant="mark"`, the decorative standalone S (`marks/scantor-mark-gradient.svg`,
+`alt=""`), never both side by side: the wordmark already begins with the S.
+
 ## 2. `app/` structure
 
 ```
@@ -61,7 +71,6 @@ orchestrator/app/
 ├── app.vue                       <UApp :toaster="{ position: 'bottom-right' }"><NuxtLayout><NuxtPage/></NuxtLayout></UApp>
 ├── app.config.ts                 colors (primary green, neutral slate)
 ├── assets/css/main.css           tailwind + nuxt ui imports, font stacks, log/JSON viewer tokens
-├── assets/img/scantor-symbol.svg logo
 ├── layouts/
 │   ├── default.vue               UDashboardGroup + AppSidebar + <slot/>
 │   └── auth.vue                  centered card (login, setup, OAuth consent)
@@ -114,7 +123,7 @@ Pages call their composables directly; there is no event relaying through layout
 ┌──────────────────────── UDashboardGroup (storage="local", storage-key="scantor-dashboard") ──────────────────────┐
 │ UDashboardSidebar (collapsible, resizable)   │ UDashboardPanel (one per page)                                     │
 │ ┌──────────────────────────────────────────┐ │ ┌ #header: UDashboardNavbar ─────────────────────────────────────┐ │
-│ │ logo · "scantor" · ThemeToggle           │ │ │ [≡ collapse] Title · badges            [Refresh] [actions…]    │ │
+│ │ wordmark · ThemeToggle                   │ │ │ [≡ collapse] Title · badges            [Refresh] [actions…]    │ │
 │ │ [ New scan ]   [ New task ]              │ │ ├ UDashboardToolbar: page tabs (UTabs / UNavigationMenu)         │ │
 │ │ ── Workspace ──                          │ │ └────────────────────────────────────────────────────────────────┘ │
 │ │ Overview · Tasks · Scans (n) ·           │ │ #body: page content (scrolls)                                     │
@@ -160,7 +169,8 @@ Defined once in `app/utils/navigation.ts` (a `.ts` file, hence the icon scan glo
 | (bottom) | API docs ↗ | `/api/docs` (new tab) | `i-lucide-book-open` | – | all |
 
 The Scans and Nodes badges come from the singleton `useSidebarCounts()` (one poll, §9). The header holds
-the logo (`AppLogo`, decorative `alt=""`) next to the text "scantor" and the `ThemeToggle`. The footer
+the wordmark (`AppLogo`, at full size down to the minimum sidebar width) and the `ThemeToggle`; collapsed,
+it holds only the standalone S in the link named "scantor overview" (§1). The footer
 `UserMenu` is a `UDropdownMenu` with "Account" (`/account`), "CLI & MCP access" and "Sign out". Sign-out
 calls `signOut()` and then hard-reloads to `/login` (resets every module-level singleton).
 
@@ -221,7 +231,7 @@ or a two-step inline button (row-level, agentor pattern); the UI never calls `wi
 
 ### 5.1 Login (`/login`)
 
-- Centered card (layout `auth`): logo, "scantor", form `UForm` with zod `{email, password}`:
+- Centered card (layout `auth`): wordmark, form `UForm` with zod `{email, password}`:
   `UInput type="email" autocomplete="username webauthn"`, `UInput type="password"
   autocomplete="current-password webauthn"`, submit "Sign in" (`type="submit"`, block).
 - When `getSetupStatus.passkeysEnabled`: an "or" divider and "Sign in with passkey" (outline,

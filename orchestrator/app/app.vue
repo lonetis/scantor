@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { en } from '@nuxt/ui/locale'
-import logoUrl from '~/assets/img/scantor-symbol.svg'
 
-// The sidebar drawer toggle is named "Open navigation" (docs/ui.md §3.1, §11).
+// The favicons are in the shell's head (nuxt.config.ts app.head). The sidebar drawer toggle is named "Open
+// navigation" (docs/ui.md §3.1, §11).
 const locale = extendLocale(en, {
   messages: {
     dashboardSidebarToggle: { open: 'Open navigation', close: 'Close navigation' },
@@ -13,7 +13,6 @@ const locale = extendLocale(en, {
 useHead({
   title: 'scantor',
   htmlAttrs: { lang: 'en' },
-  link: [{ rel: 'icon', type: 'image/svg+xml', href: logoUrl }],
 })
 </script>
 

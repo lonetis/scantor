@@ -1,4 +1,9 @@
-# scantor
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/readme/scantor-readme-dark.svg">
+    <img alt="scantor" src="brand/readme/scantor-readme-light.svg" width="560">
+  </picture>
+</h1>
 
 scantor is a self-hosted platform that runs your own scanning tasks at large scale on many machines,
 including machines behind firewalls. You write a task in Python, TypeScript, JavaScript or Go, with typed

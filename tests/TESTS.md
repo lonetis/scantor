@@ -120,7 +120,7 @@ test-index --check`); never edit it by hand.
 | `e2e/templates.spec.ts` | template single; template list; template range; template repeat; template tranco; template crux; template cidr; wrapped templates; resolution on resume; test runs and template data; data sources | 17 |
 | `e2e/workers.spec.ts` | crash loops and memory; drain and stop; process slots; image pulls | 11 |
 
-### ui (242 tests)
+### ui (243 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -135,7 +135,7 @@ test-index --check`); never edit it by hand.
 | `ui/credentials.spec.ts` | git credentials page | 3 |
 | `ui/editor.spec.ts` | editor of a fresh user; editor page states; editor disabled | 6 |
 | `ui/headers.spec.ts` | dashboard security headers | 9 |
-| `ui/navigation.spec.ts` | sidebar of a user; sidebar of an admin; Scans badge; errors and toasts; polling; copy buttons, ids, times, sizes and confirmations; UI preferences | 34 |
+| `ui/navigation.spec.ts` | sidebar of a user; sidebar of an admin; Scans badge; errors and toasts; polling; copy buttons, ids, times, sizes and confirmations; UI preferences | 35 |
 | `ui/overview.spec.ts` | overview of a fresh user; overview of the tenant; overview of an admin | 4 |
 | `ui/passkeys.spec.ts` | passkeys | 2 |
 | `ui/revisions.spec.ts` | revision page | 7 |
@@ -640,7 +640,7 @@ test-index --check`); never edit it by hand.
 | UI-NAV-004 | The Scans badge counts the user's own creating, running or paused scans, shows 200+ when there are … | ui/navigation.spec.ts › Scans badge › counts the own active scans, shows 200+ for a full page and is hidden at 0<br>ui/navigation.spec.ts › Scans badge › a running scan of the user shows in the badge, its page title and inline query errors; the badge clears after it ends |
 | UI-NAV-005 | For admins, the Nodes badge shows the number of offline nodes in the error color and is hidden at 0. | ui/navigation.spec.ts › sidebar of an admin › the Nodes badge counts offline nodes in the error color and is hidden at 0 |
 | UI-NAV-006 | The "API docs" footer link opens /api/docs in a new tab. | ui/navigation.spec.ts › sidebar of a user › "API docs" opens /api/docs in a new tab |
-| UI-NAV-007 | The sidebar collapses and expands ("Collapse sidebar", "Expand sidebar"; the collapsed logo is … | ui/navigation.spec.ts › sidebar of a user › "New scan" and "New task" open their forms, also as icon buttons of the collapsed sidebar<br>ui/navigation.spec.ts › sidebar of a user › the sidebar resizes between 14 and 24 rem, keeps its size and shows the brand in full at 1280 px |
+| UI-NAV-007 | The sidebar collapses and expands ("Collapse sidebar", "Expand sidebar"; the collapsed logo is … | ui/navigation.spec.ts › sidebar of a user › "New scan" and "New task" open their forms, also as icon buttons of the collapsed sidebar<br>ui/navigation.spec.ts › sidebar of a user › the sidebar resizes between 14 and 24 rem, keeps its size and shows the wordmark in full at 1280 px |
 | UI-NAV-008 | Below the lg breakpoint the sidebar is a drawer opened with "Open navigation" and closed with … | ui/navigation.spec.ts › sidebar of a user › below the lg breakpoint the sidebar is a drawer |
 | UI-NAV-009 | The user menu shows initials, name, email and an "admin" badge for admins, with Account, CLI & MCP … | ui/auth.spec.ts › session loss › signing out from the user menu ends the session and protected pages redirect to /login<br>ui/auth.spec.ts › admin user menu › the user menu shows the admin badge for admins |
 | UI-NAV-010 | Every page's title is <Page> · scantor, and detail pages use the task, scan, revision or node name … | ui/admin-nodes.spec.ts › node page › an unjoined node shows its info, labels, an empty lease, workers and events<br>ui/navigation.spec.ts › sidebar of a user › every page title is "<Page> · scantor", and a task page uses the task name<br>ui/navigation.spec.ts › sidebar of an admin › admin page titles use the page and the node name<br>ui/navigation.spec.ts › Scans badge › a running scan of the user shows in the badge, its page title and inline query errors; the badge clears after it ends<br>ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log |
@@ -663,6 +663,7 @@ test-index --check`); never edit it by hand.
 | UI-NAV-027 | Copy buttons copy to the clipboard and show "Copied" (a blocked clipboard shows "Copy failed"); id … | ui/navigation.spec.ts › copy buttons, ids, times, sizes and confirmations › copy buttons copy and confirm, id chips show 8 characters, times and sizes are formatted<br>ui/navigation.spec.ts › copy buttons, ids, times, sizes and confirmations › a blocked clipboard shows "Copy failed"<br>ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log |
 | UI-NAV-028 | A type-to-confirm dialog keeps its action disabled until the exact text is typed, and Cancel or … | ui/navigation.spec.ts › copy buttons, ids, times, sizes and confirmations › a type-to-confirm dialog stays disabled until the exact text, and Cancel or closing does nothing |
 | UI-NAV-029 | UI preferences live in one localStorage key scantor-ui; corrupted or unknown-version contents are … | ui/navigation.spec.ts › UI preferences › valid preferences restore the scans filter<br>ui/navigation.spec.ts › UI preferences › an unknown version is discarded<br>ui/navigation.spec.ts › UI preferences › truncated JSON is discarded<br>ui/navigation.spec.ts › UI preferences › a value that is not JSON is discarded<br>ui/navigation.spec.ts › UI preferences › changed filters are written as one versioned key<br>ui/navigation.spec.ts › UI preferences › every page works with localStorage unavailable |
+| UI-NAV-030 | The shell links the favicons (ICO, SVG, Apple touch icon) and the web manifest, which the dashboard … | ui/auth.spec.ts › sign-in page › a protected route redirects to /login with its path and query and returns there after sign-in<br>ui/navigation.spec.ts › sidebar of a user › the shell links the favicons and the manifest, and the wordmark follows the color mode |
 | UI-HOME-001 | A user without tasks and scans sees the empty state "No tasks yet" with "Create your first task", … | ui/overview.spec.ts › overview of a fresh user › a user without tasks and scans sees the first-run state |
 | UI-HOME-002 | "Active scans" shows a card per creating, running or paused scan (name, revision, state, progress, … | ui/overview.spec.ts › overview of the tenant › recent tasks and the last ten scans next to the quick actions<br>ui/overview.spec.ts › overview of the tenant › active scans and the scans that need attention link to their pages |
 | UI-HOME-003 | "Needs attention" lists, without duplicates, active scans with conditions ("N conditions need … | ui/overview.spec.ts › overview of the tenant › active scans and the scans that need attention link to their pages |

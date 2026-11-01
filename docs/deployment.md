@@ -113,8 +113,9 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
   when the prefix is not empty, so the first editor start does not wait for a 2 GB pull. The task
   pipeline pulls base images when it pins them by digest ([tasks](tasks.md)).
 - The orchestrator image contains the `scantor` binary (`/usr/local/bin/scantor`), the built Nuxt output
-  and `schemas/` and `docs/guide/` as Nitro server assets (bases `schemas` and `guide`). Its build context
-  is the repo root, so it includes `schemas/` and `docs/`. It has its own Go build stage, so it never
+  and `schemas/` and `docs/guide/` as Nitro server assets (bases `schemas` and `guide`), plus the favicons of
+  `brand/favicons/` as public assets and the logos it bundles from `brand/` ([ui](ui.md) §1). Its build
+  context is the repo root, so it includes `schemas/`, `docs/` and `brand/`. It has its own Go build stage, so it never
   depends on another image build. The dev orchestrator image has the same Go stage, so it also contains
   the `scantor` binary. Its build-context filter is `orchestrator/Dockerfile.dockerignore`, an allowlist
   (BuildKit reads `<Dockerfile>.dockerignore` next to a Dockerfile instead of the context root's

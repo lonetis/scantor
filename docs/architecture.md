@@ -430,6 +430,8 @@ Flat layout; Go module at the repo root.
 │   └── FEATURES.md, TESTS.md
 ├── docs/                       internal docs (this file); linked from CLAUDE.md
 │   └── guide/                  user guides (authoring per language, templates, manifest, errors & retries, CLI, MCP, remote nodes); linked from README
+├── brand/                      logos, marks, favicons, README artwork and colors (brand/README.md), used in place by
+│                               the README header and the orchestrator ([ui](ui.md) §1)
 ├── skills/                     thin agent skills
 ├── .claude-plugin/             marketplace.json (skills plugin); .mcp.json at the repo root
 ├── .devcontainer/              devcontainer.json (editor toolchain stage + docker-in-docker), post-create.sh

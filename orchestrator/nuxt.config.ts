@@ -17,6 +17,11 @@ const apiErrorHandler = fileURLToPath(new URL('./server/utils/error-handler.ts',
 // before that message is logged.
 const CONTAINERIZED_CLI_HOST = 'host.docker.internal'
 
+// The brand kit at the repository root (brand/README.md), used in place rather than copied: Nitro serves its
+// favicons/ at the root, and components import the wordmark and mark through the #brand alias. Vite's dev server
+// serves files outside the project only from allowed directories, so brand/ is allowed explicitly.
+const brandDir = fileURLToPath(new URL('../brand', import.meta.url))
+
 function devServerAllowedHosts(urls: Array<string | undefined>): string[] {
   const hosts = new Set<string>([CONTAINERIZED_CLI_HOST])
   for (const url of urls) {
@@ -30,6 +35,22 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui', '@nuxt/eslint'],
 
   ssr: false,
+
+  alias: { '#brand': brandDir },
+
+  // In the shell HTML, so the browser finds the icons before the app runs. The ICO declares 32x32 instead of
+  // "any": with "any", Chromium prefers the ICO over the SVG.
+  app: {
+    head: {
+      link: [
+        { rel: 'icon', href: '/favicon.ico', sizes: '32x32' },
+        { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
+        { rel: 'apple-touch-icon', href: '/apple-touch-icon.png' },
+        { rel: 'manifest', href: '/site.webmanifest' },
+      ],
+      meta: [{ name: 'theme-color', content: '#111923' }],
+    },
+  },
 
   css: ['~/assets/css/main.css'],
 
@@ -49,6 +70,7 @@ export default defineNuxtConfig({
   vite: {
     server: {
       allowedHosts: devServerAllowedHosts([process.env.SCANTOR_INTERNAL_URL, process.env.SCANTOR_PUBLIC_URL]),
+      fs: { allow: [brandDir] },
     },
   },
 
@@ -77,6 +99,7 @@ export default defineNuxtConfig({
       { baseName: 'schemas', dir: '../../schemas' },
       { baseName: 'guide', dir: '../../docs/guide' },
     ],
+    publicAssets: [{ dir: '../../brand/favicons', baseURL: '/' }],
   },
 
   hooks: {

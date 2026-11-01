@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 # Images of the orchestrator (docs/architecture.md §4.3, docs/development.md §10). The build context is the
-# repository root (docker-bake.hcl): the image needs schemas/ and docs/guide/ as Nitro server assets and builds the
-# scantor binary in its own Go stage, so it never depends on another image build.
+# repository root (docker-bake.hcl): the image needs schemas/ and docs/guide/ as Nitro server assets and brand/ for
+# the favicons and logos, and builds the scantor binary in its own Go stage, so it never depends on another image
+# build.
 #
 #   target dev    scantor-orchestrator-dev:dev  Node 26, the scantor binary and the dependencies; runs `nuxt dev`
 #                 with the repository mounted at /app (docker-compose.dev.yml)
@@ -56,6 +57,7 @@ CMD ["sh", "-c", "npm install --no-audit --no-fund && exec npx nuxt dev --host 0
 FROM deps AS build
 COPY schemas /app/schemas
 COPY docs/guide /app/docs/guide
+COPY brand /app/brand
 COPY orchestrator ./
 ARG VERSION=dev
 RUN BUILD_VERSION="${VERSION}" npx nuxt build

@@ -19,6 +19,11 @@ describe('renderApiDocsPage', () => {
     expect(html).toContain('data-configuration="{&quot;url&quot;:&quot;/api/docs/openapi.json&quot;}"></script>')
   })
 
+  it('uses the dashboard favicons', () => {
+    expect(html).toContain('<link rel="icon" href="/favicon.ico" sizes="32x32" />')
+    expect(html).toContain('<link rel="icon" href="/favicon.svg" type="image/svg+xml" />')
+  })
+
   it('escapes the title and description', () => {
     expect(html).toContain('<title>scantor API</title>')
     expect(html).toContain('<meta name="description" content="REST API of &quot;scantor&quot; &lt;b&gt;" />')

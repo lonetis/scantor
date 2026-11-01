@@ -1,0 +1,11 @@
+{
+  "name": "scantor",
+  "logo": "integrated-S",
+  "colors": {
+    "navy": "#111923",
+    "white": "#F8FAFC",
+    "green": "#0CCF8A",
+    "teal": "#075E65"
+  },
+  "wordmark": "The scanline S is the initial letter; do not prepend it to another full scantor wordmark."
+}

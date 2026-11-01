@@ -27,12 +27,13 @@ test.describe('sign-in page', () => {
 
   test(
     'a protected route redirects to /login with its path and query and returns there after sign-in',
-    { tag: ['@UI-AUTH-001', '@UI-NAV-012', '@UI-SEC-006'] },
+    { tag: ['@UI-AUTH-001', '@UI-NAV-012', '@UI-NAV-030', '@UI-SEC-006'] },
     async ({ page, user }) => {
       const target = '/tasks?language=go'
       await openPage(page, target)
       await expect(page).toHaveURL((url) => url.pathname === '/login' && url.searchParams.get('redirect') === target)
       await expect(page).toHaveTitle('Sign in · scantor')
+      await expect(page.getByRole('img', { name: 'scantor', exact: true })).toBeVisible()
 
       const email = page.getByLabel('Email')
       await expect(email).toHaveAttribute('autocomplete', 'username webauthn')

@@ -54,9 +54,9 @@ const actions = SIDEBAR_ACTIONS
     :ui="{ root: 'bg-elevated/40', footer: 'border-t border-default' }"
   >
     <template #header="{ collapsed }">
-      <NuxtLink to="/" class="flex min-w-0 items-center gap-2" :aria-label="collapsed ? 'scantor overview' : undefined">
-        <AppLogo class="h-7 shrink-0" />
-        <span v-if="!collapsed" class="truncate text-base font-bold text-highlighted">scantor</span>
+      <NuxtLink to="/" class="flex min-w-0 items-center" :aria-label="collapsed ? 'scantor overview' : undefined">
+        <AppLogo v-if="collapsed" variant="mark" class="h-5 shrink-0" />
+        <AppLogo v-else class="h-6 min-w-0 object-contain object-left" />
       </NuxtLink>
       <ThemeToggle v-if="!collapsed" class="ms-auto" />
     </template>

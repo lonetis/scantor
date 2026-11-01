@@ -680,7 +680,7 @@ Mechanisms: [ui](../docs/ui.md) §3–§4, §8–§11, §14.
 - **UI-NAV-004** [ui] The Scans badge counts the user's own creating, running or paused scans, shows `200+` when there are more, is hidden at 0 and refreshes every 15 s.
 - **UI-NAV-005** [ui] For admins, the Nodes badge shows the number of offline nodes in the error color and is hidden at 0.
 - **UI-NAV-006** [ui] The "API docs" footer link opens `/api/docs` in a new tab.
-- **UI-NAV-007** [ui] The sidebar collapses and expands ("Collapse sidebar", "Expand sidebar"; the collapsed logo is named "scantor overview"), resizes between 14 and 24 rem (default 16 rem), keeps its size and collapse state across reloads, and shows the brand untruncated at 1280 px.
+- **UI-NAV-007** [ui] The sidebar collapses and expands ("Collapse sidebar", "Expand sidebar"; the collapsed logo is named "scantor overview"), resizes between 14 and 24 rem (default 16 rem), keeps its size and collapse state across reloads, and shows the wordmark at full size at 1280 px.
 - **UI-NAV-008** [ui] Below the `lg` breakpoint the sidebar is a drawer opened with "Open navigation" and closed with "Close navigation".
 - **UI-NAV-009** [ui] The user menu shows initials, name, email and an "admin" badge for admins, with Account, CLI & MCP access and Sign out; signing out ends the session and lands on `/login`, and protected pages then redirect there.
 - **UI-NAV-010** [ui] Every page's title is `<Page> · scantor`, and detail pages use the task, scan, revision or node name (for example `echo@3 · scantor`).
@@ -703,6 +703,7 @@ Mechanisms: [ui](../docs/ui.md) §3–§4, §8–§11, §14.
 - **UI-NAV-027** [ui] Copy buttons copy to the clipboard and show "Copied" (a blocked clipboard shows "Copy failed"); id chips show 8 characters with the full value as tooltip, relative times show the ISO time as tooltip, and durations and sizes use binary formatting (`1m 23s`, `850 ms`, `1.5 GiB`).
 - **UI-NAV-028** [ui] A type-to-confirm dialog keeps its action disabled until the exact text is typed, and Cancel or closing it does nothing.
 - **UI-NAV-029** [ui] UI preferences live in one localStorage key `scantor-ui`; corrupted or unknown-version contents are discarded, and with localStorage unavailable every page still works.
+- **UI-NAV-030** [ui] The shell links the favicons (ICO, SVG, Apple touch icon) and the web manifest, which the dashboard serves from `brand/favicons` without a session; the sidebar and the sign-in page show the wordmark (an image named "scantor") in the variant of the current color mode, and the collapsed sidebar shows the decorative standalone S.
 
 ## UI-HOME. Overview page
 

@@ -20,6 +20,7 @@ This file is the index for agents developing this repository. `README.md` is use
 | `editor/` | `scantor-editor` image (code-server); its `toolchain` stage is also the devcontainer |
 | `tests/` | dockerized Playwright suites, shared corpora, `FEATURES.md`, generated `TESTS.md` |
 | `docs/`, `docs/guide/` | internal specifications; user guides (embedded into the binary and the orchestrator image, served over MCP) |
+| `brand/` | logos, marks, favicons, README artwork and colors; used in place (never copied) by the README header and the orchestrator, which serves `favicons/` at its root and bundles the logos through the `#brand` alias |
 | `skills/`, `.claude-plugin/`, `.mcp.json` | agent skills shipped as a Claude Code plugin, and the MCP client config |
 | `traefik/dynamic/` | Traefik file-provider directory (empty by default) |
 | `.devcontainer/`, `.github/workflows/`, `.github/scripts/` | devcontainer; CI (`images.yml`, `release.yml`, `test.yml`) and its step scripts |

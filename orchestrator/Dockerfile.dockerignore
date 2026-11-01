@@ -1,6 +1,6 @@
 # Build-context filter of orchestrator/Dockerfile. The context is the repository root (docker-bake.hcl) and
 # BuildKit uses this Dockerfile-specific file instead of the root .dockerignore, so it allowlists exactly what the
-# image needs: the orchestrator sources, the Go sources of the scantor binary, schemas/ and docs/guide/.
+# image needs: the orchestrator sources, the Go sources of the scantor binary, schemas/, docs/guide/ and brand/.
 
 **
 
@@ -12,6 +12,7 @@
 !schemas/
 !scaffolds/
 !docs/guide/
+!brand/
 !orchestrator/
 
 # Local state, outputs and dependency trees (installed inside the image)

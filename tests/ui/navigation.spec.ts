@@ -31,6 +31,11 @@ const SIDEBAR = '#scantor-dashboard-sidebar-main'
 /** The sidebar badges' poll interval (composables/useSidebarCounts.ts). */
 const SIDEBAR_POLL_MS = 15_000
 
+/** The wordmark (components/AppLogo.vue): the sidebar's brand while it is expanded; the collapsed S is decorative. */
+function wordmark(page: Page): Locator {
+  return page.locator(SIDEBAR).getByRole('img', { name: 'scantor', exact: true })
+}
+
 function mainNavigation(page: Page): Locator {
   return page.getByRole('navigation', { name: 'Main navigation' })
 }
@@ -94,10 +99,10 @@ test.describe('sidebar of a user', () => {
       await expect(page).toHaveURL(/\/scans\/new$/)
 
       await openPage(page, '/')
-      await expect(sidebar.getByText('scantor', { exact: true })).toBeVisible()
+      await expect(wordmark(page)).toBeVisible()
       await page.getByRole('button', { name: 'Collapse sidebar' }).click()
       await expect(sidebar).toHaveAttribute('data-collapsed', 'true')
-      await expect(sidebar.getByText('scantor', { exact: true })).toHaveCount(0)
+      await expect(wordmark(page)).toHaveCount(0)
       await expect(sidebar.getByRole('link', { name: 'scantor overview' })).toHaveAttribute('href', '/')
 
       const newScan = sidebar.getByRole('link', { name: 'New scan', exact: true })
@@ -121,21 +126,25 @@ test.describe('sidebar of a user', () => {
       await expect(sidebar).toHaveAttribute('data-collapsed', 'true')
       await page.getByRole('button', { name: 'Expand sidebar' }).click()
       await expect(sidebar).toHaveAttribute('data-collapsed', 'false')
-      await expect(sidebar.getByText('scantor', { exact: true })).toBeVisible()
+      await expect(wordmark(page)).toBeVisible()
       await reloadPage(page)
       await expect(sidebar).toHaveAttribute('data-collapsed', 'false')
       await expect(page.getByRole('button', { name: 'Collapse sidebar' })).toBeVisible()
     },
   )
 
-  test('the sidebar resizes between 14 and 24 rem, keeps its size and shows the brand in full at 1280 px', { tag: ['@UI-NAV-007'] }, async ({ page }) => {
+  test('the sidebar resizes between 14 and 24 rem, keeps its size and shows the wordmark in full at 1280 px', { tag: ['@UI-NAV-007'] }, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 })
     await openPage(page, '/')
     const rem = await page.evaluate(() => Number.parseFloat(getComputedStyle(document.documentElement).fontSize))
     await expect.poll(() => sidebarWidth(page)).toBeCloseTo(16 * rem, 0)
-    const brand = page.locator(SIDEBAR).getByText('scantor', { exact: true })
+    const brand = wordmark(page)
     await expect(brand).toBeVisible()
-    expect(await brand.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+    // Full size: the box keeps the artwork's aspect ratio, so the header did not squeeze it (object-contain would
+    // draw it smaller inside a narrower box).
+    expect(
+      await brand.evaluate((img: HTMLImageElement) => Math.abs(img.clientWidth - (img.clientHeight * img.naturalWidth) / img.naturalHeight) <= 1),
+    ).toBe(true)
 
     await dragSidebarHandle(page, 300)
     await expect.poll(() => sidebarWidth(page)).toBeCloseTo(24 * rem, 0)
@@ -149,6 +158,38 @@ test.describe('sidebar of a user', () => {
     await reloadPage(page)
     await expect.poll(() => sidebarWidth(page)).toBeCloseTo(14 * rem, 0)
   })
+
+  test(
+    'the shell links the favicons and the manifest, and the wordmark follows the color mode',
+    { tag: ['@UI-NAV-030'] },
+    async ({ page, anonApi }) => {
+      await openPage(page, '/')
+      const hrefs = await page
+        .locator('head link[rel="icon"], head link[rel="apple-touch-icon"], head link[rel="manifest"]')
+        .evaluateAll((links) => links.map((link) => link.getAttribute('href') ?? ''))
+      expect(hrefs).toEqual(['/favicon.ico', '/favicon.svg', '/apple-touch-icon.png', '/site.webmanifest'])
+      // Served from brand/favicons without a session, like the icons the manifest names.
+      const manifest = await anonApi.request.get('/site.webmanifest')
+      expect(manifest.status()).toBe(200)
+      const { name, icons } = (await manifest.json()) as { name: string; icons: Array<{ src: string }> }
+      expect(name).toBe('scantor')
+      for (const href of [...hrefs, ...icons.map((icon) => icon.src)]) {
+        expect((await anonApi.request.get(href)).status(), href).toBe(200)
+      }
+
+      const brand = wordmark(page)
+      await expect(brand).toBeVisible()
+      const darkSource = await brand.getAttribute('src')
+      await page.getByRole('button', { name: 'Use light theme' }).click()
+      await expect(brand).not.toHaveAttribute('src', darkSource ?? '')
+      await expect.poll(() => brand.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true)
+
+      await page.getByRole('button', { name: 'Collapse sidebar' }).click()
+      await expect(page.locator(SIDEBAR).getByTestId('scantor-logo')).toHaveAttribute('data-variant', 'mark')
+      await page.getByRole('button', { name: 'Expand sidebar' }).click()
+      await expect(brand).toBeVisible()
+    },
+  )
 
   test('below the lg breakpoint the sidebar is a drawer', { tag: ['@UI-NAV-008'] }, async ({ page }) => {
     await page.setViewportSize({ width: 800, height: 900 })
