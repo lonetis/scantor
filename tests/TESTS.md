@@ -120,14 +120,14 @@ test-index --check`); never edit it by hand.
 | `e2e/templates.spec.ts` | template single; template list; template range; template repeat; template tranco; template crux; template cidr; wrapped templates; resolution on resume; test runs and template data; data sources | 17 |
 | `e2e/workers.spec.ts` | crash loops and memory; drain and stop; process slots; image pulls | 11 |
 
-### ui (243 tests)
+### ui (244 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
 | `ui/a11y.spec.ts` | dashboard accessibility | 18 |
 | `ui/access.spec.ts` | CLI & MCP access: API keys; CLI & MCP access: downloads and MCP; CLI & MCP access: authorized apps; CLI & MCP access: revoking a real authorized app | 9 |
 | `ui/account.spec.ts` | account page of the tenant; account changes | 6 |
-| `ui/admin-nodes.spec.ts` | nodes table; adding a node; node actions; node page | 10 |
+| `ui/admin-nodes.spec.ts` | nodes table; adding a node; node actions; node page | 11 |
 | `ui/admin-tools.spec.ts` | infrastructure tools; API links, health and jobs | 8 |
 | `ui/admin-users.spec.ts` | users table; creating and editing users; banning and deleting users | 8 |
 | `ui/auth.spec.ts` | sign-in page; signed-in visits to /login; session loss; admin user menu | 16 |
@@ -664,6 +664,7 @@ test-index --check`); never edit it by hand.
 | UI-NAV-028 | A type-to-confirm dialog keeps its action disabled until the exact text is typed, and Cancel or … | ui/navigation.spec.ts › copy buttons, ids, times, sizes and confirmations › a type-to-confirm dialog stays disabled until the exact text, and Cancel or closing does nothing |
 | UI-NAV-029 | UI preferences live in one localStorage key scantor-ui; corrupted or unknown-version contents are … | ui/navigation.spec.ts › UI preferences › valid preferences restore the scans filter<br>ui/navigation.spec.ts › UI preferences › an unknown version is discarded<br>ui/navigation.spec.ts › UI preferences › truncated JSON is discarded<br>ui/navigation.spec.ts › UI preferences › a value that is not JSON is discarded<br>ui/navigation.spec.ts › UI preferences › changed filters are written as one versioned key<br>ui/navigation.spec.ts › UI preferences › every page works with localStorage unavailable |
 | UI-NAV-030 | The shell links the favicons (ICO, SVG, Apple touch icon) and the web manifest, which the dashboard … | ui/auth.spec.ts › sign-in page › a protected route redirects to /login with its path and query and returns there after sign-in<br>ui/navigation.spec.ts › sidebar of a user › the shell links the favicons and the manifest, and the wordmark follows the color mode |
+| UI-NAV-031 | A table keeps its rows with their resources across refreshes: when a poll adds, removes or reorders … | ui/admin-nodes.spec.ts › node actions › an open row menu stays with its node when a poll moves its row |
 | UI-HOME-001 | A user without tasks and scans sees the empty state "No tasks yet" with "Create your first task", … | ui/overview.spec.ts › overview of a fresh user › a user without tasks and scans sees the first-run state |
 | UI-HOME-002 | "Active scans" shows a card per creating, running or paused scan (name, revision, state, progress, … | ui/overview.spec.ts › overview of the tenant › recent tasks and the last ten scans next to the quick actions<br>ui/overview.spec.ts › overview of the tenant › active scans and the scans that need attention link to their pages |
 | UI-HOME-003 | "Needs attention" lists, without duplicates, active scans with conditions ("N conditions need … | ui/overview.spec.ts › overview of the tenant › active scans and the scans that need attention link to their pages |

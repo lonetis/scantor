@@ -15,7 +15,8 @@ onMounted(() => {
 })
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (key: ApiKey) => key.id)
+const getRowId = tableRowId((key: ApiKey) => key.id)
+useTableRowIds(table, getRowId)
 
 const createOpen = ref(false)
 const createState = reactive<{ name: string, expiresInDays: number }>({ name: '', expiresInDays: API_KEY_DEFAULT_EXPIRES_IN_DAYS })
@@ -121,6 +122,7 @@ const columns: TableColumn<ApiKey>[] = [
 
     <UTable
       ref="table"
+      :get-row-id="getRowId"
       :data="defaultKeys"
       :columns="columns"
       :loading="loading"

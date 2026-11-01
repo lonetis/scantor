@@ -17,9 +17,11 @@ const node = detail.node
 useHead({ title: () => `${node.value?.name ?? 'Node'} · scantor` })
 
 const workersTable = useTemplateRef('workersTable')
-useTableRowIds(workersTable, (worker: ScanWorker) => worker.id)
+const workerRowId = tableRowId((worker: ScanWorker) => worker.id)
+useTableRowIds(workersTable, workerRowId)
 const eventsTable = useTemplateRef('eventsTable')
-useTableRowIds(eventsTable, (event: ScantorEvent) => event.id)
+const eventRowId = tableRowId((event: ScantorEvent) => event.id)
+useTableRowIds(eventsTable, eventRowId)
 
 interface InfoRow {
   label: string
@@ -154,6 +156,7 @@ const eventColumns: TableColumn<ScantorEvent>[] = [
         </div>
         <UTable
           ref="workersTable"
+          :get-row-id="workerRowId"
           :data="detail.workers.items.value"
           :columns="workerColumns"
           :loading="detail.workers.loading.value && !detail.workers.loaded.value"
@@ -199,6 +202,7 @@ const eventColumns: TableColumn<ScantorEvent>[] = [
         <h2 id="node-events-heading" class="section-label">Events</h2>
         <UTable
           ref="eventsTable"
+          :get-row-id="eventRowId"
           :data="detail.events.items.value"
           :columns="eventColumns"
           :loading="detail.events.loading.value && !detail.events.loaded.value"

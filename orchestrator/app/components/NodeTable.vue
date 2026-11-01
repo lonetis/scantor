@@ -22,7 +22,8 @@ const CLOCK_SKEW_MS = 2000
 const BUILTIN_HINT = 'The built-in node\'s token is derived from SCANTOR_SECRET'
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (node: ScantorNode) => node.id)
+const getRowId = tableRowId((node: ScantorNode) => node.id)
+useTableRowIds(table, getRowId)
 
 /** Effective worker capacity: min(reported maxWorkers, admin override). */
 function capacity(node: ScantorNode): number | null {
@@ -79,6 +80,7 @@ const hasWarnings = computed(() => props.nodes.some((node) => warnings(node).len
 <template>
   <UTable
     ref="table"
+    :get-row-id="getRowId"
     :data="nodes"
     :columns="columns"
     :loading="loading"

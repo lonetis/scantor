@@ -29,6 +29,8 @@ const test = base.extend({ user: [workerTenant, { scope: 'worker' }], context: n
 test.use({ role: 'admin', storageState: env.paths.adminState })
 
 const BUILTIN_HINT = "The built-in node's token is derived from SCANTOR_SECRET"
+/** The poll interval of the nodes list (docs/ui.md §9). */
+const NODES_POLL_MS = 10_000
 
 function nodeRow(page: Page, id: string): Locator {
   return page.getByLabel('Nodes', { exact: true }).locator(`tr[data-row-id="${id}"]`)
@@ -464,6 +466,34 @@ test.describe('node actions', () => {
     await page.keyboard.press('Escape')
     await expect(menu).toBeHidden()
     expect((await getNode(adminApi, builtin.id)).state).toBe('online')
+  })
+
+  test('an open row menu stays with its node when a poll moves its row', { tag: ['@UI-NAV-031'] }, async ({ page, adminApi }) => {
+    // The list is sorted by name: a node added while the menu is open, with a name sorting first, moves the row down.
+    const name = unique('shifted')
+    const inserted = unique('inserted')
+    const pool = unique('pool')
+    try {
+      const { node } = await createNode(adminApi, { name, pool })
+      // The list polls every 10 s; the fake clock runs the next poll at once.
+      await page.clock.install()
+      await openPage(page, '/admin/nodes')
+      await filterByPool(page, pool, 1)
+      await openActions(page, name)
+      const other = await createNode(adminApi, { name: inserted, pool })
+      await expect(async () => {
+        await page.clock.runFor(NODES_POLL_MS)
+        await expect(nodeRows(page).first()).toHaveAttribute('data-row-id', other.node.id, { timeout: 2_000 })
+      }).toPass({ timeout: 20_000 })
+      await expect(nodeRows(page)).toHaveCount(2)
+
+      const join = page.waitForRequest((r) => new URL(r.url()).pathname.endsWith('/join'))
+      await page.getByRole('menuitem', { name: 'Show join command' }).click()
+      expect(new URL((await join).url()).pathname).toBe(`/api/nodes/${node.id}/join`)
+      await expect(page.getByRole('dialog', { name: `Join command of ${name}` })).toBeVisible()
+    } finally {
+      await deleteNodesNamed(adminApi, [name, inserted])
+    }
   })
 })
 

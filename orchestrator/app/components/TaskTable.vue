@@ -11,7 +11,8 @@ const props = withDefaults(defineProps<{
 }>(), { loading: false, showOwner: false, compact: false })
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (task: Task) => task.id)
+const getRowId = tableRowId((task: Task) => task.id)
+useTableRowIds(table, getRowId)
 
 const SOURCE_ICONS: Record<string, string> = {
   scaffold: 'i-lucide-layout-template',
@@ -40,6 +41,7 @@ function open(_event: Event, row: TableRow<Task>): void {
 <template>
   <UTable
     ref="table"
+    :get-row-id="getRowId"
     :data="tasks"
     :columns="columns"
     :loading="loading"

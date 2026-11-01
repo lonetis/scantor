@@ -6,7 +6,8 @@ import type { TableColumn, TableRow } from '@nuxt/ui'
 const props = withDefaults(defineProps<{ taskId: string; revisions: RevisionSummary[]; loading?: boolean }>(), { loading: false })
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (revision: RevisionSummary) => revision.id)
+const getRowId = tableRowId((revision: RevisionSummary) => revision.id)
+useTableRowIds(table, getRowId)
 
 const columns: TableColumn<RevisionSummary>[] = [
   { accessorKey: 'ref', header: 'Revision' },
@@ -30,6 +31,7 @@ function open(_event: Event, row: TableRow<RevisionSummary>): void {
 <template>
   <UTable
     ref="table"
+    :get-row-id="getRowId"
     :data="revisions"
     :columns="columns"
     :loading="loading"

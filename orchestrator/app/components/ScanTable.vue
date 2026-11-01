@@ -19,7 +19,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ action: [action: ScanAction, scan: ScanSummary] }>()
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (scan: ScanSummary) => scan.id)
+const getRowId = tableRowId((scan: ScanSummary) => scan.id)
+useTableRowIds(table, getRowId)
 
 function name(scan: ScanSummary): string {
   return scan.name || `Scan ${shortId(scan.id)}`
@@ -71,6 +72,7 @@ function open(_event: Event, row: TableRow<ScanSummary>): void {
 <template>
   <UTable
     ref="table"
+    :get-row-id="getRowId"
     :data="scans"
     :columns="columns"
     :loading="loading"

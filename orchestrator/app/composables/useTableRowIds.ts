@@ -20,6 +20,18 @@ export function labelTableElement(root: Element, fallbackId: string): void {
 }
 
 /**
+ * The row id of a table of resources, bound as the table's `get-row-id` and passed to `useTableRowIds` (docs/ui.md §11
+ * rule 3). UTable keys its rendered rows by TanStack's row id, which defaults to the row's index: after a poll that
+ * adds, removes or reorders rows, the state of a rendered row, such as an open row menu whose actions close over its
+ * row, would belong to whichever row took that index. Tables whose ids may repeat do not bind it and keep the index.
+ * It does not come from `useTableRowIds`, whose template ref takes its type from the table's props: that would be
+ * circular.
+ */
+export function tableRowId<T>(idOf: (row: T, index: number) => string | number): (row: T, index: number) => string {
+  return (row, index) => String(idOf(row, index))
+}
+
+/**
  * UTable cannot set attributes on its `<table>` and `<tr>` elements, but the test contract needs `data-row-id` on
  * every row and the table's `aria-label` as the accessible name of the `<table>` (docs/ui.md §11). UTable puts the
  * `aria-label` on its wrapper; the `<table>` is labelled by that wrapper (`aria-labelledby`, whose referenced

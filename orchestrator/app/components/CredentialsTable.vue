@@ -8,7 +8,8 @@ withDefaults(defineProps<{ credentials: GitCredential[]; loading?: boolean }>(),
 const emit = defineEmits<{ edit: [credential: GitCredential]; delete: [credential: GitCredential] }>()
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (credential: GitCredential) => credential.id)
+const getRowId = tableRowId((credential: GitCredential) => credential.id)
+useTableRowIds(table, getRowId)
 const armed = ref<string | null>(null)
 
 function remove(credential: GitCredential): void {
@@ -34,6 +35,7 @@ const columns: TableColumn<GitCredential>[] = [
 <template>
   <UTable
     ref="table"
+    :get-row-id="getRowId"
     :data="credentials"
     :columns="columns"
     :loading="loading"

@@ -704,6 +704,7 @@ Mechanisms: [ui](../docs/ui.md) §3–§4, §8–§11, §14.
 - **UI-NAV-028** [ui] A type-to-confirm dialog keeps its action disabled until the exact text is typed, and Cancel or closing it does nothing.
 - **UI-NAV-029** [ui] UI preferences live in one localStorage key `scantor-ui`; corrupted or unknown-version contents are discarded, and with localStorage unavailable every page still works.
 - **UI-NAV-030** [ui] The shell links the favicons (ICO, SVG, Apple touch icon) and the web manifest, which the dashboard serves from `brand/favicons` without a session; the sidebar and the sign-in page show the wordmark (an image named "scantor") in the variant of the current color mode, and the collapsed sidebar shows the decorative standalone S.
+- **UI-NAV-031** [ui] A table keeps its rows with their resources across refreshes: when a poll adds, removes or reorders rows while a row menu is open, the menu stays with its row, and its actions act on that row.
 
 ## UI-HOME. Overview page
 

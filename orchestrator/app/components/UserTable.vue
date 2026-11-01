@@ -20,7 +20,8 @@ const emit = defineEmits<{
 }>()
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (user: User) => user.id)
+const getRowId = tableRowId((user: User) => user.id)
+useTableRowIds(table, getRowId)
 
 function isSelf(user: User): boolean {
   return user.id === props.currentUserId
@@ -64,6 +65,7 @@ const columns: TableColumn<User>[] = [
 <template>
   <UTable
     ref="table"
+    :get-row-id="getRowId"
     :data="users"
     :columns="columns"
     :loading="loading"

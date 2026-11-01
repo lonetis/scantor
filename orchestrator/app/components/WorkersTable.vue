@@ -9,7 +9,8 @@ const emit = defineEmits<{ logs: [worker: ScanWorker] }>()
 const { isAdmin } = useAuth()
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (worker: ScanWorker) => worker.id)
+const getRowId = tableRowId((worker: ScanWorker) => worker.id)
+useTableRowIds(table, getRowId)
 
 function processes(worker: ScanWorker): string {
   const { desired, applied, running } = worker.processes
@@ -34,6 +35,7 @@ const columns: TableColumn<ScanWorker>[] = [
 <template>
   <UTable
     ref="table"
+    :get-row-id="getRowId"
     :data="workers"
     :columns="columns"
     :loading="loading"

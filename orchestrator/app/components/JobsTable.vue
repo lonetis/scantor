@@ -8,7 +8,8 @@ const props = withDefaults(defineProps<{
 }>(), { loading: false })
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (job: Job) => job.id)
+const getRowId = tableRowId((job: Job) => job.id)
+useTableRowIds(table, getRowId)
 
 const sorted = computed(() =>
   [...props.jobs].sort((a, b) => Number(b.state === 'failed') - Number(a.state === 'failed') || b.createdAt.localeCompare(a.createdAt)),
@@ -33,6 +34,7 @@ const columns: TableColumn<Job>[] = [
 <template>
   <UTable
     ref="table"
+    :get-row-id="getRowId"
     :data="sorted"
     :columns="columns"
     :loading="loading"

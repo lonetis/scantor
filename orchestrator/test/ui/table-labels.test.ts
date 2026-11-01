@@ -1,9 +1,67 @@
+import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { join, relative } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { labelTableElement } from '../../app/composables/useTableRowIds'
 import { queryRowId } from '../../app/composables/useQuery'
 
 // Tables (docs/ui.md §11 rules 3 and 6): UTable puts the aria-label on its wrapper, so the <table> is labelled by the
-// wrapper and exposes the label as its accessible name; rows carry data-row-id.
+// wrapper and exposes the label as its accessible name; rows carry data-row-id, and tables of resources key their
+// rendered rows by that id.
+
+const APP = join(__dirname, '../../app')
+
+/** Tables that keep UTable's index keys, because their row ids may repeat (docs/ui.md §11 rule 3). */
+const INDEX_KEYED: Record<string, string> = {
+  'components/QueryConsole.vue': 'query results may share a seq, id or _id',
+  'components/SchemaTable.vue': 'a property name with a dot can repeat a nested path',
+  'components/InflightTable.vue': 'a redelivered analysis is listed by both workers while the first report is fresh',
+}
+
+function vueFiles(dir: string): string[] {
+  return readdirSync(dir).flatMap((name) => {
+    const path = join(dir, name)
+    return statSync(path).isDirectory() ? vueFiles(path) : path.endsWith('.vue') ? [path] : []
+  })
+}
+
+/** The opening tags of an element, honouring quoted attribute values (which contain `>` in arrow functions). */
+function openingTags(template: string, tag: string): string[] {
+  const tags: string[] = []
+  for (const match of template.matchAll(new RegExp(`<${tag}\\b`, 'g'))) {
+    let quote: string | null = null
+    for (let index = match.index; index < template.length; index++) {
+      const char = template[index]!
+      if (quote) {
+        if (char === quote) quote = null
+      } else if (char === '"' || char === "'") quote = char
+      else if (char === '>') {
+        tags.push(template.slice(match.index, index + 1))
+        break
+      }
+    }
+  }
+  return tags
+}
+
+describe('row keys (docs/ui.md §11 rule 3)', () => {
+  it('every UTable of resources binds get-row-id, so a refresh cannot hand a row\'s open menu to another row', () => {
+    const unkeyed: string[] = []
+    const keyed: string[] = []
+    for (const path of vueFiles(APP)) {
+      const file = relative(APP, path)
+      const source = readFileSync(path, 'utf8')
+      for (const text of openingTags(source.slice(source.indexOf('<template')), 'UTable')) {
+        if (/\s:get-row-id=/.test(text)) keyed.push(file)
+        else if (!(file in INDEX_KEYED)) unkeyed.push(`${file}: ${text.replace(/\s+/g, ' ')}`)
+      }
+    }
+    expect(unkeyed).toEqual([])
+    // The check sees the tables it guards, and the exceptions still exist without a key.
+    expect(keyed).toContain('components/NodeTable.vue')
+    expect(keyed.filter((file) => file in INDEX_KEYED)).toEqual([])
+    for (const file of Object.keys(INDEX_KEYED)) expect(readFileSync(join(APP, file), 'utf8')).toContain('<UTable')
+  })
+})
 
 class FakeElement {
   id = ''

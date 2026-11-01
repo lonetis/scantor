@@ -964,7 +964,11 @@ of the contract:
    `secret-reveal`, `unpublished-badge`. Table rows carry `data-row-id="<id>"` (analyses:
    `data-row-id="<seq>"`, schema tables: the property path, query results: `seq`, `id` or `_id`, pending
    reasons: the reason); `UTable` cannot set row attributes, so `useTableRowIds` writes the attribute onto
-   each rendered row.
+   each rendered row. Tables of resources also bind that id as `get-row-id` (`tableRowId`, which they pass to
+   `useTableRowIds` as well), which keys the rendered rows: `UTable` keys them by index otherwise, and after a
+   poll that adds, removes or reorders rows, an open row menu would act on the row that took its place. Query
+   results, schema tables and in-flight analyses keep the index, because their ids may repeat;
+   `test/ui/table-labels.test.ts` checks the binding.
 4. Status badges always contain the state text (color is never the only signal). Pulsing indicators use
    `motion-safe:`.
 5. Modals and slideovers have a title (`UModal`/`USlideover` `title` or an `aria-labelledby` heading),

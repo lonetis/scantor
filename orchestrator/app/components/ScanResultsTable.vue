@@ -144,7 +144,8 @@ function loadMore(): void {
 }
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (row: AnalysisRow) => row.seq)
+const getRowId = tableRowId((row: AnalysisRow) => row.seq)
+useTableRowIds(table, getRowId)
 const scrollElement = computed(() => (table.value?.$el as HTMLElement | undefined) ?? null)
 useInfiniteScroll(scrollElement, loadMore, { distance: 200, canLoadMore: () => list.hasMore.value && !list.loading.value })
 
@@ -189,6 +190,7 @@ const limitMessage = computed(() => (list.limitReached.value ? `Showing the firs
     />
     <UTable
       ref="table"
+      :get-row-id="getRowId"
       :data="list.items.value"
       :columns="columns"
       :loading="list.loading.value"

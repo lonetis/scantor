@@ -166,9 +166,11 @@ watch(() => live.state.value, (state, previous) => {
 })
 
 const analysesTable = useTemplateRef('analysesTable')
-useTableRowIds(analysesTable, (analysis: TestRunAnalysis) => analysis.seq)
+const analysisRowId = tableRowId((analysis: TestRunAnalysis) => analysis.seq)
+useTableRowIds(analysesTable, analysisRowId)
 const historyTable = useTemplateRef('historyTable')
-useTableRowIds(historyTable, (testRun: TestRun) => testRun.id)
+const testRunRowId = tableRowId((testRun: TestRun) => testRun.id)
+useTableRowIds(historyTable, testRunRowId)
 
 const analysisColumns: TableColumn<TestRunAnalysis>[] = [
   { accessorKey: 'seq', header: 'Seq' },
@@ -276,6 +278,7 @@ function outcome(analysis: TestRunAnalysis): string {
           </div>
           <UTable
             ref="analysesTable"
+            :get-row-id="analysisRowId"
             :data="live.analyses.value"
             :columns="analysisColumns"
             aria-label="Test run analyses"
@@ -302,6 +305,7 @@ function outcome(analysis: TestRunAnalysis): string {
         <h3 id="test-run-history-heading" class="section-label">History</h3>
         <UTable
           ref="historyTable"
+          :get-row-id="testRunRowId"
           :data="history.items.value"
           :columns="historyColumns"
           :loading="history.loading.value && !history.loaded.value"

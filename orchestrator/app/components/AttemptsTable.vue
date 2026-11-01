@@ -20,7 +20,8 @@ const rows = computed<AttemptRow[]>(() =>
 const expanded = ref<Record<string, boolean>>({})
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (row: AttemptRow) => row.key)
+const getRowId = tableRowId((row: AttemptRow) => row.key)
+useTableRowIds(table, getRowId)
 
 function toggle(key: string): void {
   expanded.value = { ...expanded.value, [key]: !expanded.value[key] }
@@ -42,6 +43,7 @@ const columns: TableColumn<AttemptRow>[] = [
   <div>
     <UTable
       ref="table"
+      :get-row-id="getRowId"
       :data="rows"
       :columns="columns"
       aria-label="Attempts"

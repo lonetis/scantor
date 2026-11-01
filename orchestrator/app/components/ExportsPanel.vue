@@ -16,7 +16,8 @@ const { confirm } = useConfirm()
 const busy = ref<string | null>(null)
 
 const table = useTemplateRef('table')
-useTableRowIds(table, (item: Export) => item.id)
+const getRowId = tableRowId((item: Export) => item.id)
+useTableRowIds(table, getRowId)
 
 onMounted(() => {
   exports.reset().catch((error: unknown) => console.error('[exports] loading exports failed', error))
@@ -82,6 +83,7 @@ const columns: TableColumn<Export>[] = [
     </div>
     <UTable
       ref="table"
+      :get-row-id="getRowId"
       :data="exports.items.value"
       :columns="columns"
       :loading="exports.loading.value"
