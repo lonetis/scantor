@@ -427,7 +427,8 @@ export async function shieldFromNetworkChanges(page: Page): Promise<void> {
           throw error
         }
       }
-      await route.fulfill({ response })
+      // Fails only when the page or its context is closing (the fetched response is disposed then), like nodeRouted.
+      await route.fulfill({ response }).catch(() => undefined)
     },
   )
 }
