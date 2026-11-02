@@ -7,6 +7,7 @@ import {
   alertBox,
   createScaffoldTask,
   editorStatus,
+  type EditorStatus,
   freshTenantHandle,
   fulfillError,
   fulfillJson,
@@ -110,11 +111,22 @@ test.describe('editor of a fresh user', () => {
       await createScaffoldTask(freshApi, name)
       expect((await editorStatus(freshApi)).state).toBe('stopped')
 
+      // A warm editor runs within one poll, before the page could be checked: until the test has seen "Editor is
+      // starting…", the page's polls report a running editor as still starting.
+      let holdStarting = true
+      await page.route(
+        (url) => url.origin === new URL(env.publicUrl).origin && url.pathname === '/api/editor',
+        (route) =>
+          holdStarting && route.request().method() === 'GET'
+            ? patchJsonResponse<EditorStatus>(route, (body) => (body.state === 'running' ? { ...body, state: 'starting' } : body))
+            : route.fallback(),
+      )
       const session = page.waitForRequest((request) => isSessionRequest(request.method(), request.url()))
       await openPage(page, `/editor?task=${name}`)
       await expect(page).toHaveTitle('Editor · scantor')
       expect((await session).postDataJSON()).toEqual({ open: name })
       await expect(page.getByText('Editor is starting…')).toBeVisible()
+      holdStarting = false
 
       const src = await expectWorkbench(page, env.editorUrl)
       const landing = await frameLanding(page, env.editorUrl)
