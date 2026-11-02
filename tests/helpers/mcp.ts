@@ -1,13 +1,5 @@
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client'
-import type {
-  CallToolResult,
-  FetchLike,
-  OAuthClientMetadata,
-  OAuthClientProvider,
-  StoredOAuthClientInformation,
-  StoredOAuthTokens,
-  StreamableHTTPClientTransportOptions,
-} from '@modelcontextprotocol/client'
+import type { CallToolResult, OAuthClientMetadata, OAuthClientProvider, StoredOAuthClientInformation, StoredOAuthTokens } from '@modelcontextprotocol/client'
 import type { APIRequestContext } from '@playwright/test'
 import { env } from './env'
 import { reserve } from './limiter'
@@ -26,22 +18,6 @@ export const ISSUER = `${env.publicUrl}/api/auth`
 export const DEFAULT_MCP_SCOPES = 'offline_access scantor:read scantor:write'
 
 const CLIENT_INFO = { name: 'scantor-tests', version: '1.0.0' }
-
-/**
- * The fetch of every MCP client in the tests: each request closes its connection. Node's fetch (undici) keeps an idle
- * socket for 4 s and then destroys it with the InformationalError "socket idle timeout", which reached a Playwright
- * worker as an uncaught error and failed whichever test the worker ran next (docs/testing.md §9).
- */
-export const mcpFetch: FetchLike = (url, init) => {
-  const headers = new Headers(init?.headers)
-  headers.set('connection', 'close')
-  return fetch(url, { ...init, headers })
-}
-
-/** A transport to the stack's /mcp whose requests, the SDK's OAuth requests included, go through `mcpFetch`. */
-export function mcpTransport(options: StreamableHTTPClientTransportOptions = {}): StreamableHTTPClientTransport {
-  return new StreamableHTTPClientTransport(new URL(env.mcpUrl), { fetch: mcpFetch, ...options })
-}
 
 export class TestOAuthProvider implements OAuthClientProvider {
   authorizationUrl?: URL
@@ -158,7 +134,7 @@ export async function connectMcp(session: APIRequestContext, options: ConnectOpt
   const scopes = options.scopes ?? DEFAULT_MCP_SCOPES
   const provider = new TestOAuthProvider(scopes, options.client)
   if (!options.client) await reserve('/oauth2/register')
-  const challenged = mcpTransport({ authProvider: provider })
+  const challenged = new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider })
   try {
     await new Client(CLIENT_INFO).connect(challenged)
     throw new Error('the unauthenticated MCP connect was not challenged')
@@ -172,7 +148,7 @@ export async function connectMcp(session: APIRequestContext, options: ConnectOpt
   await challenged.finishAuth(callback.searchParams)
 
   const client = new Client(CLIENT_INFO)
-  await client.connect(mcpTransport({ authProvider: provider }))
+  await client.connect(new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider }))
   const tokens = provider.tokens()
   if (!tokens) throw new Error('the MCP SDK stored no tokens')
   return { client, provider, accessToken: tokens.access_token, close: () => client.close() }
@@ -181,7 +157,7 @@ export async function connectMcp(session: APIRequestContext, options: ConnectOpt
 /** Connects with a fixed bearer credential: an API key (`sk_scantor_…`) or an access token. */
 export async function connectMcpWithKey(key: string): Promise<Client> {
   const client = new Client(CLIENT_INFO)
-  await client.connect(mcpTransport({ authProvider: { token: async () => key } }))
+  await client.connect(new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: { token: async () => key } }))
   return client
 }
 

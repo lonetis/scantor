@@ -1,9 +1,9 @@
-import { Client } from '@modelcontextprotocol/client'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import type { APIRequestContext } from '@playwright/test'
 import type { EditorStatus } from '#shared/types/editor'
 import { ApiClient, ok } from './api-client'
 import { innerDocker } from './docker'
-import { mcpTransport } from './mcp'
+import { env } from './env'
 import type { OpenApiIndex } from './openapi'
 import { patientSession } from './mcp-tenant'
 import { createUser, deleteUser, type TestUser } from './users'
@@ -114,6 +114,6 @@ export async function stopEditor(api: ApiClient): Promise<void> {
 /** An MCP client that sends an API key in the `x-api-key` header instead of `Authorization: Bearer`. */
 export async function connectMcpWithApiKeyHeader(key: string): Promise<Client> {
   const client = new Client({ name: 'scantor-tests', version: '1.0.0' })
-  await client.connect(mcpTransport({ requestInit: { headers: { 'x-api-key': key } } }))
+  await client.connect(new StreamableHTTPClientTransport(new URL(env.mcpUrl), { requestInit: { headers: { 'x-api-key': key } } }))
   return client
 }
