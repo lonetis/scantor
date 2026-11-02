@@ -867,8 +867,9 @@ test.describe('broker topology and completion', () => {
 
   test('orphan scan users and queues are removed within a reconciler tick', { tag: ['@ING-003'] }, async () => {
     const orphan = randomUUID()
-    await createOrphanScanObjects(orphan, randomBytes(16).toString('hex'))
-    expect(await scanBrokerObjects(orphan)).toEqual({ queue: true, user: true })
+    // 201: both objects were created under the names the sweep looks for. Reading them back instead would race the
+    // sweep under test, which may remove the user before the read (CI run 41458045423).
+    expect(await createOrphanScanObjects(orphan, randomBytes(16).toString('hex'))).toEqual({ user: 201, queue: 201 })
     await waitFor(
       'the orphan user and queue removed',
       () => scanBrokerObjects(orphan),

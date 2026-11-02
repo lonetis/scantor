@@ -108,10 +108,14 @@ export async function scanUserTopicPermissions(scanId: string): Promise<{ vhost:
   return (await management<{ vhost: string; exchange: string; write: string; read: string }[]>('GET', `${userPath(scanId)}/topic-permissions`)).body ?? []
 }
 
-/** Creates an orphan pair for the sweep test: the user `scan-<id>` and the quorum queue `scantor.scan.<id>`. */
-export async function createOrphanScanObjects(fakeScanId: string, password: string): Promise<void> {
-  await management('PUT', userPath(fakeScanId), { password, tags: '' })
-  await management('PUT', queuePath(fakeScanId), { durable: true, auto_delete: false, arguments: { 'x-queue-type': 'quorum' } })
+/**
+ * Creates an orphan pair for the sweep test: the user `scan-<id>` and the quorum queue `scantor.scan.<id>`. Returns the
+ * status of each PUT: 201 when the management API created the object, 204 when it existed already.
+ */
+export async function createOrphanScanObjects(fakeScanId: string, password: string): Promise<{ user: number; queue: number }> {
+  const user = await management('PUT', userPath(fakeScanId), { password, tags: '' })
+  const queue = await management('PUT', queuePath(fakeScanId), { durable: true, auto_delete: false, arguments: { 'x-queue-type': 'quorum' } })
+  return { user: user.status, queue: queue.status }
 }
 
 /**
