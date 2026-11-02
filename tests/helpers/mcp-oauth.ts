@@ -1,9 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto'
 import type { APIRequestContext, APIResponse } from '@playwright/test'
-import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client'
+import { Client, UnauthorizedError } from '@modelcontextprotocol/client'
 import type { FetchLike, OAuthClientMetadata, StoredOAuthClientInformation } from '@modelcontextprotocol/client'
 import { env } from './env'
-import { DEFAULT_MCP_SCOPES, ISSUER, REDIRECT_URI, registerClient, TestOAuthProvider, type McpConnection } from './mcp'
+import { DEFAULT_MCP_SCOPES, ISSUER, mcpFetch, mcpTransport, REDIRECT_URI, registerClient, TestOAuthProvider, type McpConnection } from './mcp'
 import { oauthRequest, reserveOAuth, retryAfterMs } from './mcp-limiter'
 import { unique } from './unique'
 import { newApiContext } from './users'
@@ -201,7 +201,7 @@ function budgetedFetch(timeoutMs: number): FetchLike {
     const limited = new URL(url).pathname === new URL(`${ISSUER}/oauth2/token`).pathname
     for (;;) {
       if (limited) await reserveOAuth('/oauth2/token')
-      const response = await fetch(url, init)
+      const response = await mcpFetch(url, init)
       if (!limited || response.status !== 429 || Date.now() >= deadline) return response
       await sleep(Math.min(retryAfterMs(response.headers.get('x-retry-after')), Math.max(deadline - Date.now(), 0)))
     }
@@ -221,7 +221,7 @@ export async function connectMcpPatiently(
   const scopes = options.scopes ?? DEFAULT_MCP_SCOPES
   const provider = new TestOAuthProvider(scopes, options.client)
   const fetchFn = budgetedFetch(options.timeoutMs ?? 150_000)
-  const challenged = new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider, fetch: fetchFn })
+  const challenged = mcpTransport({ authProvider: provider, fetch: fetchFn })
   const unchallenged = await new Client({ name: 'scantor-tests', version: '1.0.0' }).connect(challenged).then(
     () => true,
     (error: unknown) => {
@@ -243,7 +243,7 @@ export async function connectMcpPatiently(
   await challenged.finishAuth(callback.searchParams)
 
   const client = new Client({ name: 'scantor-tests', version: '1.0.0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider, fetch: fetchFn }))
+  await client.connect(mcpTransport({ authProvider: provider, fetch: fetchFn }))
   const tokens = provider.tokens()
   if (!tokens) throw new Error('the MCP SDK stored no tokens')
   return { client, provider, accessToken: tokens.access_token, close: () => client.close() }
