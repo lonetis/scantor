@@ -427,7 +427,13 @@ test-orchestrator-integration *args:
     for image in {{node_image}} {{alpine_image}} {{mongo_image}} {{rabbitmq_image}} {{rustfs_image}} {{registry_image}} {{code_server_image}}; do
       if ! docker image inspect "$image" >/dev/null 2>&1; then
         echo "==> Pulling $image"
-        docker pull --quiet "$image" >/dev/null
+        # Docker Hub answers 502 now and then: three attempts.
+        for attempt in 1 2 3; do
+          if docker pull --quiet "$image" >/dev/null; then break; fi
+          if [ "$attempt" -eq 3 ]; then exit 1; fi
+          echo "pulling $image failed (attempt $attempt/3); retrying in 10 s" >&2
+          sleep 10
+        done
       fi
     done
 

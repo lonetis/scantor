@@ -76,9 +76,15 @@ jobs:
             scantor.cache-from=type=gha,scope=test-scantor
       - name: Service images of the Go integration tests
         if: matrix.suite == 'go-integration'
+        # Docker Hub answers 502 now and then: three attempts per image.
         run: |
-          docker pull rabbitmq:4.4-management
-          docker pull registry:3.1.2
+          for image in rabbitmq:4.4-management registry:3.1.2; do
+            for attempt in 1 2 3; do
+              if docker pull "$image"; then break; fi
+              if [ "$attempt" -eq 3 ]; then exit 1; fi
+              sleep 10
+            done
+          done
       - run: just test-${{ matrix.suite }}
 
   # Builds the images of the e2e groups once per commit into the GitHub Actions cache; every group then loads them
