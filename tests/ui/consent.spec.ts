@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
-import { connectMcpWithKey, DEFAULT_MCP_SCOPES, REDIRECT_URI } from '../helpers/mcp'
-import { ADMIN_MCP_SCOPES, authorizationUrl, CONSENT_PATH, exchangeCode, jwtClaims, pkce, registerTestClient } from '../helpers/mcp-oauth'
+import { DEFAULT_MCP_SCOPES, REDIRECT_URI } from '../helpers/mcp'
+import { ADMIN_MCP_SCOPES, authorizationUrl, CONSENT_PATH, exchangeCode, jwtClaims, pkce, rawMcp, registerTestClient } from '../helpers/mcp-oauth'
 import { withMcpTenants } from '../helpers/mcp-tenant'
 import { expectRendered, gotoRendered, networkChanges, openAuthorization, retryOnNetworkChange, settleAuthorization } from '../helpers/mcp-ui'
 import { newApiContext } from '../helpers/users'
@@ -238,15 +238,17 @@ test.describe('OAuth consent page with a registered client', () => {
       const code = redirect.searchParams.get('code')
       expect(code, redirect.toString()).toBeTruthy()
       const context = await newApiContext()
-      const tokens = await exchangeCode(context, client.client_id, code!, verifier).finally(() => context.dispose())
-      expect(String(jwtClaims(tokens.access_token).scope).split(' ').sort()).toEqual(['offline_access', 'scantor:read'])
-      const mcp = await connectMcpWithKey(tokens.access_token)
       try {
-        const names = (await mcp.listTools()).tools.map((tool) => tool.name)
+        const tokens = await exchangeCode(context, client.client_id, code!, verifier)
+        expect(String(jwtClaims(tokens.access_token).scope).split(' ').sort()).toEqual(['offline_access', 'scantor:read'])
+        // MCP through Playwright's HTTP client: the ui workers never use Node's fetch (docs/testing.md §9).
+        const listed = await rawMcp(context, { Authorization: `Bearer ${tokens.access_token}` })
+        expect(listed.status).toBe(200)
+        const names = (listed.body?.result as { tools: { name: string }[] }).tools.map((tool) => tool.name)
         expect(names).toContain('get_scan')
         expect(names).not.toContain('start_scan')
       } finally {
-        await mcp.close()
+        await context.dispose()
       }
     },
   )

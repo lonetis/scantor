@@ -853,6 +853,11 @@ Flake avoidance (agentor's pitfalls):
     reading from a closed fifo` in `/var/log/dockerd.log` of the runner; the CLI still exits 0). Helpers that run
     such a container for its output (`runScantorShell`) redirect the script's output into files and copy them
     out with `docker cp` after the container exited.
+18. The `ui` workers never use Node's `fetch` (undici), so `ui` specs check MCP with `rawMcp` (Playwright's own
+    HTTP client), never with an MCP SDK client. Twice an idle connection of an SDK client in a `ui` worker ended
+    with an `InformationalError` "socket idle timeout" that reached the worker uncaught and failed its next test,
+    although every step of that test passed. The `mcp` project covers the SDK clients. ESLint enforces the rule
+    for `tests/ui/` (no global `fetch`, no SDK client or helper that connects one).
 
 ## 10. `FEATURES.md` and `TESTS.md`
 

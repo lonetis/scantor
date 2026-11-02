@@ -7,7 +7,6 @@ import type { InstanceInfo } from '#shared/types/instance'
 import { ok } from '../helpers/api-client'
 import { scantor } from '../helpers/cli'
 import { childEnv } from '../helpers/env'
-import { connectMcpWithKey } from '../helpers/mcp'
 import { startEditorAndReadKey, stopEditor } from '../helpers/mcp-accounts'
 import { authorize, rawMcp, registerTestClient } from '../helpers/mcp-oauth'
 import { withMcpTenants } from '../helpers/mcp-tenant'
@@ -168,8 +167,10 @@ test.describe('CLI & MCP access: API keys', () => {
           timeout: 120_000,
         })
         expect(JSON.parse(viaAlias.stdout)).toMatchObject({ url: env.publicUrl, email: freshUser.email })
-        const client = await connectMcpWithKey(key)
-        await client.close()
+        // MCP through Playwright's HTTP client: the ui workers never use Node's fetch (docs/testing.md §9).
+        const listed = await rawMcp(keyApi, { Authorization: `Bearer ${key}` })
+        expect(listed.status).toBe(200)
+        expect((listed.body?.result as { tools: unknown[] }).tools.length).toBeGreaterThan(0)
 
         // Two-step delete: the first click arms, the second deletes.
         await retryOnNetworkChange(page, async () => {
