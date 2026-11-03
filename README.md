@@ -11,6 +11,13 @@ configs and a typed result. You test it and publish it as an immutable revision,
 out into millions of analyses across your nodes. Results are inspected, queried and exported through the
 web UI, the `scantor` CLI, the REST API or an LLM agent over MCP.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/web-ui-dark.png">
+    <img alt="The scan page of the scantor web UI: progress, analysis counters, settings and configs of a finished scan" src="docs/screenshots/web-ui-light.png">
+  </picture>
+</p>
+
 ## Features
 
 - **Tasks in four languages**: Python (pydantic), TypeScript and JavaScript (zod), Go (structs). Configs
