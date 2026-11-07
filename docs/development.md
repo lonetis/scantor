@@ -323,14 +323,15 @@ orchestrator/
 │   │                             (boot steps, component tasks, job kinds, userPurge steps, lockout hooks; never
 │   │                             I/O at load): 20.editor-listener (editor origin on container port 3001,
 │   │                             editor §8.1), 30.tasks, 40.scans, 50.results, 60.nodes (also registry and
-│   │                             runtime), 70.editor (reaper, purge step, lockout hook); 99.start (runs the boot
+│   │                             runtime), 70.editor (reaper, purge step, lockout hook), 80.notifications (event sink,
+│   │                             `notification` job kind, purge step); 99.start (runs the boot
 │   │                             steps in order, then starts the SCANTOR_COMPONENTS); security-headers.ts (the
 │   │                             security headers of every response in Nitro's request hook, which runs before
 │   │                             the public assets, and the per-response CSP nonce, ui §13); openapi.ts (narrows
 │   │                             /api/docs/openapi.json to the API operations, api §1.1)
 │   ├── services/<area>/          domain logic (mappers turn documents into API representations): account,
 │   │                             analyses, catalog, configs, credentials, editor, exports, helpers, ingestor, jobs,
-│   │                             mcp, metrics, nodes, pipeline, placement, query, reconciler, registry, revisions,
+│   │                             mcp, metrics, nodes, notifications, pipeline, placement, query, reconciler, registry, revisions,
 │   │                             runtime, scans, setup, tasks, test-runs, tools, uploads, users; inflight.ts (the
 │   │                             in-memory in-flight store fed by runtime state polls)
 │   ├── types/                    documents.ts (MongoDB document types including internal fields, server-only),
@@ -344,6 +345,7 @@ orchestrator/
 │                                 users, user-cache, setup, keys, secrets, redact, logger, mongo, s3, amqp,
 │                                 rabbitmq-management, docker, labels (reads schemas/managed-labels.json), boot
 │                                 (registerBootStep, registerComponentTask), jobs (registerJobKind, createJob),
+│                                 event-sinks (registerEventSink, publishEvents: consumers of written events),
 │                                 user-purge (registerUserPurgeStep), locks, wait (long-polls) and
 │                                 wait-watchers (their change streams, one per collection), health,
 │                                 instance and instance-info, version, client-ip, cors, body-limits and

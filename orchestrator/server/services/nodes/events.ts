@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import type { EventLevel } from '#shared/utils/enums'
 import type { EventDoc } from '../../types/documents'
+import { publishEvents } from '../../utils/event-sinks'
 import { type Logger, useLogger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
 
 // Event writer of the node and runtime areas (docs/data-model.md §4.11): bounded message (1 KiB) and data (8 KiB),
 // `userId: null` for admin-only node events. Writing an event never fails the operation that caused it: a failed
-// insert is logged and swallowed only here, because events are an audit trail, not state.
+// insert is logged and swallowed only here, because events are an audit trail, not state. Recorded events go to the
+// event sinks (server/utils/event-sinks.ts).
 
 export const EVENT_MESSAGE_MAX = 1024
 export const EVENT_DATA_MAX = 8192
@@ -58,11 +60,14 @@ export function buildEvent(input: EventInput): EventDoc {
 /** Records events; failures are logged (events are an audit trail and never block the caller). */
 export async function recordEvents(inputs: EventInput[], log: Logger = useLogger('events')): Promise<void> {
   if (inputs.length === 0) return
+  const docs = inputs.map(buildEvent)
   try {
-    await useCollections().events.insertMany(inputs.map(buildEvent), { ordered: false })
+    await useCollections().events.insertMany(docs, { ordered: false })
   } catch (error) {
     log.warn('recording events failed', { count: inputs.length, types: [...new Set(inputs.map((input) => input.type))], err: error })
+    return
   }
+  publishEvents(docs)
 }
 
 export async function recordEvent(input: EventInput, log?: Logger): Promise<void> {

@@ -108,6 +108,7 @@ together with its test.
 | T16 | Secrets in configs leak through APIs, exports, MCP or logs | A2, A6 | SEC-1…7 |
 | T17 | Noisy neighbour exhausts broker, database, disk, CPU or the API | A2, A4 | RES-1…13 |
 | T18 | Clickjacking of consent and setup pages; MIME sniffing; XSS through rendered results | A1, A3 | HDR-1…6 |
+| T19 | Push notifications turned into SSRF against internal services, leak a token or another user's scans, or flood a public server | A2 | NTF-1…4 |
 
 ## 6. Mitigations catalogue
 
@@ -365,6 +366,7 @@ authoritative; [architecture](architecture.md) §4.1 step 1 and [deployment](dep
 | SEC-5 | Log redaction (MC-10). Secrets that user code prints into logs or results cannot be detected; the authoring guides say so. | loggers, `docs/guide/` | `orchestrator/test/utils/redact.test.ts` |
 | SEC-6 | Remote nodes receive the secrets of scans placed on them (MC-7). | – | – |
 | SEC-7 | `getInstanceInfo` and the admin settings show only "set"/"not set" for secrets, never values. | `orchestrator/server/api/info.get.ts` | `tests/security/secrets-masking.spec.ts` |
+| SEC-8 | ntfy access tokens are encrypted and write-only (NTF-2). | – | `tests/api/notifications.spec.ts` |
 
 ### 6.17 Resource exhaustion (T17)
 
@@ -394,6 +396,15 @@ authoritative; [architecture](architecture.md) §4.1 step 1 and [deployment](dep
 | HDR-4 | Editor listener, every response: `Content-Security-Policy: frame-ancestors 'self' <dashboard origin>` as an additional header (`'self'` is required because code-server frames its own origin, [editor](editor.md) §8.8) (code-server's own CSP is kept), `nosniff`, `Referrer-Policy: same-origin` (`no-referrer` on `/_auth`), HSTS when `SCANTOR_EDITOR_URL` is https ([editor](editor.md) §8.8). | editor listener | `tests/security/editor-isolation.spec.ts` |
 | HDR-5 | The UI renders results, logs, errors and file names as text. `v-html` is forbidden (lint rule `vue/no-v-html` as error). ANSI sequences are stripped. Result strings are never linkified; other data-derived links (such as a client URI on the consent page) are rendered only for `http(s):` URLs with `rel="noopener noreferrer"`. The CLI's human output (tables, detail views, build log lines, `dev run` events, progress, warnings and errors) shows C0 and C1 control characters, DEL and invalid UTF-8 as visible escapes (`\x1b`, `\u009b`), so task output cannot write the clipboard (OSC 52), retitle the terminal or move the cursor; raw content (`tasks files cat`, `scans worker logs`) is escaped only on a terminal, and `-o json` carries the exact text. | `orchestrator/app/`, ESLint config, `internal/cli/output.go` (`TerminalSafe`) | `tests/ui/scan-results.spec.ts` (a result containing `<img src=x onerror=…>` renders inert); `internal/cli/output_test.go` (an OSC 52 sequence in a task error, log tail and file name) |
 | HDR-6 | The setup token is removed from the address bar, and `Referrer-Policy` keeps it out of `Referer` ([auth](auth.md) §7.2). | `/setup` page | `tests/ui/setup.spec.ts` |
+
+### 6.19 Push notifications (T19)
+
+| Id | Mitigation | Implementation | Test |
+|---|---|---|---|
+| NTF-1 | The orchestrator publishes only to the ntfy server of `SCANTOR_NTFY_URL` (an invalid value aborts startup instead of falling back to the public default). No request carries a URL: users choose a topic matching `^[A-Za-z0-9_-]{1,64}$` and a token, and an unknown field such as `server` is 400. The client follows no redirects, gives up after 10 s and reads at most 4 KiB of an answer, so a notification never reaches another host and never ties up a job. | `orchestrator/server/services/notifications/ntfy.ts`, `shared/schemas/notifications.ts`, `server/utils/config.ts` | `orchestrator/test/services/notifications/ntfy.test.ts` (base path, no redirect, timeout); `tests/api/notifications.spec.ts` (NOTIF-002) |
+| NTF-2 | An access token is stored only as `notificationSettings.ntfy.tokenEnc` (AES-256-GCM, HKDF label `credentials`, AAD `notificationSettings:<userId>:/ntfy/token`, so it cannot be moved to another user), returned only as `tokenSet`, and sent only to the configured server as `Authorization: Bearer`. | `server/services/notifications/settings.ts` | `orchestrator/test/services/notifications/settings.test.ts`; `tests/api/notifications.spec.ts` |
+| NTF-3 | A notification goes only to the owner of the event's subject; owner-less node events go only to admins, checked when the job is created and again at delivery; the scan named in a message is read with the recipient as owner. Settings are the caller's own (no path id, no admin access to other users' settings). | `server/services/notifications/delivery.ts`, `triggers.ts` | `orchestrator/test/services/notifications/delivery.test.ts`; `tests/authz/matrix.spec.ts` |
+| NTF-4 | Triggers cover a few events per scan (no worker or analysis events), deliveries run 4 at a time with backoff on 429 and 5xx, and a user may send one test message every 10 s, so the instance's address stays clear of a public server's rate limits. | same, `server/services/notifications/index.ts` | `orchestrator/test/services/notifications/test-message.test.ts`; `tests/api/notifications.spec.ts` (NOTIF-003) |
 
 ## 7. Authorization matrix test
 
@@ -497,6 +508,7 @@ All of these run in `just test` and in the CI workflow, are idempotent, and clea
 | R13 | Auth rate limits are in memory and reset on restart. | Acceptable for one orchestrator; database storage is a future extension. |
 | R14 | Writes from the editor terminal are not quota-limited (Docker volumes have no quotas); helpers only refuse to grow a workspace beyond `SCANTOR_WORKSPACE_MAX_BYTES`. | Monitor the master disk (resource guards, [deployment](deployment.md) §9); per-user quotas are a future extension ([editor](editor.md) §13). |
 | R15 | better-auth stores session tokens in clear in the `session` collection (it cannot store hashes); with the better-auth secret derived from `SCANTOR_SECRET`, a copy of that collection is a set of sessions valid for up to 7 days ([data model](data-model.md) §7, invariant 8). | Keep database access, the MongoDB log and backups as private as `.env` (MC-11, [deployment](deployment.md) §12); after a leak, delete the `session` documents, which signs every user out. |
+| R16 | Topics on a public ntfy server (the default `https://ntfy.sh`) are readable by anyone who knows their name, so notifications can reveal scan and task names. | Users pick hard-to-guess topics (the account page generates one); for private data run your own ntfy server with access control, give users tokens, or set `SCANTOR_NTFY_URL` empty to turn notifications off. |
 
 ## 10. Credential rotation and incident response
 

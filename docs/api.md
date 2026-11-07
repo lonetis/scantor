@@ -297,6 +297,7 @@ additions and omissions are listed for brevity; the JSON examples are normative 
 | `JobRef` | `jobs` | `{id, kind, state}` |
 | `User` | better-auth `user` | `{id, email, name, role, banned, banReason, canRunPrivileged, maxWorkers, createdAt, updatedAt, usage {activeWorkers, tasks, scans}}` |
 | `ApiKey` | better-auth `apikey` | `{id, name, start, configId, enabled, createdAt, expiresAt, lastRequest}` |
+| `NotificationSettings` | `notificationSettings` | `{available, ntfy: {server, enabled, topic, tokenSet, triggers, lastDelivery}}`: `available` and `server` come from `SCANTOR_NTFY_URL` (null = off); − `tokenEnc`, + `tokenSet`; a user without a document gets the defaults (disabled, no topic, triggers `scanFinished`, `scanPaused`, `scanProblem`) |
 | `FileDownload` | – | `{url, expiresAt, name, size, sha256, contentType, inline}` |
 | `ScanSettings`, `ScantorError`, `FileRef`, `BuildError`, `Description` | [data model](data-model.md) §4 | identical |
 
@@ -497,6 +498,27 @@ Columns: **Scope** per §1.2; **MCP** = `x-mcp`; request fields marked `?` are o
 | `GET /api/account/api-keys` | `listApiKeys` | owner | no | `?configId=default\|editor` | `{items: ApiKey[]}` |
 | `POST /api/account/api-keys` | `createApiKey` | owner (`x-session-only`) | no | `{name (1–32), expiresInDays? (1–365, default 90)}` | 201 `{apiKey: ApiKey, key: "sk_scantor_…"}` (key shown once) |
 | `DELETE /api/account/api-keys/{keyId}` | `deleteApiKey` | owner | no | – | 204 |
+| `GET /api/account/notifications` | `getNotificationSettings` | owner | no | – | `NotificationSettings` |
+| `PATCH /api/account/notifications` | `updateNotificationSettings` | owner | no | `{ntfy?: {enabled?, topic?, token?, triggers?}}`: `topic` 1–64 of `A-Za-z0-9_-` or null, `token` 1–256 printable ASCII without spaces or null (removes it), `triggers` unique; omitted fields keep their value | `NotificationSettings`; 400 `validationFailed` at `ntfy.topic` when enabling without a topic and at `ntfy.triggers` for an admin-only trigger (`nodeAvailability`) of a caller without admin power |
+| `POST /api/account/notifications/test` | `testNotification` | owner | no | – | `{delivered, status, message}` (the ntfy server's answer, also recorded as `lastDelivery`); 409 `invalidState` when `SCANTOR_NTFY_URL` is empty or no topic is saved; 429 `tooManyRequests` (`details.retryAfterMs`) within 10 s of the caller's last test |
+
+Push notifications ([architecture](architecture.md) §11.6): each user publishes to a topic of the one ntfy server
+the operator configured (`SCANTOR_NTFY_URL`), never to a URL from a request ([security](security.md) NTF-1).
+Triggers name event families of [data model](data-model.md) §4.11:
+
+| Trigger | Events | Recipients |
+|---|---|---|
+| `scanFinished` | `scan.stateChanged` to `completed`, `failed` or `cancelled` (not a cancel with reason `user`) | the scan's owner |
+| `scanPaused` | `scan.stateChanged` to `paused` with a reason other than `user` | the scan's owner |
+| `scanProblem` | `scan.conditionRaised` with level `error`, except `schedulingFailed` and `breakerTripped`, which `scanFinished` and `scanPaused` report | the scan's owner |
+| `revisionBuilt` | `revision.ready`, `revision.failed` | the task's owner |
+| `nodeAvailability` | `node.offline`, `node.online` (no owner) | subscribed admins only |
+
+A message is one ntfy JSON publish to `<SCANTOR_NTFY_URL>/` with `{topic, title, message, priority, tags, click}`:
+the title names the subject (`Scan "<name>" completed`, `Revision ready`, `Node offline`), the message is the
+event's message (a completed scan: `<n> succeeded, <n> failed.`), the priority follows the level (info 3, warning
+4, error 5), the tags carry an emoji and `scantor`, and `click` opens the scan, revision or node page under
+`SCANTOR_PUBLIC_URL`. A stored access token is sent as `Authorization: Bearer`.
 
 ### 4.4 `users` (admin)
 
@@ -1506,7 +1528,7 @@ Item 18 records a round-1 ruling.
 | Multi-replica orchestrator | `wait` uses change streams (works across replicas); MCP internal capabilities and SSE in-process streams would move to MongoDB/RabbitMQ. |
 | Per-process multiplexing | State poll `busy[]` already carries `executionId`; no API change. |
 | Organisations / shared tasks | The scope model (`owner`) is enforced by one helper; a future `org` principal adds a membership check there. |
-| Webhooks / notifications | Events already have stable types; a `webhooks` tag can subscribe to them. |
+| More notification channels (webhooks, email) | `NotificationSettings` holds one object per channel kind beside `ntfy`, triggers are one catalog (`shared/utils/notifications.ts`), and delivery is one job kind that can dispatch by channel. |
 | More MCP tools | Raise the curated limit deliberately; the generated test enforces the cap. |
 | API versioning | A future breaking change would add `/api/v2/*` routes beside the current ones; machine APIs already negotiate versions. |
 | Scoped or read-only API keys | `apikey.permissions` exists; the operation registry already knows `x-read-only`, `x-admin-only` and `x-session-only`, so a key level maps onto the same checks as MCP levels. |

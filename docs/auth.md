@@ -881,7 +881,12 @@ Rules:
    the caller's own id instead, also for admins, are `listCredentials` and `listUploads` ([api](api.md) §1.3):
    their items can only be referenced by their owner (`ownedRef`). They use `callerFilter`. A handler that touches an owned
    collection without one of these helpers is a review blocker. The authorization matrix test catches the
-   effect ([security](security.md) §7).
+   effect ([security](security.md) §7). Account-level documents keyed by the user id (`editors`,
+   `notificationSettings`) are read and written only by `principal.user.id`, also for admins; their routes take no
+   id at all.
+5. Admin-only notification triggers (`nodeAvailability`) need effective admin power when they are saved and
+   again when a notification is delivered ([security](security.md) NTF-3): an `editor` key cannot subscribe to
+   them, and an admin who lost the role receives no more node notifications.
 
 ## 10. Machine credentials
 

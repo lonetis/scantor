@@ -28,6 +28,7 @@ import type {
   WorkerRole,
   WorkerState,
 } from '#shared/utils/enums'
+import type { NotificationTrigger } from '#shared/utils/notifications'
 
 // MongoDB document types of every scantor collection, including internal fields (docs/data-model.md §4).
 // Server-only: API representations live in shared/types and are produced by mappers. Timestamps are BSON Dates.
@@ -600,6 +601,32 @@ export interface EditorDoc {
   stoppedAt: Date | null
   updatedAt: Date
   error: string | null
+}
+
+// ── notificationSettings (§4.17) ───────────────────────────────────────────
+
+export interface NotificationDeliveryDoc {
+  at: Date
+  ok: boolean
+  status: number | null
+  message: string | null
+}
+
+export interface NtfyChannelDoc {
+  enabled: boolean
+  topic: string | null
+  /** internal; the access token, encrypted (HKDF label `credentials`, AAD `notificationSettings:<userId>:/ntfy/token`) */
+  tokenEnc: string | null
+  triggers: NotificationTrigger[]
+  lastDelivery: NotificationDeliveryDoc | null
+}
+
+export interface NotificationSettingsDoc {
+  /** the user id */
+  _id: string
+  ntfy: NtfyChannelDoc | null
+  createdAt: Date
+  updatedAt: Date
 }
 
 export interface MetaDoc {

@@ -44,14 +44,14 @@ export type EndpointProfile = (typeof ENDPOINT_PROFILES)[number]
 export const DIND_MODES = ['disabled', 'sysbox', 'privileged'] as const
 export type DindMode = (typeof DIND_MODES)[number]
 
-export const JOB_KINDS = ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge'] as const
+export const JOB_KINDS = ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge', 'notification'] as const
 export type JobKind = (typeof JOB_KINDS)[number]
 
 export const JOB_STATES = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const
 export type JobState = (typeof JOB_STATES)[number]
 export const TERMINAL_JOB_STATES = ['succeeded', 'failed', 'cancelled'] as const satisfies readonly JobState[]
 
-export const JOB_SUBJECT_KINDS = ['revision', 'testRun', 'scan', 'export', 'task', 'user'] as const
+export const JOB_SUBJECT_KINDS = ['revision', 'testRun', 'scan', 'export', 'task', 'user', 'notification'] as const
 export type JobSubjectKind = (typeof JOB_SUBJECT_KINDS)[number]
 
 export const EXPORT_STATES = ['queued', 'running', 'ready', 'failed'] as const

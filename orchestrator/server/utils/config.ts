@@ -168,6 +168,9 @@ export interface Config {
   trancoUrl: string
   cruxUrl: string
   cruxCacheUrl: string
+  // notifications
+  /** base URL of the ntfy server for push notifications; null disables them */
+  ntfyUrl: string | null
 }
 
 // ── value schemas ─────────────────────────────────────────────────────────────
@@ -223,6 +226,10 @@ const baseUrl = (protocols = ['http:', 'https:']) =>
     if (url.search || url.hash) throw new Error('must not contain a query or fragment')
     return url.toString().replace(/\/+$/, '')
   })
+
+/** An optional base URL: empty means off (null). */
+const optionalBaseUrl = (protocols = ['http:', 'https:']) =>
+  z.union([z.string().trim().length(0).transform(() => null), baseUrl(protocols)])
 
 const mongoUrl = () =>
   fromParser((value) => {
@@ -486,6 +493,9 @@ const VARIABLES = {
   trancoUrl: v('SCANTOR_TRANCO_URL', 'https://tranco-list.eu', baseUrl()),
   cruxUrl: v('SCANTOR_CRUX_URL', 'https://raw.githubusercontent.com/zakird/crux-top-lists/main', baseUrl()),
   cruxCacheUrl: v('SCANTOR_CRUX_CACHE_URL', 'https://raw.githubusercontent.com/lonetis/crux-cache/main', baseUrl()),
+
+  // An invalid value aborts startup: falling back to the default would send notifications to the public ntfy.sh.
+  ntfyUrl: v('SCANTOR_NTFY_URL', 'https://ntfy.sh', optionalBaseUrl(), true),
 } satisfies { [K in keyof Config]: VariableSpec<Config[K]> }
 
 /** Every environment variable the orchestrator reads, for documentation checks (tests/scripts/lint-env.mjs). */

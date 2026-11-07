@@ -37,7 +37,7 @@ defineRouteMeta({
               id: { type: 'string', format: 'uuid' },
               kind: {
                 type: 'string',
-                enum: ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge'],
+                enum: ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge', 'notification'],
               },
               state: { type: 'string', enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled'] },
             },

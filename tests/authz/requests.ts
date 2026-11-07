@@ -128,6 +128,10 @@ export const REQUESTS: Record<string, OperationRequests> = {
   deleteApiKey: { valid: none },
   listOAuthApps: { valid: none },
   revokeOAuthApp: { valid: none },
+  getNotificationSettings: { valid: none },
+  updateNotificationSettings: { valid: () => ({ body: { ntfy: { triggers: ['scanFinished'] } } }), safe: () => ({ body: { ntfy: { topic: 'has space' } } }) },
+  // Without a saved topic: 409 invalidState after every scope check, so nothing is ever published.
+  testNotification: { valid: none },
   createToolsSession: { valid: () => ({ query: { target: 'rabbitmq' } }) },
 
   // ── catalog ───────────────────────────────────────────────────────────────────────────────────────

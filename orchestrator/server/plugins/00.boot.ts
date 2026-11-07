@@ -12,6 +12,7 @@ import {
   scantorImageRef,
   WORKSPACES_VOLUME,
 } from '../utils/docker'
+import { resetEventSinks } from '../utils/event-sinks'
 import { resetJobKinds } from '../utils/jobs'
 import { configureLogger, useLogger } from '../utils/logger'
 import { closeLoopbackListener, setLoopbackHandler } from '../utils/loopback'
@@ -30,6 +31,7 @@ const processHandlersKey = '__scantorProcessHandlers'
 export default defineNitroPlugin((nitroApp) => {
   resetBootRegistry()
   resetJobKinds()
+  resetEventSinks()
   resetUserPurgeSteps()
   resetUserLockoutHooks()
 

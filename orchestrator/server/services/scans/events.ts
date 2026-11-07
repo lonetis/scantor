@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto'
 import type { Collection } from 'mongodb'
 import type { EventLevel } from '#shared/utils/enums'
 import type { EventDoc } from '../../types/documents'
+import { publishEvents } from '../../utils/event-sinks'
 import { useLogger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
 
 // Timeline events of scans and their workers (docs/data-model.md §4.11). Messages are bounded to 1 KiB and data
 // to 8 KiB (§8). Events are informational: a failed write is logged and never fails the operation that caused it.
+// Written events go to the event sinks (server/utils/event-sinks.ts), which never delay the writer.
 
 export const EVENT_MESSAGE_MAX_BYTES = 1024
 export const EVENT_DATA_MAX_BYTES = 8192
@@ -61,20 +63,26 @@ export function buildEvent(input: EventInput): EventDoc {
 }
 
 export async function writeEvent(input: EventInput, events: Collection<EventDoc> = useCollections().events): Promise<void> {
+  const doc = buildEvent(input)
   try {
-    await events.insertOne(buildEvent(input))
+    await events.insertOne(doc)
   } catch (error) {
     useLogger('events').warn('writing an event failed', { type: input.type, scanId: input.scanId, err: error })
+    return
   }
+  publishEvents([doc])
 }
 
 export async function writeEvents(inputs: EventInput[], events: Collection<EventDoc> = useCollections().events): Promise<void> {
   if (inputs.length === 0) return
+  const docs = inputs.map(buildEvent)
   try {
-    await events.insertMany(inputs.map(buildEvent), { ordered: false })
+    await events.insertMany(docs, { ordered: false })
   } catch (error) {
     useLogger('events').warn('writing events failed', { count: inputs.length, err: error })
+    return
   }
+  publishEvents(docs)
 }
 
 /** `scan.stateChanged` (docs/data-model.md §4.11): level by target state. */

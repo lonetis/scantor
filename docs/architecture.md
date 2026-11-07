@@ -162,11 +162,12 @@ until a shared store exists (§14), so they run in one process. Everything below
 | **auth** | `api` | better-auth (`/api/auth/*`, Mongo adapter, admin, passkey, api-key, jwt, mcp, cimd plugins) plus one global middleware that resolves the typed principal for every request and enforces route prefixes, the operation registry built from the runtime OpenAPI document (deny by default), scopes, bans, CSRF origin checks and body caps ([auth](auth.md) §5). | better-auth collections |
 | **ingestor** | `ingestor` | Consumes `scantor.results.ingest` (results and attempt events) and `scantor.dead.ingest` (dead-lettered analyses and poison results). Guarded upserts, duplicate handling, live counters, rate window, circuit breaker, completion trigger ([queue](queue.md)). | `analyses`, `scans`, `events` |
 | **reconciler** | `reconciler` | Level-triggered loops (10 s tick + change streams, under `locks`): scan topology ensure/remove, `creating → running`, placement and node assignment revisions, node offline detection and lost workers, scheduler supervision and epochs, periodic recount and completion, stall detection and gap fill, scan conditions, boot sweeps (orphan RabbitMQ users and queues, orphan helper/test-run/build/editor containers), GC (draft images after `SCANTOR_DRAFT_IMAGE_RETENTION`, tombstones, registry garbage collection every `SCANTOR_REGISTRY_GC_INTERVAL` under the `registryGc` lock, [deployment](deployment.md) §14.1), editor reaper (idle timeout and editor-key expiry). | `scans`, `workers`, `nodes`, `editors`, `locks` |
-| **jobs runner** | `api` (kinds `revisionBuild`, `testRun`) and `reconciler` (kinds `scanDelete`, `scanRetryFailed`, `export`, `taskDelete`, `userPurge`) | Claims queued jobs with a lease, executes them with a resumable cursor, retries with backoff, enforces per-kind concurrency (`SCANTOR_BUILD_CONCURRENCY`, `SCANTOR_TEST_RUN_CONCURRENCY`). | `jobs` |
+| **jobs runner** | `api` (kinds `revisionBuild`, `testRun`) and `reconciler` (kinds `scanDelete`, `scanRetryFailed`, `export`, `taskDelete`, `userPurge`, `notification`) | Claims queued jobs with a lease, executes them with a resumable cursor, retries with backoff, enforces per-kind concurrency (`SCANTOR_BUILD_CONCURRENCY`, `SCANTOR_TEST_RUN_CONCURRENCY`). | `jobs` |
 | **task-pipeline driver** | `api` (the publish request, `revisionBuild` / `testRun` jobs) | Stores the revision snapshot from a workspace helper in S3 synchronously at publish (§11.1 step 6); streams the stored snapshot (`revisionBuild`) or a live helper snapshot (`testRun`) into `scantor task build` (spawned as a subprocess of the orchestrator, talking to the host Docker daemon), stores NDJSON build events as the build log, records structured errors and the describe output. Never uses dockerode for builds. | `revisions`, `testRuns`, S3 `snapshots/`, `build-logs/` |
 | **workspace helper runner** | `api` | Starts throwaway helper containers (`scantor workspace <op>`, ops in §4.2) as uid 1000:1000 with the user's workspace subpath only, `--network none` (git ops: `scantor-egress`), read-only rootfs, `--cap-drop ALL`, pids/memory/time limits (`SCANTOR_HELPER_PIDS_LIMIT`, `SCANTOR_HELPER_MEMORY_LIMIT`, `SCANTOR_HELPER_TIMEOUT`), at most `SCANTOR_HELPER_CONCURRENCY` at once and `SCANTOR_HELPER_CONCURRENCY_PER_USER` per user, a per-user read/write lock, managed labels; moves data over stdin/stdout only. Exceptions: `init`/`purge` (§7) and `list`/`read --archive`, which read a revision snapshot from stdin and mount no volume ([editor](editor.md) §9). | volumes `scantor-workspaces`, `scantor-editor-home` |
 | **editor manager** | `api` | Starts, idles out and stops per-user editor containers; serves the editor origin on a **dedicated HTTP listener on container port 3001** that accepts only the `SCANTOR_EDITOR_URL` host (421 otherwise) and relays HTTP and WebSocket bytes to the user's code-server unix socket; mints a new per-user `editor` API key (`sk_scantor_editor_…`, lifetime `SCANTOR_EDITOR_API_KEY_TTL`) at every editor start and revokes it at every stop (the reaper stops an editor 5 minutes before `editors.apiKeyExpiresAt`); one-time-code cookie handoff ([editor](editor.md) §6–§8). | `editors`, better-auth `apikey` |
 | **registry token server** | `api` | `/api/registry/token` (GET+Basic and POST form flows), ES256 JWTs from an HKDF-derived key; writes the public JWKS file and the registry HTTP secret the registry reads; grants nodes `pull` only on repositories of their current assignments and the orchestrator credential `pull`/`push`/`delete` on `tasks/*` plus catalog ([nodes](nodes.md) §10, [api](api.md) §6). | `nodes`, `workers` |
+| **notifications** | every component that writes events (the event sink); `reconciler` (the `notification` jobs) | Push notifications through the one ntfy server of `SCANTOR_NTFY_URL` (§11.6): an event sink maps each written event onto a trigger, creates one `notification` job per subscribed recipient through a 30 s settings cache, and the job publishes the message with the recipient's topic and token ([api](api.md) §4.3). | `notificationSettings`, `events`, `jobs` |
 | **metrics** | `api` | `/api/metrics` in Prometheus text format (admin principal, typically an admin API key): scans by state, queue ready/unacked/delayed per scan, ingest rate and lag, workers by state, node heartbeat age, RabbitMQ alarms, jobs by kind/state, HTTP requests ([deployment](deployment.md)). | in-memory + RabbitMQ management API |
 
 Orchestrator boot order (the process exits non-zero on any failure before step 7):
@@ -301,7 +302,7 @@ reload. A Go change is picked up by `just up` (a cached rebuild); host-built bin
 | `ghcr.io/lonetis/scantor-base-js` | `connectors/js/Dockerfile` | Node 26 slim (`node:26.12.1-trixie-slim`) plus the system CA certificates, `@scantor/connector` at `/node_modules/@scantor/connector` (compiled JavaScript, re-exports `z`), typescript and @types/node at `/node_modules`, ENV contract |
 | `ghcr.io/lonetis/scantor-base-go` | `connectors/go/Dockerfile` | Go 1.27 (`golang:1.27.3-trixie`), delve, connector at `/opt/scantor/connectors/go`, `scantor-go-check`, pre-seeded `GOMODCACHE`, ENV contract |
 | tests runner (`scantor-test-runner:dev`, never pushed) | `tests/docker/Dockerfile` | Playwright 1.64.1 + dockerized DinD runner ([testing](testing.md)) |
-| test fixtures server (`scantor-test-fixtures:dev`, never pushed) | `tests/docker/fixtures/Dockerfile` | fixture data sources (Tranco, CrUX, crux-cache) and git repositories for the test stack |
+| test fixtures server (`scantor-test-fixtures:dev`, never pushed) | `tests/docker/fixtures/Dockerfile` | fixture data sources (Tranco, CrUX, crux-cache), git repositories and a ntfy fake for the test stack |
 
 Task images live in the master registry as `tasks/<taskId>:<revisionId>` and are always referenced by
 digest (`tasks/<taskId>@sha256:…`). Build arg `SCANTOR_BASE` is the base image pinned by digest at build
@@ -403,14 +404,14 @@ Flat layout; Go module at the repo root.
 │   ├── server/middleware/      request id and client IP, security headers, body caps, principal resolution
 │   ├── server/plugins/         00.boot (foundation boot steps, §4.1), 10.components, 20–89 domain plugins (their
 │   │                           boot steps and component tasks; 20.editor-listener on port 3001, 30.tasks,
-│   │                           40.scans, 50.results, 60.nodes, 70.editor), 99.start (runs the boot, starts
+│   │                           40.scans, 50.results, 60.nodes, 70.editor, 80.notifications), 99.start (runs the boot, starts
 │   │                           SCANTOR_COMPONENTS), csp.ts (CSP render hook, [ui](ui.md) §13)
 │   ├── server/services/        domain logic per area: scans, tasks, revisions, test-runs, analyses, exports,
 │   │                           ingestor, reconciler, placement, nodes, runtime, registry, jobs, pipeline, helpers,
-│   │                           editor, tools, query, metrics, mcp, … ([development](development.md) §7)
+│   │                           editor, tools, query, metrics, mcp, notifications, … ([development](development.md) §7)
 │   ├── server/utils/           config, errors, zod helpers, pagination, principal, operations, authz (ownership
 │   │                           helpers), keys, secrets, redact, startup-guard, mongo, s3, amqp, labels, boot, jobs,
-│   │                           locks, …
+│   │                           locks, event-sinks, …
 │   ├── shared/                 types, zod request schemas and utilities shared by app and server
 │   ├── test/                   vitest unit tests (paths mirror server/, [testing](testing.md) §1) and opt-in
 │   │                           *.integration.test.ts
@@ -612,7 +613,7 @@ TS (orchestrator) and Go (`internal/keys`) implement exactly this function.
 | `registry-http` | `REGISTRY_HTTP_SECRET` of the registry (hex), written to `scantor-registry-auth/http-secret` and exported by the registry's wrapper entrypoint |
 | `worker-token` | `swt_<workerId>.base64url(HMAC-SHA256(key, workerId + "\n" + scanId + "\n" + role + "\n" + nodeId))` |
 | `amqp` | per-scan RabbitMQ password `base64url(HMAC-SHA256(key, scanId))` |
-| `credentials` | AES-256-GCM encryption of git credentials |
+| `credentials` | AES-256-GCM encryption of git credentials and ntfy access tokens |
 | `config-secrets` | AES-256-GCM encryption of `writeOnly` task/scan config values |
 | `tools-cookie` | HS256 key of the `scantor_tools` JWT |
 | `editor-cookie` | HMAC key of the `scantor_editor` cookie |
@@ -625,7 +626,7 @@ TS (`server/utils/keys.ts`) and Go (`internal/keys`) are tested against the shar
 
 Changing `SCANTOR_SECRET` invalidates sessions, MCP OAuth tokens (undecryptable `jwks` keys are deleted at
 boot), worker tokens, the registry signing key and HTTP secret (restart the registry), the tools and editor
-cookies, the built-in node token and every encrypted git credential and config secret (API keys and node
+cookies, the built-in node token and every encrypted git credential, ntfy access token and config secret (API keys and node
 tokens are stored as hashes and survive); it is a disaster-recovery operation ([security](security.md) §10).
 
 ## 10. Configuration conventions
@@ -948,6 +949,32 @@ All lifecycle routes only change intent in MongoDB (plus a job where noted); the
    job fetches `/scantor/out` with `CopyFromContainer` and uploads them to
    `test-runs/<testRunId>/files/<seq>/<fileId>/<safeName>`.
 
+### 11.6 Push notifications
+
+```
+event writer (writeEvent, writeEvents, recordEvents)
+  → events.insert            (the timeline, data model §4.11)
+  → publishEvents            (server/utils/event-sinks.ts; returns at once)
+      notifications sink: accept = triggerOf(event) ≠ null and SCANTOR_NTFY_URL set   (no I/O)
+      consume: recipients = owner, or the subscribed admins (owner-less node events)
+               per recipient with an enabled channel subscribed to the trigger (30 s cache):
+               createJob {kind: notification, userId: recipient, subject: {notification, <uuid>}, params: {trigger, event}}
+jobs runner (reconciler, 4 at once)
+  → read the recipient's settings fresh: disabled, unsubscribed, no longer admin, feature off → succeed (skipped)
+  → build the message (scan name and counts read with the recipient as owner)
+  → POST <SCANTOR_NTFY_URL>/ {topic, title, message, priority, tags, click}   (Bearer token, no redirects, 10 s)
+  → record lastDelivery; 408/429/5xx/unreachable → retry with backoff; other answers → failed
+```
+
+1. Writing an event never waits for notifications and never fails because of them: the sink runs detached,
+   and its failures are logged. Events written by a direct insert (the ingestor's security events) notify
+   nobody.
+2. A job per recipient keeps deliveries independent: one user's broken token never delays another's, and a
+   restart resumes the queued jobs. A delivery that the user disabled in the meantime is skipped.
+3. The ntfy server is the operator's configuration only. Users choose a topic and an optional access token
+   on their account page; the orchestrator therefore never sends a request to an address a user chose
+   ([security](security.md) NTF-1).
+
 ## 12. Key decisions
 
 | # | Decision | Rationale |
@@ -1027,6 +1054,10 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
     snapshot in S3 before the revision is inserted, and the `revisionBuild` job builds only that stored
     snapshot. The revision's recorded pack hash, its de-duplication and every rebuild after a lease expiry
     therefore refer to the same immutable content, however long the build queue is.
+18. **Push notifications** (§11.6): per-user ntfy settings on the operator's single server
+    (`SCANTOR_NTFY_URL`), never a user-chosen URL; events reach them through an in-process event sink that
+    creates one `notification` job per recipient, so delivery reuses the leases, retries and restart
+    safety of the jobs runner instead of a second queue, and the event writers never wait for it.
 
 ## 14. Future extensions
 
@@ -1041,6 +1072,7 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
 | Cron / recurring scans | A future `schedules` collection creating scans via the same start flow; the word "schedule" stays reserved for the operation, "cron/recurring" for this feature. |
 | Separate builder nodes | Builds already run through the stateless `scantor task build`; a builder node could run it behind the same job kind. |
 | Scan priorities | Placement is a pure function; RabbitMQ quorum queues support priorities. |
+| More notification channels (webhooks, email, chat) | `notificationSettings` holds one field per channel kind beside `ntfy`, triggers are one shared catalog, and the `notification` job can dispatch by channel; a webhook channel needs the SSRF guard of git imports, because its URL would come from the user. |
 | Prometheus/Grafana containers | `/api/metrics` is already Prometheus text; add an opt-in compose profile. |
 | Per-user node-pool allowances | `nodes.pool` and `settings.nodeSelector` exist; add an allowed-pools list to users and a placement filter. |
 | Additional languages | Add a connector + base image, a `languages.json` row, a scaffold, toolchain in the editor stage ([development](development.md)). |

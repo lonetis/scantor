@@ -13,13 +13,13 @@ system context is in [architecture](architecture.md).
 |---|---|
 | Database | One MongoDB 9.0 replica set (`rs0`), database `SCANTOR_MONGO_DB`, one `MongoClient` shared by better-auth and scantor. Connection: `SCANTOR_MONGO_URL` (no credentials) with `SCANTOR_MONGO_USER` / `SCANTOR_MONGO_PASSWORD`. User queries run on a second client logged in as the read-only user `scantor_query` ([api](api.md) §5.2). |
 | Collection names | scantor collections: plural camelCase (`tasks`, `testRunAnalyses`). better-auth collections: the singular model names its Mongo adapter creates (`user`, `apikey`, …). No name collides. |
-| Ids | uuid v4 strings (`crypto.randomUUID()` / `uuid.NewString()`) stored as strings in `_id`. Exceptions: `analyses._id = "<scanId>-<seq>"`, `testRunAnalyses._id = "<testRunId>-<seq>"`, `editors._id = <userId>`, `locks._id` and `meta._id` are fixed names. better-auth is configured with `advanced.database.generateId: () => crypto.randomUUID()`, so its ids are plain strings too. |
+| Ids | uuid v4 strings (`crypto.randomUUID()` / `uuid.NewString()`) stored as strings in `_id`. Exceptions: `analyses._id = "<scanId>-<seq>"`, `testRunAnalyses._id = "<testRunId>-<seq>"`, `editors._id` and `notificationSettings._id = <userId>`, `locks._id` and `meta._id` are fixed names. better-auth is configured with `advanced.database.generateId: () => crypto.randomUUID()`, so its ids are plain strings too. |
 | Field and enum casing | camelCase for field names and for enum string values (`taskError`, `workersPending`). Event types are dotted camelCase (`scan.stateChanged`). |
 | Timestamps | BSON `Date` in MongoDB, ISO 8601 UTC strings with milliseconds in the REST API. Every scantor document has `createdAt` and `updatedAt` unless stated otherwise. |
 | Units | Durations are integer milliseconds with suffix `Ms`; memory is integer MiB with suffix `MiB`; byte counts are integers with suffix `Bytes` or the field name `bytes`/`size`. |
 | Ownership | Every user-owned document has `userId` (string, the better-auth `user._id`). It is set from the principal at creation, or copied from the parent document for derived documents, and never changes. A request never supplies `userId`. |
 | Representation | The API maps `_id` → `id`, omits fields marked *internal* below, and masks secrets. |
-| Encrypted values | Format `enc:v1:<base64url(iv, 12 bytes)>:<base64url(ciphertext ‖ tag)>`, AES-256-GCM with an HKDF key ([architecture](architecture.md) §9), AAD = `<collection>:<_id>:<field or JSON pointer>`. Used for git credentials and `writeOnly` config values. |
+| Encrypted values | Format `enc:v1:<base64url(iv, 12 bytes)>:<base64url(ciphertext ‖ tag)>`, AES-256-GCM with an HKDF key ([architecture](architecture.md) §9), AAD = `<collection>:<_id>:<field or JSON pointer>`. Used for git credentials, ntfy access tokens and `writeOnly` config values. |
 | Index management | The orchestrator creates every index at boot with `createIndexes` (idempotent). TTL durations that come from env are applied with `collMod` when they differ. Boot step 3 creates the indexes better-auth declares (field `unique`/`index` attributes and table indexes of `$context.tables`; unique only for required fields) under better-auth's own index names, because the MongoDB adapter creates only the table-level ones, lazily and by name (§3, [auth](auth.md) §2.1). |
 | Schema version | `meta` document `schema` holds the data-model version (1). Migrations run at boot under the `migrations` lock. |
 | Writes to better-auth data | Only through better-auth (`auth.api.*`, `ctx.internalAdapter`, `ctx.adapter`). Scantor reads `user` and `apikey` directly only for listings. |
@@ -44,6 +44,7 @@ system context is in [architecture](architecture.md).
 | `locks` | – | lease locks for singleton loops | renewed leases |
 | `exports` | `userId` | background export results | TTL `expiresAt` |
 | `editors` | `_id` = userId | per-user editor container state | permanent (small) |
+| `notificationSettings` | `_id` = userId | per-user push notification channels (ntfy) | until the user is purged |
 | `meta` | – | schema version | permanent |
 
 ## 3. better-auth collections
@@ -732,7 +733,7 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 | `_id` | uuid | ✓ | |
 | `kind` | JobKind | ✓ | below |
 | `userId` | uuid \| null | ✓ | owner of the subject |
-| `subject` | `{kind: "revision"\|"testRun"\|"scan"\|"export"\|"task"\|"user", id}` | ✓ | |
+| `subject` | `{kind: "revision"\|"testRun"\|"scan"\|"export"\|"task"\|"user"\|"notification", id}` | ✓ | `notification`: a fresh delivery id per job, so deliveries never meet in the one-active-job index |
 | `state` | `queued`\|`running`\|`succeeded`\|`failed`\|`cancelled` | ✓ | §6.8 |
 | `active` | boolean | ✓ | true while `queued` or `running` (partial unique index) |
 | `params` | object | ✓ | kind-specific input |
@@ -754,6 +755,7 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 | `export` | reconciler | export | `{exportId}` | `{afterSeq, part}` | `SCANTOR_USER_MAX_CONCURRENT_QUERIES` per user |
 | `taskDelete` | reconciler | task | `{}` | `{phase: "stop"\|"testRuns"\|"images"\|"storage"\|"revisions"\|"workspace"\|"task"}`; `images` sweeps the registry for untracked manifests of builds that the deletion stopped after they started (read from the revisions failed with "the task was deleted", so a restarted job and userPurge step 60 still know them); before `images` and `revisions` it defers itself (60 s) while a non-terminal or deleting scan uses the task, which only a start that resolved its revision just before `deletingAt` can create | 2 |
 | `userPurge` | reconciler | user | `{}` | `{phase, scanId?}` | 1 |
+| `notification` | reconciler | notification | `{trigger, event: {id, type, level, message, scanId?, taskId?, revisionId?, nodeId?, data?}}`; `userId` = the recipient; created by the notifications event sink, one per subscribed recipient ([architecture](architecture.md) §11.6) | `{}`; delivers to the recipient's current channel or succeeds as skipped (channel disabled, trigger unsubscribed, admin power lost); 408, 429, 5xx and unreachable servers retry with backoff 10 s … 10 min (5 attempts), other answers fail at once with `notificationRejected` | 4 |
 
 ```json
 {
@@ -876,6 +878,41 @@ Indexes: `{state: 1, lastActivityAt: 1}` (idle reaper).
 
 `{_id: "schema", version: 1, updatedAt}`. Future singleton documents use other fixed `_id` values.
 
+### 4.17 `notificationSettings`
+
+One document per user who saved push notification settings ([api](api.md) §4.3, [architecture](architecture.md)
+§11.6). Every channel kind is one field; `ntfy` is the only kind today, others (webhook, email) become sibling
+fields with their own shape.
+
+| Field | Type | Req | Meaning |
+|---|---|---|---|
+| `_id` | uuid | ✓ | the user id |
+| `ntfy` | object \| null | ✓ | the ntfy channel on the operator's server (`SCANTOR_NTFY_URL`) |
+| `ntfy.enabled` | boolean | ✓ | deliveries happen only while true; true needs a topic |
+| `ntfy.topic` | string \| null | ✓ | `^[A-Za-z0-9_-]{1,64}$` |
+| `ntfy.tokenEnc` | encrypted string \| null | ✓ | *internal*; the ntfy access token (HKDF label `credentials`, AAD `notificationSettings:<userId>:/ntfy/token`) |
+| `ntfy.triggers` | string[] | ✓ | subscribed triggers ([api](api.md) §4.3): `scanFinished`, `scanPaused`, `scanProblem`, `revisionBuilt`, `nodeAvailability` (admins only) |
+| `ntfy.lastDelivery` | `{at, ok, status, message}` \| null | ✓ | outcome of the last delivery or test message; reset when the topic or token changes |
+| `createdAt`, `updatedAt` | Date | ✓ | `updatedAt` changes with saves, not with deliveries |
+
+```json
+{
+  "_id": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+  "ntfy": {
+    "enabled": true,
+    "topic": "scantor-k3v9q2m7x1c8p4w6z0r5",
+    "tokenEnc": null,
+    "triggers": ["scanFinished", "scanPaused", "scanProblem", "revisionBuilt"],
+    "lastDelivery": { "at": { "$date": "2026-11-07T10:00:00.000Z" }, "ok": true, "status": 200, "message": null }
+  },
+  "createdAt": { "$date": "2026-11-01T08:00:00.000Z" },
+  "updatedAt": { "$date": "2026-11-01T08:00:00.000Z" }
+}
+```
+
+Indexes: `{"ntfy.triggers": 1}` with `partialFilterExpression: {"ntfy.enabled": true}` (the admins subscribed to
+an owner-less trigger).
+
 ## 5. Ownership rules
 
 | Collection | Visible to | Mutable by |
@@ -885,6 +922,7 @@ Indexes: `{state: 1, lastActivityAt: 1}` (idle reaper).
 | `jobs` | owner and admins (`GET /api/jobs/{id}`) | system only |
 | `nodes` | admins | admins (API), nodes (their own record through `/api/node/*`) |
 | `editors` | the user it belongs to | editor manager |
+| `notificationSettings` | the user it belongs to (`GET /api/account/notifications`; never the token) | the user (`PATCH`), deliveries (`lastDelivery`) |
 | `locks`, `meta` | – | system only |
 
 - Not owned → 404, never 403 ([api](api.md) §ownership).
@@ -895,7 +933,7 @@ Indexes: `{state: 1, lastActivityAt: 1}` (idle reaper).
 - User deletion (`userPurge` job) cancels the user's scans, then deletes in order: editors and editor API
   key, exports, scans (scan-delete logic, including analyses and files), test runs, revisions and task
   images, tasks, the user's workspace and editor-home directories (helper `purge`), uploads, credentials,
-  events, jobs; finally the better-auth user.
+  notification settings, events, jobs; finally the better-auth user.
 
 ## 6. State machines
 

@@ -35,7 +35,7 @@ describe('indexDefinitions', () => {
 
   it('indexes every scantor collection except locks and meta', () => {
     const indexed = new Set(definitions.map((d) => d.collection))
-    for (const name of ['tasks', 'revisions', 'testRuns', 'testRunAnalyses', 'scans', 'analyses', 'workers', 'nodes', 'credentials', 'uploads', 'events', 'jobs', 'exports', 'editors']) {
+    for (const name of ['tasks', 'revisions', 'testRuns', 'testRunAnalyses', 'scans', 'analyses', 'workers', 'nodes', 'credentials', 'uploads', 'events', 'jobs', 'exports', 'editors', 'notificationSettings']) {
       expect(indexed.has(name as never), name).toBe(true)
     }
   })

@@ -20,6 +20,7 @@ import type { Logger } from './logger'
  *    80 workspace and editor-home directories (helper `purge`)  (workspace)
  *    90 uploads                        * (documents and S3 `uploads/<userId>/`)
  *   100 credentials                    *
+ *   105 notification settings          (notifications)
  *   110 events                         *
  *   120 jobs (other than the purge job) *
  *  1000 the better-auth user           *

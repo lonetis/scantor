@@ -11,6 +11,7 @@ import type {
   LockDoc,
   MetaDoc,
   NodeDoc,
+  NotificationSettingsDoc,
   RevisionDoc,
   ScanDoc,
   TaskDoc,
@@ -48,6 +49,7 @@ export interface ScantorCollections {
   locks: Collection<LockDoc>
   exports: Collection<ExportDoc>
   editors: Collection<EditorDoc>
+  notificationSettings: Collection<NotificationSettingsDoc>
   meta: Collection<MetaDoc>
   /** better-auth `user`, read directly for listings only */
   authUsers: Collection<AuthUserDoc>
@@ -72,6 +74,7 @@ export const COLLECTION_NAMES = {
   locks: 'locks',
   exports: 'exports',
   editors: 'editors',
+  notificationSettings: 'notificationSettings',
   meta: 'meta',
   authUsers: 'user',
   authApiKeys: 'apikey',
@@ -94,6 +97,7 @@ export function collectionsOf(db: Db): ScantorCollections {
     locks: db.collection<LockDoc>(COLLECTION_NAMES.locks),
     exports: db.collection<ExportDoc>(COLLECTION_NAMES.exports),
     editors: db.collection<EditorDoc>(COLLECTION_NAMES.editors),
+    notificationSettings: db.collection<NotificationSettingsDoc>(COLLECTION_NAMES.notificationSettings),
     meta: db.collection<MetaDoc>(COLLECTION_NAMES.meta),
     authUsers: db.collection<AuthUserDoc>(COLLECTION_NAMES.authUsers),
     authApiKeys: db.collection<AuthApiKeyDoc>(COLLECTION_NAMES.authApiKeys),
@@ -176,6 +180,9 @@ export function indexDefinitions(config: Pick<Config, 'eventsTtlDays'>): IndexDe
     { collection: 'exports', key: { expiresAt: 1 }, options: TTL_NOW },
 
     { collection: 'editors', key: { state: 1, lastActivityAt: 1 } },
+
+    // admins subscribed to a trigger (node events have no owner)
+    { collection: 'notificationSettings', key: { 'ntfy.triggers': 1 }, options: { partialFilterExpression: { 'ntfy.enabled': true } } },
   ]
 }
 

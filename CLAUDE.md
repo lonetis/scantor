@@ -174,6 +174,9 @@ model, api) wins and the other doc is fixed.
   `skills/` (the drift test checks every tool and command they name).
 - **Example task** → its entry in `tests/e2e/examples.ts`. **Language or template** → the checklists in
   [docs/development.md](docs/development.md) §9.2 and §9.3.
+- **Event type, level or data of a notifying event** → the trigger matchers in
+  `orchestrator/server/services/notifications/triggers.ts`, the trigger catalog
+  `orchestrator/shared/utils/notifications.ts` and the trigger table of [docs/api.md](docs/api.md) §4.3.
 
 ## Gotchas
 
@@ -189,6 +192,7 @@ model, api) wins and the other doc is fixed.
 - The task pipeline prunes the host's whole BuildKit cache to `SCANTOR_BUILD_CACHE_MAX_BYTES`; the dev compose sets 0 and a native CLI prunes only when it is set. Never set it on a shared dev machine.
 - The dev built-in node allows only `SCANTOR_BUILTIN_NODE_MAX_WORKERS` workers (a scheduler counts), and placement reserves `cpus × processes`; parallel scans wait with `workersPending`.
 - Hint counters only increase (progress can briefly exceed 100 % after a cancel); the recount is authoritative. Do not "fix" the hints.
+- Push notifications see only events written through `writeEvent`/`writeEvents` (`services/scans/events.ts`) or `recordEvents` (`services/nodes/events.ts`), which hand them to the event sinks (`server/utils/event-sinks.ts`); a direct `events` insert notifies nobody. A sink's `accept` runs inline in the writer, so keep it synchronous and free of I/O.
 - A job handler that has to wait (a settle delay) throws `JobDeferredError` (`server/utils/jobs.ts`) instead of sleeping: a sleeping handler holds one of its kind's few slots, and every other job of that kind queues behind it.
 - A scan queue's `x-max-length` counts delayed messages, and a full queue refuses future-dated publishes too (RabbitMQ 4.4): the scheduler keeps at most half of the queue so retries fit, and a runner holds a refused retry ([docs/runtime.md](docs/runtime.md) §11.4, §8.11). Do not let another publisher fill a scan queue to its limit.
 - API `wait` is integer seconds (`?wait=60`); MCP clamps it to 50.
