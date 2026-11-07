@@ -44,6 +44,7 @@ onMounted(() => {
         <PasswordSection />
         <PasskeysSection v-if="features.passkeys" />
         <SessionsSection />
+        <NotificationsSection />
         <EditorSection v-if="features.editor" />
       </div>
     </template>

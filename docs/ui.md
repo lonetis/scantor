@@ -676,6 +676,7 @@ Sections (`XxxSection`, each with its own loading, error and success state, load
 | Password | with a password: change (`changePassword {currentPassword, newPassword, revokeOtherSessions}`); without: set (`setAccountPassword`); "Remove password" (two-step, only when `passkeyCount > 0`) → `removeAccountPassword`; `409 lastCredential` inline |
 | Passkeys | shown when `passkeysEnabled`: list (`passkey.listUserPasskeys`: name, added, device type), rename (`updatePasskey`), remove (two-step, disabled for the last credential), add (`passkey.addPasskey {name}`, placeholder "e.g. MacBook Touch ID") |
 | Sessions | `list-sessions` (device/user agent, IP, created, current marker), "Sign out other sessions" (`revoke-session` once per other session: `revoke-sessions` would also end the current one). better-auth lists sessions only for a session signed in within the last 24 h; older sessions see a hint to sign in again |
+| Notifications | ntfy push notifications (`getNotificationSettings`): "Push notifications are disabled on this instance." when `available` is false; otherwise the instance's server as a link, "Send push notifications" (switch), the topic with "Generate" (a random `scantor-<20 characters>` topic, because a topic name is its only protection on a public server), the access token (password field, empty after every save; "A token is stored. Enter a new one to replace it." and "Remove the stored token" when `tokenSet`), "Notify me about" (the trigger catalog of `shared/utils/notifications.ts`, admin-only triggers only for admins) → `updateNotificationSettings` ("Saved"; "Enter a topic to turn notifications on" client-side); the subscription URL `<server>/<topic>`; "Send test notification" (disabled without a saved topic) → `testNotification` ("Test notification sent"); a failed `lastDelivery` as "The last notification could not be delivered" |
 | Editor | editor state (`getEditor`), "Stop editor" (`stopEditor`) |
 
 ### 5.18 CLI & MCP access (`/account/access`)
@@ -1136,5 +1137,5 @@ renders ([api](api.md) §4.18).
 | In-browser file edits | `writeTaskFiles`/`deleteTaskFile` exist; a Monaco-free inline editor could reuse `TaskFilesBrowser`. |
 | Prometheus/Grafana | the admin tools card list is data from `adminTools`. |
 | Per-user node-pool allowances | the node selector field becomes a select of allowed pools. |
-| Notifications / webhooks | toasts already map event-like outcomes; a notifications page would read `events`. |
+| In-app notifications, more channels | toasts already map event-like outcomes; an in-app notifications page would read `events` filtered by the push-notification trigger catalog, and a new channel kind adds a block to the Notifications section. |
 | Additional languages and templates | wizard cards come from `listLanguages`, `listScaffolds` and `listTemplates`; no UI change. |
