@@ -349,7 +349,8 @@ func TestCancel(t *testing.T) {
 func TestDeadline(t *testing.T) {
 	rt := start(t, echoTask())
 	rt.handshake()
-	deadline := time.Now().Add(300 * time.Millisecond)
+	// The protocol carries the deadline in whole milliseconds, so the connector cancels at the truncated time.
+	deadline := time.UnixMilli(time.Now().Add(300 * time.Millisecond).UnixMilli())
 	run(rt, "r1", runCtx(execDir(t), 1, deadline.UnixMilli()), map[string]any{"mode": "sleep", "sleepMs": 60000}, map[string]any{})
 	e := rt.expect("error").obj("error")
 	if e.str("type") != "cancelled" || !strings.Contains(e.str("message"), "deadline") {
