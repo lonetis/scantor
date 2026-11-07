@@ -76,6 +76,10 @@ describe('parseConfig', () => {
     ['SCANTOR_CA_CERT', 'not a certificate'],
     ['SCANTOR_AMQP_INTERNAL_URL', 'amqp://rabbitmq:5672/scantor'],
     ['SCANTOR_REGISTRY_PUBLIC_HOST', 'https://registry.example.com'],
+    ['SCANTOR_WORKSPACES_DATA', 'my-volume'],
+    ['SCANTOR_WORKSPACES_DATA', 'data/workspaces'],
+    ['SCANTOR_WORKSPACES_DATA', '/mnt/../etc'],
+    ['SCANTOR_EDITOR_HOME_DATA', '/'],
   ])('aborts on an invalid security-relevant value: %s=%j', (variable, value) => {
     let error: unknown
     try {
@@ -99,6 +103,13 @@ describe('parseConfig', () => {
     const { config, warnings } = parseConfig({ [variable]: value })
     expect(config[key]).toBe(expected)
     expect(warnings.map((warning) => warning.variable)).toEqual([variable])
+  })
+
+  it('binds the orchestrator-created volumes to host directories only when a path is given', () => {
+    expect(parseConfig({}).config).toMatchObject({ workspacesPath: null, editorHomePath: null })
+    const { config } = parseConfig({ SCANTOR_WORKSPACES_DATA: ' /mnt/disk1/workspaces/ ', SCANTOR_EDITOR_HOME_DATA: 'scantor-editor-home' })
+    expect(config.workspacesPath).toBe('/mnt/disk1/workspaces')
+    expect(config.editorHomePath).toBeNull()
   })
 
   it('requires SCANTOR_ADMIN_EMAIL and SCANTOR_ADMIN_PASSWORD together', () => {
