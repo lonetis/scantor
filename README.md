@@ -38,6 +38,9 @@ web UI, the `scantor` CLI, the REST API or an LLM agent over MCP.
   that pauses failing scans, and conditions that explain why a scan is not progressing.
 - **Results**: typed results with file attachments, MongoDB queries and aggregations over a scan's
   analyses, JSONL and CSV exports.
+- **Push notifications**: get a [ntfy](https://ntfy.sh) push on your phone or desktop when a scan
+  finishes, the platform pauses it, an error condition appears or a revision build ends; each user picks
+  their own topic on the account page, and admins can also follow node availability.
 - **Multi-user**: accounts with passkeys, API keys, per-user isolation and an admin area for users and
   nodes.
 - **Self-hosted with Docker Compose**: prebuilt images on GHCR and optional Traefik with automatic
@@ -361,6 +364,12 @@ first with `scantor uploads create domains.txt` and pass `{"upload": "<id>"}` as
 In the web UI, **New scan** offers the same as forms generated from the revision's config types, with a
 size estimate for template schedules. The scan page shows progress, statistics and conditions, and has
 tabs for results, a query console, workers, events and exports, plus buttons for every action above.
+
+To get a push notification when a scan finishes or runs into trouble, open the **Notifications** section
+of your account page, pick a ntfy topic (or let **Generate** pick a hard-to-guess one), choose what to be
+notified about, save, and subscribe to the shown URL in the [ntfy app](https://ntfy.sh). **Send test
+notification** checks the setup. Anyone who knows a topic on the public ntfy.sh can read it; your
+operator can point the instance at a private ntfy server instead.
 
 ## Results
 

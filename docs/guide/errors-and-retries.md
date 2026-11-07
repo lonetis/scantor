@@ -4,7 +4,8 @@ Every failure in scantor, whether your code raised it, an analysis ran out of ti
 the platform had a problem, is recorded as one structured error with a type that decides what happens
 next. This guide explains the error types, how to raise them from your code, how attempts, backoff,
 timeouts and crashes work, how scans protect themselves from failing en masse, how to run failed
-analyses again, and where errors show up in the web UI, the CLI, the API and MCP.
+analyses again, where errors show up in the web UI, the CLI, the API and MCP, and how to get a push
+notification when a scan finishes or runs into trouble.
 
 ## The error object
 
@@ -275,6 +276,27 @@ scantor analyses get <scanId>-<seq>
 
 Through MCP, error texts, log tails and results are wrapped as `{"untrusted_data": …}`, because they
 come from scanned targets and task code ([MCP](mcp.md)).
+
+## Push notifications
+
+You do not have to watch a long scan: the platform can push a notification to your phone or desktop
+through [ntfy](https://ntfy.sh). Set it up in the **Notifications** section of your account page (or
+with `PATCH /api/account/notifications`): choose a topic, optionally an access token, and what to be
+notified about, then subscribe to `<server>/<topic>` in the ntfy app. **Send test notification**
+(`POST /api/account/notifications/test`) shows what the ntfy server answered.
+
+| Trigger | You are notified when |
+|---|---|
+| `scanFinished` | a scan completed (with its succeeded and failed counts), failed, or was cancelled by the platform (not when you cancel it yourself) |
+| `scanPaused` | the platform paused a scan, for example the circuit breaker |
+| `scanProblem` | an error condition was raised: `crashLoop`, `imagePullFailed`, `topologyFailed`, `brokerAlarm` |
+| `revisionBuilt` | a revision is ready or its build failed |
+| `nodeAvailability` | admins only: a node went offline or came back |
+
+Each notification links to the scan, revision or node page. The server is chosen by the instance's
+operator; on the public ntfy.sh anyone who knows a topic's name can read it, so pick a hard-to-guess topic
+(**Generate** creates one) or use a protected topic with an access token. When a delivery fails, the
+section shows the ntfy server's answer.
 
 ## Exit codes of the CLI
 
