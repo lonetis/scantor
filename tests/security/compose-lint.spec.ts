@@ -117,6 +117,11 @@ const RULES: RuleCase[] = [
     problem: `${PROD}: ${service} must have env_file .env`,
   })),
   {
+    title: 'the registry mounts its data from a fixed volume',
+    breakRule: (copy) => copy.replace(PROD, '${SCANTOR_REGISTRY_DATA}:/var/lib/registry', 'scantor-registry-data:/var/lib/registry'),
+    problem: `${PROD}: registry must mount /var/lib/registry from \${SCANTOR_REGISTRY_DATA}`,
+  },
+  {
     title: 'a production service has no healthcheck',
     breakRule: (copy) => editService(copy, PROD, 'node', (path, doc) => doc.deleteIn([...path, 'healthcheck'])),
     problem: `${PROD}: node has no healthcheck`,

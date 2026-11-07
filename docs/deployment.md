@@ -68,6 +68,8 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
   between services and between top-level blocks, and none within a service.
 - Every service has a `healthcheck` (`lint-compose` enforces it, [testing](testing.md) §11), and so does
   every long-running container scantor creates itself ([architecture](architecture.md) §7).
+- Every persistent mount takes its source from its `SCANTOR_*_DATA` variable (§5.1; `lint-compose` enforces it
+  for the infrastructure services), so operators choose a volume or a host directory per service.
 - Variables are interpolated as plain `${VAR}`. **Compose files contain no defaults**, because defaults
   live only in `.env.example`. `.env` must be complete; `just init` creates it and merges new variables
   into it (§8.3). Every `just` recipe that starts a stack runs `just init` first. The one exception is the
@@ -171,7 +173,7 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 | other | `container_name: scantor-mongo`, `mem_limit: ${SCANTOR_MONGO_MEMORY_LIMIT}`. The member host `mongo:27017` is stored in the replica-set config, so **never rename the service**. |
 | networks | `scantor` |
 | ports | `${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017` |
-| volumes | `scantor-mongo-data:/data/db`, `scantor-mongo-config:/data/configdb` |
+| volumes | `${SCANTOR_MONGO_DATA}:/data/db`, `${SCANTOR_MONGO_CONFIG_DATA}:/data/configdb` (default the volumes `scantor-mongo-data`, `scantor-mongo-config`, §5.1) |
 | env | `MONGO_INITDB_ROOT_USERNAME=${SCANTOR_MONGO_USER}`, `MONGO_INITDB_ROOT_PASSWORD=${SCANTOR_MONGO_PASSWORD}`. **Applied only at first init.** |
 | labels | Traefik TCP router `mongo`, enabled only by `traefik.enable=${SCANTOR_EXPOSE_MONGO}` (§7.3) |
 
@@ -201,7 +203,7 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 | other | `container_name: scantor-rabbitmq`, `hostname: rabbitmq` (**required**: the data directory is keyed by node name, so without a fixed hostname every container recreation starts an empty broker), `mem_limit: ${SCANTOR_RABBITMQ_MEMORY_LIMIT}` |
 | networks | `scantor`, `scantor-sandbox` (master workers reach `rabbitmq:5672`) |
 | ports | AMQP on `SCANTOR_BIND_ADDRESS`, management on `SCANTOR_ADMIN_BIND_ADDRESS` (§1) |
-| volumes | `scantor-rabbitmq-data:/var/lib/rabbitmq` |
+| volumes | `${SCANTOR_RABBITMQ_DATA}:/var/lib/rabbitmq` (default the volume `scantor-rabbitmq-data`, §5.1) |
 | env | `RABBITMQ_DEFAULT_USER=${SCANTOR_RABBITMQ_USER}` and `RABBITMQ_DEFAULT_PASS=${SCANTOR_RABBITMQ_PASSWORD}` (**first boot only**); `RABBITMQ_ENABLED_PLUGINS=rabbitmq_management` with `RABBITMQ_ENABLED_PLUGINS_FILE=/var/lib/rabbitmq/enabled_plugins` (below); `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS` (below) |
 | labels | HTTP router `rabbitmq` (management, forwardAuth); TCP router `amqp` (§7.3) |
 
@@ -243,7 +245,7 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
 | other | `container_name: scantor-registry` (the registry GC execs into this name, §14.1) |
 | networks | `scantor` |
 | ports | `${SCANTOR_BIND_ADDRESS}:${SCANTOR_REGISTRY_PORT}:5000` (§1 loopback rule) |
-| volumes | `scantor-registry-data:/var/lib/registry`, `scantor-registry-auth:/run/scantor/registry-auth:ro` |
+| volumes | `${SCANTOR_REGISTRY_DATA}:/var/lib/registry` (default the volume `scantor-registry-data`, §5.1), `scantor-registry-auth:/run/scantor/registry-auth:ro` |
 | env | `OTEL_TRACES_EXPORTER=none`, `REGISTRY_LOG_LEVEL=info`, `REGISTRY_HTTP_RELATIVEURLS=true`, `REGISTRY_STORAGE_DELETE_ENABLED=true`, `REGISTRY_AUTH_TOKEN_REALM=${SCANTOR_PUBLIC_URL}/api/registry/token`, `REGISTRY_AUTH_TOKEN_SERVICE=scantor-registry`, `REGISTRY_AUTH_TOKEN_ISSUER=scantor`, `REGISTRY_AUTH_TOKEN_JWKS=/run/scantor/registry-auth/jwks.json` |
 | labels | HTTP router `registry` without forwardAuth: token auth protects it (§7.3) |
 
@@ -271,7 +273,7 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
 | other | `container_name: scantor-rustfs`. The image runs as uid 10001; a named volume works as is. |
 | networks | `scantor`, `scantor-sandbox` (master workers PUT presigned URLs to `rustfs:9000`) |
 | ports | S3 on `SCANTOR_BIND_ADDRESS`, console on `SCANTOR_ADMIN_BIND_ADDRESS` (§1) |
-| volumes | `scantor-rustfs-data:/data` |
+| volumes | `${SCANTOR_RUSTFS_DATA}:/data` (default the volume `scantor-rustfs-data`, §5.1) |
 | env | `RUSTFS_ACCESS_KEY=${SCANTOR_S3_ACCESS_KEY}`, `RUSTFS_SECRET_KEY=${SCANTOR_S3_SECRET_KEY}`, `RUSTFS_OBS_LOG_DIRECTORY=` (empty: log to stdout), `RUSTFS_OBS_LOGGER_LEVEL=info`, `RUSTFS_CHECK_UPDATE=false`, `RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS=${SCANTOR_RUSTFS_CONSOLE_URL}`, `RUSTFS_BROWSER_REDIRECT_URL=${SCANTOR_RUSTFS_CONSOLE_URL}` |
 | labels | HTTP router `s3` (no forwardAuth: SigV4 and presigned URLs, Host preserved); HTTP router `rustfs` (console, forwardAuth, redirect `/` → `/rustfs/console/`) |
 
@@ -316,7 +318,7 @@ attacker-influenced data, so never publish it any other way. Secrets in the URLs
 | other | `container_name: scantor-traefik`, `profiles: [traefik]` |
 | networks | `scantor` |
 | ports | `${SCANTOR_TRAEFIK_BIND_ADDRESS}:${SCANTOR_HTTP_PORT}:80`, `${SCANTOR_TRAEFIK_BIND_ADDRESS}:${SCANTOR_HTTPS_PORT}:443` |
-| volumes | `/var/run/docker.sock:/var/run/docker.sock:ro`, `scantor-traefik-acme:/acme`, `./traefik/dynamic:/etc/traefik/dynamic:ro` (file-provider dynamic configuration, empty by default, §7.4) |
+| volumes | `/var/run/docker.sock:/var/run/docker.sock:ro`, `${SCANTOR_TRAEFIK_ACME_DATA}:/acme` (default the volume `scantor-traefik-acme`, §5.1), `./traefik/dynamic:/etc/traefik/dynamic:ro` (file-provider dynamic configuration, empty by default, §7.4) |
 | env | `env_file: .env` (DNS provider credentials such as `CF_DNS_API_TOKEN`, §7.6) |
 | labels | the dashboard router and the shared `scantor-tools-auth` forwardAuth middleware (§7.5) |
 
@@ -329,26 +331,59 @@ attacker-influenced data, so never publish it any other way. Secrets in the URLs
 | `scantor-egress` | orchestrator boot (`NetworkCreate`, idempotent) | git workspace helpers, test-run containers | bridge, `com.docker.network.bridge.enable_icc=false`, managed labels, no services |
 | `scantor-workers` | remote node daemon | remote workers | bridge, `enable_icc=false` ([nodes](nodes.md) §6.8) |
 
-| Volume | Created by | Mounted into | Content | Back up? |
-|---|---|---|---|---|
-| `scantor-mongo-data`, `scantor-mongo-config` | compose | mongo | database | **yes** (§12) |
-| `scantor-rabbitmq-data` | compose | rabbitmq | queues, users, definitions | optional |
-| `scantor-rustfs-data` | compose | rustfs | bucket (snapshots, files, exports, uploads, logs) | **yes** |
-| `scantor-registry-data` | compose | registry | task images | **yes** |
-| `scantor-registry-auth` | compose | orchestrator (rw), registry (ro) | `jwks.json`, `http-secret` (derived; regenerated at boot) | no |
-| `scantor-editor-sockets` | compose | orchestrator (whole), editors (subpath `<userId>`) | code-server unix sockets | no |
-| `scantor-traefik-acme` | compose | traefik | `acme.json` (certificates, ACME account) | optional |
-| `scantor-workspaces` | orchestrator boot (`VolumeCreate`, idempotent) | editors and workspace helpers (subpath `<userId>`); `init`/`purge` helpers (whole) | user workspaces | **yes** |
-| `scantor-editor-home` | orchestrator boot | editors (subpath `<userId>`); `init`/`purge` helpers (whole) | per-user editor home (settings, shell history, caches) | yes |
-| `scantor-orchestrator-node-modules` | compose (dev only) | dev orchestrator | Linux `node_modules` kept off the host | no |
-| `scantor-test-runner-docker` | compose (tests only) | test runner | the DinD daemon's `/var/lib/docker` | no |
-| `scantor-test-runner-node-modules` | compose (tests only) | test runner | the runner's `node_modules` | no |
+| Volume | Created by | Mounted into | Content | Back up? | Location (§5.1) |
+|---|---|---|---|---|---|
+| `scantor-mongo-data`, `scantor-mongo-config` | compose | mongo | database | **yes** (§12) | `SCANTOR_MONGO_DATA`, `SCANTOR_MONGO_CONFIG_DATA` |
+| `scantor-rabbitmq-data` | compose | rabbitmq | queues, users, definitions | optional | `SCANTOR_RABBITMQ_DATA` |
+| `scantor-rustfs-data` | compose | rustfs | bucket (snapshots, files, exports, uploads, logs) | **yes** | `SCANTOR_RUSTFS_DATA` |
+| `scantor-registry-data` | compose | registry | task images | **yes** | `SCANTOR_REGISTRY_DATA` |
+| `scantor-registry-auth` | compose | orchestrator (rw), registry (ro) | `jwks.json`, `http-secret` (derived; regenerated at boot) | no | — |
+| `scantor-editor-sockets` | compose | orchestrator (whole), editors (subpath `<userId>`) | code-server unix sockets | no | — |
+| `scantor-traefik-acme` | compose | traefik | `acme.json` (certificates, ACME account) | optional | `SCANTOR_TRAEFIK_ACME_DATA` |
+| `scantor-workspaces` | orchestrator boot (`VolumeCreate`, idempotent) | editors and workspace helpers (subpath `<userId>`); `init`/`purge` helpers (whole) | user workspaces | **yes** | `SCANTOR_WORKSPACES_DATA` |
+| `scantor-editor-home` | orchestrator boot | editors (subpath `<userId>`); `init`/`purge` helpers (whole) | per-user editor home (settings, shell history, caches) | yes | `SCANTOR_EDITOR_HOME_DATA` |
+| `scantor-orchestrator-node-modules` | compose (dev only) | dev orchestrator | Linux `node_modules` kept off the host | no | — |
+| `scantor-test-runner-docker` | compose (tests only) | test runner | the DinD daemon's `/var/lib/docker` | no | — |
+| `scantor-test-runner-node-modules` | compose (tests only) | test runner | the runner's `node_modules` | no | — |
 
 Docker volume subpaths must exist before a container can mount them (verified: `cannot access path …
 no such file or directory`). The orchestrator creates `<userId>` directories through the `init` helper
 ([editor](editor.md) §9.4) and creates the socket directories directly in `scantor-editor-sockets`.
 `docker compose -f docker-compose.prod.yml down -v` removes the compose-created volumes, including the database. It never removes
-`scantor-workspaces` or `scantor-editor-home`, because compose did not create them.
+`scantor-workspaces` or `scantor-editor-home`, because compose did not create them, nor any data in a host directory (§5.1).
+
+### 5.1 Data locations
+
+Each service with persistent data has a `SCANTOR_*_DATA` variable (the "Location" column above; documented in
+the "DATA LOCATIONS" section of `.env.example`). Its default is the named volume of the same name. An absolute
+host path stores that service's data in the directory instead, set per service: for example MongoDB on
+`/mnt/disk1/mongo`, RabbitMQ on `/mnt/disk2/rabbitmq` and everything else in volumes.
+
+| Volumes | Mechanism | The directory |
+|---|---|---|
+| compose volumes (mongo, rabbitmq, rustfs, registry, traefik) | the variable is the mount source (`${SCANTOR_MONGO_DATA}:/data/db`): a volume name mounts the declared volume, a path is a bind mount; `lint-compose` keeps every persistent mount of these services on its variable ([testing](testing.md) §11) | is created by Docker when missing (owned by root) |
+| `scantor-workspaces`, `scantor-editor-home` | the orchestrator creates the volume at boot (step `docker-objects`), bound to the directory (local driver, `type=none`, `o=bind`, `device=<path>`), because editors and helpers mount volume subpaths, which bind mounts cannot do | must exist before the orchestrator starts (`sudo mkdir -p <path>`); its `<userId>` directories are created by the `init` helper as before |
+
+Ownership: mongod and RabbitMQ start as root and take ownership of their directory; the registry and Traefik run
+as root; RustFS runs as uid 10001, so its directory must be writable by it
+(`sudo chown 10001:10001 <path>`). Prefer local filesystems: MongoDB and RabbitMQ in particular are not meant
+for network filesystems such as NFS.
+
+A changed value never moves data. Moving a service to a directory:
+
+1. Stop the service (`docker compose -f docker-compose.prod.yml stop mongo`; for workspaces and editor homes,
+   stop the orchestrator and every editor container).
+2. Copy the volume's content:
+   `docker run --rm -v scantor-mongo-data:/from:ro -v /mnt/disk1/mongo:/to alpine:3.24 cp -a /from/. /to/`.
+3. Set the variable in `.env` and start again (`docker compose -f docker-compose.prod.yml up -d`). For the two
+   orchestrator volumes, remove the old volume first (`docker volume rm scantor-workspaces`): the orchestrator
+   refuses to start while an existing volume is not at the location its variable names (a plain volume while a
+   path is set, or another directory), naming the volume and this procedure, because switching silently would hide
+   the data. Compose volumes switch without a check, and the old volume stays until removed.
+
+Backups (§12) and `just backup` read the configured locations. `just prune` and `down -v` never delete a host
+directory; removing `scantor-workspaces` or `scantor-editor-home` with `docker volume rm` keeps the files in a bound
+directory as well.
 
 ## 6. The compose files
 
@@ -483,8 +518,8 @@ services:
     networks:
       - scantor
     volumes:
-      - scantor-mongo-data:/data/db
-      - scantor-mongo-config:/data/configdb
+      - ${SCANTOR_MONGO_DATA}:/data/db
+      - ${SCANTOR_MONGO_CONFIG_DATA}:/data/configdb
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${SCANTOR_MONGO_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${SCANTOR_MONGO_PASSWORD}
@@ -521,7 +556,7 @@ services:
       - scantor
       - scantor-sandbox
     volumes:
-      - scantor-rabbitmq-data:/var/lib/rabbitmq
+      - ${SCANTOR_RABBITMQ_DATA}:/var/lib/rabbitmq
     environment:
       - RABBITMQ_DEFAULT_USER=${SCANTOR_RABBITMQ_USER}
       - RABBITMQ_DEFAULT_PASS=${SCANTOR_RABBITMQ_PASSWORD}
@@ -558,7 +593,7 @@ services:
       - scantor
       - scantor-sandbox
     volumes:
-      - scantor-rustfs-data:/data
+      - ${SCANTOR_RUSTFS_DATA}:/data
     environment:
       - RUSTFS_ACCESS_KEY=${SCANTOR_S3_ACCESS_KEY}
       - RUSTFS_SECRET_KEY=${SCANTOR_S3_SECRET_KEY}
@@ -600,7 +635,7 @@ services:
     networks:
       - scantor
     volumes:
-      - scantor-registry-data:/var/lib/registry
+      - ${SCANTOR_REGISTRY_DATA}:/var/lib/registry
       - scantor-registry-auth:/run/scantor/registry-auth:ro
     environment:
       - OTEL_TRACES_EXPORTER=none
@@ -724,7 +759,7 @@ services:
       - scantor
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - scantor-traefik-acme:/acme
+      - ${SCANTOR_TRAEFIK_ACME_DATA}:/acme
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
     env_file:
       - .env
@@ -1206,14 +1241,15 @@ Plaintext is accepted automatically only for loopback, RFC 1918, CGNAT and ULA a
 |---|---|---|
 | `.env` | **critical**: without `SCANTOR_SECRET`, encrypted git credentials and config secrets cannot be recovered and every derived credential changes | keep an encrypted copy off the host |
 | MongoDB | **yes** | `(umask 077; docker exec scantor-mongo sh -c 'exec mongodump --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --oplog --archive --gzip' > mongo-$(date +%F).archive.gz)` (consistent while running; the credentials are the container's own environment, which compose sets from `SCANTOR_MONGO_USER`/`SCANTOR_MONGO_PASSWORD`: the host shell does not have them) |
-| RustFS (`scantor-rustfs-data`) | **yes** | stop `rustfs`, then `docker run --rm -v scantor-rustfs-data:/data:ro -v "$PWD:/backup" alpine:3.24 tar -czf /backup/rustfs.tgz -C /data .` (the justfile's pinned `alpine_image`, [development](development.md) §3), then start it again; or mirror the bucket to external S3 with `rustfs/rc` (`rc mirror`) while it runs |
+| RustFS (`scantor-rustfs-data`, or the directory of `SCANTOR_RUSTFS_DATA`, §5.1) | **yes** | stop `rustfs`, then `docker run --rm -v scantor-rustfs-data:/data:ro -v "$PWD:/backup" alpine:3.24 tar -czf /backup/rustfs.tgz -C /data .` (with a host directory, mount it instead of the volume) (the justfile's pinned `alpine_image`, [development](development.md) §3), then start it again; or mirror the bucket to external S3 with `rustfs/rc` (`rc mirror`) while it runs |
 | registry (`scantor-registry-data`) | **yes**: without it, ready revisions cannot be pulled again and must be republished | volume tar while no build is pushing (stop the orchestrator briefly, or accept a crash-consistent copy) |
 | workspaces (`scantor-workspaces`), editor homes (`scantor-editor-home`) | **yes** / optional | volume tar; stop editors first for consistency (`DELETE /api/editor` per user, or stop all editor containers) |
 | RabbitMQ | no | It holds only in-flight messages. After a restore with an empty broker, the reconciler recreates the topology. Analyses that were queued are detected by stall detection and recorded as `lost`. |
 | Traefik ACME (`scantor-traefik-acme`) | optional | certificates are reissued automatically (watch the Let's Encrypt rate limits) |
 
 `just backup <dir>` runs the MongoDB dump plus the volume tars in that order, stopping and starting
-`rustfs` and `registry` around their tars. It creates a missing `<dir>` with mode 0700 and writes every file
+`rustfs` and `registry` around their tars; it reads `SCANTOR_RUSTFS_DATA` and `SCANTOR_REGISTRY_DATA` from `.env`
+and archives the configured volume or directory (§5.1). It creates a missing `<dir>` with mode 0700 and writes every file
 with mode 0600, owned by the invoking user: the dump holds live session tokens (better-auth stores them in
 clear), password hashes and encrypted credentials, and the tars hold every user's files and exports. Keep
 manual copies just as private (`umask 077`). Restore: bring up an empty stack with the **same `.env`**,
@@ -1319,7 +1355,7 @@ rebuilt from its snapshot after the restart ([data model](data-model.md) §6.4).
 | every node, automatic | unreferenced task and base images, removed containers | node daemon ([nodes](nodes.md) §8) |
 | manual, safe | dangling images | `docker image prune -f` |
 | manual, safe | stopped scantor-managed containers | `docker container prune -f --filter label=scantor.managed=true` |
-| manual, **never** | `docker system prune --volumes`, `docker volume prune` | would delete workspaces, editor homes and databases |
+| manual, **never** | `docker system prune --volumes`, `docker volume prune` | would delete workspaces, editor homes and databases kept in volumes (data in host directories, §5.1, survives) |
 
 ### 14.3 Rotating infrastructure passwords after first init
 

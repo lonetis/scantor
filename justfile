@@ -670,6 +670,11 @@ prune:
     if [ -n "$ids" ]; then docker network rm $ids >/dev/null; fi
     ids="$(docker volume ls -q --filter label=com.docker.compose.project=scantor)"
     docker volume rm -f $ids scantor-workspaces scantor-editor-home >/dev/null
+    # Data locations set to host paths (docs/deployment.md §5.1) are the operator's: never deleted here.
+    if [ -f .env ]; then
+      kept="$(sed -n 's/^SCANTOR_[A-Z_]*_DATA=\(\/.*\)$/\1/p' .env)"
+      if [ -n "$kept" ]; then echo "==> Kept the data in the host directories of .env:"; printf '    %s\n' $kept; fi
+    fi
     echo "==> Deleting bin/ and .test-images/"
     rm -rf bin .test-images
 
@@ -700,7 +705,7 @@ registry-gc env="dev":
     echo "==> Collecting garbage"
     docker exec scantor-registry registry garbage-collect --delete-untagged /etc/distribution/config.yml
 
-# Back up MongoDB and the RustFS, registry, workspace and editor-home volumes into a directory
+# Back up MongoDB and the RustFS, registry, workspace and editor-home data (volumes or host paths) into a directory
 [group('maintenance')]
 backup dir:
     #!/usr/bin/env bash
@@ -712,11 +717,18 @@ backup dir:
     dir="$(cd "$1" && pwd)"
     stamp="$(date +%F)"
     owner="$(id -u):$(id -g)"
-    archive() { # volume file
+    archive() { # volume-or-path file
       docker run --rm -v "$1:/data:ro" -v "$dir:/backup" {{alpine_image}} \
         sh -euc 'umask 077; tar -czf "/backup/$1" -C /data . && chown "$2" "/backup/$1"' sh "$2" "$owner"
     }
-    archive_stopped() { # container volume file
+    # A service's data location (docs/deployment.md §5.1): its .env value (a volume name or a host path), else the
+    # named volume. `docker run -v` mounts either.
+    data_location() { # variable default
+      local value=""
+      if [ -f .env ]; then value="$(sed -n "s/^$1=//p" .env | tail -n 1)"; fi
+      printf '%s' "${value:-$2}"
+    }
+    archive_stopped() { # container volume-or-path file
       echo "==> Stopping $1"
       docker stop "$1" >/dev/null
       if ! archive "$2" "$3"; then docker start "$1" >/dev/null; return 1; fi
@@ -728,9 +740,10 @@ backup dir:
       --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --oplog --archive --gzip' \
       > "$dir/mongo-$stamp.archive.gz"
     echo "==> RustFS -> rustfs-$stamp.tgz"
-    archive_stopped scantor-rustfs scantor-rustfs-data "rustfs-$stamp.tgz"
+    archive_stopped scantor-rustfs "$(data_location SCANTOR_RUSTFS_DATA scantor-rustfs-data)" "rustfs-$stamp.tgz"
     echo "==> Registry -> registry-$stamp.tgz"
-    archive_stopped scantor-registry scantor-registry-data "registry-$stamp.tgz"
+    archive_stopped scantor-registry "$(data_location SCANTOR_REGISTRY_DATA scantor-registry-data)" "registry-$stamp.tgz"
+    # The orchestrator creates these two as named volumes, bound to a host path when one is configured.
     for volume in scantor-workspaces scantor-editor-home; do
       if docker volume inspect "$volume" >/dev/null 2>&1; then
         echo "==> $volume -> ${volume#scantor-}-$stamp.tgz"

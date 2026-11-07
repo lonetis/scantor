@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  BootAbortError,
   BootStoppedError,
   bootPhase,
   isBootComplete,
@@ -177,6 +178,21 @@ describe('retryUntil', () => {
     await expect(retryUntil('down', () => Promise.reject(new Error('still down')), { log, timeoutMs: 20, initialDelayMs: 5 })).rejects.toThrow(
       'still down',
     )
+  })
+
+  it('never retries a BootAbortError', async () => {
+    let attempts = 0
+    await expect(
+      retryUntil(
+        'refused',
+        () => {
+          attempts++
+          return Promise.reject(new BootAbortError('cannot start like this'))
+        },
+        { log, timeoutMs: 60_000, initialDelayMs: 1 },
+      ),
+    ).rejects.toThrow('cannot start like this')
+    expect(attempts).toBe(1)
   })
 
   it('stops retrying once the shutdown began', async () => {

@@ -11,6 +11,8 @@
 //     Traefik get `env_file: .env`;
 //   - no compose file (including the test runner's and the test stack override) gives a variable a default, except the
 //     image prefix fallback `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}`;
+//   - every persistent mount of the infrastructure services takes its source from its data-location variable
+//     (`${SCANTOR_MONGO_DATA}:/data/db`, …; docs/deployment.md §5.1), so each service's data can live at a host path;
 //   - every service of every compose file defines a healthcheck (and does not disable it).
 //
 // Needs the `yaml` package (tests/node_modules). Exports the rule function for security/compose-lint.spec.ts.
@@ -23,6 +25,15 @@ import { parse } from 'yaml'
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)))
 
 export const INFRASTRUCTURE_SERVICES = ['mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik']
+
+/** Persistent mounts of the infrastructure services: service → container path → the variable naming its source. */
+export const DATA_MOUNTS = {
+  mongo: { '/data/db': 'SCANTOR_MONGO_DATA', '/data/configdb': 'SCANTOR_MONGO_CONFIG_DATA' },
+  rabbitmq: { '/var/lib/rabbitmq': 'SCANTOR_RABBITMQ_DATA' },
+  rustfs: { '/data': 'SCANTOR_RUSTFS_DATA' },
+  registry: { '/var/lib/registry': 'SCANTOR_REGISTRY_DATA' },
+  traefik: { '/acme': 'SCANTOR_TRAEFIK_ACME_DATA' },
+}
 
 /** Container ports of admin GUIs and MongoDB that must only be published on the admin bind address. */
 const ADMIN_PORTS = { mongo: [27017], rabbitmq: [15672], rustfs: [9001], 'mongo-express': [8081] }
@@ -81,6 +92,12 @@ function serviceRules(name, compose) {
   for (const service of ['orchestrator', 'traefik']) {
     if (services[service] && !asList(services[service].env_file).some((f) => (typeof f === 'string' ? f : f?.path) === '.env')) {
       problems.push(`${name}: ${service} must have env_file .env`)
+    }
+  }
+  for (const [service, mounts] of Object.entries(DATA_MOUNTS)) {
+    const volumes = asList(services[service]?.volumes).map((volume) => (typeof volume === 'string' ? volume : `${volume?.source}:${volume?.target}`))
+    for (const [target, variable] of Object.entries(mounts)) {
+      if (!volumes.includes(`\${${variable}}:${target}`)) problems.push(`${name}: ${service} must mount ${target} from \${${variable}}`)
     }
   }
   return problems

@@ -152,6 +152,11 @@ export interface Config {
   editorCpus: number
   editorPidsLimit: number
   editorTmpfsSizeBytes: number
+  // data locations (docs/deployment.md §5.1)
+  /** host directory the volume scantor-workspaces is bound to; null = a plain named volume */
+  workspacesPath: string | null
+  /** host directory the volume scantor-editor-home is bound to; null = a plain named volume */
+  editorHomePath: string | null
   // workspace helpers
   workspaceMaxBytes: number
   helperConcurrency: number
@@ -196,6 +201,18 @@ const integer = (min: number, max = Number.MAX_SAFE_INTEGER) => fromParser(parse
 const decimal = (min: number, max: number) =>
   z.string().regex(/^\d+(\.\d+)?$/, 'must be a decimal number').transform(Number).pipe(z.number().min(min).max(max))
 const nonEmpty = () => z.string().trim().min(1, 'must not be empty')
+/**
+ * Where a volume the orchestrator creates keeps its data: its own name (the default) means a plain named volume
+ * (null); an absolute host path binds the volume to that directory.
+ */
+const dataLocation = (volume: string) =>
+  fromParser((value): string | null => {
+    const trimmed = value.trim()
+    if (trimmed === volume) return null
+    const path = trimmed.replace(/\/+$/, '')
+    if (!path.startsWith('/') || path.split('/').includes('..')) throw new Error(`must be ${volume} or an absolute host path other than /`)
+    return path
+  })
 const oneOf = <T extends string>(values: readonly [T, ...T[]]) => z.string().trim().pipe(z.enum(values))
 
 function parseUrl(value: string, protocols: string[]): URL {
@@ -477,6 +494,10 @@ const VARIABLES = {
   editorCpus: v('SCANTOR_EDITOR_CPUS', '2', decimal(0.1, 1024)),
   editorPidsLimit: v('SCANTOR_EDITOR_PIDS_LIMIT', '1024', integer(16, 1_000_000)),
   editorTmpfsSizeBytes: v('SCANTOR_EDITOR_TMPFS_SIZE', '512MiB', byteSize(1024 ** 2)),
+
+  // An invalid value aborts startup: the default would put the data into a volume instead of the chosen directory.
+  workspacesPath: v('SCANTOR_WORKSPACES_DATA', 'scantor-workspaces', dataLocation('scantor-workspaces'), true),
+  editorHomePath: v('SCANTOR_EDITOR_HOME_DATA', 'scantor-editor-home', dataLocation('scantor-editor-home'), true),
 
   workspaceMaxBytes: v('SCANTOR_WORKSPACE_MAX_BYTES', '2GiB', byteSize(1)),
   helperConcurrency: v('SCANTOR_HELPER_CONCURRENCY', '8', integer(1, 1000)),

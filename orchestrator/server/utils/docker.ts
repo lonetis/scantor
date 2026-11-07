@@ -1,4 +1,5 @@
 import Docker from 'dockerode'
+import { BootAbortError } from './boot'
 import { useConfig } from './config'
 import { managedLabels } from './labels'
 import { type Logger, useLogger } from './logger'
@@ -84,17 +85,52 @@ export async function ensureEgressNetwork(log: Logger = useLogger('docker')): Pr
   }
 }
 
-/** Ensures a named volume (idempotent: VolumeCreate returns the existing volume). */
-export async function ensureVolume(name: string, log: Logger = useLogger('docker')): Promise<void> {
+/** Where a volume keeps its data (docs/deployment.md §5.1): the variable that configures it and its host directory. */
+export interface VolumeLocation {
+  /** the configuring variable, named in errors */
+  variable: string
+  /** host directory the volume is bound to; null = a plain named volume */
+  path: string | null
+}
+
+/** An existing volume whose data lives elsewhere than its variable says: only the operator can move the data. */
+export class VolumeLocationError extends BootAbortError {}
+
+/** The host directory a volume is bound to (local driver, `type=none`, `o=bind`), or null for a plain volume. */
+export function volumeBindPath(volume: { Driver?: string; Options?: Record<string, string> | null }): string | null {
+  const options = volume.Options ?? {}
+  const bind = (options.o ?? '').split(',').includes('bind')
+  if (volume.Driver !== 'local' || options.type !== 'none' || !bind || !options.device) return null
+  return options.device.length > 1 ? options.device.replace(/\/+$/, '') : options.device
+}
+
+/**
+ * Ensures a named volume at its configured location. A missing volume is created, bound to `location.path` when one
+ * is set (the directory must exist on the Docker host; mounting fails otherwise). An existing volume must already be
+ * at that location: switching it would hide its data, so a mismatch refuses the start with VolumeLocationError.
+ */
+export async function ensureVolume(name: string, location: VolumeLocation, log: Logger = useLogger('docker')): Promise<void> {
   const client = useDocker()
+  let existing: Docker.VolumeInspectInfo | null = null
   try {
-    await client.getVolume(name).inspect()
-    return
+    existing = await client.getVolume(name).inspect()
   } catch (error) {
     if (!isStatus(error, 404)) throw error
   }
-  await client.createVolume({ Name: name })
-  log.info('created volume', { volume: name })
+  if (existing) {
+    const current = volumeBindPath(existing)
+    if (current === location.path) return
+    const is = current ? `is bound to ${current}` : 'is a plain Docker volume'
+    const wants = location.path ? `the directory ${location.path}` : `a plain Docker volume`
+    throw new VolumeLocationError(
+      `volume ${name} ${is}, but ${location.variable} asks for ${wants}: copy its data to the new location, remove the ` +
+        `volume (docker volume rm ${name}) and start again (docs/deployment.md §5.1)`,
+    )
+  }
+  await client.createVolume(
+    location.path ? { Name: name, Driver: 'local', DriverOpts: { type: 'none', o: 'bind', device: location.path } } : { Name: name },
+  )
+  log.info('created volume', { volume: name, path: location.path })
 }
 
 /** Pulls an image in the background, logging the outcome; used for the editor image at boot. */

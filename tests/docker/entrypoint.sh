@@ -14,6 +14,8 @@ readonly ca_dir=$stack_dir/ca
 readonly dynamic_dir=$stack_dir/traefik/dynamic
 readonly env_file=$stack_dir/.env
 readonly ready_file=$stack_dir/ready
+# Parent of the data locations stack.env sets to host paths (SCANTOR_*_DATA, docs/deployment.md §5.1).
+readonly data_dir=/var/lib/scantor-test-data
 readonly profile_file=/etc/profile.d/scantor-test.sh
 readonly dockerd_log=/var/log/dockerd.log
 # The runner's docker0 address (daemon.json "bip"): every *.<domain> name resolves to it.
@@ -84,6 +86,7 @@ remove_stack() {
   ids="$(docker volume ls -q --filter "label=com.docker.compose.project=$project")" || failed=1
   # shellcheck disable=SC2086
   docker volume rm -f $ids scantor-workspaces scantor-editor-home >/dev/null || failed=1
+  rm -rf "$data_dir" || failed=1
   ids="$( {
     docker images --format '{{.Repository}}\t{{.Tag}}' | awk -F'\t' '$1 ~ /(^|\/)tasks\// && $2 != "<none>" { print $1 ":" $2 }'
     docker images -q --filter label=scantor.test=true
@@ -336,6 +339,12 @@ write_env() {
 write_env
 # The env file's value of a key (unquoted values only).
 env_value() { sed -n "s/^$1=//p" "$env_file" | tail -n 1; }
+
+# Data locations at host paths: compose creates missing bind sources itself, but a volume the orchestrator binds to a
+# directory needs it to exist.
+while IFS= read -r path; do
+  mkdir -p "$path"
+done < <(sed -n 's/^SCANTOR_[A-Z_]*_DATA=\(\/.*\)$/\1/p' "$env_file")
 
 # ── Phase 8: the stack ──────────────────────────────────────────────────────────────────────────────
 log "Phase 8: starting the stack (docker-compose.prod.yml + stack.tests.yml, project $project)"

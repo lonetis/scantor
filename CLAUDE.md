@@ -115,6 +115,9 @@ Run the narrowest suite first (`just test-go ./internal/taskpipe/...`, `just tes
   scantor creates sets one in its spec (runtime containers `container.RuntimeHealthcheck` in Go and
   `RUNTIME_HEALTHCHECK` in `server/utils/docker.ts`, the editor `EDITOR_HEALTHCHECK`), one-shot containers set
   `NONE`. Health is informational: nothing restarts a container because of it.
+- **Data locations**: every persistent volume has a `SCANTOR_*_DATA` variable (default the volume name, or a host
+  path): compose mounts use it as the source (`lint-compose`), the orchestrator binds `scantor-workspaces` and
+  `scantor-editor-home` to the path ([docs/deployment.md](docs/deployment.md) §5.1). A new data volume gets one too.
 - **One `<Dockerfile>.dockerignore` per image** outside the root (`orchestrator/`, `editor/`,
   `connectors/<base>/`); the root `.dockerignore` serves only the root `Dockerfile`. All images are
   defined in `docker-bake.hcl`.

@@ -415,6 +415,7 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
 | `SCANTOR_TRANCO_URL` / `SCANTOR_CRUX_URL` / `SCANTOR_CRUX_CACHE_URL` | `http://fixtures.scantor.localhost:8089/tranco` / `…/crux` / `…/crux-cache` | no internet data sources |
 | `SCANTOR_GIT_ALLOW_PRIVATE` | `true` | git import from the fixtures server |
 | `SCANTOR_NTFY_URL` | `http://fixtures.scantor.localhost:8089/ntfy` | push notifications reach the fixtures server's ntfy fake, never ntfy.sh |
+| `SCANTOR_REGISTRY_DATA` / `SCANTOR_WORKSPACES_DATA` | `/var/lib/scantor-test-data/registry` / `…/workspaces` | both data-location mechanisms run in the suite ([deployment](deployment.md) §5.1): a bind mount for a compose service and a bound volume of the orchestrator; every other service keeps its volume. The entrypoint creates these runner directories after writing `.env` and removes them with the stack; throwaway orchestrators (§8.6) keep plain volumes on their private Docker |
 | `SCANTOR_AUTH_RATE_LIMIT_SCALE` | `10000` | the whole suite signs in from one IP, and better-auth's per-IP limiter is a fixed window that resets only after a quiet minute, so under continuous sign-ins any finite budget eventually answers 429; `security/rate-limits.spec.ts` checks the real limits on a throwaway orchestrator (scale 1) |
 | `SCANTOR_NODE_OFFLINE_AFTER` | `20s` | partition chaos case finishes quickly |
 | `SCANTOR_SCAN_QUEUE_MAX_READY` | `500` | every scan exercises scheduler backpressure |

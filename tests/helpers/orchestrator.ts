@@ -376,6 +376,9 @@ export class ThrowawayOrchestrator {
       SCANTOR_LOG_FORMAT: 'json',
       // The production limits: the stack's multiplier exists only because the suite shares one client IP.
       SCANTOR_AUTH_RATE_LIMIT_SCALE: '1',
+      // Plain volumes on the private Docker daemon: the stack's data directories exist only on the runner.
+      SCANTOR_WORKSPACES_DATA: 'scantor-workspaces',
+      SCANTOR_EDITOR_HOME_DATA: 'scantor-editor-home',
     }
   }
 

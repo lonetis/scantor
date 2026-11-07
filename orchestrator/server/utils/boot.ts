@@ -242,7 +242,7 @@ export interface RetryOptions {
 /**
  * Runs `fn` until it succeeds or `timeoutMs` has passed, then rethrows the last error. Boot steps use it for
  * dependencies that may still be starting (S3, RabbitMQ, the Docker daemon); each failure is logged. Once the shutdown
- * began it rethrows at once instead of retrying.
+ * began it rethrows at once instead of retrying, and so does a BootAbortError (a refusal no retry can fix).
  */
 export async function retryUntil<T>(what: string, fn: () => Promise<T>, options: RetryOptions): Promise<T> {
   const deadline = Date.now() + (options.timeoutMs ?? 60_000)
@@ -251,7 +251,7 @@ export async function retryUntil<T>(what: string, fn: () => Promise<T>, options:
     try {
       return await fn()
     } catch (error) {
-      if (Date.now() + delay > deadline || shutdownSignal().aborted) throw error
+      if (error instanceof BootAbortError || Date.now() + delay > deadline || shutdownSignal().aborted) throw error
       options.log.warn(`${what} failed; retrying`, { attempt, retryInMs: delay, err: error })
       await new Promise((resolve) => setTimeout(resolve, delay))
       delay = Math.min(delay * 2, 5000)
