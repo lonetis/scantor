@@ -13,7 +13,7 @@ COPY internal ./internal
 COPY schemas ./schemas
 COPY scaffolds ./scaffolds
 COPY docs/guide ./docs/guide
-COPY tests/docker/fixtures/main.go ./tests/docker/fixtures/
+COPY tests/docker/fixtures/main.go tests/docker/fixtures/ntfy.go ./tests/docker/fixtures/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/scantor-test-fixtures ./tests/docker/fixtures

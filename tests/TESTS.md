@@ -10,7 +10,7 @@ test-index --check`); never edit it by hand.
 
 ## Playwright projects
 
-### api (250 tests)
+### api (254 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -30,6 +30,7 @@ test-index --check`); never edit it by hand.
 | `api/metrics.spec.ts` | GET /api/metrics | 4 |
 | `api/node-api.spec.ts` | hello; instance lease; assignments; removing a node; node detail | 11 |
 | `api/nodes.spec.ts` | listing nodes; creating nodes; join instructions; updating nodes; node tokens; the built-in node | 11 |
+| `api/notifications.spec.ts` | notifications | 4 |
 | `api/registry-token.spec.ts` | token flows; granted access; errors; grant lifetime | 7 |
 | `api/revisions.spec.ts` | publish; ready and failed revisions; list and get | 9 |
 | `api/runtime-api.spec.ts` | bootstrap; uploads; redelivery status; error reports; worker scope; scheduler routes | 8 |
@@ -120,13 +121,13 @@ test-index --check`); never edit it by hand.
 | `e2e/templates.spec.ts` | template single; template list; template range; template repeat; template tranco; template crux; template cidr; wrapped templates; resolution on resume; test runs and template data; data sources | 18 |
 | `e2e/workers.spec.ts` | crash loops and memory; drain and stop; process slots; image pulls | 11 |
 
-### ui (244 tests)
+### ui (245 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
 | `ui/a11y.spec.ts` | dashboard accessibility | 18 |
 | `ui/access.spec.ts` | CLI & MCP access: API keys; CLI & MCP access: downloads and MCP; CLI & MCP access: authorized apps; CLI & MCP access: revoking a real authorized app | 9 |
-| `ui/account.spec.ts` | account page of the tenant; account changes | 6 |
+| `ui/account.spec.ts` | account page of the tenant; account changes | 7 |
 | `ui/admin-nodes.spec.ts` | nodes table; adding a node; node actions; node page | 11 |
 | `ui/admin-tools.spec.ts` | infrastructure tools; API links, health and jobs | 8 |
 | `ui/admin-users.spec.ts` | users table; creating and editing users; banning and deleting users | 8 |
@@ -224,6 +225,10 @@ test-index --check`); never edit it by hand.
 | ACCT-010 | GET /api/account/api-keys lists only the caller's keys (admins included), newest first, with id, … | api/api-keys.spec.ts › API keys › listing shows only the caller’s keys, newest first, filtered by configuration |
 | ACCT-011 | DELETE /api/account/api-keys/{keyId} returns 204 and the deleted key gets 401 afterwards; another … | api/api-keys.spec.ts › API keys › a deleted key stops working and other users cannot delete it |
 | ACCT-012 | An expired API key gets 401 and is deleted. | api/api-keys.spec.ts › API keys › an expired key gets 401 and is deleted |
+| NOTIF-001 | GET /api/account/notifications returns {available, ntfy: {server, enabled, topic, tokenSet, … | api/notifications.spec.ts › notifications › GET /api/account/notifications returns the defaults and the instance server |
+| NOTIF-002 | PATCH /api/account/notifications {ntfy: {enabled?, topic?, token?, triggers?}} merges: omitted … | api/notifications.spec.ts › notifications › PATCH /api/account/notifications merges, keeps the token write-only and validates |
+| NOTIF-003 | POST /api/account/notifications/test publishes a test message to the saved topic and returns … | api/notifications.spec.ts › notifications › POST /api/account/notifications/test reports what the ntfy server answered |
+| NOTIF-004 | With the channel enabled, a ready revision and a completed scan publish "Revision ready" (linking … | api/notifications.spec.ts › notifications › revision builds and finished scans notify the subscribed owner |
 | USER-001 | GET /api/users (admin) returns Page<User> newest first; ?q filters by a case-insensitive substring … | api/users.spec.ts › users › listing is admin only, newest first, filtered by email or name and carries usage |
 | USER-002 | POST /api/users {email, name, password?, role?, canRunPrivileged?, maxWorkers?} returns 201; the … | api/users.spec.ts › users › creating a user lowercases the email, applies defaults and refuses duplicates |
 | USER-003 | A user created with a password can sign in with it; a user created without one cannot sign in until … | api/users.spec.ts › users › a password set by an admin enables sign-in, replaces the old one and revokes sessions<br>security/auth-endpoints.spec.ts › sessions › the session cookie is host-only and secure, the client IP is never taken from client headers, and sign-out clears the tools cookie |
@@ -815,12 +820,12 @@ test-index --check`); never edit it by hand.
 | UI-ADMIN-012 | Deleting a user requires typing their email, shows the purge job's progress on the row, and removes … | ui/admin-users.spec.ts › banning and deleting users › Delete needs the email, shows the purge job on the row and removes it with "User deleted"<br>ui/admin-users.spec.ts › banning and deleting users › a failed purge job shows a toast and unlocks the row for another try<br>ui/admin-users.spec.ts › banning and deleting users › a cancelled purge job shows a toast and unlocks the row for another try |
 | UI-ADMIN-013 | With Traefik, the admin tools page shows cards for RabbitMQ management, mongo-express, the RustFS … | ui/admin-tools.spec.ts › infrastructure tools › "Open RabbitMQ management" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open mongo-express" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open RustFS console" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open Traefik dashboard" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › without Traefik the page says so and shows the bind address instead of links |
 | UI-ADMIN-014 | The admin tools page links the API reference, the OpenAPI document and the metrics, and shows the … | ui/admin-tools.spec.ts › API links, health and jobs › links the API reference, the OpenAPI document and the metrics<br>ui/admin-tools.spec.ts › API links, health and jobs › shows the health report, also when it answers 503<br>ui/admin-tools.spec.ts › API links, health and jobs › the jobs table lists other users' jobs, filters by kind and state and puts failed jobs first |
-| UI-ACCT-001 | The account page has Profile, Password, Passkeys, Sessions and Editor sections that load and fail … | ui/account.spec.ts › account page of the tenant › has Profile, Password, Passkeys, Sessions and Editor sections that load and fail on their own<br>ui/account.spec.ts › account page of the tenant › a failed account load offers "Retry" |
+| UI-ACCT-001 | The account page has Profile, Password, Passkeys, Sessions, Notifications and Editor sections that … | ui/account.spec.ts › account page of the tenant › has Profile, Password, Passkeys, Sessions, Notifications and Editor sections that load and fail on their own<br>ui/account.spec.ts › account page of the tenant › a failed account load offers "Retry" |
 | UI-ACCT-002 | The profile saves the name ("Saved") and changes the email ("Email changed"), and shows role, … | ui/account.spec.ts › account changes › the profile saves the name, changes the email and shows role and limits |
 | UI-ACCT-003 | Changing the password takes the current one, a new one and its confirmation, signs out other … | ui/account.spec.ts › account changes › changing the password checks the current one and signs out other sessions by default |
 | UI-ACCT-004 | A passkey-only account sets a password ("Password set"); "Remove password" appears only with a … | ui/passkeys.spec.ts › passkeys › add, rename and remove passkeys; remove and set the password; the last way to sign in stays |
 | UI-ACCT-005 | The passkeys section lists passkeys (name or "Unnamed passkey", added time, synced or … | ui/passkeys.spec.ts › passkeys › add, rename and remove passkeys; remove and set the password; the last way to sign in stays |
-| UI-ACCT-006 | The sessions section lists device, IP and sign-in time with "this browser" first, signs out a … | ui/account.spec.ts › account page of the tenant › has Profile, Password, Passkeys, Sessions and Editor sections that load and fail on their own<br>ui/account.spec.ts › account changes › the sessions section lists sessions with this browser first and signs out one or all others |
+| UI-ACCT-006 | The sessions section lists device, IP and sign-in time with "this browser" first, signs out a … | ui/account.spec.ts › account page of the tenant › has Profile, Password, Passkeys, Sessions, Notifications and Editor sections that load and fail on their own<br>ui/account.spec.ts › account changes › the sessions section lists sessions with this browser first and signs out one or all others |
 | UI-ACCT-007 | The account's editor section shows the editor state, opens /editor, stops the editor after … | ui/editor.spec.ts › editor of a fresh user › an editor stopped elsewhere disappears, one restarted elsewhere is reloaded with a fresh session; the account section stops it<br>ui/editor.spec.ts › editor page states › the account section shows "The last start failed" after a failed start |
 | UI-ACCT-008 | CLI & MCP access lists default keys (name, prefix, created, expiry, last use, enabled) and the … | ui/access.spec.ts › CLI & MCP access: API keys › the key table lists default keys with their facts, and editor keys separately<br>ui/access.spec.ts › CLI & MCP access: API keys › "Create key" validates the name and expiry and creates the key with the chosen expiry |
 | UI-ACCT-009 | A new key is revealed once (data-testid=secret-value) with the SCANTOR_URL/SCANTOR_TOKEN … | ui/access.spec.ts › CLI & MCP access: API keys › a new key is revealed once with its snippets, works for the API, the CLI and MCP, and a two-step delete revokes it |
@@ -830,6 +835,7 @@ test-index --check`); never edit it by hand.
 | UI-ACCT-013 | The git credentials page lists name, host, username, the token as ••••<last4>, last use and created … | ui/credentials.spec.ts › git credentials page › the table lists name, host, username, the token as ••••last4, last use and creation |
 | UI-ACCT-014 | "New credential" takes name, host (host[:port] without scheme), username (default x-access-token) … | ui/credentials.spec.ts › git credentials page › creates, edits (keeping the token when the field is empty) and deletes in two steps |
 | UI-ACCT-015 | A saved credential is offered in the git import form and makes the import of a private repository … | ui/credentials.spec.ts › git credentials page › a saved credential is offered in the git import form and imports a private repository |
+| UI-ACCT-016 | The notifications section links the instance's ntfy server, refuses to turn on without a topic … | ui/account.spec.ts › account changes › the notifications section saves a topic and a write-only token and sends a test notification |
 | UI-SEC-001 | Every dashboard response, static assets included, and every /api response carries a CSP with … | ui/headers.spec.ts › dashboard security headers › every dashboard and /api response carries the required headers<br>ui/headers.spec.ts › dashboard security headers › documents and /api answers send HSTS on https<br>ui/headers.spec.ts › dashboard security headers › static assets send HSTS on https as well |
 | UI-SEC-002 | /login, /setup and /oauth/consent send frame-ancestors 'none' and Cache-Control: no-store. | ui/headers.spec.ts › dashboard security headers › /login, /setup and /oauth/consent are never framed or cached |
 | UI-SEC-003 | No page logs a CSP violation, and the production script-src never contains unsafe-eval. | ui/headers.spec.ts › dashboard security headers › script-src never allows eval on any page<br>ui/headers.spec.ts › dashboard security headers › no page logs a CSP violation |
@@ -952,6 +958,12 @@ None.
 - `orchestrator/test/services/nodes/schemas.test.ts`
 - `orchestrator/test/services/nodes/status.test.ts`
 - `orchestrator/test/services/nodes/transport.test.ts`
+- `orchestrator/test/services/notifications/delivery.test.ts`
+- `orchestrator/test/services/notifications/messages.test.ts`
+- `orchestrator/test/services/notifications/ntfy.test.ts`
+- `orchestrator/test/services/notifications/settings.test.ts`
+- `orchestrator/test/services/notifications/test-message.test.ts`
+- `orchestrator/test/services/notifications/triggers.test.ts`
 - `orchestrator/test/services/pipeline/events.test.ts`
 - `orchestrator/test/services/pipeline/snapshot.test.ts`
 - `orchestrator/test/services/pipeline/task-build.integration.test.ts`
@@ -1003,6 +1015,7 @@ None.
 - `orchestrator/test/services/uploads/uploads.test.ts`
 - `orchestrator/test/shared/error-codes.test.ts`
 - `orchestrator/test/shared/git-url.test.ts`
+- `orchestrator/test/shared/notifications.test.ts`
 - `orchestrator/test/shared/scan-actions.test.ts`
 - `orchestrator/test/shared/slug.test.ts`
 - `orchestrator/test/ui/analyses.test.ts`
@@ -1048,6 +1061,7 @@ None.
 - `orchestrator/test/utils/credential-lookup.test.ts`
 - `orchestrator/test/utils/env-values.test.ts`
 - `orchestrator/test/utils/errors.test.ts`
+- `orchestrator/test/utils/event-sinks.test.ts`
 - `orchestrator/test/utils/health.test.ts`
 - `orchestrator/test/utils/instance-info.test.ts`
 - `orchestrator/test/utils/internal-auth.test.ts`

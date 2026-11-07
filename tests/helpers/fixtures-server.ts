@@ -5,7 +5,8 @@ import { env } from './env'
 // The fixtures server of the test stack (tests/docker/fixtures, docs/testing.md §7.9): Tranco and CrUX fakes on
 // http://fixtures.<domain>:8089 and read-only git repositories on https://git.<domain> (through Traefik with the test
 // CA). Pull tests copy a repository per test and move the copy's main branch through the control API. The server logs
-// every request as one JSON line, which `fixturesRequests` reads back.
+// every request as one JSON line, which `fixturesRequests` reads back. Its ntfy fake records the push notifications
+// the orchestrator publishes per topic (`ntfyMessages`).
 
 export const FIXTURES_URL = `http://fixtures.${env.domain}:8089`
 export const GIT_URL = `https://git.${env.domain}`
@@ -60,4 +61,32 @@ export async function fixturesRequests(since: Date): Promise<FixturesRequest[]> 
     .filter((line) => line.startsWith('{'))
     .map((line) => JSON.parse(line) as FixturesRequest & { msg: string })
     .filter((entry) => entry.msg === 'request')
+}
+
+/** The ntfy fake behind SCANTOR_NTFY_URL (tests/docker/fixtures/ntfy.go). */
+export const NTFY_URL = `${FIXTURES_URL}/ntfy`
+
+/** The access token of the fake's `protected-*` topics (tests/docker/fixtures/ntfy.go has the same value). */
+export const NTFY_TOKEN = 'tk_fixtures-ntfy-token'
+
+/** One message the ntfy fake received. */
+export interface NtfyMessage {
+  id: string
+  time: string
+  topic: string
+  title: string
+  message: string
+  priority: number
+  tags: string[] | null
+  click: string
+  /** whether it carried `Bearer <NTFY_TOKEN>` */
+  authorized: boolean
+  userAgent: string
+}
+
+/** The messages the ntfy fake received on `topic`, oldest first. */
+export async function ntfyMessages(request: APIRequestContext, topic: string): Promise<NtfyMessage[]> {
+  const response = await request.get(`${FIXTURES_URL}/control/ntfy/${topic}`)
+  if (response.status() !== 200) throw new Error(`reading the ntfy topic ${topic} failed: ${response.status()} ${await response.text()}`)
+  return ((await response.json()) as NtfyMessage[] | null) ?? []
 }

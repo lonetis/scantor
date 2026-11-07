@@ -1,5 +1,8 @@
 import type { Page } from '@playwright/test'
+import type { NotificationSettings } from '#shared/types/notifications'
 import { ok } from '../helpers/api-client'
+import { stackValue } from '../helpers/api-auth'
+import { NTFY_TOKEN, ntfyMessages } from '../helpers/fixtures-server'
 import {
   alertBox,
   deleteApiKeysNamed,
@@ -19,9 +22,9 @@ import { expect, test as base, unique } from '../fixtures'
 // requests sent from Node (helpers/ui-shell-tasks.ts).
 const test = base.extend({ user: [workerTenant, { scope: 'worker' }], freshUserHandle: freshTenantHandle, context: nodeRoutedContext })
 
-// The account page (docs/ui.md §5.17): sections that load and fail independently, the profile, the password and the
-// sessions. Account-level changes run on `freshUser`; the worker's tenant only reads. The editor section is covered with
-// the editor (ui/editor.spec.ts) and the passkeys section in ui/passkeys.spec.ts.
+// The account page (docs/ui.md §5.17): sections that load and fail independently, the profile, the password, the
+// sessions and the push notifications. Account-level changes run on `freshUser`; the worker's tenant only reads. The
+// editor section is covered with the editor (ui/editor.spec.ts) and the passkeys section in ui/passkeys.spec.ts.
 
 function section(page: Page, heading: string) {
   return page.locator('section', { has: page.getByRole('heading', { name: heading, exact: true }) })
@@ -29,12 +32,12 @@ function section(page: Page, heading: string) {
 
 test.describe('account page of the tenant', () => {
   test(
-    'has Profile, Password, Passkeys, Sessions and Editor sections that load and fail on their own',
+    'has Profile, Password, Passkeys, Sessions, Notifications and Editor sections that load and fail on their own',
     { tag: ['@UI-ACCT-001', '@UI-ACCT-006'] },
     async ({ page, user }) => {
       await page.route('**/api/auth/list-sessions', (route) => fulfillJson(route, { message: 'sessions are down' }, 500))
       await openPage(page, '/account')
-      for (const heading of ['Profile', 'Password', 'Passkeys', 'Sessions', 'Editor']) {
+      for (const heading of ['Profile', 'Password', 'Passkeys', 'Sessions', 'Notifications', 'Editor']) {
         await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
       }
       // The sessions failure stays inside its section.
@@ -138,6 +141,41 @@ test.describe('account changes', () => {
     expect(ok(await freshApi.getAccount(), 'getAccount').email).toBe(newEmail)
     await expect(page.getByTestId('user-menu')).toContainText(newName)
   })
+
+  test(
+    'the notifications section saves a topic and a write-only token and sends a test notification',
+    { tag: ['@UI-ACCT-016'] },
+    async ({ page, freshApi, request }) => {
+      await openPage(page, '/account')
+      const notifications = section(page, 'Notifications')
+      await expect(notifications.getByRole('link', { name: stackValue('SCANTOR_NTFY_URL') })).toBeVisible()
+      const send = notifications.getByRole('button', { name: 'Send test notification' })
+      await expect(send).toBeDisabled()
+      // Users never see the admin-only trigger.
+      await expect(notifications.getByRole('checkbox', { name: 'Node availability' })).toHaveCount(0)
+
+      await notifications.getByRole('switch', { name: 'Send push notifications' }).click()
+      await notifications.getByRole('button', { name: 'Save notifications' }).click()
+      await expect(notifications.getByText('Enter a topic to turn notifications on')).toBeVisible()
+
+      const topic = `protected-${unique('n')}`
+      await notifications.getByRole('textbox', { name: 'ntfy topic' }).fill(topic)
+      await notifications.getByLabel('Access token').fill(NTFY_TOKEN)
+      await notifications.getByRole('checkbox', { name: 'Revision built' }).check()
+      await notifications.getByRole('button', { name: 'Save notifications' }).click()
+      await expect(notifications.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible()
+      const saved = ok(await freshApi.call<NotificationSettings>('getNotificationSettings'), 'getNotificationSettings')
+      expect(saved.ntfy).toMatchObject({ enabled: true, topic, tokenSet: true, triggers: ['scanFinished', 'scanPaused', 'scanProblem', 'revisionBuilt'] })
+      // The token field stays empty after the save; the stored token is only announced.
+      await expect(notifications.getByLabel('Access token')).toHaveValue('')
+      await expect(notifications.getByText('A token is stored. Enter a new one to replace it.')).toBeVisible()
+      await expect(notifications.getByTestId('ntfy-subscribe-url')).toHaveText(`${stackValue('SCANTOR_NTFY_URL')}/${topic}`)
+
+      await send.click()
+      await expect(notifications.getByRole('status').filter({ hasText: 'Test notification sent' })).toBeVisible()
+      expect((await ntfyMessages(request, topic)).map((message) => [message.title, message.authorized])).toEqual([['scantor test notification', true]])
+    },
+  )
 
   test('changing the password checks the current one and signs out other sessions by default', { tag: ['@UI-ACCT-003'] }, async ({ page, freshUser }) => {
     const other = await signedInContextWithRetry(freshUser.email, freshUser.password)

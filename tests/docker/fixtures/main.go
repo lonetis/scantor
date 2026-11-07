@@ -9,7 +9,9 @@
 //     /srv/git; Traefik serves them as https://git.<domain>/<name>.git with the test CA's certificate.
 //     Repositories whose name starts with "private" require Basic auth with the fixed test credential;
 //   - /control/repos: per-test copies of a repository and moves of a copy's main branch, so pull tests
-//     (fast-forward, divergence) never share state.
+//     (fast-forward, divergence) never share state;
+//   - /ntfy/ and /control/ntfy/{topic}: the ntfy fake (ntfy.go) behind SCANTOR_NTFY_URL, which records the
+//     push notifications the orchestrator publishes.
 package main
 
 import (
@@ -59,6 +61,9 @@ func main() {
 	mux.Handle("GET /healthz", data)
 	mux.HandleFunc("POST /control/repos", copyRepo)
 	mux.HandleFunc("POST /control/repos/{name}/main", moveMain)
+	ntfy := newNtfyStore()
+	mux.HandleFunc("POST /ntfy/{$}", ntfy.publish)
+	mux.HandleFunc("GET /control/ntfy/{topic}", ntfy.messages)
 	mux.Handle("/", gitHandler())
 
 	server := &http.Server{

@@ -110,6 +110,15 @@ Mechanisms: [api](../docs/api.md) §4.3, [auth](../docs/auth.md) §6.4, §8.
 - **ACCT-011** [api] `DELETE /api/account/api-keys/{keyId}` returns 204 and the deleted key gets 401 afterwards; another user's key id returns 404.
 - **ACCT-012** [api] An expired API key gets 401 and is deleted.
 
+## NOTIF. Push notifications
+
+Mechanisms: [api](../docs/api.md) §4.3, [architecture](../docs/architecture.md) §11.6, [data model](../docs/data-model.md) §4.17.
+
+- **NOTIF-001** [api] `GET /api/account/notifications` returns `{available, ntfy: {server, enabled, topic, tokenSet, triggers, lastDelivery}}`: before the first save the channel is disabled, without topic or token, with the triggers `scanFinished`, `scanPaused` and `scanProblem`, and `server` is `SCANTOR_NTFY_URL`.
+- **NOTIF-002** [api, security] `PATCH /api/account/notifications {ntfy: {enabled?, topic?, token?, triggers?}}` merges: omitted fields keep their value, `token: null` removes the token, and the token is never returned (only `tokenSet`). A topic outside `^[A-Za-z0-9_-]{1,64}$`, a token with spaces, unknown or repeated triggers, a `server` or another unknown field, enabling without a topic and the admin-only trigger `nodeAvailability` for a non-admin return 400 `validationFailed` at the field; admins may subscribe to `nodeAvailability`.
+- **NOTIF-003** [api] `POST /api/account/notifications/test` publishes a test message to the saved topic and returns `{delivered, status, message}` with the ntfy server's answer (a protected topic without the right token: `{delivered: false, status: 403}`), recorded as `lastDelivery` until the topic or token changes; without a saved topic it returns 409 `invalidState`, and a second test within 10 s returns 429 `tooManyRequests` with `details.retryAfterMs`. The message carries the access token as a Bearer token and links to `SCANTOR_PUBLIC_URL`.
+- **NOTIF-004** [api, e2e] With the channel enabled, a ready revision and a completed scan publish "Revision ready" (linking to the revision page) and "Scan <name or id> completed" with "<n> succeeded, <n> failed." (linking to the scan page) to the owner's topic.
+
 ## USER. User administration
 
 Mechanisms: [api](../docs/api.md) §4.4, [auth](../docs/auth.md) §5.7, §6.
@@ -910,7 +919,7 @@ Mechanisms: [ui](../docs/ui.md) §5.15–§5.16, §5.20.
 
 Mechanisms: [ui](../docs/ui.md) §5.17–§5.19.
 
-- **UI-ACCT-001** [ui] The account page has Profile, Password, Passkeys, Sessions and Editor sections that load and fail independently; if the account fails to load, "Your account could not be loaded" offers "Retry".
+- **UI-ACCT-001** [ui] The account page has Profile, Password, Passkeys, Sessions, Notifications and Editor sections that load and fail independently; if the account fails to load, "Your account could not be loaded" offers "Retry".
 - **UI-ACCT-002** [ui] The profile saves the name ("Saved") and changes the email ("Email changed"), and shows role, privileged permission, worker limit and member-since date.
 - **UI-ACCT-003** [ui] Changing the password takes the current one, a new one and its confirmation, signs out other sessions by default, and shows "Password changed" or the error.
 - **UI-ACCT-004** [ui] A passkey-only account sets a password ("Password set"); "Remove password" appears only with a password and a passkey, confirms in two steps and shows "Password removed; sign in with a passkey from now on".
@@ -925,6 +934,7 @@ Mechanisms: [ui](../docs/ui.md) §5.17–§5.19.
 - **UI-ACCT-013** [ui] The git credentials page lists name, host, username, the token as `••••<last4>`, last use and created time.
 - **UI-ACCT-014** [ui] "New credential" takes name, host (`host[:port]` without scheme), username (default `x-access-token`) and a hidden token, shows "Credential <name> saved", and reports a duplicate name; editing keeps the stored token when the field stays empty unless the host changes (a new host requires the token again), and delete confirms in two steps.
 - **UI-ACCT-015** [ui, e2e] A saved credential is offered in the git import form and makes the import of a private repository on its host work.
+- **UI-ACCT-016** [ui] The notifications section links the instance's ntfy server, refuses to turn on without a topic ("Enter a topic to turn notifications on"), hides the admin-only trigger from users, saves topic, token and triggers ("Saved"), empties the token field and says "A token is stored. Enter a new one to replace it.", shows the subscription URL, and "Send test notification" shows "Test notification sent".
 
 ## UI-SEC. Dashboard security
 
