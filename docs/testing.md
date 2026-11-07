@@ -279,6 +279,15 @@ services:
   test-runner:
     image: scantor-test-runner:dev
     init: true
+    # Healthy while the test stack is up (the entrypoint touches the ready file once it is, and removes it at teardown);
+    # the start period covers image loads and the stack boot.
+    healthcheck:
+      test: ["CMD", "test", "-f", "/run/scantor-test/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30m
+      start_interval: 5s
     privileged: true
     container_name: scantor-test-runner
     shm_size: 2gb
@@ -320,6 +329,9 @@ volumes:
   may import the enum and error-code lists of `#shared/utils/*`, not only types.
 - `init: true` (tini as PID 1) forwards `docker stop` and Ctrl+C to the entrypoint, whose trap needs up to
   `stop_grace_period` to tear the inner stack down.
+- The healthcheck reads the ready file that `just test-up` and `just test-exec` wait for (§7.4), so
+  `docker ps` shows the runner `healthy` exactly while its stack serves tests; like every compose service it
+  must have one (`lint-compose`, §11).
 
 ### 7.2 Runner image (`tests/docker/Dockerfile`)
 
@@ -916,7 +928,7 @@ regenerates the index in the same commit ([development](development.md) §13).
   memory limits on the orchestrator, mongo and rabbitmq; the orchestrator never mounts
   `scantor-workspaces`; no variable default anywhere (every `docker-compose.*.yml` and
   `tests/docker/stack.tests.yml`) except the image prefix fallback; the orchestrator and Traefik get
-  `env_file: .env`.
+  `env_file: .env`; every service of every compose file defines an enabled healthcheck.
 - `tests/scripts/lint-env.mjs` (part of `just lint`, dependency-free) fails when a `SCANTOR_*` variable read
   by code (the Go `LoadConfig`s in `internal/*/config.go` and direct `Getenv`/`LookupEnv` calls,
   `server/utils/config.ts`, compose interpolations including `tests/docker/stack.tests.yml`, recipes,

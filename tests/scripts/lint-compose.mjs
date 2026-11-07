@@ -10,7 +10,8 @@
 //     orchestrator, mongo and rabbitmq; the orchestrator never mounts scantor-workspaces; the orchestrator and
 //     Traefik get `env_file: .env`;
 //   - no compose file (including the test runner's and the test stack override) gives a variable a default, except the
-//     image prefix fallback `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}`.
+//     image prefix fallback `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}`;
+//   - every service of every compose file defines a healthcheck (and does not disable it).
 //
 // Needs the `yaml` package (tests/node_modules). Exports the rule function for security/compose-lint.spec.ts.
 import { isDeepStrictEqual } from 'node:util'
@@ -85,6 +86,17 @@ function serviceRules(name, compose) {
   return problems
 }
 
+/** Services without an enabled healthcheck (`test` given, not `NONE`, not `disable: true`). */
+function healthcheckProblems(name, compose) {
+  const problems = []
+  for (const [service, definition] of Object.entries(compose.services ?? {})) {
+    const healthcheck = definition?.healthcheck
+    const test = asList(healthcheck?.test).map(String)
+    if (!healthcheck || healthcheck.disable === true || test.length === 0 || test[0] === 'NONE') problems.push(`${name}: ${service} has no healthcheck`)
+  }
+  return problems
+}
+
 /** `${VAR:-x}`, `${VAR-x}`, `${VAR:?x}` … anywhere except the image prefix fallback. */
 function defaultProblems(name, text) {
   const problems = []
@@ -108,7 +120,10 @@ export function lintCompose(repo = root) {
   }
   problems.push(...serviceRules('docker-compose.dev.yml', dev), ...serviceRules('docker-compose.prod.yml', prod))
   const composeFiles = readdirSync(repo).filter((n) => /^docker-compose\..+\.yml$/.test(n))
-  for (const file of [...composeFiles, 'tests/docker/stack.tests.yml']) problems.push(...defaultProblems(file, read(file)))
+  for (const file of [...composeFiles, 'tests/docker/stack.tests.yml']) {
+    const text = read(file)
+    problems.push(...defaultProblems(file, text), ...healthcheckProblems(file, parse(text)))
+  }
   return problems
 }
 

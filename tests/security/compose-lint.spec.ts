@@ -9,6 +9,7 @@ import { expect, test } from '../fixtures'
 const PROD = 'docker-compose.prod.yml'
 const DEV = 'docker-compose.dev.yml'
 const STACK = 'tests/docker/stack.tests.yml'
+const TESTS = 'docker-compose.tests.yml'
 
 /** The infrastructure services that must be identical in the dev and prod compose files. */
 const INFRASTRUCTURE = ['mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik'] as const
@@ -115,6 +116,16 @@ const RULES: RuleCase[] = [
     breakRule: (copy) => editService(copy, PROD, service, (path, doc) => doc.deleteIn([...path, 'env_file'])),
     problem: `${PROD}: ${service} must have env_file .env`,
   })),
+  {
+    title: 'a production service has no healthcheck',
+    breakRule: (copy) => editService(copy, PROD, 'node', (path, doc) => doc.deleteIn([...path, 'healthcheck'])),
+    problem: `${PROD}: node has no healthcheck`,
+  },
+  {
+    title: 'the test runner disables its healthcheck',
+    breakRule: (copy) => editService(copy, TESTS, 'test-runner', (path, doc) => doc.setIn([...path, 'healthcheck'], doc.createNode({ disable: true }))),
+    problem: `${TESTS}: test-runner has no healthcheck`,
+  },
   {
     title: 'a production compose variable has a default',
     breakRule: (copy) => copy.replace(PROD, 'mem_limit: ${SCANTOR_ORCHESTRATOR_MEMORY_LIMIT}', 'mem_limit: ${SCANTOR_ORCHESTRATOR_MEMORY_LIMIT:-2g}'),

@@ -66,6 +66,8 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
   `working_dir`, `profiles`, `mem_limit`, `stop_grace_period`, `shm_size`, `privileged`, `logging`,
   `labels`); (4) `ports`, `networks`; (5) `volumes`; (6) `environment`, `env_file`. There is a blank line
   between services and between top-level blocks, and none within a service.
+- Every service has a `healthcheck` (`lint-compose` enforces it, [testing](testing.md) §11), and so does
+  every long-running container scantor creates itself ([architecture](architecture.md) §7).
 - Variables are interpolated as plain `${VAR}`. **Compose files contain no defaults**, because defaults
   live only in `.env.example`. `.env` must be complete; `just init` creates it and merges new variables
   into it (§8.3). Every `just` recipe that starts a stack runs `just init` first. The one exception is the

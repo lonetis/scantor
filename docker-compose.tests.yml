@@ -8,6 +8,15 @@ services:
   test-runner:
     image: scantor-test-runner:dev
     init: true
+    # Healthy while the test stack is up (the entrypoint touches the ready file once it is, and removes it at teardown);
+    # the start period covers image loads and the stack boot.
+    healthcheck:
+      test: ["CMD", "test", "-f", "/run/scantor-test/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30m
+      start_interval: 5s
     privileged: true
     container_name: scantor-test-runner
     shm_size: 2gb
