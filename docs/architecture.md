@@ -345,6 +345,11 @@ catalog access. Pushes go through the host Docker daemon to `localhost:${SCANTOR
 Docker requires a volume subpath to exist before it can be mounted; the `init` helper creates the
 `<userId>` directories (1000:1000, mode 0700) before a user's first helper or editor start.
 
+Every volume with persistent data (these two and the compose data volumes of the infrastructure services) can live
+in a host directory instead, chosen per service with its `SCANTOR_*_DATA` variable ([deployment](deployment.md)
+§5.1): compose mounts the directory, and the orchestrator creates `scantor-workspaces` and `scantor-editor-home`
+bound to it, so the names above stay valid everywhere.
+
 ## 5. Repository layout
 
 Flat layout; Go module at the repo root.

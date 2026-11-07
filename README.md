@@ -102,6 +102,10 @@ token; other DNS providers work too) and `https` URLs. Every public endpoint is 
 A deployment that is reachable from the network refuses to start while any secret still has its
 insecure development value.
 
+**Data locations.** By default every service keeps its data in a named Docker volume. To store a service's
+data elsewhere, for example MongoDB on one disk and RabbitMQ on another, set its variable in the "DATA LOCATIONS"
+section of `.env.example` to a host directory. Each service is configured on its own.
+
 **Remote nodes.** Any Docker host can add capacity. As an admin, create a node under **Admin → Nodes**
 (or with `scantor nodes create <name>`) and run the `docker run` command it shows on the node host. The
 node connects outbound over HTTPS and needs no open ports. See [remote nodes](docs/guide/remote-nodes.md)

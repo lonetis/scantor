@@ -135,8 +135,8 @@ services:
     networks:
       - scantor
     volumes:
-      - scantor-mongo-data:/data/db
-      - scantor-mongo-config:/data/configdb
+      - ${SCANTOR_MONGO_DATA}:/data/db
+      - ${SCANTOR_MONGO_CONFIG_DATA}:/data/configdb
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${SCANTOR_MONGO_USER}
       - MONGO_INITDB_ROOT_PASSWORD=${SCANTOR_MONGO_PASSWORD}
@@ -173,7 +173,7 @@ services:
       - scantor
       - scantor-sandbox
     volumes:
-      - scantor-rabbitmq-data:/var/lib/rabbitmq
+      - ${SCANTOR_RABBITMQ_DATA}:/var/lib/rabbitmq
     environment:
       - RABBITMQ_DEFAULT_USER=${SCANTOR_RABBITMQ_USER}
       - RABBITMQ_DEFAULT_PASS=${SCANTOR_RABBITMQ_PASSWORD}
@@ -210,7 +210,7 @@ services:
       - scantor
       - scantor-sandbox
     volumes:
-      - scantor-rustfs-data:/data
+      - ${SCANTOR_RUSTFS_DATA}:/data
     environment:
       - RUSTFS_ACCESS_KEY=${SCANTOR_S3_ACCESS_KEY}
       - RUSTFS_SECRET_KEY=${SCANTOR_S3_SECRET_KEY}
@@ -252,7 +252,7 @@ services:
     networks:
       - scantor
     volumes:
-      - scantor-registry-data:/var/lib/registry
+      - ${SCANTOR_REGISTRY_DATA}:/var/lib/registry
       - scantor-registry-auth:/run/scantor/registry-auth:ro
     environment:
       - OTEL_TRACES_EXPORTER=none
@@ -376,7 +376,7 @@ services:
       - scantor
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - scantor-traefik-acme:/acme
+      - ${SCANTOR_TRAEFIK_ACME_DATA}:/acme
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
     env_file:
       - .env

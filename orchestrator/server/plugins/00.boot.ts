@@ -118,13 +118,13 @@ export default defineNitroPlugin((nitroApp) => {
   registerBootStep({
     name: 'docker-objects',
     order: 630,
-    async run({ log }) {
+    async run({ config, log }) {
       await retryUntil(
         'ensuring the Docker network and volumes',
         async () => {
           await ensureEgressNetwork(log)
-          await ensureVolume(WORKSPACES_VOLUME, log)
-          await ensureVolume(EDITOR_HOME_VOLUME, log)
+          await ensureVolume(WORKSPACES_VOLUME, { variable: 'SCANTOR_WORKSPACES_DATA', path: config.workspacesPath }, log)
+          await ensureVolume(EDITOR_HOME_VOLUME, { variable: 'SCANTOR_EDITOR_HOME_DATA', path: config.editorHomePath }, log)
         },
         { log },
       )
