@@ -48,6 +48,7 @@ export type BootstrapConfig = Pick<
   | 'scanQueueMaxReady'
   | 'trancoUrl'
   | 'cruxUrl'
+  | 'cruxCacheUrl'
 >
 
 const languages = (languagesTable as { languages: Record<string, { entry: string }> }).languages
@@ -157,7 +158,7 @@ export function buildBootstrap(parts: BootstrapParts) {
             Object.entries(scan.scheduling.resolved ?? {}).map(([key, resolution]) => [key, { ...resolution, at: isoDate(resolution.at) }]),
           ),
           uploads: parts.uploads,
-          dataSources: { tranco: config.trancoUrl, crux: config.cruxUrl },
+          dataSources: { tranco: config.trancoUrl, crux: config.cruxUrl, cruxCache: config.cruxCacheUrl },
         }
       : null,
   }

@@ -167,6 +167,7 @@ export interface Config {
   // data sources
   trancoUrl: string
   cruxUrl: string
+  cruxCacheUrl: string
 }
 
 // ── value schemas ─────────────────────────────────────────────────────────────
@@ -484,6 +485,7 @@ const VARIABLES = {
 
   trancoUrl: v('SCANTOR_TRANCO_URL', 'https://tranco-list.eu', baseUrl()),
   cruxUrl: v('SCANTOR_CRUX_URL', 'https://raw.githubusercontent.com/zakird/crux-top-lists/main', baseUrl()),
+  cruxCacheUrl: v('SCANTOR_CRUX_CACHE_URL', 'https://raw.githubusercontent.com/lonetis/crux-cache/main', baseUrl()),
 } satisfies { [K in keyof Config]: VariableSpec<Config[K]> }
 
 /** Every environment variable the orchestrator reads, for documentation checks (tests/scripts/lint-env.mjs). */

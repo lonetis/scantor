@@ -1,7 +1,8 @@
-"""Template `crux`: origins of a Chrome UX Report top list (zakird/crux-top-lists) up to a rank bucket.
+"""Template `crux`: origins of a Chrome UX Report list up to a rank bucket.
 
-`latest` is resolved to a concrete month before the first analysis is published. Canonical schema:
-`schemas/templates/crux.json`.
+The list comes from zakird/crux-top-lists (the default, up to rank 1M) or lonetis/crux-cache (every
+origin CrUX tracks). `latest` is resolved to a concrete month before the first analysis is published.
+Canonical schema: `schemas/templates/crux.json`.
 """
 
 from collections.abc import Mapping
@@ -14,16 +15,28 @@ from scantor.models import Config
 from scantor.templates._fields import JsonStr
 from scantor.templates._stream import TemplateStream, canonical_scan_config, template_schedule
 
-Bucket = Literal[1000, 5000, 10000, 50000, 100000, 500000, 1000000]
+Bucket = Literal[1000, 5000, 10000, 50000, 100000, 500000, 1000000, 5000000, 10000000, 50000000]
+Source = Literal["crux-top-lists", "crux-cache"]
 
 
 class ScanConfig(Config):
     """Which list and how deep."""
 
+    source: Source = Field(
+        default="crux-top-lists",
+        description=(
+            "Where the list comes from: `crux-top-lists` (zakird/crux-top-lists: rank buckets up to 1000000, "
+            "country lists from 202501) or `crux-cache` (lonetis/crux-cache: every origin and bucket, the "
+            "countries it publishes)."
+        ),
+    )
     country: JsonStr = Field(
         default="global",
         pattern=r"^(global|[a-z]{2})$",
-        description=("`global` or a lowercase ISO 3166-1 alpha-2 country code (country lists exist from 202501)."),
+        description=(
+            "`global` or a lowercase ISO 3166-1 alpha-2 country code (crux-top-lists has country lists from "
+            "202501, crux-cache only the countries it publishes)."
+        ),
     )
     month: JsonStr = Field(
         default="latest",
@@ -31,7 +44,11 @@ class ScanConfig(Config):
         description="`latest` or a month YYYYMM.",
     )
     bucket: Bucket = Field(
-        default=1000, description="Include origins with rank bucket ≤ this value (the cap of the scan)."
+        default=1000,
+        description=(
+            "Include origins with rank bucket ≤ this value (the cap of the scan); buckets above 1000000 need "
+            "source crux-cache."
+        ),
     )
 
 

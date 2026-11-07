@@ -326,7 +326,7 @@ func TestLoadConfigDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	if cfg.URL != DefaultURL || cfg.Token != "" || cfg.DevMode != DevModeLocal || cfg.Images.Active() ||
-		cfg.DataSources.Tranco != DefaultTrancoURL || cfg.DataSources.Crux != DefaultCruxURL ||
+		cfg.DataSources.Tranco != DefaultTrancoURL || cfg.DataSources.Crux != DefaultCruxURL || cfg.DataSources.CruxCache != DefaultCruxCacheURL ||
 		cfg.Limits.MaxWorkersPerScan != 100 || cfg.Limits.MaxProcessesPerWorker != 64 ||
 		cfg.Pipeline.BuildTimeout != DefaultBuildTimeout || cfg.Pipeline.TaskMaxFiles != 5000 ||
 		cfg.Pipeline.TaskMaxPackBytes != 50<<20 || cfg.Pipeline.MaxImageBytes != 10<<30 ||
@@ -351,6 +351,7 @@ func TestLoadConfigValues(t *testing.T) {
 		"SCANTOR_TASK_MAX_BYTES":           "1GiB",
 		"SCANTOR_BUILD_TIMEOUT":            "bogus",
 		"SCANTOR_BUILD_CACHE_MAX_BYTES":    "20GiB",
+		"SCANTOR_CRUX_CACHE_URL":           "http://fixtures.example:8089/crux-cache/",
 	}
 	cfg, err := LoadConfig(func(k string) string { return env[k] })
 	if err != nil {
@@ -358,7 +359,8 @@ func TestLoadConfigValues(t *testing.T) {
 	}
 	if cfg.URL != "https://scantor.example.com" || cfg.DevMode != DevModeRemote || cfg.Workspace != "/home/coder/workspace" ||
 		cfg.Images != (version.ImageOverride{Prefix: "ghcr.io/lonetis/", Tag: "1.4.0"}) || cfg.Limits.MaxProcessesPerWorker != 8 ||
-		cfg.Pipeline.TaskMaxBytes != 1<<30 || cfg.Pipeline.BuildTimeout != DefaultBuildTimeout || cfg.Pipeline.BuildCacheMaxBytes != 20<<30 {
+		cfg.Pipeline.TaskMaxBytes != 1<<30 || cfg.Pipeline.BuildTimeout != DefaultBuildTimeout || cfg.Pipeline.BuildCacheMaxBytes != 20<<30 ||
+		cfg.DataSources.CruxCache != "http://fixtures.example:8089/crux-cache" {
 		t.Fatalf("config = %+v", cfg)
 	}
 	if len(cfg.Warnings) != 1 || !strings.Contains(cfg.Warnings[0], "SCANTOR_BUILD_TIMEOUT") {

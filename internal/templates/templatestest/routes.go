@@ -2,15 +2,16 @@
 // fixtures (docs/templates.md §10):
 //
 //   - Routes serves the canned `http[]` responses of a fixture case exactly.
-//   - Tranco and Crux serve the exact upstream endpoints of docs/templates.md §9.5–§9.6 (paths, query
-//     strings, content types, CRLF/LF line endings and gzip) from in-memory lists; NewHandler mounts
-//     them below /tranco and /crux the way the fixtures server of docs/testing.md §7.9 does, and
-//     DefaultDataSet generates small, deterministic lists relative to a clock.
+//   - Tranco, Crux and CruxCache serve the exact upstream endpoints of docs/templates.md §9.5–§9.6
+//     (paths, query strings, content types, CRLF/LF line endings, gzip and chunks) from in-memory
+//     lists; NewHandler mounts them below /tranco, /crux and /crux-cache the way the fixtures server of
+//     docs/testing.md §7.9 does, and DefaultDataSet generates small, deterministic lists relative to a
+//     clock.
 //   - Uploads serves uploaded lists at presigned-style URLs.
 //   - RunFixtures drives a template through schemas/templates/<name>.fixtures.json.
 //
-// The fakes (Routes, Tranco, Crux, Uploads, NewHandler) use only the standard library, so a fixtures
-// server binary can serve them; RunFixtures and the helpers in fixtures.go are for Go tests.
+// The fakes (Routes, Tranco, Crux, CruxCache, Uploads, NewHandler) use only the standard library, so a
+// fixtures server binary can serve them; RunFixtures and the helpers in fixtures.go are for Go tests.
 package templatestest
 
 import (
@@ -23,6 +24,9 @@ import (
 
 // Route is one canned response: the `http[]` entry of a fixture case.
 type Route struct {
+	// DataSource is the data-source key whose base URL Path is below; empty means the template's
+	// first data source.
+	DataSource  string `json:"dataSource,omitempty"`
 	Method      string `json:"method"`
 	Path        string `json:"path"` // path and exact query string below the data-source base URL
 	Status      int    `json:"status"`
@@ -46,7 +50,7 @@ type Routes struct {
 }
 
 // NewRoutes returns a handler for routes below prefix ("" or for example "/tranco"). Every "${name}"
-// in a body is replaced by vars[name] (the fixture placeholders ${tranco} and ${crux}).
+// in a body is replaced by vars[name] (the fixture placeholders ${tranco}, ${crux} and ${cruxCache}).
 func NewRoutes(prefix string, routes []Route, vars map[string]string) *Routes {
 	return &Routes{prefix: strings.TrimSuffix(prefix, "/"), routes: routes, vars: vars}
 }

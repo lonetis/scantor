@@ -1431,7 +1431,7 @@ orchestrator does not read the node-daemon variable `SCANTOR_NODE_PIDS_LIMIT`; [
 SB-1), runtime injected with entrypoint `/scantor/scantor runtime local --spec /scantor/in/spec.json` (the
 spec and referenced uploads are part of the injection tar, [runtime](runtime.md) §3.1) and the runtime
 healthcheck of local mode ([runtime](runtime.md) §5.3), events on stdout,
-files in `/scantor/out`. Template data sources (Tranco, CrUX) are fetched from
+files in `/scantor/out`. Template data sources (Tranco, CrUX, crux-cache) are fetched from
 inside this container, never by the orchestrator. A job attempt first removes a leftover of that name
 (from an earlier attempt) and at its end removes the container it created by its id, never by its name:
 after a lost lease another runner may already run the test run in a new container of the same name.
@@ -1451,7 +1451,7 @@ events and exit codes are defined in [runtime](runtime.md) §15. The consumers f
 | `backoff`, `maxAnalysesPerProcess` | `settingsDefaults` | `settingsDefaults` |
 | `totalTimeoutMs` | `SCANTOR_TEST_RUN_TIMEOUT` minus the time already spent | none |
 | `debug` | false | true for `dev debug` |
-| `dataSources` | orchestrator `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL` | the same variables if set, else compiled-in defaults |
+| `dataSources` | orchestrator `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL`, `SCANTOR_CRUX_CACHE_URL` | the same variables if set, else compiled-in defaults |
 | `uploads` | referenced uploads, copied from S3 into the injection tar | not supported: a config referencing an upload fails with a clear message |
 | `resolved` | `{}` | `{}` |
 | `limits` | instance limits | compiled-in defaults |
@@ -1469,7 +1469,7 @@ resolutions are reported as `resolved` events. A scheduling failure becomes a Bu
   Docker daemon, describe, validate and fill configs (`internal/schema`), run the local-mode container
   with no bind mounts (spec copied in, `/scantor/out` copied out), stream events, write files to
   `.scantor/out/<timestamp>/files/…` as the invoking user. Data sources default to the compiled-in URLs,
-  overridable with `SCANTOR_TRANCO_URL`/`SCANTOR_CRUX_URL`.
+  overridable with `SCANTOR_TRANCO_URL`/`SCANTOR_CRUX_URL`/`SCANTOR_CRUX_CACHE_URL`.
 - remote (`--remote` or `SCANTOR_DEV_MODE=remote`): a test run always executes the task's workspace, so
   remote mode first syncs the folder into it with `uploadTask?publish=false` (same 409 `workspaceDirty`
   rule, `--force` to override; skipped inside the editor, where the folder is the workspace), then calls
@@ -1652,7 +1652,7 @@ Flagged for lead review:
 10. **Local-mode spec mapping** (§11.3): test runs use `processes: 1`, copy referenced uploads into the
     container, and bound `totalTimeoutMs` by `SCANTOR_TEST_RUN_TIMEOUT`; the CLI does not support uploads.
 11. **New variables** `SCANTOR_DESCRIBE_TIMEOUT` and `SCANTOR_DRAFT_IMAGE_RETENTION`; the native CLI also
-    honours `SCANTOR_TRANCO_URL` and `SCANTOR_CRUX_URL`, and `SCANTOR_IMAGE_PREFIX`/`SCANTOR_IMAGE_TAG`
+    honours `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL` and `SCANTOR_CRUX_CACHE_URL`, and `SCANTOR_IMAGE_PREFIX`/`SCANTOR_IMAGE_TAG`
     whenever `SCANTOR_IMAGE_TAG` is non-empty, as overrides of compiled-in defaults (accepted: the CLI env
     surface beyond `SCANTOR_URL`/`SCANTOR_TOKEN`, credentials still only from those two).
 12. **Git import sets `lastSyncSha256`** like uploads and pulls (git mechanics are in [editor](editor.md)).

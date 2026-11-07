@@ -42,7 +42,7 @@ func TestLatestProbesFourMonths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(res.ScanConfig) != `{"country":"global","month":"202608","bucket":5000}` || *res.ExpectedTotal != 2 {
+	if string(res.ScanConfig) != `{"source":"crux-top-lists","country":"global","month":"202608","bucket":5000}` || *res.ExpectedTotal != 2 {
 		t.Fatalf("%s %d", res.ScanConfig, *res.ExpectedTotal)
 	}
 	items, err := templatestest.Collect(context.Background(), New(), env, res)
@@ -79,16 +79,102 @@ func TestMalformedCSV(t *testing.T) {
 		"":                                              "the file is empty",
 	}
 	for csv, want := range cases {
-		_, err := scanRows(strings.NewReader(csv), 1000000, nil)
+		s := rowReader{bucket: 1000000}
+		err := s.read(strings.NewReader(csv), "", true, nil)
 		e, ok := core.AsError(err)
 		if !ok || e.Type != api.ErrorPlatform || !e.Retryable || !strings.Contains(e.Message, want) {
 			t.Errorf("%q: err %v, want %q", csv, err, want)
 		}
 	}
 	// Rows after the bucket are not read, so a defect there does not matter; CRLF is tolerated.
-	n, err := scanRows(strings.NewReader("origin,rank\r\nhttps://a,1000\r\n\nhttps://b,5000\r\nbroken\n"), 1000, nil)
-	if err != nil || n != 1 {
-		t.Fatalf("%d %v", n, err)
+	s := rowReader{bucket: 1000}
+	err := s.read(strings.NewReader("origin,rank\r\nhttps://a,1000\r\n\nhttps://b,5000\r\nbroken\n"), "", true, nil)
+	if err != nil || s.count != 1 || !s.done {
+		t.Fatalf("%+v %v", s, err)
+	}
+}
+
+func TestChunksContinueTheList(t *testing.T) {
+	s := rowReader{bucket: 5000}
+	if err := s.read(strings.NewReader("origin,rank\nhttps://a,1000\n"), "202609_1.csv", true, nil); err != nil || s.done {
+		t.Fatalf("%+v %v", s, err)
+	}
+	// Later chunks have no header, and ranks stay non-decreasing across chunks.
+	err := s.read(strings.NewReader("origin,rank\n"), "202609_2.csv", false, nil)
+	if e, ok := core.AsError(err); !ok || e.Message != "unexpected CrUX CSV at line 1 of 202609_2.csv" {
+		t.Fatalf("header in chunk 2: %v", err)
+	}
+	s = rowReader{bucket: 5000}
+	_ = s.read(strings.NewReader("origin,rank\nhttps://a,5000\n"), "202609_1.csv", true, nil)
+	err = s.read(strings.NewReader("https://b,1000\n"), "202609_2.csv", false, nil)
+	if e, ok := core.AsError(err); !ok || e.Message != "unexpected CrUX CSV at line 1 of 202609_2.csv" {
+		t.Fatalf("decreasing rank across chunks: %v", err)
+	}
+	if err := s.read(strings.NewReader(""), "202609_1.csv", true, nil); err == nil || !strings.Contains(err.Error(), "unexpected CrUX CSV of 202609_1.csv: the file is empty") {
+		t.Fatalf("empty first chunk: %v", err)
+	}
+}
+
+func TestValidateBucketPerSource(t *testing.T) {
+	for cfg, want := range map[string]int{
+		`{"source":"crux-top-lists","country":"global","month":"latest","bucket":1000000}`: 0,
+		`{"source":"crux-top-lists","country":"global","month":"latest","bucket":5000000}`: 1,
+		`{"source":"crux-cache","country":"global","month":"latest","bucket":50000000}`:    0,
+	} {
+		if issues := New().Validate(json.RawMessage(cfg)); len(issues) != want || (want == 1 && issues[0].Path != "/bucket") {
+			t.Errorf("%s: issues %v", cfg, issues)
+		}
+	}
+	est, err := New().Estimate(json.RawMessage(`{"source":"crux-cache","country":"global","month":"latest","bucket":50000000}`), core.Env{})
+	if err != nil || *est.ExpectedTotal != CacheEstimateCap || est.Exact {
+		t.Fatalf("%+v %v", est, err)
+	}
+	est, err = New().Estimate(json.RawMessage(`{"source":"crux-cache","country":"global","month":"latest","bucket":10000000}`), core.Env{})
+	if err != nil || *est.ExpectedTotal != 10000000 {
+		t.Fatalf("%+v %v", est, err)
+	}
+}
+
+// A resolution stored before the source field existed streams from crux-top-lists.
+func TestResolutionWithoutSource(t *testing.T) {
+	lists := []templatestest.CruxList{{Country: "global", Month: "202608", Rows: rows("https://a.example", 1000, "https://b.example", 5000)}}
+	env := fake(t, lists, time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC))
+	res, err := New().Resolve(context.Background(), env, json.RawMessage(`{"country":"global","month":"latest","bucket":1000}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(res.ScanConfig) != `{"source":"crux-top-lists","country":"global","month":"202608","bucket":1000}` {
+		t.Fatalf("%s", res.ScanConfig)
+	}
+	res.ScanConfig = json.RawMessage(`{"country":"global","month":"202608","bucket":1000}`)
+	items, err := templatestest.Collect(context.Background(), New(), env, res)
+	if err != nil || len(items) != 1 || string(items[0]) != `{"origin":"https://a.example","rank":1000}` {
+		t.Fatalf("%s %v", items, err)
+	}
+}
+
+func TestCacheChunkGoneOnResume(t *testing.T) {
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	ds := templatestest.DefaultDataSet(now)
+	srv := httptest.NewServer(templatestest.NewHandler(ds))
+	defer srv.Close()
+	env := core.Env{DataSources: map[string]string{"cruxCache": srv.URL + "/crux-cache"}, TmpDir: t.TempDir()}
+	res, err := New().Resolve(context.Background(), env, json.RawMessage(`{"source":"crux-cache","country":"de","month":"latest","bucket":1000}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prov cacheProvenance
+	if err := core.DecodeProvenance(res.Provenance, &prov); err != nil || len(prov.Chunks) != 2 {
+		t.Fatalf("%+v %v", prov, err)
+	}
+	// The stored resolution names a chunk the dataset no longer has.
+	prov.Chunks[1].Filename = "202601_9.csv"
+	if res.Provenance, err = core.ProvenanceMap(prov); err != nil {
+		t.Fatal(err)
+	}
+	_, err = templatestest.Collect(context.Background(), New(), env, res)
+	if e, ok := core.AsError(err); !ok || e.Type != api.ErrorValidation || e.Retryable || !strings.Contains(e.Message, "changed since resolution") {
+		t.Fatalf("err %v", err)
 	}
 }
 
@@ -108,7 +194,7 @@ func TestContentEncodedGzipHashesTheSame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var prov provenance
+	var prov topListsProvenance
 	if err := core.DecodeProvenance(res.Provenance, &prov); err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +212,11 @@ func TestFixturesServerDataSet(t *testing.T) {
 	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
 	srv := httptest.NewServer(templatestest.NewHandler(templatestest.DefaultDataSet(now)))
 	defer srv.Close()
-	env := core.Env{DataSources: map[string]string{"crux": srv.URL + "/crux"}, TmpDir: t.TempDir(), Now: func() time.Time { return now }}
+	env := core.Env{
+		DataSources: map[string]string{"crux": srv.URL + "/crux", "cruxCache": srv.URL + "/crux-cache"},
+		TmpDir:      t.TempDir(),
+		Now:         func() time.Time { return now },
+	}
 	for _, tc := range []struct {
 		cfg  string
 		want int64
@@ -134,6 +224,10 @@ func TestFixturesServerDataSet(t *testing.T) {
 		{`{"country":"global","month":"latest","bucket":1000}`, 1000},
 		{`{"country":"de","month":"latest","bucket":10000}`, 1500},
 		{`{"country":"us","month":"202608","bucket":5000}`, 1400},
+		// crux-cache: chunks of 600 rows; latest is the newest month of the manifest (202609).
+		{`{"source":"crux-cache","country":"global","month":"latest","bucket":1000}`, 1000},
+		{`{"source":"crux-cache","country":"de","month":"202608","bucket":10000}`, 1500},
+		{`{"source":"crux-cache","country":"us","month":"latest","bucket":50000000}`, 1550},
 	} {
 		res, err := New().Resolve(context.Background(), env, json.RawMessage(tc.cfg))
 		if err != nil {

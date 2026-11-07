@@ -6,6 +6,7 @@
         "name": "defaults",
         "input": {},
         "effective": {
+          "source": "crux-top-lists",
           "country": "global",
           "month": "latest",
           "bucket": 1000
@@ -19,9 +20,24 @@
           "bucket": 10000
         },
         "effective": {
+          "source": "crux-top-lists",
           "country": "de",
           "month": "202609",
           "bucket": 10000
+        }
+      },
+      {
+        "name": "crux-cache every origin",
+        "input": {
+          "source": "crux-cache",
+          "country": "de",
+          "bucket": 50000000
+        },
+        "effective": {
+          "source": "crux-cache",
+          "country": "de",
+          "month": "latest",
+          "bucket": 50000000
         }
       }
     ],
@@ -35,12 +51,29 @@
         "path": "/bucket"
       },
       {
-        "name": "bucket beyond 1M",
+        "name": "bucket beyond 1M on crux-top-lists",
         "input": {
           "bucket": 5000000
         },
+        "kind": "semantic",
+        "path": "/bucket"
+      },
+      {
+        "name": "bucket beyond 50M",
+        "input": {
+          "source": "crux-cache",
+          "bucket": 100000000
+        },
         "kind": "schema",
         "path": "/bucket"
+      },
+      {
+        "name": "unknown source",
+        "input": {
+          "source": "bigquery"
+        },
+        "kind": "schema",
+        "path": "/source"
       },
       {
         "name": "uppercase country",
@@ -75,6 +108,13 @@
         "input": {
           "origin": "https://www.google.com",
           "rank": 1000
+        }
+      },
+      {
+        "name": "crux-cache entry",
+        "input": {
+          "origin": "http://tail.example",
+          "rank": 50000000
         }
       }
     ],
@@ -112,6 +152,7 @@
       },
       "resolution": {
         "scanConfig": {
+          "source": "crux-top-lists",
           "country": "global",
           "month": "202609",
           "bucket": 5000
@@ -162,6 +203,7 @@
       },
       "resolution": {
         "scanConfig": {
+          "source": "crux-top-lists",
           "country": "de",
           "month": "202609",
           "bucket": 1000
@@ -200,6 +242,341 @@
         "type": "validation",
         "retryable": false,
         "contains": "CrUX list global 202001 not found"
+      }
+    },
+    {
+      "name": "crux-cache latest de, bucket 5000 ends in chunk 3",
+      "scanConfig": {
+        "source": "crux-cache",
+        "country": "de",
+        "bucket": 5000
+      },
+      "http": [
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/de/manifest.json",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "{\"name\":\"Cached Chrome User Experience Report - de\",\"summary\":{\"total_months\":2,\"total_size\":223,\"earliest_month\":\"202608\",\"latest_month\":\"202609\"},\"months\":{\"202608\":{\"year\":2026,\"month\":8,\"chunks\":[{\"chunk\":1,\"filename\":\"202608_1.csv\",\"size\":32,\"origins\":1}],\"total_chunks\":1,\"total_size\":32,\"origins\":1},\"202609\":{\"year\":2026,\"month\":9,\"chunks\":[{\"chunk\":1,\"filename\":\"202609_1.csv\",\"size\":91,\"origins\":3},{\"chunk\":2,\"filename\":\"202609_2.csv\",\"size\":51,\"origins\":2},{\"chunk\":3,\"filename\":\"202609_3.csv\",\"size\":49,\"origins\":2}],\"total_chunks\":3,\"total_size\":191,\"origins\":7}}}",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/de/202608_1.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "origin,rank\nhttps://old.de,1000\n",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/de/202609_1.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "origin,rank\nhttps://www.google.de,1000\nhttps://www.spiegel.de,1000\nhttp://www.bahn.de,1000\n",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/de/202609_2.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "https://www.heise.de,5000\nhttps://www.zeit.de,5000\n",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/de/202609_3.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "https://www.dwd.de,10000\nhttps://tail.de,5000000\n",
+          "encoding": "text"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 5000,
+        "exact": false
+      },
+      "resolution": {
+        "scanConfig": {
+          "source": "crux-cache",
+          "country": "de",
+          "month": "202609",
+          "bucket": 5000
+        },
+        "provenance": {
+          "source": "crux-cache",
+          "country": "de",
+          "month": "202609",
+          "sourceUrl": "${cruxCache}/data/de/manifest.json",
+          "chunks": [
+            {
+              "filename": "202609_1.csv",
+              "sha256": "210427ef1f868ac6516b12c0844bd6f8fc5ba9b0f86437b3f9d044101b9bca87"
+            },
+            {
+              "filename": "202609_2.csv",
+              "sha256": "e5e3ad98c1dd5069f3bcde45dd30d2010e310066ab4c67c638b832362b423c5b"
+            },
+            {
+              "filename": "202609_3.csv",
+              "sha256": "de03d31dcbd35a65d1c739e53cfcff6fca7672fcb0e84fb4bc84a4545a6ecbc0"
+            }
+          ]
+        },
+        "expectedTotal": 5
+      },
+      "analyses": [
+        {
+          "origin": "https://www.google.de",
+          "rank": 1000
+        },
+        {
+          "origin": "https://www.spiegel.de",
+          "rank": 1000
+        },
+        {
+          "origin": "http://www.bahn.de",
+          "rank": 1000
+        },
+        {
+          "origin": "https://www.heise.de",
+          "rank": 5000
+        },
+        {
+          "origin": "https://www.zeit.de",
+          "rank": 5000
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "crux-cache bucket 1000 reads only chunk 1",
+      "scanConfig": {
+        "source": "crux-cache",
+        "month": "202609"
+      },
+      "http": [
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/global/manifest.json",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "{\"name\":\"Cached Chrome User Experience Report - global\",\"summary\":{\"total_months\":1,\"total_size\":154,\"earliest_month\":\"202609\",\"latest_month\":\"202609\"},\"months\":{\"202609\":{\"year\":2026,\"month\":9,\"chunks\":[{\"chunk\":1,\"filename\":\"202609_1.csv\",\"size\":69,\"origins\":2},{\"chunk\":2,\"filename\":\"202609_2.csv\",\"size\":55,\"origins\":2},{\"chunk\":3,\"filename\":\"202609_3.csv\",\"size\":30,\"origins\":1}],\"total_chunks\":3,\"total_size\":154,\"origins\":5}}}",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/global/202609_1.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "origin,rank\nhttps://www.google.com,1000\nhttps://www.youtube.com,5000\n",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/global/202609_2.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "https://example.org,1000000\nhttp://example.net,5000000\n",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/global/202609_3.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "https://tail.example,50000000\n",
+          "encoding": "text"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 1000,
+        "exact": false
+      },
+      "resolution": {
+        "scanConfig": {
+          "source": "crux-cache",
+          "country": "global",
+          "month": "202609",
+          "bucket": 1000
+        },
+        "provenance": {
+          "source": "crux-cache",
+          "country": "global",
+          "month": "202609",
+          "sourceUrl": "${cruxCache}/data/global/manifest.json",
+          "chunks": [
+            {
+              "filename": "202609_1.csv",
+              "sha256": "c7b561c81e0c6876b02959cfeed03d75d49d958e327aee2300c73c4339e31135"
+            }
+          ]
+        },
+        "expectedTotal": 1
+      },
+      "analyses": [
+        {
+          "origin": "https://www.google.com",
+          "rank": 1000
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "crux-cache every origin reads every chunk",
+      "scanConfig": {
+        "source": "crux-cache",
+        "month": "202609",
+        "bucket": 50000000
+      },
+      "http": [
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/global/manifest.json",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "{\"name\":\"Cached Chrome User Experience Report - global\",\"summary\":{\"total_months\":1,\"total_size\":154,\"earliest_month\":\"202609\",\"latest_month\":\"202609\"},\"months\":{\"202609\":{\"year\":2026,\"month\":9,\"chunks\":[{\"chunk\":1,\"filename\":\"202609_1.csv\",\"size\":69,\"origins\":2},{\"chunk\":2,\"filename\":\"202609_2.csv\",\"size\":55,\"origins\":2},{\"chunk\":3,\"filename\":\"202609_3.csv\",\"size\":30,\"origins\":1}],\"total_chunks\":3,\"total_size\":154,\"origins\":5}}}",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/global/202609_1.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "origin,rank\nhttps://www.google.com,1000\nhttps://www.youtube.com,5000\n",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/global/202609_2.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "https://example.org,1000000\nhttp://example.net,5000000\n",
+          "encoding": "text"
+        },
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/global/202609_3.csv",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "https://tail.example,50000000\n",
+          "encoding": "text"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 20000000,
+        "exact": false
+      },
+      "resolution": {
+        "scanConfig": {
+          "source": "crux-cache",
+          "country": "global",
+          "month": "202609",
+          "bucket": 50000000
+        },
+        "provenance": {
+          "source": "crux-cache",
+          "country": "global",
+          "month": "202609",
+          "sourceUrl": "${cruxCache}/data/global/manifest.json",
+          "chunks": [
+            {
+              "filename": "202609_1.csv",
+              "sha256": "c7b561c81e0c6876b02959cfeed03d75d49d958e327aee2300c73c4339e31135"
+            },
+            {
+              "filename": "202609_2.csv",
+              "sha256": "e7d73e97f94b2ea9dcc297ce8c05c3471fb6340df6a53e4cc06e5de0d272136a"
+            },
+            {
+              "filename": "202609_3.csv",
+              "sha256": "755ada641b688171405915485adbc3bdeaf761ee73082011508456847ee2b125"
+            }
+          ]
+        },
+        "expectedTotal": 5
+      },
+      "analyses": [
+        {
+          "origin": "https://www.google.com",
+          "rank": 1000
+        },
+        {
+          "origin": "https://www.youtube.com",
+          "rank": 5000
+        },
+        {
+          "origin": "https://example.org",
+          "rank": 1000000
+        },
+        {
+          "origin": "http://example.net",
+          "rank": 5000000
+        },
+        {
+          "origin": "https://tail.example",
+          "rank": 50000000
+        }
+      ],
+      "complete": true
+    },
+    {
+      "name": "crux-cache dataset not published",
+      "scanConfig": {
+        "source": "crux-cache",
+        "country": "fr"
+      },
+      "http": [],
+      "estimate": {
+        "expectedTotal": 1000,
+        "exact": false
+      },
+      "error": {
+        "type": "validation",
+        "retryable": false,
+        "contains": "no crux-cache dataset for fr"
+      }
+    },
+    {
+      "name": "crux-cache month not published",
+      "scanConfig": {
+        "source": "crux-cache",
+        "country": "de",
+        "month": "202001"
+      },
+      "http": [
+        {
+          "dataSource": "cruxCache",
+          "method": "GET",
+          "path": "/data/de/manifest.json",
+          "status": 200,
+          "contentType": "text/plain; charset=utf-8",
+          "body": "{\"name\":\"Cached Chrome User Experience Report - de\",\"summary\":{\"total_months\":2,\"total_size\":223,\"earliest_month\":\"202608\",\"latest_month\":\"202609\"},\"months\":{\"202608\":{\"year\":2026,\"month\":8,\"chunks\":[{\"chunk\":1,\"filename\":\"202608_1.csv\",\"size\":32,\"origins\":1}],\"total_chunks\":1,\"total_size\":32,\"origins\":1},\"202609\":{\"year\":2026,\"month\":9,\"chunks\":[{\"chunk\":1,\"filename\":\"202609_1.csv\",\"size\":91,\"origins\":3},{\"chunk\":2,\"filename\":\"202609_2.csv\",\"size\":51,\"origins\":2},{\"chunk\":3,\"filename\":\"202609_3.csv\",\"size\":49,\"origins\":2}],\"total_chunks\":3,\"total_size\":191,\"origins\":7}}}",
+          "encoding": "text"
+        }
+      ],
+      "estimate": {
+        "expectedTotal": 1000,
+        "exact": false
+      },
+      "error": {
+        "type": "validation",
+        "retryable": false,
+        "contains": "CrUX list de 202001 not found"
       }
     }
   ]

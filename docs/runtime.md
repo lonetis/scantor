@@ -941,8 +941,9 @@ concrete values **before the first item is published** ([templates](templates.md
 1. If bootstrap `scheduler.resolved[key]` exists, use it and skip resolution (resume always uses the stored
    resolution).
 2. Otherwise run the template's resolve step with `scheduler.dataSources` (from `SCANTOR_TRANCO_URL`,
-   `SCANTOR_CRUX_URL`) and `scheduler.uploads` (presigned GETs of referenced uploads, verified against their
-   `sha256`), producing `{template, scanConfig (resolved), provenance, expectedTotal}`.
+   `SCANTOR_CRUX_URL`, `SCANTOR_CRUX_CACHE_URL`) and `scheduler.uploads` (presigned GETs of referenced
+   uploads, verified against their `sha256`), producing `{template, scanConfig (resolved), provenance,
+   expectedTotal}`.
 3. `POST /api/runtime/scheduler/resolved {epoch, key, template, scanConfig, provenance, expectedTotal}`. If the
    response has `stored: false`, another scheduler epoch resolved first: use the returned `resolution`.
 4. Generate items from the resolved scan config only.
@@ -1210,7 +1211,7 @@ tar (§3.1). Configs in the spec are already effective (validated with defaults 
   "maxAnalysesPerProcess": 1000,
   "totalTimeoutMs": 600000,
   "debug": false,
-  "dataSources": { "tranco": "https://tranco-list.eu", "crux": "https://raw.githubusercontent.com/zakird/crux-top-lists/main" },
+  "dataSources": { "tranco": "https://tranco-list.eu", "crux": "https://raw.githubusercontent.com/zakird/crux-top-lists/main", "cruxCache": "https://raw.githubusercontent.com/lonetis/crux-cache/main" },
   "uploads": { "4e3d2c1b-0a9f-4e8d-8c7b-6a5f4e3d2c1b": { "path": "/scantor/in/uploads/4e3d2c1b-0a9f-4e8d-8c7b-6a5f4e3d2c1b", "sha256": "2c26b46b…" } },
   "resolved": {},
   "limits": { "maxAnalysisConfigBytes": 65536, "maxResultBytes": 1048576, "maxFileBytes": 1073741824, "maxFilesPerAnalysis": 100, "logTailBytes": 32768, "logTailEarlierBytes": 4096 },

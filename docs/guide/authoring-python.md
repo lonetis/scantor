@@ -392,7 +392,7 @@ per template with the models `ScanConfig` and `AnalysisConfig` and the proxy `sc
 | `range` | `templates.range` | `start`, `end`, `step` | `value` |
 | `repeat` | `templates.repeat` | `times` | `iteration` |
 | `tranco` | `templates.tranco` | `list`, `subdomains`, `offset`, `limit` | `domain`, `rank` |
-| `crux` | `templates.crux` | `country`, `month`, `bucket` | `origin`, `rank` |
+| `crux` | `templates.crux` | `source`, `country`, `month`, `bucket` | `origin`, `rank` |
 | `cidr` | `templates.cidr` | `cidrs`, `exclude`, `prefix`, `max_analyses` (JSON `maxAnalyses`) | `ip`, `prefix`, `version` |
 
 Import the package, `from scantor import templates`, and use `templates.range` and `templates.list`

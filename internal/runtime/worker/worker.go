@@ -584,6 +584,7 @@ func templateEnv(b *api.Bootstrap, cfg runtime.Config, policy api.Policy) (templ
 	if s := b.Scheduler; s != nil {
 		env.DataSources[templates.DataSourceTranco] = s.DataSources.Tranco
 		env.DataSources[templates.DataSourceCrux] = s.DataSources.Crux
+		env.DataSources[templates.DataSourceCruxCache] = s.DataSources.CruxCache
 		urls := make([]string, 0, len(s.Uploads))
 		for id, u := range s.Uploads {
 			env.Uploads[id] = templates.Upload{URL: u.URL, SHA256: u.SHA256, Bytes: u.Bytes}

@@ -19,7 +19,7 @@ language is in the authoring guides for [Python](authoring-python.md#schedules-a
 | [`range`](#range) | integer of `start`, `start + step`, … below `end` | `{value}` | – | exact |
 | [`repeat`](#repeat) | iteration `0 … times − 1` | `{iteration}` | – | exact |
 | [`tranco`](#tranco) | domain of a [Tranco](https://tranco-list.eu) top list | `{domain, rank}` | list id | exact |
-| [`crux`](#crux) | origin of a Chrome UX Report top list | `{origin, rank}` | month | upper bound |
+| [`crux`](#crux) | origin of a Chrome UX Report list, up to the top 1M or every origin | `{origin, rank}` | month | upper bound |
 | [`cidr`](#cidr) | IP address (or subnet) of CIDR ranges | `{ip, prefix, version}` | – | exact |
 
 Every scan config field has a default, so `{}` is a valid scan config for every template. List the
@@ -289,25 +289,38 @@ listed: no scheme, no `www.`. Example: `{"list": "latest", "limit": 1000}` yield
 
 ### `crux`
 
-Origins of a Chrome UX Report top list from
-[zakird/crux-top-lists](https://github.com/zakird/crux-top-lists), up to a rank bucket.
+Origins of a Chrome UX Report list up to a rank bucket, from one of two sources:
+
+- `crux-top-lists` (the default): [zakird/crux-top-lists](https://github.com/zakird/crux-top-lists),
+  the top 1 000 000 origins, globally and for 238 countries (country lists exist from 202501).
+- `crux-cache`: [lonetis/crux-cache](https://github.com/lonetis/crux-cache), every origin CrUX tracks
+  (about 18 million globally), monthly since 202301, for the countries it publishes (`global`, `de`,
+  `jp` and `us` in 2026; see its [dataset list](https://lonetis.github.io/crux-cache)).
 
 | Scan config field | Type | Default | Constraints |
 |---|---|---|---|
-| `country` | string | `"global"` | `global` or a lowercase ISO 3166-1 alpha-2 code (country lists exist from 202501) |
+| `source` | string | `"crux-top-lists"` | `crux-top-lists` or `crux-cache` |
+| `country` | string | `"global"` | `global` or a lowercase ISO 3166-1 alpha-2 code |
 | `month` | string | `"latest"` | `latest` or `YYYYMM` |
-| `bucket` | integer | `1000` | one of 1000, 5000, 10000, 50000, 100000, 500000, 1000000: include origins whose rank bucket is at most this value |
+| `bucket` | integer | `1000` | one of 1000, 5000, 10000, 50000, 100000, 500000, 1000000, 5000000, 10000000, 50000000: include origins whose rank bucket is at most this value; buckets above 1000000 need `crux-cache`, and 50000000 is every origin |
 
 Analysis config: `{origin: string, rank: integer}`. `origin` is scheme and host without a trailing
 slash; both `http://` and `https://` occur. `rank` is the CrUX rank bucket, not an exact rank: CrUX
-publishes ranks only as buckets, and inside a bucket the order is fixed by the file. Example:
-`{"country": "de", "bucket": 10000}` yields the German top 10 000 origins.
+publishes ranks only as buckets, and inside a bucket the order is fixed by the data. Examples:
+`{"country": "de", "bucket": 10000}` yields the German top 10 000 origins, `{"source": "crux-cache",
+"bucket": 50000000}` every origin of the global list.
 
-- `latest` is pinned to the newest month published in the last four months (CrUX publishes a month on
-  the second Tuesday of the following month); none fails scheduling with `no CrUX list for <country>
-  in the last 4 months`. A missing month fails with `CrUX list <country> <month> not found`.
-- The estimate is an upper bound (`bucket`), because country lists can be shorter; the resolution
-  replaces it with the exact count.
+- With `crux-top-lists`, `latest` is pinned to the newest month published in the last four months (CrUX
+  publishes a month on the second Tuesday of the following month); none fails scheduling with `no CrUX
+  list for <country> in the last 4 months`. With `crux-cache`, `latest` is the newest month of the
+  dataset; a country it does not publish fails with `no crux-cache dataset for <country>`. A missing
+  month fails with `CrUX list <country> <month> not found`.
+- The estimate is an upper bound (`bucket`), because lists can be shorter; for `crux-cache` it is at
+  most 20 000 000, so a scan of every origin needs a per-scan maximum of at least that much. The
+  resolution replaces the estimate with the exact count.
+- `crux-cache` stores a month in chunks; the scheduler reads only the chunks up to `bucket` (a small
+  bucket reads only the first). A whole global month is about 700 MB, which the scheduler downloads
+  before the first analysis is published.
 
 ### `cidr`
 

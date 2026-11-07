@@ -24,8 +24,8 @@ web UI, the `scantor` CLI, the REST API or an LLM agent over MCP.
   and results are typed, validated and rendered as forms in the UI. Each task builds into its own Docker
   image, so any dependency or system package works.
 - **Templates**: ready-made schedules for single runs, lists and uploaded files, integer ranges,
-  repetitions, the Tranco and CrUX top lists and CIDR ranges. Use them as they are or wrap them to filter
-  and extend them.
+  repetitions, the Tranco top lists, the Chrome UX Report (CrUX, up to every one of its ~18 million
+  origins) and CIDR ranges. Use them as they are or wrap them to filter and extend them.
 - **Three ways to author**: a browser editor (VS Code in the browser), the CLI with your own editor and
   local Docker, or an LLM agent through the built-in MCP server.
 - **Test before you publish**: test runs on the platform or locally, immutable numbered revisions

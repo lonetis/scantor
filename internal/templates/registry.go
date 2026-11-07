@@ -59,8 +59,9 @@ type (
 
 // Data-source keys of Env.DataSources.
 const (
-	DataSourceTranco = core.DataSourceTranco
-	DataSourceCrux   = core.DataSourceCrux
+	DataSourceTranco    = core.DataSourceTranco
+	DataSourceCrux      = core.DataSourceCrux
+	DataSourceCruxCache = core.DataSourceCruxCache
 )
 
 // Single is the template of a task without a schedule.

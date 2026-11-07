@@ -87,7 +87,10 @@ export interface LocalSpecInput {
 }
 
 /** The local-mode spec of a test run (docs/tasks.md §11.3, docs/runtime.md §15.1). */
-export function localSpec(input: LocalSpecInput, config: Pick<Config, 'trancoUrl' | 'cruxUrl' | 'maxAnalysisConfigBytes' | 'maxResultBytes' | 'maxFileBytes' | 'maxFilesPerAnalysis'>) {
+export function localSpec(
+  input: LocalSpecInput,
+  config: Pick<Config, 'trancoUrl' | 'cruxUrl' | 'cruxCacheUrl' | 'maxAnalysisConfigBytes' | 'maxResultBytes' | 'maxFileBytes' | 'maxFilesPerAnalysis'>,
+) {
   return {
     v: 1,
     runId: input.testRunId,
@@ -103,7 +106,7 @@ export function localSpec(input: LocalSpecInput, config: Pick<Config, 'trancoUrl
     maxAnalysesPerProcess: input.maxAnalysesPerProcess,
     totalTimeoutMs: input.totalTimeoutMs,
     debug: false,
-    dataSources: { tranco: config.trancoUrl, crux: config.cruxUrl },
+    dataSources: { tranco: config.trancoUrl, crux: config.cruxUrl, cruxCache: config.cruxCacheUrl },
     uploads: Object.fromEntries(Object.entries(input.uploads).map(([id, upload]) => [id, { path: `/scantor/in/uploads/${id}`, sha256: upload.sha256 }])),
     resolved: {},
     limits: {

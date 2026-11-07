@@ -623,7 +623,8 @@
       "uploads": {},
       "dataSources": {
         "tranco": "https://tranco-list.eu",
-        "crux": "https://raw.githubusercontent.com/zakird/crux-top-lists/main"
+        "crux": "https://raw.githubusercontent.com/zakird/crux-top-lists/main",
+        "cruxCache": "https://raw.githubusercontent.com/lonetis/crux-cache/main"
       }
     }
   },

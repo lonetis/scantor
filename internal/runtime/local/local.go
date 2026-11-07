@@ -285,8 +285,12 @@ func (r *run) prepare() error {
 		return err
 	}
 	r.env = templates.Env{
-		DataSources: map[string]string{templates.DataSourceTranco: s.DataSources.Tranco, templates.DataSourceCrux: s.DataSources.Crux},
-		Uploads:     map[string]templates.Upload{}, HTTP: httpClient, TmpDir: tmp,
+		DataSources: map[string]string{
+			templates.DataSourceTranco:    s.DataSources.Tranco,
+			templates.DataSourceCrux:      s.DataSources.Crux,
+			templates.DataSourceCruxCache: s.DataSources.CruxCache,
+		},
+		Uploads: map[string]templates.Upload{}, HTTP: httpClient, TmpDir: tmp,
 	}
 	return nil
 }

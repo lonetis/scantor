@@ -16,7 +16,8 @@ import { expect, test as base } from '../fixtures'
 // Tranco and CrUX data come from the fixtures server (SCANTOR_TRANCO_URL, SCANTOR_CRUX_URL of the test stack), whose
 // lists are generated relative to its start: Tranco lists of the three days before it (1000 domains siteN.example,
 // www.siteN.example with subdomains), CrUX lists of the two months before it for global, de and us (1000 origins in
-// bucket 1000, 400 in 5000, 100 in 10000; every tenth origin is http://).
+// bucket 1000, 400 in 5000, 100 in 10000; every tenth origin is http://), and the same as crux-cache datasets (hosts
+// siteN.cache.<…>, 50 more origins in bucket 5000000, chunks of 600 rows; SCANTOR_CRUX_CACHE_URL).
 
 const test = extendRuntime(base)
 
@@ -56,6 +57,13 @@ async function latestCruxMonth(path: string): Promise<string> {
     if ((await fetch(`${FIXTURES_URL}/crux/${path}/${name}.csv.gz`, { method: 'HEAD' })).status === 200) return name
   }
   throw new Error(`the fixtures server has no CrUX list at ${path} in the last 4 months`)
+}
+
+/** The month (YYYYMM) `latest` resolves to with source crux-cache: the newest month of the dataset's manifest. */
+async function latestCruxCacheMonth(dataset: string): Promise<string> {
+  const response = await fetch(`${FIXTURES_URL}/crux-cache/data/${dataset}/manifest.json`)
+  if (!response.ok) throw new Error(`fixtures server crux-cache manifest of ${dataset}: ${response.status}`)
+  return ((await response.json()) as { summary: { latest_month: string } }).summary.latest_month
 }
 
 /** The `n`-th origin (1-based) of a fixture CrUX list: https except every tenth. */
@@ -324,15 +332,68 @@ test.describe('template crux', () => {
     },
   )
 
-  test('a missing list fails scheduling', { tag: ['@TPL-006'] }, async ({ shared, scans }) => {
+  test(
+    'crux-cache reads the chunks up to the bucket; buckets above 1M need it',
+    { tag: ['@TPL-012', '@TPL-008', '@TPL-010'] },
+    async ({ api, shared, scans }) => {
+      const { revision } = await shared.generated('tpl-crux')
+      const month = await latestCruxCacheMonth('de')
+      const cacheUrl = stackEnv().SCANTOR_CRUX_CACHE_URL
+      expect(ok(await estimateTemplate(api, 'crux', { source: 'crux-cache', country: 'de', bucket: 50_000_000 }), 'estimateTemplate')).toMatchObject({
+        expectedTotal: 20_000_000,
+        exact: false,
+      })
+      const topListsTooDeep = await api.startScan({ revision: revision.ref, scanConfig: { country: 'de', bucket: 5_000_000 }, confirm: true })
+      expect(configIssues(topListsTooDeep).map((issue) => issue.path)).toContain('/scanConfig/bucket')
+
+      // Every origin: the resolution reads all three chunks (600 rows each) and counts the 1550 rows exactly.
+      const all = await scans.start({ revision: revision.ref, scanConfig: { source: 'crux-cache', country: 'de', bucket: 50_000_000 }, confirm: true })
+      const allResolved = await pollScan(api, all.id, (s) => s.scheduling.resolved.schedule !== undefined, { timeoutMs: 120_000, what: 'resolution' })
+      expect(allResolved.scheduling.resolved.schedule).toMatchObject({
+        scanConfig: { source: 'crux-cache', country: 'de', month, bucket: 50_000_000 },
+        provenance: { chunks: [1, 2, 3].map((n) => ({ filename: `${month}_${n}.csv`, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })) },
+        expectedTotal: 1550,
+      })
+      ok(await api.cancelScan(all.id), 'cancelScan')
+
+      // bucket 1000: the 1000 origins of that bucket from chunks 1 and 2 (chunk 2 holds the first rank above it).
+      const scan = await scans.wait(
+        (await scans.start({ revision: revision.ref, scanConfig: { source: 'crux-cache', country: 'de', bucket: 1000 }, settings: TWO_RUNNERS })).id,
+        { timeoutMs: 120_000 },
+      )
+      expect(scan.scheduling.resolved.schedule).toMatchObject({
+        template: 'crux',
+        scanConfig: { source: 'crux-cache', country: 'de', month, bucket: 1000 },
+        provenance: {
+          source: 'crux-cache',
+          country: 'de',
+          month,
+          sourceUrl: `${cacheUrl}/data/de/manifest.json`,
+          chunks: [`${month}_1.csv`, `${month}_2.csv`].map((filename) => ({ filename, sha256: expect.stringMatching(/^[0-9a-f]{64}$/) })),
+          fetchedAt: expect.any(String),
+        },
+        expectedTotal: 1000,
+      })
+      expect((scan.scheduling.resolved.schedule!.provenance as { chunks: unknown[] }).chunks).toHaveLength(2)
+      const analyses = await allAnalyses(api, scan.id, ['config', 'status'])
+      expect(analyses.every((a) => a.status === 'succeeded')).toBe(true)
+      expect(analyses.map((a) => a.config)).toEqual(Array.from({ length: 1000 }, (_, i) => ({ origin: cruxOrigin(i + 1, 'cache.de.example'), rank: 1000 })))
+    },
+  )
+
+  test('a missing list fails scheduling', { tag: ['@TPL-006', '@TPL-012'] }, async ({ shared, scans }) => {
     const { revision } = await shared.generated('tpl-crux')
-    const [noCountry, noMonth] = await Promise.all([
+    const [noCountry, noMonth, noDataset, noCacheMonth] = await Promise.all([
       scans.start({ revision: revision.ref, scanConfig: { country: 'fr' } }),
       scans.start({ revision: revision.ref, scanConfig: { month: '202001' } }),
+      scans.start({ revision: revision.ref, scanConfig: { source: 'crux-cache', country: 'fr' } }),
+      scans.start({ revision: revision.ref, scanConfig: { source: 'crux-cache', country: 'de', month: '202001' } }),
     ])
     for (const [scanId, message] of [
       [noCountry.id, 'no CrUX list for fr in the last 4 months'],
       [noMonth.id, 'CrUX list global 202001 not found'],
+      [noDataset.id, 'no crux-cache dataset for fr'],
+      [noCacheMonth.id, 'CrUX list de 202001 not found'],
     ] as const) {
       const scan = await scans.wait(scanId, { state: 'failed' })
       expect(scan.scheduling.error).toMatchObject({ type: 'validation', retryable: false, phase: 'schedule' })

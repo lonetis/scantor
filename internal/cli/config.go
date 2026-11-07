@@ -28,6 +28,7 @@ const (
 	DefaultURL                = "http://localhost:3000"
 	DefaultTrancoURL          = "https://tranco-list.eu"
 	DefaultCruxURL            = "https://raw.githubusercontent.com/zakird/crux-top-lists/main"
+	DefaultCruxCacheURL       = "https://raw.githubusercontent.com/lonetis/crux-cache/main"
 	DefaultBuildTimeout       = 30 * time.Minute
 	DefaultMaxImageBytes      = 10 * envconf.GiB
 	DefaultDescribeTimeout    = 10 * time.Minute
@@ -55,7 +56,8 @@ type Config struct {
 	// Images is the SCANTOR_IMAGE_PREFIX/SCANTOR_IMAGE_TAG override of image references (active only
 	// when the tag is set).
 	Images version.ImageOverride
-	// DataSources are the template data source URLs of local runs (SCANTOR_TRANCO_URL, SCANTOR_CRUX_URL).
+	// DataSources are the template data source URLs of local runs (SCANTOR_TRANCO_URL, SCANTOR_CRUX_URL,
+	// SCANTOR_CRUX_CACHE_URL).
 	DataSources api.DataSources
 	// Limits are the manifest instance limits of rule M8 (SCANTOR_MAX_WORKERS_PER_SCAN,
 	// SCANTOR_MAX_PROCESSES_PER_WORKER).
@@ -103,8 +105,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 			Tag:    strings.TrimSpace(r.String("SCANTOR_IMAGE_TAG", "")),
 		},
 		DataSources: api.DataSources{
-			Tranco: r.URL("SCANTOR_TRANCO_URL", DefaultTrancoURL, []string{"http", "https"}),
-			Crux:   r.URL("SCANTOR_CRUX_URL", DefaultCruxURL, []string{"http", "https"}),
+			Tranco:    r.URL("SCANTOR_TRANCO_URL", DefaultTrancoURL, []string{"http", "https"}),
+			Crux:      r.URL("SCANTOR_CRUX_URL", DefaultCruxURL, []string{"http", "https"}),
+			CruxCache: r.URL("SCANTOR_CRUX_CACHE_URL", DefaultCruxCacheURL, []string{"http", "https"}),
 		},
 		Limits: manifest.Limits{
 			MaxWorkersPerScan:     int(r.Int("SCANTOR_MAX_WORKERS_PER_SCAN", int64(manifest.DefaultLimits().MaxWorkersPerScan), 1, 1_000_000)),

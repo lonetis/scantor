@@ -69,7 +69,15 @@ describe('localSpec', () => {
         totalTimeoutMs: 590_000,
         uploads: { u1: { sha256: 'ab' } },
       },
-      { trancoUrl: 'https://tranco-list.eu', cruxUrl: 'https://crux.example', maxAnalysisConfigBytes: 1, maxResultBytes: 2, maxFileBytes: 3, maxFilesPerAnalysis: 4 },
+      {
+        trancoUrl: 'https://tranco-list.eu',
+        cruxUrl: 'https://crux.example',
+        cruxCacheUrl: 'https://crux-cache.example',
+        maxAnalysisConfigBytes: 1,
+        maxResultBytes: 2,
+        maxFileBytes: 3,
+        maxFilesPerAnalysis: 4,
+      },
     )
     expect(spec).toMatchObject({
       v: 1,
@@ -77,7 +85,7 @@ describe('localSpec', () => {
       processes: 1,
       debug: false,
       totalTimeoutMs: 590_000,
-      dataSources: { tranco: 'https://tranco-list.eu', crux: 'https://crux.example' },
+      dataSources: { tranco: 'https://tranco-list.eu', crux: 'https://crux.example', cruxCache: 'https://crux-cache.example' },
       uploads: { u1: { path: '/scantor/in/uploads/u1', sha256: 'ab' } },
       resolved: {},
       limits: { maxAnalysisConfigBytes: 1, maxResultBytes: 2, maxFileBytes: 3, maxFilesPerAnalysis: 4, logTailBytes: 32768, logTailEarlierBytes: 4096 },

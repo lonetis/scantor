@@ -122,8 +122,9 @@ type UploadSource struct {
 
 // DataSources are the base URLs of template data sources.
 type DataSources struct {
-	Tranco string `json:"tranco"`
-	Crux   string `json:"crux"`
+	Tranco    string `json:"tranco"`
+	Crux      string `json:"crux"`
+	CruxCache string `json:"cruxCache"`
 }
 
 // BootstrapScheduler is the scheduler-only part of a bootstrap.

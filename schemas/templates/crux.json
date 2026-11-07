@@ -2,18 +2,20 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://scantor.dev/schemas/templates/crux.json",
   "title": "CrUX top list",
-  "description": "Origins of a Chrome UX Report top list (zakird/crux-top-lists) up to a rank bucket, globally or for one country. `latest` is resolved to a concrete month before the first analysis is published.",
+  "description": "Origins of a Chrome UX Report list up to a rank bucket, globally or for one country, from zakird/crux-top-lists (the default, up to rank 1M) or lonetis/crux-cache (every origin CrUX tracks). `latest` is resolved to a concrete month before the first analysis is published.",
   "x-scantor-template": {
     "name": "crux",
     "version": 1,
     "resolves": true,
     "estimate": "upperBound",
     "dataSources": [
-      "crux"
+      "crux",
+      "cruxCache"
     ],
     "uploads": false,
     "example": {
       "scanConfig": {
+        "source": "crux-top-lists",
         "country": "global",
         "month": "latest",
         "bucket": 1000
@@ -29,8 +31,17 @@
       "type": "object",
       "title": "ScanConfig",
       "properties": {
+        "source": {
+          "description": "Where the list comes from: `crux-top-lists` (zakird/crux-top-lists: rank buckets up to 1000000, country lists from 202501) or `crux-cache` (lonetis/crux-cache: every origin and bucket, the countries it publishes).",
+          "type": "string",
+          "enum": [
+            "crux-top-lists",
+            "crux-cache"
+          ],
+          "default": "crux-top-lists"
+        },
         "country": {
-          "description": "`global` or a lowercase ISO 3166-1 alpha-2 country code (country lists exist from 202501).",
+          "description": "`global` or a lowercase ISO 3166-1 alpha-2 country code (crux-top-lists has country lists from 202501, crux-cache only the countries it publishes).",
           "type": "string",
           "pattern": "^(global|[a-z]{2})$",
           "default": "global"
@@ -42,7 +53,7 @@
           "default": "latest"
         },
         "bucket": {
-          "description": "Include origins with rank bucket ≤ this value (the cap of the scan).",
+          "description": "Include origins with rank bucket ≤ this value (the cap of the scan); buckets above 1000000 need source crux-cache.",
           "type": "integer",
           "enum": [
             1000,
@@ -51,7 +62,10 @@
             50000,
             100000,
             500000,
-            1000000
+            1000000,
+            5000000,
+            10000000,
+            50000000
           ],
           "default": 1000
         }
@@ -78,7 +92,10 @@
             50000,
             100000,
             500000,
-            1000000
+            1000000,
+            5000000,
+            10000000,
+            50000000
           ]
         }
       },

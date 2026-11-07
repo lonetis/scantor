@@ -48,7 +48,7 @@ func localSpec() LocalSpec {
 		Limit: 5, Processes: 1, TimeoutMs: 300000, MaxAttempts: 1,
 		Backoff:               api.Backoff{InitialMs: 5000, Factor: 2, MaxMs: 600000, Jitter: true},
 		MaxAnalysesPerProcess: 1000,
-		DataSources:           api.DataSources{Tranco: "https://tranco-list.eu", Crux: "https://example.com/crux"},
+		DataSources:           api.DataSources{Tranco: "https://tranco-list.eu", Crux: "https://example.com/crux", CruxCache: "https://example.com/crux-cache"},
 		Uploads:               map[string]LocalUpload{}, Resolved: map[string]json.RawMessage{},
 		Limits: DefaultLocalLimits(), OutDir: LocalOutDir,
 	}

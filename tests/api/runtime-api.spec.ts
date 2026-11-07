@@ -147,7 +147,7 @@ test.describe('bootstrap', () => {
       checkpoint: { confirmed: 0, tailHash: null },
       resolved: {},
       uploads: {},
-      dataSources: { tranco: stackEnv().SCANTOR_TRANCO_URL, crux: stackEnv().SCANTOR_CRUX_URL },
+      dataSources: { tranco: stackEnv().SCANTOR_TRANCO_URL, crux: stackEnv().SCANTOR_CRUX_URL, cruxCache: stackEnv().SCANTOR_CRUX_CACHE_URL },
     })
 
     const runnerBoot = await runner.bootstrap()

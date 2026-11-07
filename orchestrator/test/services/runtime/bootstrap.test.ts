@@ -28,6 +28,7 @@ const config: BootstrapConfig = {
   scanQueueMaxReady: 100_000,
   trancoUrl: 'https://tranco-list.eu',
   cruxUrl: 'https://raw.githubusercontent.com/zakird/crux-top-lists/main',
+  cruxCacheUrl: 'https://raw.githubusercontent.com/lonetis/crux-cache/main',
 }
 
 function parts(overrides: Partial<BootstrapParts> = {}): BootstrapParts {
@@ -101,7 +102,11 @@ describe('buildBootstrap', () => {
         checkpoint: { confirmed: 42000, tailHash: `sha256:${'9b1c'.repeat(16)}` },
         resolved: {},
         uploads: {},
-        dataSources: { tranco: 'https://tranco-list.eu', crux: 'https://raw.githubusercontent.com/zakird/crux-top-lists/main' },
+        dataSources: {
+          tranco: 'https://tranco-list.eu',
+          crux: 'https://raw.githubusercontent.com/zakird/crux-top-lists/main',
+          cruxCache: 'https://raw.githubusercontent.com/lonetis/crux-cache/main',
+        },
       },
     })
   })

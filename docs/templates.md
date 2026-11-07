@@ -90,7 +90,7 @@ type Upload struct {
 }
 
 type Env struct {
-	DataSources map[string]string // "tranco", "crux" → base URL without trailing slash
+	DataSources map[string]string // "tranco", "crux", "cruxCache" → base URL without trailing slash
 	Uploads     map[string]Upload // upload id → access
 	HTTP        *http.Client      // §7.2 policy
 	TmpDir      string            // scratch space for downloaded data
@@ -187,11 +187,12 @@ every resume.
 | `range` | effective config | `{}` | exact |
 | `repeat` | effective config | `{}` | exact |
 | `tranco` | `list` = the concrete list id | `{listId, date, sourceUrl, sha256, fetchedAt}` | exact (rows received) |
-| `crux` | `month` = the concrete month | `{country, month, sourceUrl, sha256, fetchedAt}` | exact (rows within the bucket) |
+| `crux` | `source` explicit, `month` = the concrete month | crux-top-lists: `{country, month, sourceUrl, sha256, fetchedAt}`; crux-cache: `{source, country, month, sourceUrl, chunks: [{filename, sha256}], fetchedAt}` | exact (rows within the bucket) |
 | `cidr` | effective config | `{}` | exact |
 
 `sha256` is the hex SHA-256 of the **decoded** data (the CSV text after HTTP content decoding and gzip
-decompression), so it is independent of transport compression. `fetchedAt` is ISO 8601 UTC.
+decompression), so it is independent of transport compression; data read in parts (crux-cache chunks)
+records one hash per part. `fetchedAt` is ISO 8601 UTC.
 
 ## 5. Estimates and `expectedTotal`
 
@@ -202,7 +203,7 @@ decompression), so it is independent of transport compression. `fetchedAt` is IS
 | `range` | exact | `len(range(start, end, step))` |
 | `repeat` | exact | `times` |
 | `tranco` | exact | `limit` (every Tranco list has 1 000 000 rows) |
-| `crux` | upperBound | `bucket` (country lists may be shorter) |
+| `crux` | upperBound | `bucket` (lists may be shorter); for `crux-cache` at most 20 000 000 (CrUX tracks about 18 million origins, so the bucket 50 000 000 would otherwise exceed the default per-scan maximum; the scheduler still enforces the maximum while streaming) |
 | `cidr` | exact | number of addresses or subnets after merging and exclusions |
 
 The resolution's `expectedTotal` is exact for every template and replaces the estimate in
@@ -233,7 +234,8 @@ The resolution's `expectedTotal` is exact for every template and replaces the es
 | Key | Variable (orchestrator, CLI) | Upstream base URL | Used by |
 |---|---|---|---|
 | `tranco` | `SCANTOR_TRANCO_URL` | `https://tranco-list.eu` | `tranco` |
-| `crux` | `SCANTOR_CRUX_URL` | `https://raw.githubusercontent.com/zakird/crux-top-lists/main` | `crux` |
+| `crux` | `SCANTOR_CRUX_URL` | `https://raw.githubusercontent.com/zakird/crux-top-lists/main` | `crux` (source `crux-top-lists`) |
+| `cruxCache` | `SCANTOR_CRUX_CACHE_URL` | `https://raw.githubusercontent.com/lonetis/crux-cache/main` | `crux` (source `crux-cache`) |
 
 The orchestrator passes them to schedulers in bootstrap (`scheduler.dataSources`) and to test runs in the
 local-mode input; the CLI reads the same variables for `scantor dev run` and otherwise uses compiled-in
@@ -254,7 +256,8 @@ scaffold matrix point them at the fixtures server, which mirrors exactly the end
 - Size caps: 64 MiB per download, 256 MiB decoded (gzip bomb protection); exceeding them is a `platform`
   error, not retryable. Uploaded lists are capped at their recorded `bytes` (≤ `SCANTOR_MAX_UPLOAD_BYTES`,
   which may exceed 64 MiB) instead, both raw and decoded; the 64 MiB / 256 MiB caps apply to Tranco, CrUX
-  and uploads of unknown size.
+  and uploads of unknown size. A crux-cache month is larger than the caps (a global month is about
+  700 MB), so it is downloaded chunk by chunk (each a few tens of MB), each chunk under the caps.
 - Downloaded data is cached in `Env.TmpDir` keyed by URL for the lifetime of the scheduler process, so
   Resolve and Stream download once. Concurrent callers for the same URL share one download, which runs
   detached from the caller that started it: a caller whose context ends (a wrapped template call that
@@ -266,10 +269,10 @@ scaffold matrix point them at the fixtures server, which mirrors exactly the end
 | Situation | ScantorError `type` | `retryable` | Phase |
 |---|---|---|---|
 | semantic validation failure (Validate) | `validation` | false | `schedule` (scan start: 422 `configInvalid`) |
-| unknown list id, unavailable date or month, unknown upload | `validation` | false | `schedule` |
+| unknown list id, unavailable date or month, unknown upload, unpublished crux-cache dataset | `validation` | false | `schedule` |
 | network error, timeout, 5xx/429 after retries | `platform` | true | `schedule` |
-| unexpected data format (wrong CSV header, non-contiguous Tranco ranks, unsorted CrUX buckets) | `platform` | true | `schedule` |
-| data changed since resolution (sha256 mismatch on resume) | `validation` | false | `schedule` |
+| unexpected data format (wrong CSV header, non-contiguous Tranco ranks, unsorted CrUX buckets, a malformed crux-cache manifest, a chunk the manifest lists but the source lacks at resolution) | `platform` | true | `schedule` |
+| data changed since resolution (sha256 mismatch on resume, a recorded crux-cache chunk gone) | `validation` | false | `schedule` |
 | size caps exceeded | `platform` | false | `schedule` |
 | analysis count above `SCANTOR_MAX_ANALYSES_PER_SCAN` while streaming | `validation` | false | `schedule` |
 
@@ -372,32 +375,60 @@ which is why `latest` is resolved through the metadata endpoint instead of compu
 
 ### 9.6 `crux`
 
-Origins of a Chrome UX Report top list up to a rank bucket, from `zakird/crux-top-lists` (global since
-202102, 238 countries since 202501).
+Origins of a Chrome UX Report list up to a rank bucket, from one of two sources:
+
+| `source` | Upstream | Data source | Coverage |
+|---|---|---|---|
+| `crux-top-lists` (default) | `zakird/crux-top-lists` | `crux` | ranks up to 1M; global since 202102, 238 countries since 202501 |
+| `crux-cache` | `lonetis/crux-cache` | `cruxCache` | every origin CrUX tracks (about 18M globally); monthly since 202301; the datasets it publishes (`global`, `de`, `jp`, `us` in 2026) |
 
 ScanConfig:
 
 | Field | Type | Default | Constraints | Meaning |
 |---|---|---|---|---|
+| `source` | string | `"crux-top-lists"` | `crux-top-lists` or `crux-cache` | where the list comes from |
 | `country` | string | `"global"` | `global` or lowercase ISO 3166-1 alpha-2 | which list |
 | `month` | string | `"latest"` | `latest` or `YYYYMM` | which month |
-| `bucket` | integer | 1000 | one of 1000, 5000, 10000, 50000, 100000, 500000, 1000000 | include origins whose rank bucket ≤ this value (the explicit cap of the scan) |
+| `bucket` | integer | 1000 | one of 1000, 5000, 10000, 50000, 100000, 500000, 1000000, 5000000, 10000000, 50000000; above 1000000 only with `crux-cache` (Validate, path `/bucket`) | include origins whose rank bucket ≤ this value (the explicit cap of the scan); 50000000 is every origin |
 
 AnalysisConfig: `{origin: string (1–2048), rank: integer (a bucket value)}`; origins are scheme + host
 without trailing slash; `http://` and `https://` both occur.
 
-Resolve (base = `crux` data source; path `data/global` for `global`, else `data/country/<country>`):
+Both sources are CSVs with the header `origin,rank`, LF line endings and rows ordered by bucket (random
+order inside a bucket, fixed by the data). Buckets must be valid and non-decreasing (otherwise
+`platform`). `expectedTotal` = rows with rank ≤ `bucket`; reading stops at the first rank above it. The
+resolved `scanConfig` names its `source` and the concrete month. A stored resolution without `source`
+(resolved before the field existed) is `crux-top-lists`.
+
+Resolve with `crux-top-lists` (base = `crux` data source; path `data/global` for `global`, else
+`data/country/<country>`):
 
 - `latest`: `HEAD {base}/<path>/<YYYYMM>.csv.gz` for the current UTC month and the three months before it,
   newest first; the first `200` wins; none → `validation`: `no CrUX list for <country> in the last 4
   months`. (CrUX publishes a month on the second Tuesday of the following month.)
 - A given month: no probe; a `404` on download → `validation`: `CrUX list <country> <month> not found`.
-- `GET {base}/<path>/<month>.csv.gz`, gunzip, header `origin,rank`, LF line endings. Rows are ordered by
-  bucket (random order inside a bucket, fixed by the file). Buckets must be valid and non-decreasing
-  (otherwise `platform`). `expectedTotal` = rows with rank ≤ `bucket`. Provenance `{country, month,
-  sourceUrl, sha256, fetchedAt}`; `scanConfig.month` = the concrete month.
+- `GET {base}/<path>/<month>.csv.gz`, gunzip. Provenance `{country, month, sourceUrl, sha256,
+  fetchedAt}`.
 
-Stream: rows in file order until the first rank greater than `bucket` → `{origin, rank}`.
+Resolve with `crux-cache` (base = `cruxCache` data source; dataset = `country`):
+
+- `GET {base}/data/<country>/manifest.json`: `{summary: {latest_month, …}, months: {"YYYYMM": {chunks:
+  [{chunk, filename, size, origins}], …}}}`; a `404` → `validation` at `/country`: `no crux-cache
+  dataset for <country>`.
+- `latest` = `summary.latest_month` (no probing); a month the manifest does not list → `validation`:
+  `CrUX list <country> <month> not found`.
+- The month's chunks, in `chunk` order (1, 2, …; file names are single path segments, otherwise
+  `platform`): `GET {base}/data/<country>/<filename>`, uncompressed, at most a few tens of MB each, the
+  header only in chunk 1. Chunks are read one after another until the first rank above `bucket` (or the
+  last chunk), so a small bucket reads only the first chunk. Provenance `{source: "crux-cache",
+  country, month, sourceUrl: <manifest URL>, chunks: [{filename, sha256}] (the chunks read, in order),
+  fetchedAt}`.
+
+Stream: rows in list order until the first rank greater than `bucket` → `{origin, rank}`. With
+`crux-cache` the stream reads exactly the recorded chunks, verifying each chunk's `sha256` before
+yielding its rows; a recorded chunk that is gone (`404`) or changed → `validation`: `crux-cache content
+changed since resolution (<country> <month>, <filename>…)`. The scheduler keeps the chunks it read in its
+scratch space for the stream (a whole global month is about 700 MB).
 
 ### 9.7 `cidr`
 
@@ -453,10 +484,10 @@ Case fields:
 |---|---|
 | `scanConfig` | input; defaults are applied first |
 | `now` | the clock for `latest` resolution (ISO 8601) |
-| `http[]` | `{method, path, status, contentType, body, encoding}` served by a fake server at the data-source base URL; `path` includes the exact query string; `encoding: "gzip"` means the server gzips `body`. A `HEAD` request for a path with a `GET` entry answers `200`; every other request answers `404`. |
+| `http[]` | `{dataSource?, method, path, status, contentType, body, encoding}` served by a fake server at the base URL of `dataSource` (a key of `x-scantor-template.dataSources`; default the first); `path` includes the exact query string; `encoding: "gzip"` means the server gzips `body`. A `HEAD` request for a path with a `GET` entry answers `200`; every other request answers `404`. |
 | `uploads[]` | `{id, content, lines}` served at presigned-style URLs; `sha256` and `bytes` are computed from `content` |
 | `estimate` | expected `{expectedTotal, exact}` |
-| `resolution` | expected `{scanConfig, provenance, expectedTotal}`; `fetchedAt` is not compared; `${tranco}` and `${crux}` in strings stand for the data-source base URLs |
+| `resolution` | expected `{scanConfig, provenance, expectedTotal}`; `fetchedAt` is not compared; `${tranco}`, `${crux}` and `${cruxCache}` in strings stand for the data-source base URLs |
 | `analyses` | expected stream output; `complete: true` = the whole stream, `false` = a prefix |
 | `error` | instead of `resolution`/`analyses`: `{type, retryable, contains}` expected from Resolve or Stream |
 
@@ -469,7 +500,7 @@ Consumers:
 - **Connector conformance** ([protocol](protocol.md) §12, cases D5 and T4): native models accept and
   reject the fixture configs and describe matches the canonical properties, types and defaults.
 - **Scaffold matrix** ([testing](testing.md)): `scantor dev run --limit 2` for every language × template
-  with `SCANTOR_TRANCO_URL`/`SCANTOR_CRUX_URL` pointing at a fixture server.
+  with `SCANTOR_TRANCO_URL`/`SCANTOR_CRUX_URL`/`SCANTOR_CRUX_CACHE_URL` pointing at a fixture server.
 
 ## 11. Adding a template
 
@@ -498,7 +529,8 @@ Accepted by the lead (round 1 rulings):
 1. **Template semantics fixed here**: `single` has no parameters; `list` combines inline items and one
    upload, trims and skips empty items, `index` counts before `offset`; `range` is exclusive of `end`;
    `repeat` defaults to 1; `tranco` uses `/download/<id>/<offset+limit>` and resolves `latest` via the
-   metadata API; `crux` reads only `zakird/crux-top-lists` (≤ 1M) with an explicit `bucket` cap;
+   metadata API; `crux` reads `zakird/crux-top-lists` (≤ 1M) by default and `lonetis/crux-cache` (every
+   origin, chunk by chunk) with `source: "crux-cache"`, always with an explicit `bucket` cap;
    `cidr` merges and sorts ranges, supports a subnet mode via `prefix`, has a default `maxAnalyses` of
    65 536 and rejects (never truncates) larger expansions.
 2. **Every template has a Resolve step** and records a resolution (also non-resolving ones, for uniform
@@ -513,7 +545,6 @@ Accepted by the lead (round 1 rulings):
 
 | Extension | How the design accommodates it |
 |---|---|
-| CrUX beyond 1M origins: a `crux-cache` source reading `lonetis/crux-cache` chunks (up to ~18M origins, buckets 5M/10M/all) | a new data source key (§11 step 6) and a `source` scan config field defaulting to today's `zakird/crux-top-lists` behaviour; buckets extend the enum additively |
 | Tranco full list (> 1M) | `limit` maximum can grow with the `/download/<id>/full` endpoint; additive |
 | Seeded sampling inside a CrUX bucket, CIDR shuffling | new optional fields (`seed`, `shuffle`) defaulting to today's order |
 | Deduplication in `list` | an optional `dedupe` field; the hash set lives in the scheduler |

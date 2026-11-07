@@ -1446,6 +1446,10 @@ test.describe('local development loop', () => {
         const run = await devRun(cruxDir, ['--limit', '1', '--task-config', '{"timeoutMs": 1000}'])
         expect(run.run.exitCode, describeRun(run.run)).toBe(0)
         expect(JSON.stringify(run.events.find((e) => e.type === 'resolved'))).toContain(FIXTURE_DATA_SOURCES.SCANTOR_CRUX_URL)
+
+        const cache = await devRun(cruxDir, ['--limit', '1', '--task-config', '{"timeoutMs": 1000}', '--scan-config', '{"source": "crux-cache"}'])
+        expect(cache.run.exitCode, describeRun(cache.run)).toBe(0)
+        expect(JSON.stringify(cache.events.find((e) => e.type === 'resolved'))).toContain(FIXTURE_DATA_SOURCES.SCANTOR_CRUX_CACHE_URL)
       }
 
       const uploadRun = async () => {

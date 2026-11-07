@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -251,15 +252,21 @@ func newCaseServer(t *testing.T, info core.Info, c Case) *caseServer {
 		mux.ServeHTTP(w, r)
 	}))
 	t.Cleanup(cs.Close)
-	vars := map[string]string{core.DataSourceTranco: cs.URL + "/tranco", core.DataSourceCrux: cs.URL + "/crux"}
-	if len(info.DataSources) > 1 {
-		t.Fatalf("fixture cases support one data source per template, %s has %v", info.Name, info.DataSources)
+	vars := cs.vars()
+	// Every route belongs to one of the template's data sources: its dataSource, else the first.
+	byDataSource := map[string][]Route{}
+	for _, route := range c.HTTP {
+		ds := route.DataSource
+		if ds == "" && len(info.DataSources) > 0 {
+			ds = info.DataSources[0]
+		}
+		if !slices.Contains(info.DataSources, ds) {
+			t.Fatalf("case %q has an http entry for data source %q, but %s uses %v", c.Name, ds, info.Name, info.DataSources)
+		}
+		byDataSource[ds] = append(byDataSource[ds], route)
 	}
 	for _, ds := range info.DataSources {
-		mux.Handle("/"+ds+"/", NewRoutes("/"+ds, c.HTTP, vars))
-	}
-	if len(info.DataSources) == 0 && len(c.HTTP) > 0 {
-		t.Fatalf("case %q has http entries, but %s has no data source", c.Name, info.Name)
+		mux.Handle("/"+ds+"/", NewRoutes("/"+ds, byDataSource[ds], vars))
 	}
 	mux.Handle("/uploads/", cs.uploads)
 	return cs
@@ -285,7 +292,7 @@ func (cs *caseServer) env(t *testing.T, c Case) core.Env {
 		uploads[u.ID] = core.Upload{URL: cs.uploads.URL(cs.URL, u.ID), SHA256: hex.EncodeToString(sum[:]), Bytes: int64(len(u.Content)), Lines: u.Lines}
 	}
 	return core.Env{
-		DataSources: map[string]string{core.DataSourceTranco: cs.URL + "/tranco", core.DataSourceCrux: cs.URL + "/crux"},
+		DataSources: cs.vars(),
 		Uploads:     uploads,
 		HTTP:        client,
 		TmpDir:      t.TempDir(),
@@ -293,8 +300,14 @@ func (cs *caseServer) env(t *testing.T, c Case) core.Env {
 	}
 }
 
+// vars are the data-source base URLs of the case server, keyed by data-source key (also the fixture
+// placeholders ${tranco}, ${crux} and ${cruxCache}).
 func (cs *caseServer) vars() map[string]string {
-	return map[string]string{"tranco": cs.URL + "/tranco", "crux": cs.URL + "/crux"}
+	vars := map[string]string{}
+	for _, ds := range []string{core.DataSourceTranco, core.DataSourceCrux, core.DataSourceCruxCache} {
+		vars[ds] = cs.URL + "/" + ds
+	}
+	return vars
 }
 
 func runCase(t *testing.T, def *core.Definition, c Case) {
@@ -467,7 +480,8 @@ func roundTrip(t *testing.T, res core.Resolution) core.Resolution {
 	return stored
 }
 
-// tamperHashes replaces every "sha256" string in a provenance map and reports whether one existed.
+// tamperHashes replaces every "sha256" string in a provenance map, including maps nested in maps and
+// arrays, and reports whether one existed.
 func tamperHashes(m map[string]any) bool {
 	found := false
 	for k, v := range m {
@@ -479,6 +493,12 @@ func tamperHashes(m map[string]any) bool {
 			}
 		case map[string]any:
 			found = tamperHashes(tv) || found
+		case []any:
+			for _, item := range tv {
+				if nested, ok := item.(map[string]any); ok {
+					found = tamperHashes(nested) || found
+				}
+			}
 		}
 	}
 	return found

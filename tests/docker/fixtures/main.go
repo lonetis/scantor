@@ -2,9 +2,9 @@
 // §7.9). It replaces every external service the test stack would otherwise reach, on one plain-HTTP
 // port:
 //
-//   - /tranco and /crux: the data-source fakes of internal/templates/templatestest with small,
-//     deterministic lists generated relative to the server's start (SCANTOR_TRANCO_URL and
-//     SCANTOR_CRUX_URL of the test stack point here), plus GET /healthz;
+//   - /tranco, /crux and /crux-cache: the data-source fakes of internal/templates/templatestest with
+//     small, deterministic lists generated relative to the server's start (SCANTOR_TRANCO_URL,
+//     SCANTOR_CRUX_URL and SCANTOR_CRUX_CACHE_URL of the test stack point here), plus GET /healthz;
 //   - /<name>.git/...: read-only git smart-HTTP (git http-backend) over the bare repositories in
 //     /srv/git; Traefik serves them as https://git.<domain>/<name>.git with the test CA's certificate.
 //     Repositories whose name starts with "private" require Basic auth with the fixed test credential;
@@ -55,6 +55,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/tranco/", data)
 	mux.Handle("/crux/", data)
+	mux.Handle("/crux-cache/", data)
 	mux.Handle("GET /healthz", data)
 	mux.HandleFunc("POST /control/repos", copyRepo)
 	mux.HandleFunc("POST /control/repos/{name}/main", moveMain)

@@ -17,8 +17,9 @@ import (
 
 // Data-source keys of Env.DataSources (docs/templates.md §7.1).
 const (
-	DataSourceTranco = "tranco"
-	DataSourceCrux   = "crux"
+	DataSourceTranco    = "tranco"
+	DataSourceCrux      = "crux"
+	DataSourceCruxCache = "cruxCache"
 )
 
 // Issue is one semantic validation failure of a scan config.
@@ -61,7 +62,7 @@ type Upload struct {
 // and the system roots, Now nil uses time.Now, an empty UserAgent uses DefaultUserAgent(). TmpDir is
 // required by templates that download data.
 type Env struct {
-	DataSources map[string]string // "tranco", "crux" → base URL without trailing slash
+	DataSources map[string]string // "tranco", "crux", "cruxCache" → base URL without trailing slash
 	Uploads     map[string]Upload // upload id → access
 	HTTP        *http.Client      // §7.2 policy
 	TmpDir      string            // scratch space for downloaded data

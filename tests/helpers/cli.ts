@@ -34,6 +34,7 @@ export interface CliOptions {
 export const FIXTURE_DATA_SOURCES = {
   SCANTOR_TRANCO_URL: `http://fixtures.${env.domain}:8089/tranco`,
   SCANTOR_CRUX_URL: `http://fixtures.${env.domain}:8089/crux`,
+  SCANTOR_CRUX_CACHE_URL: `http://fixtures.${env.domain}:8089/crux-cache`,
 }
 
 function parseOutput(stdout: string): unknown {

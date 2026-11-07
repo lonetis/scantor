@@ -1158,7 +1158,8 @@ Scheduler response:
     "uploads": {},
     "dataSources": {
       "tranco": "https://tranco-list.eu",
-      "crux": "https://raw.githubusercontent.com/zakird/crux-top-lists/main"
+      "crux": "https://raw.githubusercontent.com/zakird/crux-top-lists/main",
+      "cruxCache": "https://raw.githubusercontent.com/lonetis/crux-cache/main"
     }
   }
 }
@@ -1183,7 +1184,7 @@ scheduler, `scan.settings.processes` is always 1: it runs at most one connector 
 `{url (presigned GET, 1 h), sha256, bytes, expiresAt}`. `scheduler.resolved` contains stored resolutions
 by key; on resume the runtime must use them instead of resolving again. `amqp.url` and the S3 endpoint of
 later presigned URLs follow the node's endpoint profile ([architecture](architecture.md) §8).
-`scheduler.dataSources` come from `SCANTOR_TRANCO_URL` and `SCANTOR_CRUX_URL`.
+`scheduler.dataSources` come from `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL` and `SCANTOR_CRUX_CACHE_URL`.
 
 Effects: first bootstrap of a worker → `running`, `runtime.version`/`bootstrappedAt` recorded; first
 scheduler bootstrap → `scheduling.state: running`. `action` is `stop` when the scan is no longer

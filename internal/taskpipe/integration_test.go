@@ -271,7 +271,7 @@ func TestIntegrationBuildEcho(t *testing.T) {
 		TaskConfig: taskConfig, ScanConfig: json.RawMessage(`{}`), Limit: 5, Processes: 1,
 		TimeoutMs: res.SettingsDefaults.TimeoutMs, MaxAttempts: 1, Backoff: res.SettingsDefaults.Backoff,
 		MaxAnalysesPerProcess: res.SettingsDefaults.MaxAnalysesPerProcess,
-		DataSources:           api.DataSources{Tranco: cli.DefaultTrancoURL, Crux: cli.DefaultCruxURL},
+		DataSources:           api.DataSources{Tranco: cli.DefaultTrancoURL, Crux: cli.DefaultCruxURL, CruxCache: cli.DefaultCruxCacheURL},
 		Uploads:               map[string]taskpipe.LocalUpload{}, Resolved: map[string]json.RawMessage{},
 		Limits: taskpipe.DefaultLocalLimits(), OutDir: taskpipe.LocalOutDir,
 	}
