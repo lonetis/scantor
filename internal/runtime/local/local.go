@@ -20,6 +20,7 @@ import (
 	"github.com/lonetis/scantor/internal/api"
 	"github.com/lonetis/scantor/internal/protocol"
 	"github.com/lonetis/scantor/internal/runtime"
+	"github.com/lonetis/scantor/internal/runtime/health"
 	"github.com/lonetis/scantor/internal/runtime/logtail"
 	"github.com/lonetis/scantor/internal/runtime/pool"
 	"github.com/lonetis/scantor/internal/runtime/runner"
@@ -181,6 +182,13 @@ func (r *run) run(ctx context.Context) int {
 		r.fail(scerr.Newf(api.ErrorPlatform, api.PhaseBootstrap, "%v", err), ExitPlatform)
 		return r.end(ReasonStartFailed)
 	}
+	// Local mode has no state poll; the container healthcheck follows a heartbeat tick (docs/runtime.md §5.3).
+	beater := &health.Beater{Path: health.Path(r.cfg.WorkRoot), Mode: "local", Logger: r.log}
+	beatCtx, stopBeats := context.WithCancel(ctx)
+	var beats sync.WaitGroup
+	beats.Go(func() { beater.Run(beatCtx, health.LocalInterval) })
+	defer beats.Wait()
+	defer stopBeats()
 	closeUploads, err := r.serveUploads()
 	if err != nil {
 		r.fail(scerr.Newf(api.ErrorPlatform, api.PhaseBootstrap, "%v", err), ExitPlatform)

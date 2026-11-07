@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/moby/moby/api/types/events"
 )
 
 func TestHealthcheck(t *testing.T) {
@@ -100,5 +102,24 @@ func TestBackoffAndJitter(t *testing.T) {
 	b.reset()
 	if d := b.next(); d > 1200*time.Millisecond {
 		t.Errorf("backoff after reset = %s", d)
+	}
+}
+
+func TestProbeEvent(t *testing.T) {
+	for action, want := range map[events.Action]bool{
+		"exec_create: /scantor/scantor runtime healthcheck": true,
+		"exec_start: /scantor/scantor runtime healthcheck":  true,
+		events.ActionExecDie:               true,
+		events.ActionHealthStatusHealthy:   true,
+		events.ActionHealthStatusUnhealthy: true,
+		events.ActionStart:                 false,
+		events.ActionDie:                   false,
+		events.ActionOOM:                   false,
+		events.ActionDestroy:               false,
+		events.ActionExtractToDir:          false,
+	} {
+		if got := probeEvent(action); got != want {
+			t.Errorf("%s: %v, want %v", action, got, want)
+		}
 	}
 }

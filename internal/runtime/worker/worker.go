@@ -24,6 +24,7 @@ import (
 	"github.com/lonetis/scantor/internal/runtime/amqpx"
 	"github.com/lonetis/scantor/internal/runtime/bootstrap"
 	"github.com/lonetis/scantor/internal/runtime/dind"
+	"github.com/lonetis/scantor/internal/runtime/health"
 	"github.com/lonetis/scantor/internal/runtime/pool"
 	"github.com/lonetis/scantor/internal/runtime/runner"
 	"github.com/lonetis/scantor/internal/runtime/scerr"
@@ -184,9 +185,11 @@ func (w *worker) run(parent context.Context) int {
 	publisher := amqpx.NewPublisher(w.conn, boot.AMQP.Username, version.UserAgent("scantor-runtime"), w.log)
 	defer publisher.Close()
 
+	// The container healthcheck passes while the orchestrator answers the state polls (docs/runtime.md §5.3).
+	beater := &health.Beater{Path: health.Path(w.cfg.WorkRoot), Mode: "worker", Logger: w.log}
 	w.poller = &bootstrap.Poller{
 		Client: w.api, Interval: time.Duration(boot.Intervals.StatePollMs) * time.Millisecond, Jitter: boot.Intervals.StatePollJitter,
-		Build: w.stateRequest, Handle: w.handleState, Logger: w.log,
+		Build: w.stateRequest, Handle: w.handleState, Succeeded: beater.Beat, Logger: w.log,
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

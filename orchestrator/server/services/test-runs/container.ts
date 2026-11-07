@@ -5,14 +5,15 @@ import type Docker from 'dockerode'
 import type { ContainerCreateOptions } from 'dockerode'
 import { pack as tarPack } from 'tar-stream'
 import type { Config } from '../../utils/config'
-import { EGRESS_NETWORK } from '../../utils/docker'
+import { EGRESS_NETWORK, RUNTIME_HEALTHCHECK } from '../../utils/docker'
 import { managedLabels, managedNamePrefix } from '../../utils/labels'
 import type { Logger } from '../../utils/logger'
 
 // The test-run container (docs/tasks.md §11.1, §11.2, §11.3; docs/runtime.md §3.1, §15): `scantor-t-<testRunId>` on
 // scantor-egress with the worker hardening profile (never privileged, no DinD), memory = per-process memory +
 // 256 MiB, CPUs = per-process cpus, PidsLimit 4096, the runtime injected by CopyToContainer with entrypoint
-// `/scantor/scantor runtime local --spec /scantor/in/spec.json`; events on stdout, files in /scantor/out.
+// `/scantor/scantor runtime local --spec /scantor/in/spec.json` and the runtime healthcheck (docs/runtime.md §5.3);
+// events on stdout, files in /scantor/out.
 // runTestRunContainer drives it from creation to exit, and stops it whenever the run is cancelled.
 
 export const TEST_RUN_PIDS_LIMIT = 4096
@@ -45,6 +46,7 @@ export function testRunContainerSpec(input: TestRunContainerInput): ContainerCre
     Image: input.image,
     Entrypoint: ['/scantor/scantor', 'runtime', 'local', '--spec', SPEC_PATH],
     Cmd: [],
+    Healthcheck: { ...RUNTIME_HEALTHCHECK, Test: [...RUNTIME_HEALTHCHECK.Test] },
     Labels: managedLabels('testRun', { 'scantor.user': input.userId }),
     AttachStdin: false,
     AttachStdout: true,

@@ -225,6 +225,10 @@ replaced workers when it reconnects.
 
 `scantor nodes events <node>` shows the node's history (online, offline, token changes, conflicts).
 
+`docker ps` on the node host shows the health of every container: the daemon is `healthy` while it reports
+to the master, and a worker (`scantor-w-<id>`) is `healthy` while the master answers its state polls.
+Health is informational; restarts follow the daemon's own rules.
+
 ## Troubleshooting
 
 | Symptom | Cause and fix |
@@ -232,6 +236,7 @@ replaced workers when it reconnects.
 | the node stays `pending` | the daemon never reached the master: check `docker logs scantor-node` for refused plaintext connections, TLS errors or `401` (wrong token) |
 | the daemon exits at start | an invalid setting (unknown `SCANTOR_NODE_DIND`, malformed CIDRs, a token together with `SCANTOR_NODE_BUILTIN=true`), a refused plaintext URL or a Docker Engine older than 25; the log names it |
 | the node goes `offline` although the daemon runs | the log shows `401` (token rotated or revoked: restart with the new token) |
+| workers show `unhealthy` in `docker ps` | they have not reached the master's API for over three poll intervals: check the master's reachability from the host (`docker inspect --format '{{json .State.Health}}' scantor-w-<id>` shows the last checks) |
 | the daemon log shows `nodeInstanceConflict` or says it is standing by | a second daemon runs with the same token, on this host or another: stop one of them |
 | the daemon log says the worker network is not usable | a network named `scantor-workers` exists that scantor did not create as an isolated network (the log names what differs): remove it with `docker network rm scantor-workers` and the daemon creates it again |
 | scans show `imagePullFailed` | the node host's Docker cannot reach or trust the registry or the master's API URL: check DNS and firewall from the host, the CA in `/etc/docker/certs.d/` and the host trust store, or `insecure-registries` |

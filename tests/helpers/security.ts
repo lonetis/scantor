@@ -231,9 +231,74 @@ export async function inspectWorker(workerId: string, where: 'builtin' | 'remote
   return (JSON.parse(result.stdout) as WorkerInspect[])[0]!
 }
 
+/** `Config.Healthcheck` of `docker inspect`; durations in nanoseconds. */
+export interface HealthcheckInspect {
+  Test: string[]
+  Interval?: number
+  Timeout?: number
+  Retries?: number
+  StartPeriod?: number
+  StartInterval?: number
+}
+
+const SECOND_NS = 1_000_000_000
+
+/**
+ * The healthcheck of worker and test-run containers (docs/runtime.md §5.3): the injected runtime's own check, which
+ * replaces any HEALTHCHECK of the task image.
+ */
+export const RUNTIME_HEALTHCHECK: HealthcheckInspect = {
+  Test: ['CMD', '/scantor/scantor', 'runtime', 'healthcheck'],
+  Interval: 30 * SECOND_NS,
+  Timeout: 10 * SECOND_NS,
+  Retries: 3,
+  StartPeriod: 120 * SECOND_NS,
+  StartInterval: 5 * SECOND_NS,
+}
+
+/** The healthcheck of the editor container (docs/editor.md §4): code-server's `/healthz` over its unix socket. */
+export const EDITOR_HEALTHCHECK: HealthcheckInspect = {
+  Test: ['CMD', 'curl', '-fsS', '-o', '/dev/null', '--max-time', '5', '--unix-socket', '/run/scantor-editor/code.sock', 'http://localhost/healthz'],
+  Interval: 30 * SECOND_NS,
+  Timeout: 10 * SECOND_NS,
+  Retries: 3,
+  StartPeriod: 60 * SECOND_NS,
+  StartInterval: 2 * SECOND_NS,
+}
+
+/**
+ * Waits until Docker reports a container `healthy` (on the inner Docker, or inside the remote node's DinD) and returns
+ * the last probe output; fails on `unhealthy` or when the container stops.
+ */
+export async function waitForHealthy(container: string, timeoutMs: number, where: 'builtin' | 'remote' = 'builtin'): Promise<string> {
+  const inspect = async () => {
+    const args = ['inspect', '--format', '{{json .State}}', container]
+    const result = where === 'builtin' ? await docker(args) : await docker(['exec', CONTAINERS.remoteNode, 'docker', ...args])
+    return JSON.parse(result.stdout) as { Running: boolean; Health?: { Status: string; Log?: { ExitCode: number; Output: string }[] } }
+  }
+  let last: Awaited<ReturnType<typeof inspect>> | undefined
+  return pollFor(
+    async () => {
+      last = await inspect()
+      if (!last.Running) throw new Error(`${container} stopped before it was healthy: ${JSON.stringify(last)}`)
+      if (last.Health?.Status === 'unhealthy') throw new Error(`${container} is unhealthy: ${JSON.stringify(last.Health)}`)
+      return last.Health?.Status === 'healthy' ? (last.Health.Log?.at(-1)?.Output ?? '') : undefined
+    },
+    timeoutMs,
+    () => `${container} did not turn healthy within ${timeoutMs} ms: ${JSON.stringify(last?.Health)}`,
+  )
+}
+
 export interface WorkerInspect {
   Name: string
-  Config: { Image: string; Entrypoint: string[] | null; Cmd: string[] | null; Env: string[]; Labels: Record<string, string> }
+  Config: {
+    Image: string
+    Entrypoint: string[] | null
+    Cmd: string[] | null
+    Env: string[]
+    Labels: Record<string, string>
+    Healthcheck?: HealthcheckInspect | null
+  }
   HostConfig: {
     Init: boolean | null
     RestartPolicy: { Name: string }
@@ -311,7 +376,15 @@ export function presignS3Get(options: {
 export interface ContainerInspect {
   Id: string
   Name: string
-  Config: { Image: string; User: string; Entrypoint: string[] | null; Cmd: string[] | null; Env: string[] | null; Labels: Record<string, string> }
+  Config: {
+    Image: string
+    User: string
+    Entrypoint: string[] | null
+    Cmd: string[] | null
+    Env: string[] | null
+    Labels: Record<string, string>
+    Healthcheck?: HealthcheckInspect | null
+  }
   HostConfig: WorkerInspect['HostConfig'] & {
     Mounts?: { Type: string; Source: string; Target: string; ReadOnly?: boolean; VolumeOptions?: { Subpath?: string } }[] | null
   }

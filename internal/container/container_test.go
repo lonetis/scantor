@@ -421,14 +421,37 @@ func TestRuntimeContainerCreateOptions(t *testing.T) {
 	if opts.Config.User != "" || opts.Config.WorkingDir != "" || opts.NetworkingConfig != nil || opts.HostConfig.NetworkMode != "none" {
 		t.Fatalf("options = %+v", opts)
 	}
+	// One-shot containers disable a HEALTHCHECK of the task image (Dockerfile policy W1).
+	if hc := opts.Config.Healthcheck; hc == nil || strings.Join(hc.Test, " ") != "NONE" {
+		t.Fatalf("describe healthcheck = %+v", hc)
+	}
+	rc.Mode, rc.Args = ModeLocal, []string{"--spec", SpecPath}
 	rc.Profile = TestRunProfile(api.Resources{CPUs: 1, MemoryMiB: 512}, "scantor-egress", nil)
 	opts, _ = rc.CreateOptions()
 	if _, ok := opts.NetworkingConfig.EndpointsConfig["scantor-egress"]; !ok {
 		t.Fatalf("network endpoints = %+v", opts.NetworkingConfig)
 	}
+	if hc := opts.Config.Healthcheck; hc == nil || strings.Join(hc.Test, " ") != "CMD /scantor/scantor runtime healthcheck" ||
+		hc.Interval != HealthInterval || hc.Timeout != HealthTimeout || hc.Retries != HealthRetries ||
+		hc.StartPeriod != HealthStartPeriod || hc.StartInterval != HealthStartInterval {
+		t.Fatalf("local healthcheck = %+v", hc)
+	}
 	rc.Labels = map[string]string{"foo": "bar"}
 	if _, err := rc.CreateOptions(); err == nil {
 		t.Fatal("container without managed labels accepted")
+	}
+}
+
+func TestRuntimeHealthcheck(t *testing.T) {
+	for mode, want := range map[string]string{
+		ModeWorker:   "CMD /scantor/scantor runtime healthcheck",
+		ModeLocal:    "CMD /scantor/scantor runtime healthcheck",
+		ModeDescribe: "NONE",
+		ModeCheck:    "NONE",
+	} {
+		if got := strings.Join(RuntimeHealthcheck(mode).Test, " "); got != want {
+			t.Errorf("%s: %q, want %q", mode, got, want)
+		}
 	}
 }
 

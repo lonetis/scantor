@@ -1112,7 +1112,7 @@ and the rule id in the message.
 | D9 | No `LABEL` key matching `^(traefik\.\|com\.docker\.compose\.\|scantor\.)` (case-insensitive) and no `LABEL` key containing `$` (ARG expansion would bypass the pattern). The pattern is `forbiddenImageLabelKeys` of `schemas/managed-labels.json`. | image labels become container labels (route hijack); the post-build label check (§9.4) and managed labels at run time are further layers ([security](security.md) LBL-1…LBL-3) |
 | D10 | No `ARG` whose name starts with `BUILDKIT_` (case-insensitive), as written or without its shell quoting and escapes (`ARG "BUILDKIT_X"`, `ARG BUILD\KIT_X`). | frontend and builder knobs |
 | D11 | No `ONBUILD` and no `VOLUME`. | ONBUILD hides deferred instructions; anonymous volumes leak worker disk |
-| W1 | `ENTRYPOINT`, `CMD`, `HEALTHCHECK` and `STOPSIGNAL` are ignored (the runtime is the entrypoint) — warning. | |
+| W1 | `ENTRYPOINT`, `CMD`, `HEALTHCHECK` and `STOPSIGNAL` are ignored (the runtime is the entrypoint) — warning. | every runtime container sets its own entrypoint, stop signal and healthcheck ([runtime](runtime.md) §5.3) |
 | W2 | `ENV` overriding a `SCANTOR_*` variable — warning naming it. | allowed, e.g. to wrap the connector command |
 | W3 | No `.dockerignore` — warning. | |
 
@@ -1231,6 +1231,7 @@ A failing phase stops the pipeline; the final event is always a `result` (§9.8)
 | network | `none` |
 | resources | memory = max(1 GiB, manifest per-process memory + 256 MiB) (type checkers need headroom), CPUs = max(1, per-process cpus), pids limit 256; no tmpfs (scratch on the writable layer, as in workers) |
 | environment | image environment only; no tokens, no platform URLs |
+| healthcheck | `NONE` (one-shot; an image `HEALTHCHECK` never runs, [runtime](runtime.md) §5.3) |
 | timeout | `SCANTOR_DESCRIBE_TIMEOUT` per container, then kill; error `describe exceeded <d>` / `check exceeded <d>`. It must exceed the runtime's own limits (describe: hello 30 s + ready 120 s + description 60 s; check: 300 s, [runtime](runtime.md) §16) so those report first with precise messages |
 | cleanup | removed (with anonymous volumes) after its output is collected |
 
@@ -1428,7 +1429,8 @@ profile (never privileged, no `SCANTOR_DIND`, §8.3), memory = manifest per-proc
 CPUs = per-process cpus, `PidsLimit` 4096 (fixed: the container runs analyses like a worker, and the
 orchestrator does not read the node-daemon variable `SCANTOR_NODE_PIDS_LIMIT`; [security](security.md)
 SB-1), runtime injected with entrypoint `/scantor/scantor runtime local --spec /scantor/in/spec.json` (the
-spec and referenced uploads are part of the injection tar, [runtime](runtime.md) §3.1), events on stdout,
+spec and referenced uploads are part of the injection tar, [runtime](runtime.md) §3.1) and the runtime
+healthcheck of local mode ([runtime](runtime.md) §5.3), events on stdout,
 files in `/scantor/out`. Template data sources (Tranco, CrUX) are fetched from
 inside this container, never by the orchestrator. A job attempt first removes a leftover of that name
 (from an earlier attempt) and at its end removes the container it created by its id, never by its name:

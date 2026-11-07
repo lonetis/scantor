@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -386,7 +387,7 @@ func (s *session) consumeEvents(res client.EventsResult) error {
 				return nil
 			}
 			attrs := msg.Actor.Attributes
-			if attrs[container.LabelKind] != string(container.KindWorker) || attrs[container.LabelNode] != s.node.ID {
+			if attrs[container.LabelKind] != string(container.KindWorker) || attrs[container.LabelNode] != s.node.ID || probeEvent(msg.Action) {
 				continue
 			}
 			if a := s.actor(attrs[container.LabelWorker]); a != nil {
@@ -396,6 +397,14 @@ func (s *session) consumeEvents(res client.EventsResult) error {
 			}
 		}
 	}
+}
+
+// probeEvent reports whether a container event comes from the healthcheck (docs/runtime.md §5.3): the
+// exec of every probe and the health status it records. Neither changes a worker's lifecycle, and every
+// worker produces several of them per probe interval, so they never wake its actor.
+func probeEvent(action events.Action) bool {
+	a := string(action)
+	return strings.HasPrefix(a, "exec_") || strings.HasPrefix(a, string(events.ActionHealthStatus))
 }
 
 // Worker network (docs/nodes.md §6.8).

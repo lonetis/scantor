@@ -17,7 +17,9 @@ import {
   imageEnv,
   inspectWorker,
   pollFor,
+  RUNTIME_HEALTHCHECK,
   sha256Hex,
+  waitForHealthy,
   waitForRunningWorker,
   type ContainerInspect,
   type WorkerInspect,
@@ -120,7 +122,7 @@ async function ipOn(container: string, network: string): Promise<string> {
 test.describe('worker containers', () => {
   test(
     'a worker on the built-in node runs with the hardening profile on scantor-sandbox, with only its assignment environment',
-    { tag: ['@NODE-021', '@NODE-022', '@NODE-023', '@SEC-007'] },
+    { tag: ['@NODE-021', '@NODE-022', '@NODE-023', '@SEC-007', '@OPS-008'] },
     async ({ api, user, shared, scans }) => {
       test.setTimeout(180_000)
       const { revision } = await shared.probe()
@@ -154,6 +156,10 @@ test.describe('worker containers', () => {
       const env = Object.fromEntries(added)
       expect(env.SCANTOR_URL).toBe(daemon.SCANTOR_URL)
       expect(env.SCANTOR_WORKER_TOKEN).toBe(stackKeys().workerToken({ workerId: worker.id, scanId: scan.id, role: 'runner', nodeId: worker.nodeId! }))
+
+      // OPS-008: the runtime healthcheck turns healthy once the orchestrator answers the worker's state polls.
+      expect(inspect.Config.Healthcheck).toEqual(RUNTIME_HEALTHCHECK)
+      expect(await waitForHealthy(`scantor-w-${worker.id}`, 60_000)).toContain('healthy')
     },
   )
 
@@ -421,7 +427,7 @@ test.describe('egress deny list', () => {
 test.describe('short-lived containers', () => {
   test(
     'a test run runs on scantor-egress with the worker hardening profile and reaches no platform service',
-    { tag: ['@TRUN-011', '@SEC-007'] },
+    { tag: ['@TRUN-011', '@SEC-007', '@OPS-008'] },
     async ({ api, user, shared }) => {
       test.setTimeout(180_000)
       const { task } = await shared.fixture('netprobe')
@@ -463,13 +469,14 @@ test.describe('short-lived containers', () => {
       const env = envMap(container!.Config.Env)
       for (const name of ['SCANTOR_DIND', 'SCANTOR_WORKER_TOKEN', 'SCANTOR_URL']) expect(env, name).not.toHaveProperty(name)
       expectManagedLabels(container!.Config.Labels, 'testRun', { 'scantor.user': user.id })
+      expect(container!.Config.Healthcheck).toEqual(RUNTIME_HEALTHCHECK)
       await expect.poll(() => containerExists(container!.Id), { timeout: 60_000 }).toBe(false)
     },
   )
 
   test(
     'describe and check containers run without network, tokens or added capabilities, and are removed',
-    { tag: ['@PIPE-008', '@SEC-007'] },
+    { tag: ['@PIPE-008', '@SEC-007', '@OPS-008'] },
     async ({ tasks }) => {
       test.setTimeout(180_000)
       let published: { task: { id: string }; revision: Revision } | undefined
@@ -501,6 +508,8 @@ test.describe('short-lived containers', () => {
         const image = await imageEnv(container.Image)
         expect([...(container.Config.Env ?? [])].sort()).toEqual([...image].sort())
         expectManagedLabels(container.Config.Labels, 'build')
+        // One-shot: no healthcheck, and none inherited from the task image either.
+        expect(container.Config.Healthcheck).toEqual({ Test: ['NONE'] })
         expect(await containerExists(container.Id)).toBe(false)
       }
       expect(published!.revision.state).toBe('ready')

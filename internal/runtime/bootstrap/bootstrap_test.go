@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -174,6 +175,7 @@ func TestReportErrorRateLimit(t *testing.T) {
 }
 
 func TestPoller(t *testing.T) {
+	var succeededNext atomic.Int64
 	srv := fakeapi.New()
 	defer srv.Close()
 	srv.State = func(req api.RuntimeStateRequest) (api.RuntimeStateResponse, int) {
@@ -181,9 +183,11 @@ func TestPoller(t *testing.T) {
 	}
 	c := newClient(t, srv)
 	got := make(chan *api.RuntimeStateResponse, 10)
+	var succeeded atomic.Int64
 	p := &Poller{Client: c, Interval: 20 * time.Millisecond, Jitter: 0.2,
-		Build:  func() api.RuntimeStateRequest { return api.RuntimeStateRequest{ClockOffsetMs: 7} },
-		Handle: func(r *api.RuntimeStateResponse) { got <- r }}
+		Build:     func() api.RuntimeStateRequest { return api.RuntimeStateRequest{ClockOffsetMs: 7} },
+		Succeeded: func(next time.Duration) { succeeded.Add(1); succeededNext.Store(int64(next)) },
+		Handle:    func(r *api.RuntimeStateResponse) { got <- r }}
 	ctx, cancel := context.WithCancel(context.Background())
 	go p.Run(ctx)
 	for range 2 {
@@ -195,6 +199,10 @@ func TestPoller(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatal("no poll")
 		}
+	}
+	// Every answered poll feeds the heartbeat with the interval the response asked for.
+	if succeeded.Load() < 2 || time.Duration(succeededNext.Load()) != 50*time.Millisecond {
+		t.Fatalf("Succeeded called %d times, last with %s", succeeded.Load(), time.Duration(succeededNext.Load()))
 	}
 	srv.Snapshot(func(s *fakeapi.Server) {
 		s.State = func(api.RuntimeStateRequest) (api.RuntimeStateResponse, int) {
@@ -208,6 +216,11 @@ func TestPoller(t *testing.T) {
 		case r := <-got:
 			if r.Action == api.ActionStop {
 				cancel()
+				// A 401 is no answer from a live scan: it stops the worker without a heartbeat.
+				before := succeeded.Load()
+				if !p.Poll(context.Background()) || succeeded.Load() != before {
+					t.Errorf("a 401 fed the heartbeat")
+				}
 				srv.Snapshot(func(s *fakeapi.Server) {
 					if s.States[0].ClockOffsetMs != 7 || s.States[0].Busy == nil {
 						t.Errorf("request %+v", s.States[0])

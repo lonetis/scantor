@@ -58,9 +58,10 @@ the classified Go error `Error` (also returned by `internal/templates`) and the 
 path), `scheduler` (schedule path, checkpoints), `worker` (worker-mode wiring: transport check, bootstrap,
 inner `dockerd`, AMQP, role, signals, exit code), `local`, `describe`, `check`, `pipeline` (the task-pipeline
 events of describe and check, §16), `scerr` (the error model, truncation and retry policy), `logtail`,
-`upload`, `canonical` (RFC 8785 JSON), `dind` (the inner `dockerd`, §4.4); `internal/runtime/internal/`
+`upload`, `canonical` (RFC 8785 JSON), `dind` (the inner `dockerd`, §4.4), `health` (the heartbeat file and
+the container healthcheck, §5.3); `internal/runtime/internal/`
 holds the test fakes (`fakeapi` orchestrator, `fakebroker`, `fakeconn` scripted connector). The hidden
-`scantor runtime worker|local|describe|check` commands are registered in `internal/cli/runtime.go`. Shared
+`scantor runtime worker|local|describe|check|healthcheck` commands are registered in `internal/cli/runtime.go`. Shared
 code: `internal/protocol` (connector messages), `internal/templates` (native templates), `internal/api`
 (wire types and the transport policy check shared with the node daemon, §4.2), `internal/languages`.
 
@@ -77,7 +78,8 @@ code: `internal/protocol` (connector messages), `internal/templates` (native tem
 The role of a worker is not a command-line choice: it comes from the worker token and is returned by
 bootstrap (`worker.role`). "Scheduler mode" and "runner mode" in other documents mean worker mode with that
 role. Flags exist only on `local`, `describe` and `check`, which are invoked by scantor's own code, never by
-users; they carry inputs (paths, the entry), not configuration.
+users; they carry inputs (paths, the entry), not configuration. `/scantor/scantor runtime healthcheck` is no
+mode: Docker runs it inside worker and local-mode containers as their healthcheck (§5.3).
 
 ## 3. Injection and environment
 
@@ -326,6 +328,31 @@ not the node's ([queue](queue.md) §10). The runtime keeps a corrected clock:
 - `clockOffsetMs` is reported in every state poll; the orchestrator raises the scan condition `clockSkew`
   for offsets above 2 s ([data model](data-model.md) §4.5.4). Correction makes skew harmless for retries, so
   the condition is informational.
+
+### 5.3 Container healthcheck
+
+Every long-running runtime container carries a Docker healthcheck that runs the injected binary itself:
+`/scantor/scantor runtime healthcheck` (hidden command, package `internal/runtime/health`). The runtime
+rewrites a heartbeat file, `health.json` below the work root (`/tmp/scantor/health.json`, or below `TMPDIR`),
+atomically (temporary file, then rename) as `{at, mode, intervalMs}`; the check exits 0 while the last
+heartbeat is younger than 3 × `intervalMs` and 1 otherwise ("no heartbeat yet", "the heartbeat file is
+malformed", "the last worker heartbeat is 40s old (limit 15s)"). It reads only that file, so it needs no
+configuration; it derives the work root from the same `TMPDIR` as the runtime.
+
+| Mode | Heartbeat | Healthy means |
+|---|---|---|
+| worker | after every answered state poll (§5.1; not a 401), with `intervalMs` = the `nextPollMs` in use | the role runs and the orchestrator answers its polls |
+| local | at start (after the work root is prepared) and every 10 s until the run ends | the runtime is alive |
+| describe, check | none; the container spec sets `Healthcheck: {Test: ["NONE"]}` | — (one-shot) |
+
+The container spec (Go `internal/container.RuntimeHealthcheck`, used by the node daemon for workers and by
+the CLI for `dev run`; the orchestrator's test-run spec uses the same values from `server/utils/docker.ts`):
+interval 30 s, timeout 10 s, 3 retries, start period 2 min (bootstrap, an inner `dockerd` of up to 60 s,
+§4.4, the broker connect and the connector start), start interval 5 s. It always replaces a `HEALTHCHECK` of the
+task image, which the Dockerfile policy declares ignored (W1, [tasks](tasks.md) §8.2). A failed heartbeat write
+never stops the runtime: the first failure is logged at `warn`, later ones at `debug`. Docker only reports the
+status; neither the node daemon nor the orchestrator restarts a container because of it (the daemon ignores
+the probes' Docker events, [nodes](nodes.md) §5.1).
 
 ## 6. AMQP
 

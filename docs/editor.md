@@ -233,6 +233,10 @@ Engine API body of `POST /containers/create?name=scantor-editor-<userId>`:
     "scantor.user": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11"
   },
   "StopTimeout": 10,
+  "Healthcheck": {
+    "Test": ["CMD", "curl", "-fsS", "-o", "/dev/null", "--max-time", "5", "--unix-socket", "/run/scantor-editor/code.sock", "http://localhost/healthz"],
+    "Interval": 30000000000, "Timeout": 10000000000, "Retries": 3, "StartPeriod": 60000000000, "StartInterval": 2000000000
+  },
   "HostConfig": {
     "Init": true,
     "RestartPolicy": { "Name": "no" },
@@ -267,6 +271,7 @@ Engine API body of `POST /containers/create?name=scantor-editor-<userId>`:
 | hardening | `CapDrop ALL`, `no-new-privileges`, read-only rootfs, `Init`, `PidsLimit` `SCANTOR_EDITOR_PIDS_LIMIT` | Writable places: the home and workspace volumes, `/tmp` (tmpfs, `SCANTOR_EDITOR_TMPFS_SIZE`) and the socket directory |
 | resources | `Memory` = `MemorySwap` = `SCANTOR_EDITOR_MEMORY_LIMIT`, `NanoCpus` = `SCANTOR_EDITOR_CPUS` × 10⁹ | |
 | restart | `no` | Editors start on demand only, never after a host reboot. |
+| healthcheck | code-server's `GET /healthz` over the socket with `curl`, every 30 s (timeout 10 s, 3 retries, start period 60 s, start interval 2 s) | The probe the manager and the reaper use as well (§6.2, §6.4). `/healthz` has no heartbeat side effect, so the check never keeps an idle editor alive. Docker only reports the status; the reaper keeps its own probe. |
 
 The editor runs on the master's host Docker daemon and is created by the orchestrator (dockerode, with
 the TypeScript `managedLabels()`), not by a node daemon.

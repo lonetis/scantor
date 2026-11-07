@@ -25,7 +25,10 @@ type Poller struct {
 	Jitter   float64
 	Build    func() api.RuntimeStateRequest
 	Handle   func(*api.RuntimeStateResponse)
-	Logger   *slog.Logger
+	// Succeeded (optional) is called after every answered poll with the interval until the next one,
+	// before Handle; it feeds the container healthcheck (docs/runtime.md §5.3).
+	Succeeded func(next time.Duration)
+	Logger    *slog.Logger
 
 	now      chan struct{}
 	mu       sync.Mutex
@@ -86,7 +89,11 @@ func (p *Poller) Poll(ctx context.Context) bool {
 		if resp.NextPollMs > 0 {
 			p.next = time.Duration(resp.NextPollMs) * time.Millisecond
 		}
+		next := p.next
 		p.mu.Unlock()
+		if p.Succeeded != nil {
+			p.Succeeded(next)
+		}
 		p.Handle(resp)
 		return true
 	case errors.Is(err, ErrUnauthorized):

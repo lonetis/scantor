@@ -1,6 +1,6 @@
 import type Docker from 'dockerode'
 import type { Config } from '../../utils/config'
-import { EDITOR_HOME_VOLUME, SANDBOX_NETWORK, WORKSPACES_VOLUME } from '../../utils/docker'
+import { type ContainerHealthcheck, EDITOR_HOME_VOLUME, NS_PER_SECOND, SANDBOX_NETWORK, WORKSPACES_VOLUME } from '../../utils/docker'
 import { isManagedContainer, managedLabels } from '../../utils/labels'
 import { WORKSPACE_ROOT } from './sessions'
 
@@ -30,6 +30,19 @@ export function editorContainerName(userId: string): string {
 /** `<SCANTOR_IMAGE_PREFIX>scantor-editor:<SCANTOR_IMAGE_TAG>`, recorded in `editors.image` at every start. */
 export function editorImageRef(config: Pick<Config, 'imagePrefix' | 'imageTag'>): string {
   return `${config.imagePrefix}${EDITOR_IMAGE}:${config.imageTag}`
+}
+
+/**
+ * The container healthcheck (docs/editor.md §4): code-server's `GET /healthz` over its unix socket, the probe the
+ * manager and the reaper use as well; it has no heartbeat side effect, so it never keeps an idle editor alive.
+ */
+export const EDITOR_HEALTHCHECK: ContainerHealthcheck = {
+  Test: ['CMD', 'curl', '-fsS', '-o', '/dev/null', '--max-time', '5', '--unix-socket', `${EDITOR_SOCKET_MOUNT}/code.sock`, 'http://localhost/healthz'],
+  Interval: 30 * NS_PER_SECOND,
+  Timeout: 10 * NS_PER_SECOND,
+  Retries: 3,
+  StartPeriod: 60 * NS_PER_SECOND,
+  StartInterval: 2 * NS_PER_SECOND,
 }
 
 /** code-server's arguments (docs/editor.md §2.4). Workspace trust stays on: --disable-workspace-trust is never set. */
@@ -66,6 +79,7 @@ export interface EditorContainerSpec {
   Hostname: string
   Labels: Record<string, string>
   StopTimeout: number
+  Healthcheck: ContainerHealthcheck
   HostConfig: {
     Init: boolean
     RestartPolicy: { Name: 'no' }
@@ -113,6 +127,7 @@ export function editorContainerSpec(input: EditorContainerInput, config: EditorC
     Hostname: 'editor',
     Labels: managedLabels('editor', { 'scantor.user': input.userId }),
     StopTimeout: EDITOR_STOP_TIMEOUT_S,
+    Healthcheck: { ...EDITOR_HEALTHCHECK, Test: [...EDITOR_HEALTHCHECK.Test] },
     HostConfig: {
       Init: true,
       RestartPolicy: { Name: 'no' },

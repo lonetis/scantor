@@ -2,15 +2,18 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/lonetis/scantor/internal/runtime"
 	"github.com/lonetis/scantor/internal/runtime/check"
 	"github.com/lonetis/scantor/internal/runtime/describe"
+	"github.com/lonetis/scantor/internal/runtime/health"
 	"github.com/lonetis/scantor/internal/runtime/local"
 	"github.com/lonetis/scantor/internal/runtime/worker"
 )
@@ -19,13 +22,14 @@ import (
 // (docs/runtime.md §2); users never call them. Flags carry inputs, never configuration. They keep their
 // own signal handling (annotationOwnSignals): worker and local mode receive SIGTERM and SIGINT on a
 // channel and shut down as docs/runtime.md §14 and §15.2 describe; describe and check keep the default
-// disposition.
+// disposition. `runtime healthcheck` is the container healthcheck of workers and test runs (§5.3).
 func init() {
 	registerGroup("", "runtime", "Run the scantor runtime inside a task container", true)
 	registerCommand("runtime", newRuntimeWorkerCommand)
 	registerCommand("runtime", newRuntimeLocalCommand)
 	registerCommand("runtime", newRuntimeDescribeCommand)
 	registerCommand("runtime", newRuntimeCheckCommand)
+	registerCommand("runtime", newRuntimeHealthcheckCommand)
 }
 
 // runtimeConfig reads the runtime environment (docs/runtime.md §3.2).
@@ -149,4 +153,22 @@ func newRuntimeCheckCommand(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&entry, "entry", "", "the task's entry (substituted for {entry})")
 	return cmd
+}
+
+func newRuntimeHealthcheckCommand(app *App) *cobra.Command {
+	return &cobra.Command{
+		Use:   "healthcheck",
+		Short: "Check that the runtime in this container wrote a heartbeat recently (container healthcheck)",
+		Long: "Exit 0 when the runtime's last heartbeat (" + health.FileName + " below the work root) is younger " +
+			"than three of its intervals, and 1 otherwise. Docker runs it inside worker and test-run containers.",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			if err := health.Check(health.Path(runtime.WorkRoot(app.Getenv)), time.Now()); err != nil {
+				return WithExit(1, err)
+			}
+			_, err := fmt.Fprintln(app.Stdout, "healthy")
+			return err
+		},
+	}
 }

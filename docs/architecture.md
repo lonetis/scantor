@@ -552,6 +552,13 @@ scantor set **and** their name prefix.
 | `editor` | `scantor-editor-<userId>` | editor manager | scantor-editor | 1000:1000, `CapDrop ALL`, read-only rootfs, no Docker socket ([editor](editor.md) §4) | `scantor-sandbox` |
 | `egressHelper` | `scantor-netpol-<nodeId>` | node daemon (one-shot) | the daemon's own scantor image | 0:0, `CapDrop ALL` + `CapAdd` `NET_ADMIN`, `NET_RAW`, read-only rootfs; tmpfs `/run`, bind `/run/xtables.lock` when present ([nodes](nodes.md) §9) | host |
 
+Healthchecks: every long-running container has one. Compose services define theirs in the compose files
+(`lint-compose` fails on a service without one, [deployment](deployment.md)); workers and test runs run the
+injected runtime's `scantor runtime healthcheck` against its heartbeat file ([runtime](runtime.md) §5.3), and
+editors probe code-server's `/healthz` ([editor](editor.md) §4). The one-shot `build` containers set
+`NONE`, so a task image's `HEALTHCHECK` never runs; helpers and the egress helper use the scantor image, which
+declares none. Health is reported by Docker only; no component restarts a container because of it.
+
 Test-only containers: the test suite and `just test-go-integration` create containers named
 `scantor-test-*` with the label `scantor.test=true` (dev tooling uses `scantor.dev=true`). They are swept by
 the test runner's cleanup phase and by `just prune` ([testing](testing.md) §7.4,

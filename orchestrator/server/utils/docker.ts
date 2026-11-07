@@ -12,6 +12,33 @@ export const SANDBOX_NETWORK = 'scantor-sandbox'
 export const WORKSPACES_VOLUME = 'scantor-workspaces'
 export const EDITOR_HOME_VOLUME = 'scantor-editor-home'
 
+/** Docker's healthcheck durations are integer nanoseconds. */
+export const NS_PER_SECOND = 1_000_000_000
+
+/** A container healthcheck in the Engine API's shape (`Config.Healthcheck`). */
+export interface ContainerHealthcheck {
+  Test: string[]
+  Interval: number
+  Timeout: number
+  Retries: number
+  StartPeriod: number
+  StartInterval: number
+}
+
+/**
+ * The healthcheck of runtime containers in local mode (test runs; docs/runtime.md §5.3): `scantor runtime healthcheck`
+ * reads the runtime's heartbeat file. The values equal Go's `container.RuntimeHealthcheck` (internal/container), which
+ * the node daemon and the CLI use for workers and dev runs.
+ */
+export const RUNTIME_HEALTHCHECK: ContainerHealthcheck = {
+  Test: ['CMD', '/scantor/scantor', 'runtime', 'healthcheck'],
+  Interval: 30 * NS_PER_SECOND,
+  Timeout: 10 * NS_PER_SECOND,
+  Retries: 3,
+  StartPeriod: 120 * NS_PER_SECOND,
+  StartInterval: 5 * NS_PER_SECOND,
+}
+
 let docker: Docker | null = null
 
 export function useDocker(): Docker {

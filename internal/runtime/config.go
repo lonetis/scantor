@@ -57,10 +57,6 @@ type Config struct {
 // transport flag is an error (security-relevant).
 func LoadConfig(getenv envconf.Getenv, environ []string) (Config, error) {
 	r := envconf.NewReader(getenv)
-	tmpParent := strings.TrimSpace(r.String(EnvTmpDir, defaultTmpParent))
-	if !filepath.IsAbs(tmpParent) {
-		tmpParent = defaultTmpParent
-	}
 	cfg := Config{
 		URL:           strings.TrimSpace(r.String(EnvURL, "")),
 		WorkerToken:   strings.TrimSpace(r.String(EnvWorkerToken, "")),
@@ -72,13 +68,23 @@ func LoadConfig(getenv envconf.Getenv, environ []string) (Config, error) {
 		DebugCmd:      r.String(EnvDebugCmd, ""),
 		DebugPort:     strings.TrimSpace(r.String(EnvDebugPort, "")),
 		CheckCmd:      r.String(EnvCheckCmd, ""),
-		WorkRoot:      filepath.Join(filepath.Clean(tmpParent), "scantor"),
+		WorkRoot:      WorkRoot(getenv),
 		Environ:       environ,
 	}
 	if err := r.Err(); err != nil {
 		return cfg, fmt.Errorf("invalid runtime environment: %w", err)
 	}
 	return cfg, nil
+}
+
+// WorkRoot returns <TMPDIR or /tmp>/scantor (docs/runtime.md §7.1); a relative TMPDIR counts as unset.
+// The container healthcheck derives the heartbeat file from it with the same environment.
+func WorkRoot(getenv envconf.Getenv) string {
+	tmpParent := defaultTmpParent
+	if v := strings.TrimSpace(getenv(EnvTmpDir)); filepath.IsAbs(v) {
+		tmpParent = v
+	}
+	return filepath.Join(filepath.Clean(tmpParent), "scantor")
 }
 
 // RequireWorker checks the variables worker mode needs.

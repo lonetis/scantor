@@ -86,7 +86,15 @@ export async function stopEditor(api: ApiClient): Promise<void> {
 export interface ContainerInspect {
   Id: string
   Name: string
-  Config: { User: string; Env: string[]; Cmd: string[]; Labels: Record<string, string>; Image: string; Hostname: string }
+  Config: {
+    User: string
+    Env: string[]
+    Cmd: string[]
+    Labels: Record<string, string>
+    Image: string
+    Hostname: string
+    Healthcheck?: { Test: string[]; Interval?: number; Timeout?: number; Retries?: number; StartPeriod?: number; StartInterval?: number } | null
+  }
   State: { Running: boolean; Status: string }
   HostConfig: {
     Init: boolean

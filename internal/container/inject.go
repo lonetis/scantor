@@ -34,6 +34,36 @@ const (
 	ModeCheck    = "check"
 )
 
+// The container healthcheck of long-running runtime containers (docs/runtime.md §5.3): workers and
+// local runs (test runs, dev runs) run `scantor runtime healthcheck`, which reads the runtime's
+// heartbeat file. StartPeriod covers bootstrap, an inner dockerd (up to 60 s) and the broker connect;
+// StartInterval reports a started runtime healthy within seconds. Engine API ≥ 1.44 (Docker 25, the
+// node daemon's minimum) is required for StartInterval.
+const (
+	HealthInterval      = 30 * time.Second
+	HealthTimeout       = 10 * time.Second
+	HealthRetries       = 3
+	HealthStartPeriod   = 2 * time.Minute
+	HealthStartInterval = 5 * time.Second
+)
+
+// RuntimeHealthcheck returns the healthcheck of a runtime container in mode: the runtime's own check
+// for worker and local mode, and NONE for the one-shot describe and check containers. Either way it
+// replaces a HEALTHCHECK of the task image, which the Dockerfile policy declares ignored (W1).
+func RuntimeHealthcheck(mode string) *container.HealthConfig {
+	if mode != ModeWorker && mode != ModeLocal {
+		return &container.HealthConfig{Test: []string{"NONE"}}
+	}
+	return &container.HealthConfig{
+		Test:          []string{"CMD", BinaryPath, "runtime", "healthcheck"},
+		Interval:      HealthInterval,
+		Timeout:       HealthTimeout,
+		Retries:       HealthRetries,
+		StartPeriod:   HealthStartPeriod,
+		StartInterval: HealthStartInterval,
+	}
+}
+
 // RuntimeEntrypoint returns ["/scantor/scantor", "runtime", mode, args...].
 func RuntimeEntrypoint(mode string, args ...string) []string {
 	return append([]string{BinaryPath, "runtime", mode}, args...)
@@ -226,7 +256,7 @@ type RuntimeContainer struct {
 
 // CreateOptions returns the ContainerCreate options: entrypoint /scantor/scantor runtime <mode>,
 // an explicit empty Cmd, the image's WORKDIR and USER, the managed labels as run-time labels, the
-// hardening profile and exactly one network.
+// runtime healthcheck, the hardening profile and exactly one network.
 func (r RuntimeContainer) CreateOptions() (client.ContainerCreateOptions, error) {
 	if r.Name == "" || r.Image == "" || r.Mode == "" {
 		return client.ContainerCreateOptions{}, errors.New("runtime container: name, image and mode are required")
@@ -239,12 +269,13 @@ func (r RuntimeContainer) CreateOptions() (client.ContainerCreateOptions, error)
 		return client.ContainerCreateOptions{}, err
 	}
 	cfg := &container.Config{
-		Image:      r.Image,
-		Entrypoint: RuntimeEntrypoint(r.Mode, r.Args...),
-		Cmd:        []string{},
-		Env:        r.Env,
-		Labels:     r.Labels,
-		StopSignal: "SIGTERM",
+		Image:       r.Image,
+		Entrypoint:  RuntimeEntrypoint(r.Mode, r.Args...),
+		Cmd:         []string{},
+		Env:         r.Env,
+		Labels:      r.Labels,
+		StopSignal:  "SIGTERM",
+		Healthcheck: RuntimeHealthcheck(r.Mode),
 	}
 	if r.StopTimeoutSeconds > 0 {
 		t := r.StopTimeoutSeconds

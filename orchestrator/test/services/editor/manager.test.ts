@@ -46,6 +46,14 @@ describe('editor container spec', () => {
         'scantor.user': USER.id,
       },
       StopTimeout: 10,
+      Healthcheck: {
+        Test: ['CMD', 'curl', '-fsS', '-o', '/dev/null', '--max-time', '5', '--unix-socket', '/run/scantor-editor/code.sock', 'http://localhost/healthz'],
+        Interval: 30_000_000_000,
+        Timeout: 10_000_000_000,
+        Retries: 3,
+        StartPeriod: 60_000_000_000,
+        StartInterval: 2_000_000_000,
+      },
       HostConfig: {
         Init: true,
         RestartPolicy: { Name: 'no' },

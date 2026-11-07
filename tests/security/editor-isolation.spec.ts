@@ -21,6 +21,7 @@ import {
 import { createPlatformTenant, deletePlatformTenant, withLazyTenant, withPlatformAdmin, withWorkerTenant } from '../helpers/api-platform-tenant'
 import { stackEnv } from '../helpers/docker'
 import { stackKeys } from '../helpers/keys'
+import { EDITOR_HEALTHCHECK, waitForHealthy } from '../helpers/security'
 import { newApiContext } from '../helpers/users'
 import { expect, test as base } from '../fixtures'
 
@@ -78,7 +79,7 @@ async function sessionCookie(context: APIRequestContext): Promise<string> {
 test.describe('the editor container', () => {
   test(
     'is hardened, has no Docker socket and cannot be reached from a master worker',
-    { tag: ['@EDIT-013', '@EDIT-014'] },
+    { tag: ['@EDIT-013', '@EDIT-014', '@OPS-008'] },
     async ({ adminApi, api, freshApi, freshUser, scans, tasks }) => {
       test.setTimeout(180_000)
       const netprobe = await tasks.fixture('netprobe')
@@ -122,6 +123,9 @@ test.describe('the editor container', () => {
         ].sort((x, y) => x.destination.localeCompare(y.destination)),
       )
       for (const mount of host.Mounts ?? []) expect(mount.VolumeOptions?.Subpath, mount.Target).toBe(freshUser.id)
+      // OPS-008: Docker probes code-server's /healthz over the socket.
+      expect(container!.Config.Healthcheck).toEqual(EDITOR_HEALTHCHECK)
+      await waitForHealthy(container!.Name.slice(1), 60_000)
       expect(JSON.stringify(container!.Mounts)).not.toContain('docker.sock')
       const socketCheck = await execInEditor(freshUser.id, ['sh', '-c', 'ls /var/run/docker.sock /run/docker.sock 2>&1; id -u; id -g; touch /etc/x 2>&1; true'])
       expect(socketCheck.stdout).toContain('No such file or directory')

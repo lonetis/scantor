@@ -24,6 +24,15 @@ describe('testRunContainerSpec', () => {
       name: 'scantor-t-3a4b5c6d-7e8f-4a0b-9c1d-2e3f4a5b6c7d',
       Image: 'sha256:abc',
       Entrypoint: ['/scantor/scantor', 'runtime', 'local', '--spec', '/scantor/in/spec.json'],
+      // The runtime healthcheck of local mode (docs/runtime.md §5.3), the values of Go's container.RuntimeHealthcheck.
+      Healthcheck: {
+        Test: ['CMD', '/scantor/scantor', 'runtime', 'healthcheck'],
+        Interval: 30_000_000_000,
+        Timeout: 10_000_000_000,
+        Retries: 3,
+        StartPeriod: 120_000_000_000,
+        StartInterval: 5_000_000_000,
+      },
       Labels: { 'scantor.managed': 'true', 'scantor.kind': 'testRun', 'scantor.user': 'u1', 'traefik.enable': 'false', 'com.docker.compose.project': 'scantor-managed' },
     })
     expect(spec.HostConfig).toMatchObject({

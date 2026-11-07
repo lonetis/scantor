@@ -187,6 +187,7 @@ The UI shows both snippets next to a checklist:
      reconcile loop (§6)
      status loop (§7)
      docker events watcher          — label=scantor.managed=true, type=container; triggers reconcile
+                                      (except the exec_* and health_status events of healthcheck probes, §6.3)
      image GC loop (§8)             — every 10 min
 ```
 
@@ -366,6 +367,11 @@ process, so 2 CPUs and 2 × 512 MiB + 256 MiB = 1280 MiB.
   },
   "StopSignal": "SIGTERM",
   "StopTimeout": 35,
+  "Healthcheck": {
+    "Test": ["CMD", "/scantor/scantor", "runtime", "healthcheck"],
+    "Interval": 30000000000, "Timeout": 10000000000, "Retries": 3,
+    "StartPeriod": 120000000000, "StartInterval": 5000000000
+  },
   "HostConfig": {
     "Init": true,
     "RestartPolicy": { "Name": "no" },
@@ -397,6 +403,7 @@ Field by field:
 | `Entrypoint` / `Cmd` | `["/scantor/scantor", "runtime", "worker"]` / `[]` | When `Entrypoint` is set, Docker does not merge the image `CMD`. `[]` makes that explicit. `WORKDIR` (`/task`) and the image `ENV` (`SCANTOR_LANGUAGE`, `SCANTOR_CONNECTOR_CMD`, …) stay as built. `User` is not set, so the image user applies. |
 | `Env` | the assignment `env` (`SCANTOR_URL`, `SCANTOR_WORKER_TOKEN`), plus `SCANTOR_CA_CERT` and `SCANTOR_ALLOW_INSECURE_TRANSPORT=true` when set on the daemon, plus `SCANTOR_DIND=1` for DinD workers (§6.9) | The runtime removes `SCANTOR_WORKER_TOKEN` from the environment of connector processes ([runtime](runtime.md)). No other variable is ever added. |
 | `StopSignal` / `StopTimeout` | `SIGTERM` / `drainGraceMs/1000 + 5` | Also used for explicit stops (§6.6). |
+| `Healthcheck` | `/scantor/scantor runtime healthcheck` every 30 s (timeout 10 s, 3 retries, start period 2 min, start interval 5 s) | The runtime's heartbeat check ([runtime](runtime.md) §5.3): healthy while the orchestrator answers the worker's state polls. It replaces any `HEALTHCHECK` of the task image (Dockerfile policy W1, [tasks](tasks.md) §8.2). Docker only reports the status (`docker ps`); the daemon's restart logic does not use it, and the daemon's events watcher ignores the probes' `exec_*` and `health_status` events (§5.1). The start period covers bootstrap, an inner `dockerd` (§6.9) and the broker connect. |
 | `Init` | `true` | `docker-init` is PID 1. It reaps zombies (Chromium, subprocesses) and forwards SIGTERM to the runtime. |
 | `RestartPolicy` | `no` | The daemon owns restarts and backoff (§6.5). Docker never restarts workers on its own, also not after a host reboot. |
 | `NetworkMode` + `EndpointsConfig` | `scantor-sandbox` (built-in) / `scantor-workers` (remote) | Exactly one network (§6.8). No published ports, no aliases. |
