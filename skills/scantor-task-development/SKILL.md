@@ -142,6 +142,9 @@ get_test_run {"testRunId": "…", "wait": 50}      # repeat while _wait is "time
 - Read `state` (`completed`, `failed`, `cancelled`), `errors[]` (`phase`, `file`, `line`, `message`),
   and per analysis `result`, `error` and `logTail`. A `completed` test run may still contain failed
   analyses.
+- `read_test_run_file {"testRunId": "…", "fileId": "…"}` returns a file an analysis stored (an id from
+  `analyses[].files`) inline: text as `encoding` `utf8`, anything else as `base64`, at most 96 KiB per call;
+  while `truncated` is true, call it again with `"offset"` set to `nextOffset`.
 - Test runs skip the type check, so a publish can still fail in phase `check`.
 - CLI: `scantor dev run <dir> --limit 3` runs locally (`--remote` as a test run on the platform),
   `scantor validate <dir>` runs every publish check including the type check, `scantor dev debug <dir>`

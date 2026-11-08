@@ -180,6 +180,12 @@ export function isS3NotFound(error: unknown): boolean {
   return error.$metadata.httpStatusCode === 404 || error.name === 'NotFound' || error.name === 'NoSuchKey'
 }
 
+/** S3 answers 416 InvalidRange to a range that starts at or after the end of the object. */
+export function isS3InvalidRange(error: unknown): boolean {
+  if (!(error instanceof S3ServiceException)) return false
+  return error.$metadata.httpStatusCode === 416 || error.name === 'InvalidRange'
+}
+
 export async function objectExists(key: string): Promise<boolean> {
   try {
     await useS3().send(new HeadObjectCommand({ Bucket: s3Bucket(), Key: key }))
@@ -207,6 +213,44 @@ export async function uploadStream(key: string, body: Readable, contentType: str
 export async function getObjectStream(key: string): Promise<Readable> {
   const response = await useS3().send(new GetObjectCommand({ Bucket: s3Bucket(), Key: key }))
   return response.Body as Readable
+}
+
+/**
+ * The bytes `start`…`endInclusive` of an object (an HTTP `Range` GET). At most `endInclusive - start + 1` bytes are
+ * read, also from a server that sends more; fewer come back when the object is shorter. A response that ignored the
+ * range of a non-zero start would return the wrong bytes, so it is an error. Callers pass the key of a stored FileRef,
+ * never one built from input.
+ */
+export async function getObjectRange(key: string, start: number, endInclusive: number): Promise<Buffer> {
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(endInclusive) || start < 0 || endInclusive < start) {
+    throw new Error(`invalid byte range ${start}-${endInclusive}`)
+  }
+  const response = await useS3().send(new GetObjectCommand({ Bucket: s3Bucket(), Key: key, Range: `bytes=${start}-${endInclusive}` }))
+  const body = response.Body as Readable
+  const served = /^bytes (\d+)-/.exec(response.ContentRange ?? '')
+  if ((served ? Number(served[1]) : 0) !== start) {
+    body.destroy()
+    throw new Error(`S3 answered range ${response.ContentRange ?? '(none)'} for bytes ${start}-${endInclusive} of ${key}`)
+  }
+  return readAtMost(body, endInclusive - start + 1)
+}
+
+/** Reads up to `limit` bytes of a stream and destroys it once they arrived. */
+async function readAtMost(stream: Readable, limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = []
+  let length = 0
+  try {
+    for await (const chunk of stream) {
+      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array)
+      const room = limit - length
+      chunks.push(bytes.length > room ? bytes.subarray(0, room) : bytes)
+      length += Math.min(bytes.length, room)
+      if (length >= limit) break
+    }
+  } finally {
+    stream.destroy()
+  }
+  return Buffer.concat(chunks, length)
 }
 
 export async function copyObject(sourceKey: string, targetKey: string): Promise<void> {

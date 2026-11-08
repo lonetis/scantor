@@ -14,6 +14,7 @@ export const UNTRUSTED_PATHS: Record<string, string[]> = {
   publishRevision: ['manifest', 'description', 'errors'],
   testTask: ['description', 'errors', 'analyses'],
   getTestRun: ['description', 'errors', 'analyses'],
+  readTestRunFile: ['content', 'name', 'contentType'],
   listScans: ['items[].stateReason'],
   getScan: SCAN_PATHS,
   startScan: SCAN_PATHS,
@@ -27,6 +28,7 @@ export const UNTRUSTED_PATHS: Record<string, string[]> = {
   getAnalysis: ['config', 'result', 'error', 'attempts', 'logTail', 'files'],
   queryAnalyses: ['items[]'],
   aggregateAnalyses: ['items[]'],
+  readAnalysisFile: ['content', 'name', 'contentType'],
 }
 
 export const UNTRUSTED_NOTE =

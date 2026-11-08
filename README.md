@@ -398,8 +398,8 @@ REST API is described at `<your scantor URL>/api/docs`.
 ## Using scantor with LLM agents
 
 scantor has a built-in MCP server at `<your scantor URL>/mcp`. With it an agent such as Claude Code
-writes a task, tests and publishes it, runs scans and analyses the results with your account and
-permissions. Connect Claude Code with OAuth:
+writes a task, tests and publishes it, runs scans and analyses the results, including the files the
+analyses stored, with your account and permissions. Connect Claude Code with OAuth:
 
 ```sh
 claude mcp add --transport http scantor https://scantor.example.com/mcp

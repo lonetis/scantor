@@ -39,12 +39,12 @@ the system context is in [architecture](architecture.md).
   `pause…`, …), unique across the document.
 - Shared component schemas are declared once with `$global.components.schemas` in an anchor route of their
   tag and referenced with `$ref`. Schemas used across tags (`Error`, `JobRef`, `ScantorError`,
-  `BuildError`, `FileRef`, `ScanSettings`, `Description`, plus `Health`) are declared in
-  `server/api/health.get.ts`. Request and response schemas are separate (`StartScan` vs `Scan`).
+  `BuildError`, `FileRef`, `ScanSettings`, `Description`, `FileDownload`, `FileContent`, plus `Health`) are
+  declared in `server/api/health.get.ts`. Request and response schemas are separate (`StartScan` vs `Scan`).
 - A generated test ([testing](testing.md)) fails when an operation lacks `x-scantor-scope` or `x-mcp`, when
   `x-admin-only` disagrees with the scope, when `x-session-only` appears with a scope other than `owner` or
   `admin`, when `x-destructive` appears on a `DELETE`, when an `operationId` is duplicated, or when more
-  than 30 operations have `x-mcp: true`.
+  than 45 operations have `x-mcp: true` ([mcp](mcp.md) §10 decision 12).
 
 ### 1.2 Principals and scopes
 
@@ -178,7 +178,7 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
 
 | Code | HTTP | Meaning |
 |---|---|---|
-| `validationFailed` | 400 | request body/query/params rejected by the zod schema; `details.issues` |
+| `validationFailed` | 400 | request body/query/params rejected by the zod schema, or a value outside a bound of the addressed resource (a file `offset` beyond its size); `details.issues` |
 | `badRequest` | 400 | malformed JSON or contradictory parameters |
 | `queryRejected` | 400 | forbidden operator or stage in a query, aggregation or export filter, or a sort that exceeds limits; `details.path` |
 | `passkeysDisabled` | 400 | passkey flow requested while passkeys are disabled |
@@ -299,6 +299,7 @@ additions and omissions are listed for brevity; the JSON examples are normative 
 | `ApiKey` | better-auth `apikey` | `{id, name, start, configId, enabled, createdAt, expiresAt, lastRequest}` |
 | `NotificationSettings` | `notificationSettings` | `{available, ntfy: {server, enabled, topic, tokenSet, triggers, lastDelivery}}`: `available` and `server` come from `SCANTOR_NTFY_URL` (null = off); − `tokenEnc`, + `tokenSet`; a user without a document gets the defaults (disabled, no topic, triggers `scanFinished`, `scanPaused`, `scanProblem`) |
 | `FileDownload` | – | `{url, expiresAt, name, size, sha256, contentType, inline}` |
+| `FileContent` | – | `{name, contentType, size, sha256, offset, length, encoding: "utf8"\|"base64", content, truncated, nextOffset}`: one byte range of a stored file (§4.15); `size` and `sha256` describe the whole file, `length` the bytes returned, `truncated` = `offset + length < size`, `nextOffset` = `offset + length` when truncated, else `null` |
 | `ScanSettings`, `ScantorError`, `FileRef`, `BuildError`, `Description` | [data model](data-model.md) §4 | identical |
 
 `Task`:
@@ -610,6 +611,7 @@ With `revision`, the S3 snapshot is streamed into a `list --archive` / `read --a
 | `GET /api/test-runs/{testRunId}/stream` | `streamTestRun` | owner | no | – | `text/event-stream` with events `state` `{state}`, `log` `{seq\|null, stream: "stdout"\|"stderr"\|"build", text, at}`, `analysis` `TestRunAnalysis`, `error` `BuildError`, `end` `TestRun` (without `analyses`). The open stream counts as one of the caller's `SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests` before it starts, §1.9). While the client reads too slowly, `log` events are dropped and one `stderr` line `[N log lines dropped: …]` follows once it caught up; a client that stops reading is disconnected once 8 MiB are queued for it. The stream ends when the orchestrator begins to stop; clients then poll `getTestRun` |
 | `POST /api/test-runs/{testRunId}/cancel` | `cancelTestRun` (`x-destructive`) | owner | no | – | `TestRun` |
 | `GET /api/test-runs/{testRunId}/files/{fileId}` | `getTestRunFileDownload` | owner | no | `?redirect (false)` | `FileDownload` or 302 |
+| `GET /api/test-runs/{testRunId}/files/{fileId}/content` | `readTestRunFile` | owner | **yes** | `?offset (0), length (98304, max 98304)` | `FileContent` (§4.15); 400 `validationFailed` (offset beyond the size); 404 (unknown, expired or incompletely stored file) |
 
 ### 4.12 `catalog` (languages, templates, scaffolds, guides)
 
@@ -674,12 +676,33 @@ Query rules are in §5.2.
 | `GET /api/exports/{exportId}` | `getExport` | owner | **yes** | `?wait` | `Export` |
 | `DELETE /api/exports/{exportId}` | `deleteExport` | owner | no | – | 204 |
 | `GET /api/analyses/{analysisId}/files/{fileId}` | `getFileDownload` | owner | no | `?redirect (false)` | `FileDownload` or 302 |
+| `GET /api/analyses/{analysisId}/files/{fileId}/content` | `readAnalysisFile` | owner | **yes** | `?offset (0), length (98304, max 98304)` | `FileContent`; 400 `validationFailed` (offset beyond the size); 404 |
 
 Exports: JSONL rows are whole analysis documents (or the `fields` projection), masked. CSV columns are
 `fields` (default `id, seq, status, attempt, round, error.type, error.message, timings.durationMs, config,
 result`); nested values are JSON-encoded; any cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed
 with `'`. Download URLs are presigned GETs of `SCANTOR_S3_PUBLIC_URL` valid for 10 minutes with
 `Content-Disposition: attachment`. File downloads follow [architecture](architecture.md) §11.5.
+
+Inline file reads (`readAnalysisFile`, `readTestRunFile`, one shared service
+`server/services/files/content.ts`) return one byte range of a stored file as `FileContent` JSON, for clients
+that cannot fetch a presigned URL (MCP agents, [mcp](mcp.md) §4.4):
+
+- The file is looked up by `fileId` in the owned analysis's or test run's `files[]`; the S3 key always comes from
+  that stored FileRef. A FileRef without a stored object is 404, and so is an object that no longer exists or
+  is shorter than the FileRef's `size` (a range read that returns fewer bytes than requested).
+- `offset` (default 0, at most `size`) and `length` (1–98304, default 98304) select the range, read with an S3
+  `Range` GET. `offset` beyond `size` is 400 `validationFailed` (`details.issues` at `offset`); `offset` equal to
+  `size` (and an empty file) returns an empty page.
+- `encoding` is `utf8` when the range is valid UTF-8 without NUL bytes, otherwise `base64`: the rule of the
+  workspace helper's `read` ([editor](editor.md) §9.4), applied to the range instead of the whole file. A
+  character cut by the end of a range that does not end the file is left for the next page, and a text page is
+  shortened on a character boundary until its JSON-escaped form is at most 192 KiB (control characters escape to
+  six bytes), so `length` can be smaller than requested. A range shorter than its first character comes back as
+  `base64`, so every read makes progress. Pages that start at `nextOffset` therefore start on a character
+  boundary; a page that starts inside a character is `base64`.
+- The response is always `application/json`, never the raw bytes, so no file content can render on a scantor
+  origin ([security](security.md) DL-6).
 
 ### 4.16 `jobs`
 
@@ -1461,20 +1484,21 @@ targets 3001. The dashboard's `/editor` page only embeds the editor origin in an
 
 ## 10. MCP-exposed operations
 
-29 operations have `x-mcp: true`; tool name = `snake_case(operationId)`. Read tools need `scantor:read`,
-write tools `scantor:write`, admin tools `scantor:admin`. Tools returning analysis configs, results or logs
-wrap that content as `{"untrusted_data": …}`; responses are capped at 256 KiB with a truncation note
-([mcp](mcp.md)). `/mcp` also accepts scantor API keys (`Authorization: Bearer sk_scantor_…` or
-`x-api-key`); their level is `write`, or `admin` for an admin's `default` key ([mcp](mcp.md) §3.7).
+31 operations have `x-mcp: true` (at most 45, [mcp](mcp.md) §10 decision 12); tool name =
+`snake_case(operationId)`. Read tools need `scantor:read`, write tools `scantor:write`, admin tools
+`scantor:admin`. Tools returning analysis configs, results, logs or file contents wrap that content as
+`{"untrusted_data": …}`; responses are capped at 256 KiB with a truncation note ([mcp](mcp.md)). `/mcp`
+also accepts scantor API keys (`Authorization: Bearer sk_scantor_…` or `x-api-key`); their level is
+`write`, or `admin` for an admin's `default` key ([mcp](mcp.md) §3.7).
 `cancel_scan` is annotated destructive through `x-destructive`. MCP clamps `wait` to 50 s.
 
 | Area | Read | Write |
 |---|---|---|
 | tasks and files | `list_tasks`, `get_task`, `list_task_files`, `read_task_file` | `create_task`, `write_task_files`, `delete_task_file` |
-| revisions and test runs | `get_revision`, `get_test_run` | `publish_revision`, `test_task` |
+| revisions and test runs | `get_revision`, `get_test_run`, `read_test_run_file` | `publish_revision`, `test_task` |
 | catalog | `list_templates`, `get_authoring_guide` | – |
 | scans | `list_scans`, `get_scan` | `start_scan`, `pause_scan`, `resume_scan`, `scale_scan`, `cancel_scan`, `retry_failed_analyses`, `restart_scan`, `delete_scan` |
-| results | `get_analysis`, `query_analyses`, `aggregate_analyses`, `get_export` | `export_scan` |
+| results | `get_analysis`, `read_analysis_file`, `query_analyses`, `aggregate_analyses`, `get_export` | `export_scan` |
 | admin | `list_nodes` | – |
 
 ## 11. Decisions made in this document
@@ -1496,7 +1520,8 @@ Item 18 records a round-1 ruling.
    caller's own resources; derived resources inherit the parent's owner.
 7. **Reserved task names** `upload`, `import-git`, `new`, `latest` (static route segments).
 8. **File downloads are addressed as `/api/analyses/{analysisId}/files/{fileId}`**; test-run files under
-   `/api/test-runs/{id}/files/{fileId}`.
+   `/api/test-runs/{id}/files/{fileId}`. Their inline content is the sub-resource `…/files/{fileId}/content`
+   (`readAnalysisFile`, `readTestRunFile`), paged by byte offset.
 9. **`Scantor-Wait` response header**, `SCANTOR_MAX_CONCURRENT_WAITS`, and a `wait` on `getJob` and
    `getWorkerLogs`.
 10. **Worker on-demand log tails** go through `logRequests` in assignments and

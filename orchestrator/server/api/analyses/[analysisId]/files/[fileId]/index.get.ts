@@ -28,14 +28,14 @@ defineRouteMeta({
 })
 
 import { defineEventHandler, sendRedirect } from 'h3'
-import { fileDownloadParams, fileDownloadQuery } from '#shared/schemas/analyses'
-import { analysisFileDownload } from '../../../../services/analyses/files'
-import { loadOwnedAnalysis, requireUser } from '../../../../utils/authz'
-import { validateParams, validateQuery } from '../../../../utils/zod'
+import { analysisFileParams, fileDownloadQuery } from '#shared/schemas/analyses'
+import { analysisFileDownload } from '../../../../../services/analyses/files'
+import { loadOwnedAnalysis, requireUser } from '../../../../../utils/authz'
+import { validateParams, validateQuery } from '../../../../../utils/zod'
 
 export default defineEventHandler(async (event) => {
   const principal = requireUser(event)
-  const { analysisId, fileId } = validateParams(event, fileDownloadParams)
+  const { analysisId, fileId } = validateParams(event, analysisFileParams)
   const { redirect } = validateQuery(event, fileDownloadQuery)
   const { analysis } = await loadOwnedAnalysis(principal, analysisId)
   const download = await analysisFileDownload(analysis, fileId.toLowerCase())

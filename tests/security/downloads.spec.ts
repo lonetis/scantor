@@ -1,6 +1,7 @@
+import { createHash } from 'node:crypto'
 import { request as playwrightRequest, type APIRequestContext } from '@playwright/test'
 import type { Analysis } from '#shared/types/analyses'
-import type { Export, FileDownload } from '#shared/types/exports'
+import type { Export, FileContent, FileDownload } from '#shared/types/exports'
 import type { FileRef } from '#shared/types/common'
 import { ok, type ApiClient } from '../helpers/api-client'
 import { stackEnv } from '../helpers/docker'
@@ -12,9 +13,9 @@ import { expect, test as base } from '../fixtures'
 // The tenant fixtures of the security specs (helpers/security-tenants.ts).
 const test = withSecurityTenants(base)
 
-// Downloads and exports (docs/security.md §6.15 DL-1…DL-5, GUI-5): presigned GETs on the public S3 origin that force a
+// Downloads and exports (docs/security.md §6.15 DL-1…DL-6, GUI-5): presigned GETs on the public S3 origin that force a
 // safe Content-Type and Content-Disposition, live ten minutes, and a private bucket that answers only signed requests
-// and CORS preflights from the dashboard origin. The tasks and their completed scans are shared per worker (they are
+// and CORS preflights from the dashboard origin; inline file reads that return content only inside JSON. The tasks and their completed scans are shared per worker (they are
 // only read here).
 
 const DOWNLOAD_TTL_SECONDS = 600
@@ -99,6 +100,36 @@ test.describe('downloads', () => {
       const redirect = await api.call('getFileDownload', { path: { analysisId: analysis.id, fileId: files.get('x.png')!.id }, query: { redirect: true } })
       expect(redirect.status).toBe(302)
       expect(new URL(redirect.headers['location']!).origin).toBe(new URL(stackEnv().SCANTOR_S3_PUBLIC_URL!).origin)
+    },
+  )
+
+  test(
+    'inline file reads answer JSON only: html and svg as utf8 strings, png as base64 of its exact bytes',
+    { tag: ['@RES-021'] },
+    async ({ api, shared }) => {
+      const { analysis, files } = await filesOf(api, (await hostileScan(shared)).id)
+      const read = async (name: string) => {
+        const response = await api.call<FileContent>('readAnalysisFile', { path: { analysisId: analysis.id, fileId: files.get(name)!.id } })
+        expect(response.status, name).toBe(200)
+        expect(response.headers['content-type'], name).toMatch(/^application\/json/)
+        expect(response.headers['x-content-type-options'], name).toBe('nosniff')
+        expect(response.headers['content-disposition'], name).toBeUndefined()
+        expect(response.body).toMatchObject({ name, size: files.get(name)!.size, sha256: files.get(name)!.sha256, truncated: false, nextOffset: null })
+        return response.body
+      }
+
+      for (const name of ['x.html', 'x.svg']) {
+        const page = await read(name)
+        expect(page.encoding, name).toBe('utf8')
+        expect(page.content, name).toContain('<script>')
+      }
+      const png = await read('x.png')
+      expect(png).toMatchObject({ encoding: 'base64', contentType: 'image/png', length: files.get('x.png')!.size })
+      const bytes = Buffer.from(png.content, 'base64')
+      expect(bytes.subarray(1, 4).toString('latin1')).toBe('PNG')
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(files.get('x.png')!.sha256)
+      // The name with CR, LF and quotes is a JSON string, never a header.
+      expect(await read('bad\r\nname "quoted" \'single\'.txt')).toMatchObject({ encoding: 'utf8', content: 'content' })
     },
   )
 

@@ -93,9 +93,22 @@ export type AggregateAnalysesBody = z.infer<typeof aggregateAnalysesBody>
 
 // ── exports and files ───────────────────────────────────────────────────────
 
-export const fileDownloadParams = z.strictObject({ analysisId: z.string().regex(ANALYSIS_ID_PATTERN), fileId: z.uuid() })
+export const analysisFileParams = z.strictObject({ analysisId: z.string().regex(ANALYSIS_ID_PATTERN), fileId: z.uuid() })
 
 export const fileDownloadQuery = z.strictObject({ redirect: qBoolean().default(false) })
+
+/**
+ * Most bytes one inline file read returns (docs/api.md §4.15): 96 KiB, so that the content stays inside the 256 KiB
+ * MCP result cap as base64 (128 KiB) and as JSON-escaped text (at most 192 KiB, services/files/content.ts).
+ */
+export const FILE_CONTENT_MAX_BYTES = 98_304
+
+/** `?offset&length` of readAnalysisFile and readTestRunFile; an offset beyond the file size is checked by the service. */
+export const fileContentQuery = z.strictObject({
+  offset: qInt(0, Number.MAX_SAFE_INTEGER).optional(),
+  length: qInt(1, FILE_CONTENT_MAX_BYTES).optional(),
+})
+export type FileContentQuery = z.infer<typeof fileContentQuery>
 
 export const exportInlineQuery = z.strictObject({
   format: z.enum(EXPORT_FORMATS).default('jsonl'),

@@ -216,6 +216,23 @@ defineRouteMeta({
               inline: { type: 'boolean', description: 'true for png/jpeg/gif/webp images, which the link serves inline' },
             },
           },
+          FileContent: {
+            type: 'object',
+            description: 'One byte range of a stored file, inline (docs/api.md §4.15). Read the next part with offset = nextOffset while truncated is true.',
+            required: ['name', 'contentType', 'size', 'sha256', 'offset', 'length', 'encoding', 'content', 'truncated', 'nextOffset'],
+            properties: {
+              name: { type: 'string' },
+              contentType: { type: 'string', description: 'The content type the task declared' },
+              size: { type: 'integer', minimum: 0, description: 'Size of the whole file in bytes' },
+              sha256: { type: 'string', description: 'SHA-256 of the whole file' },
+              offset: { type: 'integer', minimum: 0, description: 'The first byte returned' },
+              length: { type: 'integer', minimum: 0, description: 'Bytes returned (fewer than requested when a text part would end inside a character)' },
+              encoding: { type: 'string', enum: ['utf8', 'base64'], description: 'utf8 for valid UTF-8 text without NUL bytes, otherwise base64' },
+              content: { type: 'string' },
+              truncated: { type: 'boolean', description: 'true when bytes follow the returned range' },
+              nextOffset: { type: ['integer', 'null'], description: 'offset + length when truncated, else null' },
+            },
+          },
           Health: {
             type: 'object',
             required: ['status', 'version', 'components', 'alarms'],

@@ -99,7 +99,7 @@ Run the narrowest suite first (`just test-go ./internal/taskpipe/...`, `just tes
   OpenAPI parameter names. The first statement is `defineRouteMeta` with a static object of plain
   literals only (no negative numbers, template literals or strings with both quote kinds;
   `test/api/route-meta.test.ts`). `operationId` camelCase verb-first; `x-scantor-scope`; `x-mcp` (at
-  most 30 tools); `x-admin-only` iff scope `admin`; `x-read-only` for side-effect-free POSTs. Thin
+  most 45 tools); `x-admin-only` iff scope `admin`; `x-read-only` for side-effect-free POSTs. Thin
   handlers: validate with `validateBody/Query/Params`, throw only `apiError(code)`, long work becomes a
   job. Checklist: [docs/development.md](docs/development.md) §9.1.
 - **No language switch** anywhere: language knowledge lives in `schemas/languages.json` and the base

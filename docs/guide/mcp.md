@@ -66,7 +66,7 @@ The editor key always has the read and write level, never admin.
 
 | Level | Consent choice | Tools |
 |---|---|---|
-| read | "Read only" | listing and reading tasks, files, revisions, test runs, templates, guides, scans, analyses and exports |
+| read | "Read only" | listing and reading tasks, files, revisions, test runs, templates, guides, scans, analyses, the files of analyses and test runs, and exports |
 | write | "Read and write" (default) | read plus creating and editing tasks, testing, publishing, starting and controlling scans, exports |
 | admin | "Admin" (only offered to admins) | write plus `list_nodes`, and access to every user's resources |
 
@@ -93,9 +93,9 @@ errors.
 |---|---|
 | learn | `get_authoring_guide`, `list_templates` |
 | tasks and files | `list_tasks`, `get_task`, `create_task`, `list_task_files`, `read_task_file`, `write_task_files`, `delete_task_file` |
-| test and publish | `test_task`, `get_test_run`, `publish_revision`, `get_revision` |
+| test and publish | `test_task`, `get_test_run`, `read_test_run_file`, `publish_revision`, `get_revision` |
 | scans | `list_scans`, `start_scan`, `get_scan`, `pause_scan`, `resume_scan`, `scale_scan`, `cancel_scan`, `retry_failed_analyses`, `restart_scan`, `delete_scan` |
-| results | `get_analysis`, `query_analyses`, `aggregate_analyses`, `export_scan`, `get_export` |
+| results | `get_analysis`, `read_analysis_file`, `query_analyses`, `aggregate_analyses`, `export_scan`, `get_export` |
 | admin | `list_nodes` |
 
 Not available through MCP, by design: uploads and task folder uploads, git imports, credentials, API keys
@@ -113,6 +113,7 @@ that do not read resources, the tool `get_authoring_guide` returns the authoring
 |---|---|
 | waiting | `test_task`, `get_test_run`, `publish_revision`, `get_revision`, `get_scan`, `export_scan` and `get_export` take `wait` (0–50 seconds; a larger value is clamped to 50). The result has `_wait: "settled"` or `"timeout"`; call again on `timeout`. |
 | response size | results are capped at 256 KiB. Longer lists are cut and marked with `_truncated` and a note; narrow the request with `limit`, `projection`, `fields`, `filter` or `afterSeq`. `query_analyses` returns 20 documents unless `limit` says otherwise. |
+| file content | `read_analysis_file` and `read_test_run_file` return a file attached to an analysis inline, at most 96 KiB per call: text as `encoding: "utf8"`, anything else (images, binary data) as `"base64"`. While `truncated` is true, call again with `offset` set to `nextOffset`. |
 | untrusted data | results, analysis configs, errors, log tails, task descriptions, manifests and file contents are wrapped as `{"untrusted_data": …}` because they come from scanned targets or third-party code |
 | errors | a failed call returns `isError` with `{"error": {"httpStatus", "code", "message", "details"}}` and, when the server asks to wait, `retryAfterSeconds`. Arguments that do not match the tool's input schema give `400 validationFailed` with `details.issues`. The codes are listed in [errors and retries](errors-and-retries.md#build-test-run-and-request-errors). |
 | failed builds and test runs | not tool errors: a revision or test run with `state: "failed"` is a normal result with `errors[]` |
@@ -132,7 +133,7 @@ publish_revision (wait) / get_revision ──failed: errors[]──┘
         │ ready
 start_scan (confirm?) ──► get_scan (wait) loop ──► scale_scan / pause_scan / resume_scan
         │ completed
-query_analyses / aggregate_analyses / get_analysis ──► retry_failed_analyses / restart_scan
+query_analyses / aggregate_analyses / get_analysis / read_analysis_file ──► retry_failed_analyses / restart_scan
         │
 export_scan (wait) / get_export ──► presigned download URL for the user
 ```
@@ -184,7 +185,8 @@ the signed-in user.
 4. Test without publishing: `test_task {"task": "http-title", "scanConfig": {"limit": 3}, "limit": 3,
    "wait": 50}`; while `_wait` is `timeout`, `get_test_run {"testRunId": "…", "wait": 50}`. Read
    `state`, `errors[]` (`phase`, `file`, `line`, `message`), `analyses[].error` and
-   `analyses[].logTail`. Fix and test again until the analyses succeed.
+   `analyses[].logTail`; `read_test_run_file` reads a file of `analyses[].files`. Fix and test again until
+   the analyses succeed.
 5. Publish: `publish_revision {"task": "http-title", "message": "…", "wait": 50}`; then
    `get_revision {"task": "http-title", "revision": "latest", "wait": 50}` until `state` is `ready`. A
    `failed` revision lists `errors[]`; fix them and publish again.
@@ -197,7 +199,9 @@ the signed-in user.
 8. Analyse: `aggregate_analyses {"scanId": "…", "pipeline": [{"$group": {"_id": "$status", "n":
    {"$sum": 1}}}]}`; `query_analyses {"scanId": "…", "filter": {"status": "failed"}, "projection":
    {"seq": 1, "error.type": 1, "error.message": 1}, "limit": 20}`; `get_analysis {"analysisId":
-   "<scanId>-<seq>"}` for one analysis with its attempts and log.
+   "<scanId>-<seq>"}` for one analysis with its attempts, log and `files`; `read_analysis_file
+   {"analysisId": "…", "fileId": "…"}` returns a file's content (`encoding` `utf8` or `base64`, at most
+   96 KiB): while `truncated`, call again with `"offset"` set to `nextOffset`.
 9. Recover: `retry_failed_analyses {"scanId": "…"}` re-runs failed and lost analyses in the same scan;
    `restart_scan` starts a new scan with the same revision and configs. To use fixed code, publish a
    new revision and start a new scan.

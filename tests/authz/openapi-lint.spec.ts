@@ -10,7 +10,7 @@ import { expect, test } from '../fixtures'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'patch'] as const
 const SCOPES = ['owner', 'admin', 'public', 'node', 'worker', 'setup', 'tools']
-const MAX_MCP_OPERATIONS = 30
+const MAX_MCP_OPERATIONS = 45
 
 /** Verbs an operationId may start with (docs/api.md §1.1: `list…`, `get…`, `create…`, … ). */
 const VERBS = new Set([
@@ -182,7 +182,7 @@ test.describe('OpenAPI lint', () => {
     }
   })
 
-  test('at most 30 operations are MCP tools', { tag: ['@OAS-002'] }, () => {
+  test('at most 45 operations are MCP tools', { tag: ['@OAS-002'] }, () => {
     const tools = operations.filter(({ op }) => op['x-mcp'] === true)
     expect(tools.length).toBeGreaterThan(0)
     expect(tools.length).toBeLessThanOrEqual(MAX_MCP_OPERATIONS)

@@ -129,7 +129,7 @@ Scopes are cumulative. The **level** of a request decides which tools exist for 
 
 | Scope | Level | Tools |
 |---|---|---|
-| `scantor:read` | `read` | operations with `GET` or `x-read-only: true` (lists, gets, query, aggregate, guides) |
+| `scantor:read` | `read` | operations with `GET` or `x-read-only: true` (lists, gets, file reads, query, aggregate, guides) |
 | `scantor:write` | `write` | `read` plus every other `x-mcp` operation without `x-admin-only` |
 | `scantor:admin` | `admin` (only when the user's role is `admin`) | `write` plus `x-admin-only` operations (`list_nodes`) |
 
@@ -334,7 +334,10 @@ The client's OAuth token is never forwarded to REST routes: it is audience-bound
 | 3xx (only with `redirect=true`, never requested by tools) | `text`: `{"redirect": "<Location>"}` |
 | non-2xx | `isError: true` with the structured error (§4.7) |
 
-No tool returns binary content in v1: exports return presigned download URLs, not data.
+No tool returns binary content blocks. `read_analysis_file` and `read_test_run_file` return a file's content
+inside JSON, as UTF-8 text or base64, at most 96 KiB per call and paged with `offset`/`nextOffset`
+([api](api.md) §4.15), so agents read files without reaching `SCANTOR_S3_PUBLIC_URL`. Exports return
+presigned download URLs, not data.
 
 ### 4.5 Response cap and truncation
 
@@ -359,7 +362,9 @@ while the cursor reads the kept items themselves (`capJson(value, { present, seq
 Whenever truncation happened, a second `text` content block is appended:
 `[scantor] Response truncated to 256 KiB (<what was dropped>). Narrow it with limit, fields/projection, filter
 or afterSeq.` Query tools default to `limit: 20` ([api](api.md) §1.8). Agents should use `projection` and
-`fields`.
+`fields`. A file-content page always fits: it carries at most 96 KiB, which is 128 KiB as base64, and a text page
+is shortened until its JSON escaping is at most 192 KiB, so the content is never cut by step 2 and `nextOffset`
+stays exact.
 
 ### 4.6 Untrusted data
 
@@ -380,6 +385,7 @@ left unchanged. `x[]` means "each element of array `x`".
 | `retry_failed_analyses`, `delete_scan` | `scan.stateReason`, `scan.scheduling.error`, `scan.conditions` |
 | `get_analysis` | `config`, `result`, `error`, `attempts`, `logTail`, `files` |
 | `query_analyses`, `aggregate_analyses` | `items[]` |
+| `read_analysis_file`, `read_test_run_file` | `content`, `name`, `contentType` |
 | all others | none |
 
 The map lives in `orchestrator/server/services/mcp/untrusted.ts` keyed by operationId. The instructions
@@ -416,8 +422,8 @@ wait for the resource to settle (0–50). Call again if it has not settled yet."
 
 ## 5. Curated tool list
 
-29 operations have `x-mcp: true` ([api](api.md) §10). The generated test fails above 30. Level: R = read,
-W = write, A = admin. Hints: RO read-only, D destructive, I idempotent.
+31 operations have `x-mcp: true` ([api](api.md) §10). The generated tests fail above 45 (the curated cap,
+§10 decision 12). Level: R = read, W = write, A = admin. Hints: RO read-only, D destructive, I idempotent.
 
 | Tool | operationId | HTTP | Level | Hints | `untrusted_data` | `wait` |
 |---|---|---|---|---|---|---|
@@ -432,6 +438,7 @@ W = write, A = admin. Hints: RO read-only, D destructive, I idempotent.
 | `get_revision` | `getRevision` | `GET /api/tasks/{task}/revisions/{revision}` | R | RO I | `manifest`, `description`, `errors` | yes |
 | `test_task` | `testTask` | `POST /api/tasks/{task}/test-runs` | W | – | `description`, `errors`, `analyses` | yes |
 | `get_test_run` | `getTestRun` | `GET /api/test-runs/{testRunId}` | R | RO I | `description`, `errors`, `analyses` | yes |
+| `read_test_run_file` | `readTestRunFile` | `GET /api/test-runs/{testRunId}/files/{fileId}/content` | R | RO I | `content`, `name`, `contentType` | – |
 | `list_templates` | `listTemplates` | `GET /api/templates` | R | RO I | – | – |
 | `get_authoring_guide` | `getAuthoringGuide` | `GET /api/guides/authoring/{language}` | R | RO I | – | – |
 | `list_scans` | `listScans` | `GET /api/scans` | R | RO I | `items[].stateReason` | – |
@@ -445,6 +452,7 @@ W = write, A = admin. Hints: RO read-only, D destructive, I idempotent.
 | `restart_scan` | `restartScan` | `POST /api/scans/{scanId}/restart` | W | – | scan paths | – |
 | `delete_scan` | `deleteScan` | `DELETE /api/scans/{scanId}` | W | D I | `scan.*` paths | – |
 | `get_analysis` | `getAnalysis` | `GET /api/analyses/{analysisId}` | R | RO I | `config`, `result`, `error`, `attempts`, `logTail`, `files` | – |
+| `read_analysis_file` | `readAnalysisFile` | `GET /api/analyses/{analysisId}/files/{fileId}/content` | R | RO I | `content`, `name`, `contentType` | – |
 | `query_analyses` | `queryAnalyses` | `POST /api/scans/{scanId}/analyses/query` | R | RO I (`x-read-only`) | `items[]` | – |
 | `aggregate_analyses` | `aggregateAnalyses` | `POST /api/scans/{scanId}/analyses/aggregate` | R | RO I (`x-read-only`) | `items[]` | – |
 | `export_scan` | `exportScan` | `POST /api/scans/{scanId}/exports` | W | – | – | yes |
@@ -458,8 +466,8 @@ W = write, A = admin. Hints: RO read-only, D destructive, I idempotent.
 |---|---|
 | uploads, task upload (tar.gz), git import/pull, workspace archive | binary or multi-step flows; agents use the file tools; git import needs credentials the user manages in the UI |
 | revision list, build log, source download | `get_revision` (with `latest`) carries the structured errors |
-| test-run list, stream, cancel, file download | `test_task`/`get_test_run` with `wait` cover the loop |
-| analyses list, inline export, file downloads | `query_analyses` (projection, `afterSeq`) and `export_scan` (presigned URL) |
+| test-run list, stream, cancel, presigned file download | `test_task`/`get_test_run` with `wait` cover the loop; `read_test_run_file` returns file content inline |
+| analyses list, inline export, presigned file downloads | `query_analyses` (projection, `afterSeq`), `read_analysis_file` (file content inline) and `export_scan` (presigned URL) |
 | inflight, conditions, events, workers, worker logs | `get_scan` carries conditions and progress; the rest is operator detail for the UI/CLI |
 | account, API keys, OAuth apps, credentials, editor, tools | credential management must not be driven by an agent |
 | users, node management, metrics | admin operations stay in the UI/CLI; `list_nodes` is the read-only exception |
@@ -498,7 +506,7 @@ The tool set is designed so that an agent can go from an idea to analysed result
         │ ready
  start_scan (confirm?) ──► get_scan (wait) loop ──► scale_scan / pause_scan / resume_scan
         │ completed
- query_analyses / aggregate_analyses / get_analysis ──► retry_failed_analyses / restart_scan
+ query_analyses / aggregate_analyses / get_analysis / read_analysis_file ──► retry_failed_analyses / restart_scan
         │
  export_scan (wait) / get_export ──► presigned download URL for the user
 ```
@@ -508,11 +516,11 @@ The tool set is designed so that an agent can go from an idea to analysed result
 | 1. learn | `get_authoring_guide {"language": "python"}`, `list_templates {}` | definition API, template configs and examples |
 | 2. scaffold | `create_task {"name": "http-title", "language": "python", "template": "tranco", "description": "Fetch page titles"}` | the new `Task` |
 | 3. edit | `read_task_file {"task": "http-title", "path": "main.py"}` → `write_task_files {"task": "http-title", "files": {"main.py": "…", "requirements.txt": "httpx==0.28.1\n"}}` | `workspace.dirty: true` |
-| 4. test | `test_task {"task": "http-title", "scanConfig": {"list": "latest", "limit": 3}, "limit": 3, "wait": 50}`; while `_wait` is `timeout`: `get_test_run {"testRunId": "…", "wait": 50}` | `state`, `errors[]` (build/describe/config/schedule), `analyses[].error`, `analyses[].logTail`; fix and repeat from step 3 |
+| 4. test | `test_task {"task": "http-title", "scanConfig": {"list": "latest", "limit": 3}, "limit": 3, "wait": 50}`; while `_wait` is `timeout`: `get_test_run {"testRunId": "…", "wait": 50}`; `read_test_run_file {"testRunId": "…", "fileId": "…"}` for a file of `analyses[].files` | `state`, `errors[]` (build/describe/config/schedule), `analyses[].error`, `analyses[].logTail`, stored files; fix and repeat from step 3 |
 | 5. publish | `publish_revision {"task": "http-title", "message": "first version", "wait": 50}`; while queued/building: `get_revision {"task": "http-title", "revision": "latest", "wait": 50}` | `state: ready` or `errors[{phase, file, line, message}]` |
 | 6. run | `start_scan {"revision": "http-title@latest", "name": "top 10k", "scanConfig": {"list": "latest", "limit": 10000}, "settings": {"workers": 4, "processes": 4}}` | 422 `confirmationRequired` → ask the user, then repeat with `"confirm": true`; 422 `configInvalid` → fix configs |
 | 7. monitor | `get_scan {"scanId": "…", "wait": 50}` until the state is not `creating`/`running` | `progress`, `stats`, `conditions` (`workersPending`, `crashLoop`, `breakerTripped`); optionally `scale_scan {"scanId": "…", "workers": 8}` |
-| 8. analyse | `aggregate_analyses {"scanId": "…", "pipeline": [{"$match": {"status": "succeeded"}}, {"$group": {"_id": "$result.status", "n": {"$sum": 1}}}, {"$sort": {"n": -1}}]}`; `query_analyses {"scanId": "…", "filter": {"status": "failed"}, "projection": {"seq": 1, "error.type": 1, "error.message": 1}, "limit": 20}`; `get_analysis {"analysisId": "<scanId>-17"}` | aggregated counts, failure classes, single analyses |
+| 8. analyse | `aggregate_analyses {"scanId": "…", "pipeline": [{"$match": {"status": "succeeded"}}, {"$group": {"_id": "$result.status", "n": {"$sum": 1}}}, {"$sort": {"n": -1}}]}`; `query_analyses {"scanId": "…", "filter": {"status": "failed"}, "projection": {"seq": 1, "error.type": 1, "error.message": 1}, "limit": 20}`; `get_analysis {"analysisId": "<scanId>-17"}`; `read_analysis_file {"analysisId": "<scanId>-17", "fileId": "…"}` (then `offset` = `nextOffset` while `truncated`) | aggregated counts, failure classes, single analyses, the content of their files |
 | 9. recover | `retry_failed_analyses {"scanId": "…"}` or `restart_scan {"scanId": "…", "settings": {"workers": 2}}` | new round or new scan |
 | 10. export | `export_scan {"scanId": "…", "format": "jsonl", "filter": {"status": "succeeded"}, "wait": 50}`; `get_export {"exportId": "…", "wait": 50}` | `download.url` (presigned, 10 minutes), handed to the user |
 
@@ -529,11 +537,13 @@ completion, query and aggregate, export ([testing](testing.md) §8.4).
    `x-admin-only: true` for admin operations, and `x-destructive: true` for non-DELETE operations that discard
    work or data.
 2. Keep the response compact: support `limit`/`fields`/`projection` for anything list-shaped. Return URLs
-   rather than large content.
+   for exports, and page large content (`offset`/`nextOffset`, as `read_analysis_file`) so one page always fits
+   the cap of §4.5.
 3. If the response can contain target-, code- or third-party-derived values, add the paths to
    `orchestrator/server/services/mcp/untrusted.ts`.
-4. Add the tool to the table in §5 and to [api](api.md) §10. If the total would exceed 30, remove a tool or
-   raise the cap deliberately in the generated test with a justification.
+4. Add the tool to the table in §5 and to [api](api.md) §10. If the total would exceed 45, remove a tool or
+   raise the cap deliberately (`MAX_MCP_OPERATIONS` in `server/utils/operations.ts`, the generated tests and
+   the docs that state it) with a justification in §10.
 5. Mention it in the instructions section of `docs/guide/mcp.md` if agents should use it in the loop, and in
    `skills/` if a skill workflow uses it.
 6. Update the expected tool set in `tests/mcp/tools.spec.ts`, then run the tests: the MCP catalogue test
@@ -551,7 +561,7 @@ Spec files follow the layout of [testing](testing.md) §2 (MCP specs in `tests/m
 | Spec | Covers |
 |---|---|
 | `tests/mcp/oauth.spec.ts` | discovery documents; DCR with allowed and rejected redirect URIs (`SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS`); a CIMD `client_id` whose metadata host is private is refused (the positive CIMD path is a vitest unit test with an injected fetcher, [testing](testing.md) §4.2); PKCE code flow; consent level selection; `scantor:admin` stripped for non-admins; refresh; `revokeOAuthApp` → next call 401; banned user → 401 |
-| `tests/mcp/tools.spec.ts` | catalogue equals §5 (names, levels, annotations, ≤ 30); level filtering of `tools/list` and `tools/call`; `untrusted_data` wrapping; structured errors; `wait` clamp |
+| `tests/mcp/tools.spec.ts` | catalogue equals §5 (names, levels, annotations, ≤ 45); level filtering of `tools/list` and `tools/call`; `untrusted_data` wrapping; structured errors; `wait` clamp; inline file reads with paging |
 | `tests/mcp/limits.spec.ts` | 256 KiB cap and truncation (§4.5) with a large fixture result, including the note block |
 | `tests/mcp/guides.spec.ts` | instructions section present and ≤ 8 KiB; guide resources; `get_authoring_guide` for every language |
 | `tests/mcp/drift.spec.ts` | every tool named in the instructions, `docs/guide/` and `skills/` exists |
@@ -585,6 +595,14 @@ Made in this document and flagged for lead review:
     the user guide are a single file.
 11. **Tool errors are JSON** `{"error": {httpStatus, code, message, details}}` text blocks, with no
     `structuredContent`/`outputSchema` in v1.
+12. **Curated tool cap of 45** (raised from 30). Inline file reads (`read_analysis_file`,
+    `read_test_run_file`) and the planned script tools need slots; the set stays curated (no list, admin or
+    operator noise: every exclusion of §5 still holds), and 45 is still below the tool counts at which common
+    clients degrade (truncated tool lists, worse tool selection). Raising it again is a deliberate decision
+    recorded here.
+13. **File content inline as JSON**, not as MCP binary blocks or presigned URLs: one REST operation per file
+    owner (analysis, test run) keeps ownership, masking and the authorization matrix of REST (MCP-6), works
+    for clients that cannot reach the S3 origin, and stays within the result cap through paging.
 
 ## 11. Future extensions
 
@@ -594,7 +612,7 @@ Made in this document and flagged for lead review:
 | Live scan subscriptions | SDK v2 `subscriptions/listen` with the handler's event bus; the ingestor's counters and scan change streams can publish resource updates for `scantor://scans/{id}`. |
 | Elicitation for confirmations | `confirmationRequired` (422) and destructive tools can ask the user through MCP elicitation instead of relying on the agent. |
 | Structured output | Drop the `outputSchema` stripping in §4.1 once clients handle `structuredContent` reliably; the OpenAPI response schemas already exist. |
-| File and export downloads as resources | `getFileDownload`/`getTestRunFileDownload` can be exposed as `scantor://files/{analysisId}/{fileId}` resources (image content for png/jpeg, text otherwise). |
+| File content as resources and image blocks | `readAnalysisFile`/`readTestRunFile` already serve file content to tools. A `scantor://files/{analysisId}/{fileId}` resource could call them through the loopback capability path and return `image` content for png/jpeg/gif/webp (with the untrusted note) or text otherwise. |
 | Prompts | MCP prompts such as "new task from template" built from the same guides. |
 | Scoped API keys | `apikey.permissions` can carry a level; §3.7 then reads it instead of defaulting to `write`. |
 | Multi-replica orchestrator | `sic_` capabilities move to a TTL collection, and the catalogue cache is per process anyway. The loopback call already reaches the same process. |

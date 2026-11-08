@@ -10,7 +10,7 @@ test-index --check`); never edit it by hand.
 
 ## Playwright projects
 
-### api (254 tests)
+### api (255 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -22,7 +22,7 @@ test-index --check`); never edit it by hand.
 | `api/editor.spec.ts` | idle stop; editor sessions; editor state; the editor key; inside the editor | 8 |
 | `api/errors.spec.ts` | request ids; error envelope; deny by default; request validation; body caps; path ids; query values; pagination; listeners | 16 |
 | `api/exports.spec.ts` | exports of a finished scan; exports of scans of their own | 7 |
-| `api/files.spec.ts` | analysis files | 1 |
+| `api/files.spec.ts` | analysis files | 2 |
 | `api/git.spec.ts` | import; pull; revisions of imported tasks | 19 |
 | `api/health.spec.ts` | health; setup status | 4 |
 | `api/info.spec.ts` | instance info; admin tools in the instance info; OpenAPI document | 9 |
@@ -63,7 +63,7 @@ test-index --check`); never edit it by hand.
 | `authz/matrix.spec.ts` | authorization matrix | 29 |
 | `authz/openapi-lint.spec.ts` | OpenAPI lint | 10 |
 
-### security (185 tests)
+### security (186 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -74,7 +74,7 @@ test-index --check`); never edit it by hand.
 | `security/csrf.spec.ts` | CSRF; CORS | 5 |
 | `security/data-locations.spec.ts` | data locations | 2 |
 | `security/dockerfile-policy.spec.ts` | Dockerfile policy | 5 |
-| `security/downloads.spec.ts` | downloads | 4 |
+| `security/downloads.spec.ts` | downloads | 5 |
 | `security/editor-isolation.spec.ts` | the editor container; editor sessions and cookies; editor listener; editor origin traffic | 6 |
 | `security/env-example.spec.ts` | lint-env | 34 |
 | `security/hostile-labels.spec.ts` | hostile labels | 3 |
@@ -87,7 +87,7 @@ test-index --check`); never edit it by hand.
 | `security/tar-slip.spec.ts` | upload archives; file routes | 9 |
 | `security/traefik.spec.ts` | Traefik | 12 |
 
-### mcp (46 tests)
+### mcp (47 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -98,7 +98,7 @@ test-index --check`); never edit it by hand.
 | `mcp/limits.spec.ts` | MCP response cap | 2 |
 | `mcp/oauth.spec.ts` | MCP OAuth discovery; MCP OAuth clients; MCP OAuth authorization; MCP OAuth revocation | 16 |
 | `mcp/smoke.spec.ts` | MCP plumbing; MCP transport | 5 |
-| `mcp/tools.spec.ts` | MCP tool catalogue; MCP tool calls | 11 |
+| `mcp/tools.spec.ts` | MCP tool catalogue; MCP tool calls | 12 |
 
 ### e2e (182 tests)
 
@@ -175,7 +175,7 @@ test-index --check`); never edit it by hand.
 | API-012 | The wait query parameter accepts 0–120 seconds (121 returns 400). Without wait or with wait=0 there … | api/wait.spec.ts › wait on long-running operations › uploadTask, publishRevision and getRevision wait for the revision build<br>api/wait.spec.ts › wait on long-running operations › testTask, getTestRun and getJob wait for the test run and its job<br>api/wait.spec.ts › waits on scans, jobs and exports › getScan waits until the scan settles<br>api/wait.spec.ts › waits on scans, jobs and exports › exportScan and getExport wait for the export |
 | API-013 | More than SCANTOR_MAX_CONCURRENT_WAITS concurrent waits of one user return 429 tooManyRequests with … | api/wait.spec.ts › waits on scans, jobs and exports › more than SCANTOR_MAX_CONCURRENT_WAITS waits of one user are 429; a disconnect frees its slot |
 | OAS-001 | GET /api/docs/openapi.json is public and a valid OpenAPI 3.1 document that lists only operations … | api/info.spec.ts › OpenAPI document › the document is public, OpenAPI 3.1 and lists only operations |
-| OAS-002 | The OpenAPI lint passes: every operation has one tag, a summary, a description, a unique camelCase … | authz/openapi-lint.spec.ts › OpenAPI lint › every operation has exactly one tag, a summary and a description<br>authz/openapi-lint.spec.ts › OpenAPI lint › operationIds are unique, camelCase and verb-first<br>authz/openapi-lint.spec.ts › OpenAPI lint › every operation declares x-scantor-scope and x-mcp<br>authz/openapi-lint.spec.ts › OpenAPI lint › x-admin-only is set exactly when the scope is admin<br>authz/openapi-lint.spec.ts › OpenAPI lint › x-session-only appears only with scope owner or admin, on the documented operations<br>authz/openapi-lint.spec.ts › OpenAPI lint › x-destructive never appears on a DELETE and marks the documented operations<br>authz/openapi-lint.spec.ts › OpenAPI lint › at most 30 operations are MCP tools<br>authz/openapi-lint.spec.ts › OpenAPI lint › every request body has a schema<br>authz/openapi-lint.spec.ts › OpenAPI lint › no route file lacks OpenAPI metadata |
+| OAS-002 | The OpenAPI lint passes: every operation has one tag, a summary, a description, a unique camelCase … | authz/openapi-lint.spec.ts › OpenAPI lint › every operation has exactly one tag, a summary and a description<br>authz/openapi-lint.spec.ts › OpenAPI lint › operationIds are unique, camelCase and verb-first<br>authz/openapi-lint.spec.ts › OpenAPI lint › every operation declares x-scantor-scope and x-mcp<br>authz/openapi-lint.spec.ts › OpenAPI lint › x-admin-only is set exactly when the scope is admin<br>authz/openapi-lint.spec.ts › OpenAPI lint › x-session-only appears only with scope owner or admin, on the documented operations<br>authz/openapi-lint.spec.ts › OpenAPI lint › x-destructive never appears on a DELETE and marks the documented operations<br>authz/openapi-lint.spec.ts › OpenAPI lint › at most 45 operations are MCP tools<br>authz/openapi-lint.spec.ts › OpenAPI lint › every request body has a schema<br>authz/openapi-lint.spec.ts › OpenAPI lint › no route file lacks OpenAPI metadata |
 | OAS-003 | Each operation's scope matches its route prefix: node for /api/node/* and /api/registry/token, … | authz/openapi-lint.spec.ts › OpenAPI lint › each operation's scope matches its route prefix |
 | OAS-004 | Route-meta values survive Nitro's extraction: the descriptions of startScan, listTasks, … | api/info.spec.ts › OpenAPI document › route-meta descriptions survive extraction into OpenAPI and the MCP tools<br>api/info.spec.ts › OpenAPI document › the queryAnalyses sort schema accepts 1 and -1 |
 | OAS-005 | GET /api/docs serves the Scalar UI with its docs-specific CSP (which allows … | ui/headers.spec.ts › dashboard security headers › /api/docs serves the Scalar UI with its own CSP and without console errors |
@@ -336,10 +336,11 @@ test-index --check`); never edit it by hand.
 | TRUN-006 | GET /api/tasks/{task}/test-runs lists the task's runs newest first without analyses; GET … | api/test-runs.spec.ts › reading test runs › listTestRuns pages newest first without analyses; getTestRun includes them unless analyses=false |
 | TRUN-007 | GET /api/test-runs/{id}/stream is text/event-stream with the events state, log {seq, stream, text, … | api/test-runs.spec.ts › reading test runs › the event stream follows a run live and replays a finished one |
 | TRUN-008 | POST /api/test-runs/{id}/cancel moves a queued, building or running run to cancelled and removes … | api/test-runs.spec.ts › creating and running test runs › the settled run carries analyses, summary, draft image and expiry; unchanged content reuses the draft image<br>api/test-runs.spec.ts › creating and running test runs › configs the schema rejects and failing schedules end the run failed with BuildErrors<br>api/test-runs.spec.ts › cancelling test runs › cancel stops a running run and removes its container; a repeat returns the cancelled run unchanged<br>api/test-runs.spec.ts › cancelling test runs › a queued or building run is cancelled at once and never starts a container<br>api/test-runs.spec.ts › cancelling test runs › a run cancelled while its container is being started is stopped as well<br>api/test-runs.spec.ts › cancelling test runs › deleting the task cancels its running test runs |
-| TRUN-009 | GET /api/test-runs/{id}/files/{fileId} returns a FileDownload (302 with ?redirect=true) whose … | api/test-runs.spec.ts › reading test runs › getTestRunFileDownload serves the exact content of a test-run file |
+| TRUN-009 | GET /api/test-runs/{id}/files/{fileId} returns a FileDownload (302 with ?redirect=true) whose … | api/test-runs.spec.ts › reading test runs › getTestRunFileDownload and readTestRunFile serve the exact content of a test-run file |
 | TRUN-010 | A test run of a privileged task runs unprivileged (no Docker-in-Docker, no added capabilities), and … | e2e/privileged.spec.ts › test runs › a test run of a privileged task runs unprivileged |
 | TRUN-011 | The test-run container scantor-t-<id> runs on scantor-egress with the worker hardening profile, … | security/sandbox.spec.ts › short-lived containers › a test run runs on scantor-egress with the worker hardening profile and reaches no platform service |
 | TRUN-012 | A test run that references a list upload and the tranco and crux templates gets the upload's lines … | e2e/templates.spec.ts › test runs and template data › a test run reads a list upload and fetches Tranco and CrUX data itself |
+| TRUN-013 | GET /api/test-runs/{id}/files/{fileId}/content?offset&length returns the FileContent of a test-run … | api/test-runs.spec.ts › reading test runs › getTestRunFileDownload and readTestRunFile serve the exact content of a test-run file |
 | UPL-001 | POST /api/uploads with a raw text/plain or application/octet-stream body, ?name (default … | api/uploads.spec.ts › createUpload › stores a raw body and counts its non-blank lines |
 | UPL-002 | Uploading content identical to one of the caller's uploads returns 200 with that upload; another … | api/uploads.spec.ts › createUpload › identical content returns the existing upload; another user gets their own |
 | UPL-003 | createUpload returns 415 for any other Content-Type, and 413 payloadTooLarge without storing … | api/uploads.spec.ts › createUpload › other media types are 415 and bodies above the cap are 413 without storing anything<br>api/uploads.spec.ts › createUpload › a streamed body without Content-Length above the cap is 413 without storing anything |
@@ -435,6 +436,8 @@ test-index --check`); never edit it by hand.
 | RES-017 | GET /api/analyses/{id}/files/{fileId} returns FileDownload {url, expiresAt, name, size, sha256, … | api/files.spec.ts › analysis files › getFileDownload serves the exact bytes of a stored file, directly or as a redirect |
 | RES-018 | File downloads of png, jpeg, gif and webp are served inline with their image type; html, svg and … | security/downloads.spec.ts › downloads › hostile-output files: png inline as image/png, html and svg as octet-stream attachments, names sanitised<br>security/downloads.spec.ts › downloads › jpeg, gif and webp are served inline with their type; json, pdf, text and scripts as attachments |
 | RES-019 | Downloads are presigned GETs on SCANTOR_S3_PUBLIC_URL, created per request and valid 10 minutes, … | security/downloads.spec.ts › downloads › hostile-output files: png inline as image/png, html and svg as octet-stream attachments, names sanitised<br>security/downloads.spec.ts › downloads › exports and revision sources download as attachments; unsigned, tampered and expired URLs are refused |
+| RES-020 | GET /api/analyses/{id}/files/{fileId}/content?offset&length returns FileContent {name, contentType, … | api/files.spec.ts › analysis files › readAnalysisFile returns the content inline and pages through it with offset and nextOffset |
+| RES-021 | Inline file reads answer only application/json (nosniff, no Content-Disposition): html and svg … | security/downloads.spec.ts › downloads › inline file reads answer JSON only: html and svg as utf8 strings, png as base64 of its exact bytes |
 | JOB-001 | GET /api/jobs?kind&state returns Page<Job> (id, kind, subject, state, progress, attempts, error, … | api/jobs.spec.ts › jobs of the tenant › listJobs shows a user their own jobs; admins see all and filter by userId<br>api/jobs.spec.ts › jobs without a user › admins see jobs without a user and jobs of deleted users; users do not |
 | JOB-002 | GET /api/jobs/{id}?wait holds until the job is succeeded, failed or cancelled; another user's job, … | api/jobs.spec.ts › jobs of the tenant › getJob?wait holds until the job finished; another user’s job is 404<br>api/jobs.spec.ts › jobs without a user › admins see jobs without a user and jobs of deleted users; users do not |
 | ING-001 | Orchestrator boot ensures the vhost scantor, the topic exchanges scantor.analyses, scantor.results … | security/cross-scan.spec.ts › per-scan RabbitMQ users › orchestrator boot ensures the vhost, the topic exchanges and the global quorum queues |
@@ -582,7 +585,7 @@ test-index --check`); never edit it by hand.
 | TOOLS-002 | GET /api/tools/forward-auth answers 200 with X-Scantor-User for a valid admin tools cookie on a … | api/tools.spec.ts › forwardAuth › a valid admin cookie on a tool host is allowed with X-Scantor-User<br>api/tools.spec.ts › forwardAuth › other hosts and missing, expired, forged or non-admin cookies get 401 text; browsers are sent to the session<br>api/tools.spec.ts › forwardAuth › an admin banned a moment ago is refused at once |
 | TOOLS-003 | Through Traefik, traefik., rabbitmq., mongo-express. and rustfs.<domain> are reachable only with an … | api/tools.spec.ts › tool hosts through Traefik › every tool host needs an admin tools cookie<br>api/tools.spec.ts › tool hosts through Traefik › a client-supplied X-Forwarded-Host is ignored<br>api/tools.spec.ts › tool hosts through Traefik › behind the cookie each tool still asks for its own credentials |
 | TOOLS-004 | RabbitMQ management accepts only the admin user, mongo-express runs read-only, and the bucket … | security/downloads.spec.ts › downloads › the bucket answers CORS preflights only from the dashboard origin, and only for GET<br>security/sandbox.spec.ts › reachability › the RabbitMQ management API rejects the scan user and accepts the admin; the object store answers only signed requests<br>security/sandbox.spec.ts › reachability › mongo-express runs read-only |
-| MCP-001 | tools/list equals the curated table of 29 tools (at most 30): names are snake_case(operationId) … | mcp/tools.spec.ts › MCP tool catalogue › tools/list of an admin key equals the curated table with names, titles, descriptions and annotations |
+| MCP-001 | tools/list equals the curated table of 31 tools (at most 45): names are snake_case(operationId) … | mcp/tools.spec.ts › MCP tool catalogue › tools/list of an admin key equals the curated table with names, titles, descriptions and annotations |
 | MCP-002 | A scantor:read grant sees only read tools (GET plus query_analyses and aggregate_analyses), and … | mcp/apikey.spec.ts › MCP with API keys › a user's default key works as Bearer and as x-api-key with the write level<br>mcp/apikey.spec.ts › MCP with API keys › an admin's default key has the admin level and lists the nodes<br>mcp/apikey.spec.ts › MCP with API keys › an admin's editor key has the write level without admin tools<br>mcp/oauth.spec.ts › MCP OAuth authorization › consent decides the level: scope is required, admin is stripped for users, Read only grants read, Deny returns access_denied<br>mcp/oauth.spec.ts › MCP OAuth authorization › an admin who approves Admin gets the admin tool, and Read and write keeps it hidden<br>mcp/tools.spec.ts › MCP tool catalogue › tools/list of an admin key equals the curated table with names, titles, descriptions and annotations<br>mcp/tools.spec.ts › MCP tool catalogue › a default key of a user has the write level: no admin tool, and calling it is an unknown tool<br>mcp/tools.spec.ts › MCP tool catalogue › a scantor:read grant lists only the read tools and cannot call a write tool |
 | MCP-003 | wait on publish_revision, get_revision, test_task, get_test_run, get_scan, export_scan and … | mcp/tools.spec.ts › MCP tool catalogue › the wait tools advertise wait with a maximum of 50 seconds<br>mcp/tools.spec.ts › MCP tool calls › a settled scan answers at once with _wait settled, and pausing it is a structured 409 invalidState<br>mcp/tools.spec.ts › MCP tool calls › a scan that does not settle answers after the wait with _wait timeout<br>mcp/tools.spec.ts › MCP tool calls › a wait above 50 is clamped to 50 seconds |
 | MCP-004 | A non-2xx REST response becomes isError with {error: {httpStatus, code, message, details}} (plus … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only<br>mcp/tools.spec.ts › MCP tool calls › a settled scan answers at once with _wait settled, and pausing it is a structured 409 invalidState<br>mcp/tools.spec.ts › MCP tool calls › REST errors become structured tool errors with status, code, message and details<br>mcp/tools.spec.ts › MCP tool calls › arguments that violate the input schema give the structured 400 validationFailed error |
@@ -601,6 +604,7 @@ test-index --check`); never edit it by hand.
 | MCP-017 | Every MCP tool name and scantor command mentioned in skills/ and docs/guide/*.md exists, and guide … | mcp/drift.spec.ts › MCP documentation drift › every MCP tool mentioned in the skills and guides exists<br>mcp/drift.spec.ts › MCP documentation drift › every scantor command mentioned in the skills and guides exists in the CLI reference<br>mcp/drift.spec.ts › MCP documentation drift › every guide snippet that includes a repository file equals that file |
 | MCP-018 | An agent loop with tools only succeeds: create_task (python, range), read_task_file, … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only |
 | MCP-019 | start_scan above the confirmation threshold returns 422 confirmationRequired, and the same call … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only |
+| MCP-020 | read_analysis_file returns a file of an analysis inline with content, name and contentType wrapped … | mcp/tools.spec.ts › MCP tool calls › read_analysis_file returns a file inline with its content, name and content type wrapped as untrusted data, paged with offset |
 | SEC-001 | Every case of tests/corpora/dockerfile-policy uploaded with uploadTask gives a failed revision … | security/dockerfile-policy.spec.ts › Dockerfile policy › every case of the corpus gets exactly its static errors and warnings from the pipeline’s static check<br>security/dockerfile-policy.spec.ts › Dockerfile policy › one sample per rule fails statically through uploadTask with its file, line and rule, and builds nothing<br>security/dockerfile-policy.spec.ts › Dockerfile policy › the self-contained valid cases publish ready with the policy warnings in their build log |
 | SEC-002 | Image references in FROM, COPY --from and RUN --mount from= that point at the platform registry or … | security/dockerfile-policy.spec.ts › Dockerfile policy › every case of the corpus gets exactly its static errors and warnings from the pipeline’s static check<br>security/dockerfile-policy.spec.ts › Dockerfile policy › one sample per rule fails statically through uploadTask with its file, line and rule, and builds nothing<br>security/dockerfile-policy.spec.ts › Dockerfile policy › COPY --from another task image on the local registry is rejected with its line and never yields the files |
 | SEC-003 | The exploit COPY --from=localhost:<port>/tasks/<victim task> is rejected with its file and line and … | security/dockerfile-policy.spec.ts › Dockerfile policy › COPY --from another task image on the local registry is rejected with its line and never yields the files |
@@ -923,6 +927,7 @@ None.
 - `orchestrator/test/services/editor/sessions.test.ts`
 - `orchestrator/test/services/editor/socket.test.ts`
 - `orchestrator/test/services/exports/csv.test.ts`
+- `orchestrator/test/services/files/content.test.ts`
 - `orchestrator/test/services/helpers/concurrency.test.ts`
 - `orchestrator/test/services/helpers/container-run.test.ts`
 - `orchestrator/test/services/helpers/executor-metrics.test.ts`

@@ -3,12 +3,13 @@ import { DeleteBucketCommand, HeadObjectCommand } from '@aws-sdk/client-s3'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { type Config, parseConfig, setConfigForTesting } from '../../server/utils/config'
 import { useLogger } from '../../server/utils/logger'
-import { deletePrefix, ensureBucket, presignPut, useS3 } from '../../server/utils/s3'
+import { deletePrefix, ensureBucket, getObjectRange, isS3NotFound, presignPut, putObject, useS3 } from '../../server/utils/s3'
 
 /*
  * Presigned PUTs against RustFS (docs/data-model.md §9, docs/api.md §8.3): Content-Type, Content-Length and the
  * object metadata are signed headers, and the uploader sends exactly the returned headers. RustFS ignores metadata
- * hoisted into the query string and refuses unsigned x-amz-meta-* headers, so the metadata must be signed.
+ * hoisted into the query string and refuses unsigned x-amz-meta-* headers, so the metadata must be signed. Range
+ * reads (docs/api.md §4.15) return exactly the requested bytes.
  *
  * Opt-in: SCANTOR_TEST_INTEGRATION=true plus SCANTOR_S3_INTERNAL_URL, SCANTOR_S3_ACCESS_KEY and
  * SCANTOR_S3_SECRET_KEY of a throwaway RustFS. The run uses its own bucket and removes it.
@@ -18,7 +19,7 @@ const enabled = process.env.SCANTOR_TEST_INTEGRATION === 'true'
 const suffix = randomBytes(4).toString('hex')
 let config: Config
 
-describe.skipIf(!enabled)('presigned PUTs against RustFS', () => {
+describe.skipIf(!enabled)('presigned PUTs and range reads against RustFS', () => {
   beforeAll(async () => {
     config = parseConfig({ ...process.env, SCANTOR_S3_BUCKET: `scantor-it-${suffix}` }).config
     setConfigForTesting(config)
@@ -50,5 +51,16 @@ describe.skipIf(!enabled)('presigned PUTs against RustFS', () => {
     const head = await useS3().send(new HeadObjectCommand({ Bucket: config.s3Bucket, Key: key }))
     expect(head).toMatchObject({ ContentLength: content.length, ContentType: 'application/json' })
     expect(head.Metadata).toEqual({ 'file-id': 'f1', name: 'rapport%20final.json' })
+  })
+
+  it('reads byte ranges of an object with getObjectRange', async () => {
+    const key = `files/${suffix}/range.bin`
+    const content = Buffer.from('0123456789abcdef')
+    await putObject(key, content, 'application/octet-stream')
+    expect((await getObjectRange(key, 0, 3)).toString()).toBe('0123')
+    expect((await getObjectRange(key, 5, 9)).toString()).toBe('56789')
+    expect((await getObjectRange(key, 12, 100)).toString()).toBe('cdef')
+    expect((await getObjectRange(key, 0, content.length - 1)).equals(content)).toBe(true)
+    expect(isS3NotFound(await getObjectRange(`files/${suffix}/missing.bin`, 0, 1).catch((error: unknown) => error))).toBe(true)
   })
 })

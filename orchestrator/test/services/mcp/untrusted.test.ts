@@ -54,7 +54,9 @@ describe('wrapUntrusted', () => {
         'pauseScan',
         'publishRevision',
         'queryAnalyses',
+        'readAnalysisFile',
         'readTaskFile',
+        'readTestRunFile',
         'restartScan',
         'resumeScan',
         'retryFailedAnalyses',
@@ -64,5 +66,29 @@ describe('wrapUntrusted', () => {
       ].sort(),
     )
     expect(UNTRUSTED_PATHS.getAnalysis).toEqual(['config', 'result', 'error', 'attempts', 'logTail', 'files'])
+    expect(UNTRUSTED_PATHS.readAnalysisFile).toEqual(['content', 'name', 'contentType'])
+    expect(UNTRUSTED_PATHS.readTestRunFile).toEqual(['content', 'name', 'contentType'])
+  })
+
+  it('wraps the content, the name and the content type of an inline file read, but not its other metadata', () => {
+    const page = {
+      name: 'report.txt',
+      contentType: 'text/plain',
+      size: 5,
+      sha256: 'ab',
+      offset: 0,
+      length: 5,
+      encoding: 'utf8',
+      content: 'hello',
+      truncated: false,
+      nextOffset: null,
+    }
+    expect(wrapUntrusted('readAnalysisFile', page)).toEqual({
+      ...page,
+      name: { untrusted_data: 'report.txt' },
+      contentType: { untrusted_data: 'text/plain' },
+      content: { untrusted_data: 'hello' },
+    })
+    expect(wrapUntrusted('readTestRunFile', { ...page, content: '' })).toMatchObject({ content: { untrusted_data: '' }, nextOffset: null })
   })
 })

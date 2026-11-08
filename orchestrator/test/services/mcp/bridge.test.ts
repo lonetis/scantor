@@ -1,5 +1,9 @@
+import { randomBytes } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
+import { FILE_CONTENT_MAX_BYTES } from '#shared/schemas/analyses'
+import { encodeFileContent } from '../../../server/services/files/content'
 import { toToolResult } from '../../../server/services/mcp/bridge'
+import { MCP_RESPONSE_CAP_BYTES } from '../../../server/services/mcp/truncate'
 
 // Response mapping of tool calls (docs/mcp.md §4.4, §4.7, §4.8).
 
@@ -65,6 +69,34 @@ describe('toToolResult', () => {
 
     const sorted = await toToolResult(json({ items, nextCursor: null }), 'queryAnalyses', { filter: {}, sort: { seq: -1 } })
     expect((JSON.parse(texts(sorted)[0]!) as { nextCursor: string | null }).nextCursor).toBeNull()
+  })
+
+  it('returns a full inline file page uncut and wrapped, whatever its bytes (docs/api.md §4.15)', async () => {
+    const name = `hostile \u0001"name\\.txt`.padEnd(255, '\u0002')
+    const contentType = `text/plain; "${'\\'.repeat(240)}`
+    const pages = [
+      randomBytes(FILE_CONTENT_MAX_BYTES),
+      Buffer.alloc(FILE_CONTENT_MAX_BYTES, '"'),
+      Buffer.alloc(FILE_CONTENT_MAX_BYTES, 0x01),
+      Buffer.from('€'.repeat(FILE_CONTENT_MAX_BYTES / 3)),
+    ].map((bytes) => encodeFileContent({ name, size: bytes.length * 2, sha256: 'f'.repeat(64), contentType }, 0, bytes))
+    for (const page of pages) {
+      const result = await toToolResult(json(page), 'readAnalysisFile')
+      expect(result.content, page.encoding).toHaveLength(1)
+      const text = texts(result)[0]!
+      expect(Buffer.byteLength(text)).toBeLessThanOrEqual(MCP_RESPONSE_CAP_BYTES)
+      const parsed = JSON.parse(text) as {
+        content: { untrusted_data: string }
+        name: { untrusted_data: string }
+        contentType: { untrusted_data: string }
+        length: number
+        nextOffset: number
+      }
+      expect(parsed.content.untrusted_data).toBe(page.content)
+      expect(parsed.name.untrusted_data).toBe(name)
+      expect(parsed.contentType.untrusted_data).toBe(contentType)
+      expect(parsed.nextOffset).toBe(parsed.length)
+    }
   })
 
   it('adds the truncation note as a second block', async () => {

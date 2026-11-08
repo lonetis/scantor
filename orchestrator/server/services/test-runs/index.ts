@@ -1,20 +1,22 @@
+import type { FileContentQuery } from '#shared/schemas/analyses'
 import type { Page } from '#shared/types/common'
-import type { FileDownload } from '#shared/types/exports'
+import type { FileContent, FileDownload } from '#shared/types/exports'
 import type { TestRun } from '#shared/types/test-runs'
 import type { TaskDoc, TestRunAnalysisDoc, TestRunDoc } from '../../types/documents'
 import { loadOwned } from '../../utils/authz'
-import { apiError, invalidState } from '../../utils/errors'
+import { invalidState } from '../../utils/errors'
 import { cancelActiveJobs } from '../../utils/jobs'
 import { useCollections } from '../../utils/mongo'
 import { findPage } from '../../utils/pagination'
 import type { UserPrincipal } from '../../utils/principal'
 import { presignDownload } from '../../utils/s3'
 import { isoDate } from '../../utils/serialize'
+import { findStoredFile, readStoredFileContent, type StoredFile } from '../files/content'
 import { requestCancellation } from './live'
 import { toApiTestRun } from './mappers'
 
-// Test runs (docs/api.md §4.11): listing per task, loading with ownership, the analyses of a run, cancellation and
-// file downloads. Creation is in ./create, execution in ./job, the SSE stream in ./stream.
+// Test runs (docs/api.md §4.11): listing per task, loading with ownership, the analyses of a run, cancellation, file
+// downloads and inline file reads. Creation is in ./create, execution in ./job, the SSE stream in ./stream.
 
 export const ACTIVE_TEST_RUN_STATES = ['queued', 'building', 'running'] as const
 
@@ -61,11 +63,20 @@ export async function cancelTestRun(doc: TestRunDoc): Promise<TestRunDoc> {
   return cancelled
 }
 
-/** getTestRunFileDownload: a presigned GET of one file of a test-run analysis (uploaded after the run). */
-export async function testRunFileDownload(doc: TestRunDoc, fileId: string): Promise<FileDownload> {
+/** The stored file `fileId` of one of the test run's analyses (uploaded after the run); 404 notFound otherwise. */
+async function testRunFile(doc: TestRunDoc, fileId: string): Promise<StoredFile> {
   const analysis = await useCollections().testRunAnalyses.findOne({ testRunId: doc._id, 'files.id': fileId })
-  const file = analysis?.files.find((candidate) => candidate.id === fileId)
-  if (!file?.key) throw apiError('notFound', 'file not found')
+  return findStoredFile(analysis?.files, fileId)
+}
+
+/** getTestRunFileDownload: a presigned GET of one file of a test-run analysis. */
+export async function testRunFileDownload(doc: TestRunDoc, fileId: string): Promise<FileDownload> {
+  const file = await testRunFile(doc, fileId)
   const { url, expiresAt, inline } = await presignDownload({ key: file.key, name: file.name, contentType: file.contentType })
   return { url, expiresAt: isoDate(expiresAt), name: file.name, size: file.size, sha256: file.sha256, contentType: file.contentType, inline }
+}
+
+/** readTestRunFile: one page of a file of a test-run analysis, inline. */
+export async function testRunFileContent(doc: TestRunDoc, fileId: string, range: FileContentQuery): Promise<FileContent> {
+  return readStoredFileContent(await testRunFile(doc, fileId), range)
 }

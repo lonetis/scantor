@@ -104,7 +104,7 @@ together with its test.
 | T12 | Session theft, CSRF, sign-up abuse, brute force, banned users keeping access, IP spoofing against rate limits | A1, A2 | AUTH-1…10 |
 | T13 | Prompt injection steers an agent; consent phishing through malicious redirect URIs; SSRF through client metadata | A3, A6, A1 | MCP-1…9 |
 | T14 | Plaintext or unverified transport leaks node tokens, registry and AMQP credentials | A7 | TLS-1…6 |
-| T15 | Downloaded files render as HTML on a scantor origin; header injection; CSV formula injection | A3 | DL-1…5 |
+| T15 | Downloaded files render as HTML on a scantor origin; header injection; CSV formula injection | A3 | DL-1…6 |
 | T16 | Secrets in configs leak through APIs, exports, MCP or logs | A2, A6 | SEC-1…7 |
 | T17 | Noisy neighbour exhausts broker, database, disk, CPU or the API | A2, A4 | RES-1…13 |
 | T18 | Clickjacking of consent and setup pages; MIME sniffing; XSS through rendered results | A1, A3 | HDR-1…6 |
@@ -330,7 +330,7 @@ authoritative; [architecture](architecture.md) §4.1 step 1 and [deployment](dep
 | MCP-4 | Redirect-URI policy (http loopback, operator-listed https origins, private-use schemes), enforced at registration and at every authorization. CIMD metadata is fetched over https only with the SSRF-hardened fetcher. The consent page shows the redirect origin ([mcp](mcp.md) §3.4–3.5). | `auth.ts` | `tests/mcp/oauth.spec.ts`; `tests/ui/consent.spec.ts` |
 | MCP-5 | Every `/mcp` request re-checks that the user exists and is not banned and that the client's consent exists. Revoking an app cuts it off immediately. | `services/mcp/auth.ts` | `tests/mcp/oauth.spec.ts`; `tests/security/banned.spec.ts` |
 | MCP-6 | Tools execute through the REST routes with single-use loopback capabilities bound to one operation, so validation, ownership, masking and limits are identical. OAuth tokens are never forwarded. | `services/mcp/bridge.ts`, `internal-auth.ts` | `tests/authz/matrix.spec.ts` (MCP half) |
-| MCP-7 | 256 KiB response cap with explicit truncation, `wait` clamped to 50 s, and query defaults of 20 rows. This prevents context flooding and runaway calls. | `services/mcp/bridge.ts` | `tests/mcp/limits.spec.ts`, `tests/mcp/tools.spec.ts` |
+| MCP-7 | 256 KiB response cap with explicit truncation, `wait` clamped to 50 s, query defaults of 20 rows, and file content in pages of at most 96 KiB (text pages at most 192 KiB once JSON-escaped). This prevents context flooding and runaway calls. | `services/mcp/bridge.ts` | `tests/mcp/limits.spec.ts`, `tests/mcp/tools.spec.ts` |
 | MCP-8 | No tool manages credentials or identity (API keys, OAuth apps, users, git credentials, editor sessions). `writeOnly` values are masked before they reach the agent. | curated list ([mcp](mcp.md) §5) | `tests/mcp/tools.spec.ts` (catalogue equals the curated list) |
 | MCP-9 | Residual: a prompt-injected agent can still act within its granted level, for example cancel or delete the user's scans with `write`. Users grant "Read only" for analysis-only agents. | – | – |
 
@@ -354,6 +354,7 @@ authoritative; [architecture](architecture.md) §4.1 step 1 and [deployment](dep
 | DL-3 | Export, snapshot and file keys are server-generated, owner-checked before presigning, and live in a private bucket with lifecycle expiry. | exports, files routes | `tests/authz/matrix.spec.ts` |
 | DL-4 | S3 is served on its own origin (`SCANTOR_S3_PUBLIC_URL`, for example `s3.<domain>`). Inline images can never execute script on the dashboard origin, and the bucket answers only signed requests. | deployment | `tests/security/downloads.spec.ts` (unsigned GET → 403) |
 | DL-5 | Revision source downloads use the same presign helper with `application/gzip` attachments. | `downloadRevisionSource` | `tests/security/downloads.spec.ts` |
+| DL-6 | Inline file reads (`readAnalysisFile`, `readTestRunFile`) return content only inside an `application/json` body (UTF-8 text or base64, never the raw bytes, no `Content-Disposition`), so nothing renders on the dashboard origin. They read only the S3 key of a FileRef of an owned analysis or test run (never a key from the request), at most 96 KiB per call with an S3 `Range` GET, and MCP wraps `content`, `name` and `contentType` as untrusted data ([api](api.md) §4.15). | `orchestrator/server/services/files/content.ts`, `utils/s3.ts` (`getObjectRange`) | `tests/security/downloads.spec.ts` (html, svg and png of `hostile-output` as JSON); `tests/api/files.spec.ts`; `tests/mcp/tools.spec.ts`; `tests/authz/matrix.spec.ts`; `orchestrator/test/services/files/content.test.ts` |
 
 ### 6.16 Secrets in configs and logs (T16)
 
@@ -464,7 +465,7 @@ Additional generated cases:
 `tests/authz/openapi-lint.spec.ts` complements the matrix. It fails when an operation lacks `x-scantor-scope`
 or `x-mcp`, when `x-admin-only` disagrees with scope `admin`, when `x-session-only` or `x-destructive` is
 misplaced ([api](api.md) §1.1), when the scope disagrees with the route prefix ([auth](auth.md) §5.4), when
-an operationId is duplicated or not camelCase verb-first, when more than 30 operations have `x-mcp: true`,
+an operationId is duplicated or not camelCase verb-first, when more than 45 operations have `x-mcp: true`,
 when a request body has no schema, or when a route file exists without OpenAPI metadata.
 
 ## 8. Security test inventory

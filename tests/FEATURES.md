@@ -38,7 +38,7 @@ Mechanisms: [api](../docs/api.md) §1.
 Mechanisms: [api](../docs/api.md) §1.1, [auth](../docs/auth.md) §5.4.
 
 - **OAS-001** [api] `GET /api/docs/openapi.json` is public and a valid OpenAPI 3.1 document that lists only operations with an `operationId`: no `''` path key and no `/api/auth/{all}`, `/mcp`, `/.well-known` or `/__nuxt_*` entries.
-- **OAS-002** [authz] The OpenAPI lint passes: every operation has one tag, a summary, a description, a unique camelCase verb-first `operationId`, `x-scantor-scope` and `x-mcp`; `x-admin-only` is set exactly when the scope is `admin`; `x-session-only` appears only with scope `owner` or `admin`; `x-destructive` never appears on a `DELETE`; at most 30 operations have `x-mcp: true`; every request body has a schema; no route file lacks OpenAPI metadata.
+- **OAS-002** [authz] The OpenAPI lint passes: every operation has one tag, a summary, a description, a unique camelCase verb-first `operationId`, `x-scantor-scope` and `x-mcp`; `x-admin-only` is set exactly when the scope is `admin`; `x-session-only` appears only with scope `owner` or `admin`; `x-destructive` never appears on a `DELETE`; at most 45 operations have `x-mcp: true`; every request body has a schema; no route file lacks OpenAPI metadata.
 - **OAS-003** [authz] Each operation's scope matches its route prefix: `node` for `/api/node/*` and `/api/registry/token`, `worker` for `/api/runtime/*`, `setup` for `/api/setup/*` (the status is `public`), `tools` for `/api/tools/forward-auth`, `owner` or `admin` elsewhere.
 - **OAS-004** [api, mcp] Route-meta values survive Nitro's extraction: the descriptions of `startScan`, `listTasks`, `listTemplates`, `listTaskFiles`, `uploadTask`, `getRegistryToken` and `createRegistryToken` are present in the OpenAPI document and in the MCP tool descriptions, and the `queryAnalyses` sort schema allows both `1` and `-1`.
 - **OAS-005** [ui, security] `GET /api/docs` serves the Scalar UI with its docs-specific CSP (which allows `https://fonts.scalar.com`) and loads without console errors; its `script-src` admits no inline script and, beyond `'self'`, only the exact URL of one pinned `@scalar/api-reference` version, which the page loads with an `integrity` hash.
@@ -273,6 +273,7 @@ Mechanisms: [api](../docs/api.md) §4.11, [tasks](../docs/tasks.md) §11.
 - **TRUN-010** [e2e, security] A test run of a privileged task runs unprivileged (no Docker-in-Docker, no added capabilities), and like a publish it needs the owner's `canRunPrivileged`: without it the test run fails at `static` with `privileged tasks require the canRunPrivileged permission`.
 - **TRUN-011** [security] The test-run container `scantor-t-<id>` runs on `scantor-egress` with the worker hardening profile, never privileged and without `SCANTOR_DIND`; a `netprobe` test run reaches no MongoDB, registry, RabbitMQ or orchestrator.
 - **TRUN-012** [e2e] A test run that references a list upload and the `tranco` and `crux` templates gets the upload's lines and the data from inside the test-run container.
+- **TRUN-013** [api] `GET /api/test-runs/{id}/files/{fileId}/content?offset&length` returns the `FileContent` of a test-run file (`utf8`, paged with `nextOffset`); an `offset` beyond the size returns 400 `validationFailed`, and an unknown file id or another user's test run returns 404.
 
 ## UPL. Uploads
 
@@ -398,6 +399,8 @@ Mechanisms: [api](../docs/api.md) §4.14–§4.15, §5.2, [architecture](../docs
 - **RES-017** [api, cli] `GET /api/analyses/{id}/files/{fileId}` returns `FileDownload {url, expiresAt, name, size, sha256, contentType, inline}` (302 with `?redirect=true`); the downloaded bytes match the sha256, an unknown file id returns 404, and `scantor files get` downloads and verifies the files.
 - **RES-018** [security] File downloads of png, jpeg, gif and webp are served inline with their image type; html, svg and every other type are served as attachment with `application/octet-stream`, and CR, LF and quotes in file names are sanitised in an RFC 5987 `Content-Disposition`.
 - **RES-019** [security] Downloads are presigned GETs on `SCANTOR_S3_PUBLIC_URL`, created per request and valid 10 minutes, with `Content-Disposition: attachment` for exports and revision sources; an unsigned or expired URL returns 403.
+- **RES-020** [api] `GET /api/analyses/{id}/files/{fileId}/content?offset&length` returns `FileContent {name, contentType, size, sha256, offset, length, encoding, content, truncated, nextOffset}` with a text file as `utf8`; pages of `length` bytes follow `nextOffset` until `truncated` is false and join to the exact content, `offset` equal to the size is an empty page, an `offset` beyond the size and a `length` outside 1–98304 return 400 `validationFailed`, and an unknown file, an analysis without files and another user's analysis return 404.
+- **RES-021** [security] Inline file reads answer only `application/json` (`nosniff`, no `Content-Disposition`): html and svg files arrive as `utf8` strings, a png as `base64` of exactly its bytes, and a file name with CR, LF and quotes as a JSON string.
 
 ## JOB. Jobs
 
@@ -605,7 +608,7 @@ Mechanisms: [api](../docs/api.md) §4.18, [auth](../docs/auth.md) §11, [deploym
 
 Mechanisms: [mcp](../docs/mcp.md), [api](../docs/api.md) §10.
 
-- **MCP-001** [mcp] `tools/list` equals the curated table of 29 tools (at most 30): names are `snake_case(operationId)` matching `^[a-z0-9_]{1,64}$`, every tool has a title and a description, `readOnlyHint` follows GET or `x-read-only`, `destructiveHint` follows DELETE, PUT or `x-destructive`, and `openWorldHint` is false.
+- **MCP-001** [mcp] `tools/list` equals the curated table of 31 tools (at most 45): names are `snake_case(operationId)` matching `^[a-z0-9_]{1,64}$`, every tool has a title and a description, `readOnlyHint` follows GET or `x-read-only`, `destructiveHint` follows DELETE, PUT or `x-destructive`, and `openWorldHint` is false.
 - **MCP-002** [mcp, security] A `scantor:read` grant sees only read tools (GET plus `query_analyses` and `aggregate_analyses`), and `tools/call` of a write tool returns an unknown-tool error; `list_nodes` appears only for an admin with `scantor:admin` or an admin's `default` API key, never for an admin's `editor` key or read/write grant.
 - **MCP-003** [mcp] `wait` on `publish_revision`, `get_revision`, `test_task`, `get_test_run`, `get_scan`, `export_scan` and `get_export` is advertised with a maximum of 50, clamped to 50, and the result carries `_wait` `settled` or `timeout`.
 - **MCP-004** [mcp] A non-2xx REST response becomes `isError` with `{error: {httpStatus, code, message, details}}` (plus `retryAfterSeconds` with a `Retry-After` header), for example 409 `invalidState` from `pause_scan` on a completed scan; bad arguments give 400 `validationFailed`; a failed revision or test run is a successful result carrying structured `errors[]`.
@@ -624,6 +627,7 @@ Mechanisms: [mcp](../docs/mcp.md), [api](../docs/api.md) §10.
 - **MCP-017** [mcp] Every MCP tool name and `scantor` command mentioned in `skills/**` and `docs/guide/*.md` exists, and guide code snippets equal the `tasks/` files they claim to include.
 - **MCP-018** [mcp, e2e] An agent loop with tools only succeeds: `create_task` (python, `range`), `read_task_file`, `write_task_files`, `test_task` (`wait` 50), `publish_revision`, `start_scan`, `get_scan` until completed, `query_analyses` (sorted by seq −1), `aggregate_analyses`, `export_scan` and `get_export`; analysis content is wrapped as untrusted data, and a deliberately broken edit yields structured build errors.
 - **MCP-019** [mcp] `start_scan` above the confirmation threshold returns 422 `confirmationRequired`, and the same call with `confirm: true` starts the scan.
+- **MCP-020** [mcp, security] `read_analysis_file` returns a file of an analysis inline with `content`, `name` and `contentType` wrapped as untrusted data, `offset`/`length` page through it with `nextOffset`, an `offset` beyond the size or a `length` above 98304 is a structured 400 `validationFailed`, and an unknown file or test run (`read_test_run_file`) is a structured 404.
 
 ## SEC. Security controls
 

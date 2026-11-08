@@ -190,6 +190,7 @@ export const REQUESTS: Record<string, OperationRequests> = {
   getTestRun: { valid: () => ({ query: { analyses: true } }) },
   cancelTestRun: { valid: none },
   getTestRunFileDownload: { valid: (ids) => ({ path: { fileId: ids.testRunFileId } }) },
+  readTestRunFile: { valid: (ids) => ({ path: { fileId: ids.testRunFileId } }) },
   streamTestRun: { valid: none },
 
   // ── uploads ───────────────────────────────────────────────────────────────────────────────────────
@@ -228,6 +229,7 @@ export const REQUESTS: Record<string, OperationRequests> = {
   exportScan: { valid: () => ({ body: { format: 'jsonl' } }), safe: () => ({ body: { format: 'jsonl' }, query: BAD_WAIT }) },
   getAnalysis: { valid: none },
   getFileDownload: { valid: none },
+  readAnalysisFile: { valid: none },
   listExports: { valid: none },
   getExport: { valid: none },
   deleteExport: { valid: none },

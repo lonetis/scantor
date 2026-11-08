@@ -1,5 +1,5 @@
 import type { Page } from '#shared/types/common'
-import type { FileDownload } from '#shared/types/exports'
+import type { FileContent, FileDownload } from '#shared/types/exports'
 import type { RevisionSummary } from '#shared/types/revisions'
 import type { Task } from '#shared/types/tasks'
 import type { TestRun, TestRunAnalysis, TestRunStreamEvents } from '#shared/types/test-runs'
@@ -24,8 +24,8 @@ import { apiResultsTest } from '../helpers/api-results-fixtures'
 const test = apiResultsTest(fixturesTest)
 
 // Test runs of a task's live workspace (docs/api.md §4.11, docs/tasks.md §11): a draft image built without a
-// revision, the local-mode run in a `scantor-t-<id>` container, the representation, the SSE stream, cancellation
-// and file downloads. Every test uploads its own copy of the resultset task (helpers/api-results-task.ts) as a
+// revision, the local-mode run in a `scantor-t-<id>` container, the representation, the SSE stream, cancellation,
+// file downloads and inline file reads. Every test uploads its own copy of the resultset task (helpers/api-results-task.ts) as a
 // workspace without publishing it; its manifest sets the per-analysis timeout to 4 minutes.
 
 const MANIFEST_TIMEOUT_MS = 240_000
@@ -304,7 +304,7 @@ test.describe('reading test runs', () => {
     expect(failedReplay.events.filter((event) => event.event === 'error').map((event) => event.data)).toEqual(failed.errors)
   })
 
-  test('getTestRunFileDownload serves the exact content of a test-run file', { tag: ['@TRUN-009'] }, async ({ api, otherApi, tasks }) => {
+  test('getTestRunFileDownload and readTestRunFile serve the exact content of a test-run file', { tag: ['@TRUN-009', '@TRUN-013'] }, async ({ api, otherApi, tasks }) => {
     const task = await uploadResultsetWorkspace(api, tasks)
     const run = ok(await testTask(api, task.name, { scanConfig: { items: ['file:report.txt'] } }, 120), 'testTask')
     expect(run.state).toBe('completed')
@@ -332,6 +332,35 @@ test.describe('reading test runs', () => {
       expect(missing.body).toMatchObject({ error: { code: 'notFound' } })
     }
     expect((await otherApi.call('getTestRunFileDownload', { path: { testRunId: run.id, fileId: file.id } })).status).toBe(404)
+
+    // readTestRunFile: the same content inline, paged with offset and nextOffset.
+    const path = { testRunId: run.id, fileId: file.id }
+    const inline = ok(await api.call<FileContent>('readTestRunFile', { path }), 'readTestRunFile')
+    expect(inline).toEqual({
+      name: 'report.txt',
+      contentType: 'text/plain',
+      size: file.size,
+      sha256: file.sha256,
+      offset: 0,
+      length: file.size,
+      encoding: 'utf8',
+      content,
+      truncated: false,
+      nextOffset: null,
+    })
+    const head = ok(await api.call<FileContent>('readTestRunFile', { path, query: { length: 7 } }), 'readTestRunFile')
+    expect(head).toMatchObject({ offset: 0, length: 7, content: content.slice(0, 7), truncated: true, nextOffset: 7 })
+    const rest = ok(await api.call<FileContent>('readTestRunFile', { path, query: { offset: head.nextOffset! } }), 'readTestRunFile')
+    expect(rest).toMatchObject({ offset: 7, content: content.slice(7), truncated: false, nextOffset: null })
+    const beyond = await api.call('readTestRunFile', { path, query: { offset: file.size + 1 } })
+    expect(beyond.status).toBe(400)
+    expect(beyond.body).toMatchObject({ error: { code: 'validationFailed', details: { issues: [{ path: 'offset' }] } } })
+    for (const fileId of ['00000000-0000-4000-8000-000000000000', run.id]) {
+      const missing = await api.call('readTestRunFile', { path: { testRunId: run.id, fileId } })
+      expect(missing.status, fileId).toBe(404)
+      expect(missing.body).toMatchObject({ error: { code: 'notFound' } })
+    }
+    expect((await otherApi.call('readTestRunFile', { path })).status).toBe(404)
   })
 })
 

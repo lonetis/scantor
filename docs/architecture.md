@@ -949,7 +949,11 @@ All lifecycle routes only change intent in MongoDB (plus a job where noted); the
    a presigned GET for `SCANTOR_S3_PUBLIC_URL` (10 minutes, created per request) with
    `Content-Disposition: attachment; filename*=UTF-8''…` and `Content-Type: application/octet-stream`,
    except png/jpeg/gif/webp which are served inline with the forced image type. `?redirect=true` answers
-   302. Browsers download straight from RustFS; bucket CORS allows only the dashboard origin.
+   302. Browsers download straight from RustFS; bucket CORS allows only the dashboard origin. Clients that
+   cannot reach `SCANTOR_S3_PUBLIC_URL`, MCP agents above all, read the content inline instead:
+   `GET …/files/{fileId}/content?offset&length` (`readAnalysisFile`, `readTestRunFile`) reads one byte range
+   (at most 96 KiB) of the stored FileRef's key with an S3 `Range` GET on the internal endpoint and returns it
+   as JSON, UTF-8 text or base64 ([api](api.md) §4.15).
 5. Test-run files: local mode writes them to `/scantor/out/files/<seq>/<fileId>/<safeName>`; the `testRun`
    job fetches `/scantor/out` with `CopyFromContainer` and uploads them to
    `test-runs/<testRunId>/files/<seq>/<fileId>/<safeName>`.
@@ -999,7 +1003,7 @@ jobs runner (reconciler, 4 at once)
 | D13 | The orchestrator process never touches workspace content; throwaway helper containers do. | Tar/zip slip, symlink and git CVEs cannot reach the process holding the Docker socket and root credentials. |
 | D14 | Editor on a separate origin served by a dedicated orchestrator listener (container port 3001), code-server on a unix socket only, owner-only, rotating `editor` API key that never carries admin power. | Workspace JS cannot ride the dashboard session; nothing listens on a network; nothing but the editor is reachable on the editor origin. |
 | D15 | better-auth with the Mongo adapter (string uuid ids), `disableSignUp`, setup token for the first admin. | Proven auth stack; no open registration; no setup takeover. |
-| D16 | MCP tools generated from OpenAPI and curated to ≤ ~30 with `x-mcp`; OAuth scopes `scantor:read`, `scantor:write`, `scantor:admin`. | One source of truth; good tool selection; least privilege for agents. |
+| D16 | MCP tools generated from OpenAPI and curated to ≤ 45 with `x-mcp` ([mcp](mcp.md) §10 decision 12); OAuth scopes `scantor:read`, `scantor:write`, `scantor:admin`. | One source of truth; good tool selection; least privilege for agents. |
 | D17 | MongoDB single-node replica set with `--noscripting`; user queries via a read-only user with a recursive allowlist. | Transactions and change streams; no server-side JS; no cross-tenant query escapes. |
 | D18 | Test runs are a platform feature (draft images, local mode). | Browser editor and MCP agents can test without publishing or local Docker. |
 | D19 | The connector is the authoritative validator; ajv runs only at scan and test-run start (with defaults), and the UI validates forms in the browser for feedback only (`@cfworker/json-schema`, [ui](ui.md) §6.1). | No double validation per analysis; the scan records exactly what ran. |

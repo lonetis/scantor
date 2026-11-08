@@ -635,7 +635,8 @@ vitest case because the test stack sets `SCANTOR_GIT_ALLOW_PRIVATE=true`), `uplo
 transition, idempotent repeats return 200, forbidden ones 409 `invalidState` with `allowed`; retry-failed
 only with `scheduling.state` `done`/`failed` and no active retry, `409 nothingToRetry`), `analyses`
 (list, `afterSeq`, `fields`, query, aggregate), `exports` (JSONL/CSV, formula escaping, presigned download
-headers), `files`, `jobs`, `nodes` (create, rotate, revoke, built-in node 409 `builtInNode`), `metrics`,
+headers), `files` (presigned downloads, inline reads paged with `offset`/`nextOffset`), `jobs`, `nodes`
+(create, rotate, revoke, built-in node 409 `builtInNode`), `metrics`,
 `editor` (session URL, start and stop, `editor` key on `createEditorSession` → 403), `tools`
 (`createToolsSession` 302 with the cookie; through the tool hosts, a missing, expired (minted with
 `helpers/keys.ts`) or non-admin cookie, a user banned within 30 s, or a call through a non-tool host →
@@ -704,7 +705,7 @@ orchestrator credential, revoked node 401).
 
 | Spec | Covers |
 |---|---|
-| `tools.spec.ts` | `tools/list` equals the curated table of [mcp](mcp.md) §5 and [api](api.md) §10 (names, levels, annotations, ≤ 30), names `^[a-z0-9_]{1,64}$`, descriptions present, read-only annotations follow GET/`x-read-only`, `destructiveHint` follows `DELETE`/`x-destructive`; level filtering of `tools/list` and `tools/call` (`scantor:read` sees no write tools; the admin tool only for admins with `scantor:admin`); `untrusted_data` wrapping; structured JSON errors; `wait` clamped to 50 |
+| `tools.spec.ts` | `tools/list` equals the curated table of [mcp](mcp.md) §5 and [api](api.md) §10 (names, levels, annotations, ≤ 45), names `^[a-z0-9_]{1,64}$`, descriptions present, read-only annotations follow GET/`x-read-only`, `destructiveHint` follows `DELETE`/`x-destructive`; level filtering of `tools/list` and `tools/call` (`scantor:read` sees no write tools; the admin tool only for admins with `scantor:admin`); `untrusted_data` wrapping; structured JSON errors; `wait` clamped to 50; `read_analysis_file` content paged with `offset`/`nextOffset` |
 | `oauth.spec.ts` | discovery documents; DCR with http loopback, private-use-scheme and allowed https redirects, https loopback redirects and non-loopback redirects outside `SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS` rejected at registration and at authorization; a CIMD `client_id` whose metadata host is private is refused (the positive CIMD path is a vitest unit test, §4.2); PKCE code flow; consent level selection; `scantor:admin` stripped for non-admins; refresh; `revokeOAuthApp` → next call 401; banned user → 401 |
 | `apikey.spec.ts` | `default` and `editor` API keys on `/mcp` (level `write`; `admin` only for an admin's `default` key); an admin's `editor` key has no admin tools; an invalid key gets 401 with the OAuth challenge ([mcp](mcp.md) §3.7) |
 | `agent-loop.spec.ts` | a serial loop using tools only: `create_task` (python, template `range`) → `read_task_file` (manifest, entry) → `write_task_files` (change `run`) → `test_task` (`wait=50`) → `publish_revision` (`wait`) → `start_scan` → `get_scan` (`wait`) until completed → `query_analyses` → `aggregate_analyses` → `export_scan` → `get_export`; asserts `{untrusted_data: …}` wrapping on analysis content and structured build errors after a deliberately broken edit |
@@ -717,7 +718,7 @@ orchestrator credential, revoked node 401).
 `openapi-lint.spec.ts` fails when an operation lacks `x-scantor-scope` or `x-mcp`, when `x-admin-only`
 disagrees with scope `admin`, when the scope disagrees with the route prefix ([auth](auth.md) §5.4), when
 `x-session-only` appears with a scope other than `owner` or `admin`, when `x-destructive` appears on a
-`DELETE`, when an `operationId` is duplicated or not camelCase verb-first, when more than 30 operations
+`DELETE`, when an `operationId` is duplicated or not camelCase verb-first, when more than 45 operations
 have `x-mcp: true`, when a request body has no schema, or when a route file exists without OpenAPI
 metadata ([api](api.md) §1.1).
 
@@ -762,7 +763,7 @@ security.md cites (`tests/security/<name>.spec.ts`); the other mitigations are c
 | `secrets-masking.spec.ts` | `schema-zoo` with `writeOnly` fields | `"***"` in scans, test runs, analyses, exports and MCP; aggregations referencing a secret path rejected; values reach the task (asserted inside the task result as a hash); `getInstanceInfo` shows no secret values |
 | `editor-isolation.spec.ts` | two users (`freshUser`) with editors | the dashboard listener answers 421 for the editor host and the editor listener 421 for any other host; the editor origin answers nothing but the proxy and `/_auth`; a session code is single-use and bound to its user (B cannot reach A's editor); the `scantor_editor` cookie is host-only and HttpOnly and stops working after the editor is stopped or restarted; a request to the editor origin carrying only the dashboard session cookie is not authenticated; a foreign-`Origin` WebSocket upgrade → 403; `Set-Cookie` from code-server never reaches the browser; a code-server socket replaced by a symlink (to `/var/run/docker.sock`, via `docker exec` in the editor) is refused; a POST to the dashboard API with `Origin: <editor origin>` and a session cookie → 403; a master worker cannot connect to the editor container |
 | `sandbox.spec.ts` | `netprobe` on the built-in node and the remote node | the worker's `HostConfig` matches the hardening profile; master workers cannot reach mongo, mongo-express, the registry or the RabbitMQ management API (which rejects the scan user) without credentials; mode `env` shows no `SCANTOR_WORKER_TOKEN`; a test run of `netprobe` (network `scantor-egress`) reaches no platform service either; `169.254.169.254` unreachable where `egressDenyApplied` is true (skipped with a warning otherwise) |
-| `downloads.spec.ts` | `hostile-output` files `x.html`, `x.svg`, `x.png` and a name with CR/LF/quotes | html/svg served as attachment with `application/octet-stream`; png inline as `image/png`; the name sanitised in `Content-Disposition`; unsigned GET → 403; a foreign-origin preflight refused; revision source downloads are `application/gzip` attachments; links expire |
+| `downloads.spec.ts` | `hostile-output` files `x.html`, `x.svg`, `x.png` and a name with CR/LF/quotes | html/svg served as attachment with `application/octet-stream`; png inline as `image/png`; the name sanitised in `Content-Disposition`; unsigned GET → 403; a foreign-origin preflight refused; revision source downloads are `application/gzip` attachments; links expire; inline file reads (`readAnalysisFile`) answer only JSON, html/svg as `utf8` strings and png as `base64` |
 
 The test-created orchestrator containers (`helpers/orchestrator.ts`) never run the reconciler
 (`SCANTOR_COMPONENTS=api`), so their boot sweep cannot delete the main stack's per-scan RabbitMQ users. They

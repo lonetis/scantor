@@ -81,12 +81,12 @@ describe('buildOperationRegistry', () => {
     expect(problems.getI?.[0]).toBe('missing or invalid x-scantor-scope')
   })
 
-  it('reports duplicate operationIds and more than 30 MCP operations', () => {
+  it('reports duplicate operationIds and more than 45 MCP operations', () => {
     const paths: OpenApiDocument['paths'] = { '/api/x': { get: op('getX', 'owner'), post: op('getX', 'owner') } }
-    for (let index = 0; index < 31; index++) paths![`/api/m${index}`] = { get: op(`getM${index}`, 'owner', { 'x-mcp': true }) }
+    for (let index = 0; index < 46; index++) paths![`/api/m${index}`] = { get: op(`getM${index}`, 'owner', { 'x-mcp': true }) }
     const result = buildOperationRegistry({ paths })
     expect(result.problems).toContain('operationId getX is used 2 times')
-    expect(result.problems).toContain('31 operations have x-mcp: true (maximum 30)')
+    expect(result.problems).toContain('46 operations have x-mcp: true (maximum 45)')
     expect(result.operations.filter((operation) => operation.operationId === 'getX').every((operation) => operation.problems.includes('duplicate operationId'))).toBe(
       true,
     )

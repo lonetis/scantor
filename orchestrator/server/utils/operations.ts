@@ -5,7 +5,8 @@ import { OPERATION_SCOPES, type OperationScope } from '#shared/utils/enums'
 // operation is 404 (deny by default, so a route without OpenAPI metadata is unreachable), a matching path with
 // another method is 405. Entries carry the scantor extensions of docs/api.md §1.1.
 
-export const MAX_MCP_OPERATIONS = 30
+/** The curated MCP tool cap (docs/mcp.md §5, §10 decision 12): raised only deliberately, with the tests and docs. */
+export const MAX_MCP_OPERATIONS = 45
 const HTTP_METHODS = ['get', 'put', 'post', 'delete', 'patch', 'head', 'options'] as const
 
 export interface Operation {

@@ -1,6 +1,8 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { parseConfig, setConfigForTesting } from '../../server/utils/config'
-import { contentDisposition, lifecycleRules, presignPut, safeName } from '../../server/utils/s3'
+import { contentDisposition, getObjectRange, isS3InvalidRange, isS3NotFound, lifecycleRules, presignPut, safeName } from '../../server/utils/s3'
 
 // S3 key and download helpers (docs/data-model.md §9, security.md DL-1).
 
@@ -73,5 +75,95 @@ describe('presignPut', () => {
     const signed = await presignPut({ key: 'tmp/x', contentType: 'text/plain', contentLength: 1, expiresInSeconds: 60, profile: 'internal' })
     expect(new URL(signed.url).searchParams.get('X-Amz-SignedHeaders')).toBe('content-length;content-type;host')
     expect(signed.headers).toEqual({ 'Content-Type': 'text/plain', 'Content-Length': '1' })
+  })
+})
+
+describe('getObjectRange', () => {
+  // A fake S3 endpoint on loopback: GET /scantor/<key> answers with the handler of the key.
+  const OBJECT = Buffer.from('0123456789')
+  const requests: { url: string; range: string | undefined }[] = []
+  const handlers: Record<string, (req: IncomingMessage, res: ServerResponse) => void> = {
+    // honours the range like RustFS
+    ranged: (req, res) => {
+      const [, start, end] = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? '')!
+      if (Number(start) >= OBJECT.length) {
+        res.writeHead(416, { 'Content-Type': 'application/xml', 'Content-Range': `bytes */${OBJECT.length}` })
+        res.end('<?xml version="1.0" encoding="UTF-8"?><Error><Code>InvalidRange</Code><Message>The requested range is not satisfiable</Message></Error>')
+        return
+      }
+      const body = OBJECT.subarray(Number(start), Number(end) + 1)
+      res.writeHead(206, { 'Content-Range': `bytes ${start}-${Number(start) + body.length - 1}/${OBJECT.length}`, 'Content-Length': body.length })
+      res.end(body)
+    },
+    // ignores the range and sends the whole object
+    whole: (_req, res) => {
+      res.writeHead(200, { 'Content-Length': OBJECT.length })
+      res.end(OBJECT)
+    },
+    missing: (_req, res) => {
+      res.writeHead(404, { 'Content-Type': 'application/xml' })
+      res.end('<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>The specified key does not exist.</Message></Error>')
+    },
+  }
+  let server: Server
+
+  beforeAll(async () => {
+    server = createServer((req, res) => {
+      requests.push({ url: req.url ?? '', range: req.headers.range })
+      const key = new URL(req.url ?? '/', 'http://s3').pathname.replace(/^\/scantor\//, '')
+      ;(handlers[key] ?? handlers.missing!)(req, res)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    setConfigForTesting(parseConfig({ SCANTOR_S3_INTERNAL_URL: `http://127.0.0.1:${port}`, SCANTOR_S3_BUCKET: 'scantor' }).config)
+  })
+
+  afterAll(async () => {
+    setConfigForTesting(null)
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+
+  afterEach(() => {
+    requests.length = 0
+  })
+
+  it('sends a Range header and returns exactly the requested bytes', async () => {
+    expect((await getObjectRange('ranged', 2, 5)).toString()).toBe('2345')
+    expect(requests.map((request) => request.range)).toEqual(['bytes=2-5'])
+    expect(new URL(requests[0]!.url, 'http://s3').pathname).toBe('/scantor/ranged')
+  })
+
+  it('returns fewer bytes when the object is shorter than the range', async () => {
+    expect((await getObjectRange('ranged', 8, 20)).toString()).toBe('89')
+  })
+
+  it('reads at most the requested length from a server that sends more', async () => {
+    expect((await getObjectRange('whole', 0, 3)).toString()).toBe('0123')
+  })
+
+  it('refuses a response that ignored the range of a non-zero start', async () => {
+    await expect(getObjectRange('whole', 4, 6)).rejects.toThrow(/answered range \(none\) for bytes 4-6 of whole/)
+  })
+
+  it('surfaces a missing object as an S3 not-found error', async () => {
+    const error = await getObjectRange('gone', 0, 1).catch((thrown: unknown) => thrown)
+    expect(isS3NotFound(error)).toBe(true)
+  })
+
+  it('surfaces a range that starts at the end of the object as an S3 invalid-range error', async () => {
+    const error = await getObjectRange('ranged', 10, 12).catch((thrown: unknown) => thrown)
+    expect(isS3InvalidRange(error)).toBe(true)
+    expect(isS3NotFound(error)).toBe(false)
+  })
+
+  it('rejects invalid ranges without a request', async () => {
+    for (const [start, end] of [
+      [-1, 3],
+      [5, 4],
+      [0.5, 3],
+    ]) {
+      await expect(getObjectRange('ranged', start!, end!)).rejects.toThrow(/invalid byte range/)
+    }
+    expect(requests).toEqual([])
   })
 })
