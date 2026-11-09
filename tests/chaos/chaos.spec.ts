@@ -62,6 +62,16 @@ import { CONTAINERS, docker as runDocker, REMOTE_NODE_NETWORK, stackEnv } from '
 import { env } from '../helpers/env'
 import { stackKeys } from '../helpers/keys'
 import { cancelAndDeleteScan, scanCounts, SMALL_SETTINGS, startScan, waitForScanState as waitForScanStateLongPoll } from '../helpers/scans'
+import {
+  allScriptRunLogs,
+  SCRIPT_DOCKERFILE,
+  SCRIPT_MANIFEST,
+  scriptRunContainerState,
+  startRun,
+  uploadScriptFiles,
+  waitForScriptRun,
+  waitForScriptRunLog,
+} from '../helpers/scripts'
 import { fixtureTaskDir, packTask, uploadAndPublish, waitForRevision } from '../helpers/tasks'
 import { expect, test as base, unique, type ScansFixture } from '../fixtures'
 
@@ -945,19 +955,62 @@ test.describe('platform components', () => {
   )
 })
 
+/** Ticks of the script run across the orchestrator restart: one a second, longer than the stop and the boot. */
+const RESTART_TICKS = 150
+
+/** A script that prints `tick <n>` and reports its progress once a second for `ticks` seconds. */
+function tickerScriptFiles(): Record<string, string> {
+  return {
+    [SCRIPT_MANIFEST]: 'scantor: 1\nname: ticker\nlanguage: python\ndefaults:\n  resources:\n    cpus: 0.5\n    memoryMiB: 256\n',
+    Dockerfile: SCRIPT_DOCKERFILE,
+    '.dockerignore': '__pycache__/\n',
+    'requirements.txt': '# The ticker needs nothing beyond the connector.\n',
+    'main.py': `"""ticker: prints a numbered line and reports progress once a second (tests/chaos/chaos.spec.ts)."""
+
+import time
+
+from pydantic import BaseModel
+
+import scantor
+from scantor.script import Script, ScriptContext
+
+
+class Config(scantor.Config):
+    ticks: int = ${RESTART_TICKS}
+
+
+class Summary(BaseModel):
+    ticks: int
+
+
+def run(ctx: ScriptContext, config: Config) -> Summary:
+    for tick in range(config.ticks):
+        ctx.check_cancelled()
+        print(f"tick {tick}", flush=True)
+        ctx.progress(tick + 1, config.ticks)
+        time.sleep(1)
+    return Summary(ticks=config.ticks)
+
+
+script = Script(run=run, config=Config, result=Summary)
+`,
+  }
+}
+
 test.describe('an orchestrator restart during a scan and a build', () => {
-  // One restart serves four tests: the orchestrator is stopped while a scan is running and a revision is building,
-  // inspected while stopped, and started with MongoDB paused, which holds the boot window open.
+  // One restart serves five tests: the orchestrator is stopped while a scan is running, a revision is building and a
+  // script run is running, inspected while stopped, and started with MongoDB paused, which holds the boot window open.
   interface Restart {
     scanId: string
     total: number
     taskName: string
     revisionId: string
+    scriptRunId: string
     /** when the stop began and when the restarted orchestrator answered through Traefik again */
     stoppedAt: number
     readyAt: number
-    /** read from MongoDB while the orchestrator is stopped */
-    whileStopped: { revision: string; job: string; scan: string; succeeded: number }
+    /** read from MongoDB (and the script-run container from Docker) while the orchestrator is stopped */
+    whileStopped: { revision: string; job: string; scan: string; succeeded: number; scriptRun: string; scriptRunContainer: string | null }
     booting: {
       scans: DirectResponse
       tasks: DirectResponse
@@ -968,7 +1021,7 @@ test.describe('an orchestrator restart during a scan and a build', () => {
     }
   }
   let restart: Restart | undefined
-  const created: { scanId?: string; taskName?: string } = {}
+  const created: { scanId?: string; taskName?: string; scriptName?: string } = {}
 
   test.beforeAll(async ({ keyApi, adminApi, user, probe, docker }) => {
     test.setTimeout(600_000)
@@ -1005,6 +1058,14 @@ test.describe('an orchestrator restart during a scan and a build', () => {
     )
     expect(ok(await keyApi.getRevision(taskName, revisionId), 'getRevision').state).toBe('building')
 
+    // A script run reading the scan, running (its container prints ticks) when the orchestrator stops.
+    const scriptName = unique('chaos-ticker')
+    created.scriptName = scriptName
+    const script = await uploadScriptFiles(keyApi, tickerScriptFiles(), scriptName)
+    const scriptRun = await startRun(keyApi, script.name, { scans: [scan.id] })
+    await waitForScriptRunLog(keyApi, scriptRun.id, (line) => line.stream === 'stdout' && line.text === 'tick 2', 240_000)
+    expect(ok(await keyApi.getRevision(taskName, revisionId), 'getRevision').state).toBe('building')
+
     const auth = { Authorization: `Bearer ${user.apiKey}` }
     let whileStopped: Restart['whileStopped'] | undefined
     let booting: Restart['booting'] | undefined
@@ -1013,12 +1074,14 @@ test.describe('an orchestrator restart during a scan and a build', () => {
       await stopOrchestrator()
       const id = JSON.stringify(revisionId)
       const sid = JSON.stringify(scan.id)
-      whileStopped = JSON.parse(
+      const rid = JSON.stringify(scriptRun.id)
+      const stored = JSON.parse(
         await docker.mongosh(
-          `print(EJSON.stringify({ revision: db.revisions.findOne({ _id: ${id} }).state, job: db.jobs.find({ kind: 'revisionBuild', 'subject.id': ${id} }).sort({ createdAt: -1 }).limit(1).next().state, scan: db.scans.findOne({ _id: ${sid} }).state, succeeded: db.analyses.countDocuments({ scanId: ${sid}, status: 'succeeded' }) }))`,
+          `print(EJSON.stringify({ revision: db.revisions.findOne({ _id: ${id} }).state, job: db.jobs.find({ kind: 'revisionBuild', 'subject.id': ${id} }).sort({ createdAt: -1 }).limit(1).next().state, scan: db.scans.findOne({ _id: ${sid} }).state, succeeded: db.analyses.countDocuments({ scanId: ${sid}, status: 'succeeded' }), scriptRun: db.scriptRuns.findOne({ _id: ${rid} }).state }))`,
           { as: 'root' },
         ),
-      ) as Restart['whileStopped']
+      ) as Omit<Restart['whileStopped'], 'scriptRunContainer'>
+      whileStopped = { ...stored, scriptRunContainer: await scriptRunContainerState(scriptRun.id) }
       await docker.pause(CONTAINERS.mongo)
       try {
         await startOrchestrator()
@@ -1047,13 +1110,54 @@ test.describe('an orchestrator restart during a scan and a build', () => {
       await startOrchestrator()
     }
     await waitForOrchestrator(user.apiKey)
-    restart = { scanId: scan.id, total, taskName, revisionId, stoppedAt, readyAt: Date.now(), whileStopped: whileStopped!, booting: booting! }
+    restart = {
+      scanId: scan.id,
+      total,
+      taskName,
+      revisionId,
+      scriptRunId: scriptRun.id,
+      stoppedAt,
+      readyAt: Date.now(),
+      whileStopped: whileStopped!,
+      booting: booting!,
+    }
   })
 
   test.afterAll(async ({ keyApi }) => {
+    // The script's deletion cancels a run a failed test left behind; its job is not waited for.
+    if (created.scriptName) {
+      const deleted = await keyApi.call('deleteScript', { path: { script: created.scriptName } })
+      expect([202, 404], `deleteScript ${created.scriptName} answered ${deleted.status}`).toContain(deleted.status)
+    }
     if (created.scanId) await cancelAndDeleteScan(keyApi, created.scanId)
     if (created.taskName) await deleteTaskSoon(keyApi, created.taskName)
   })
+
+  test(
+    'a script run across the restart is adopted: its container keeps running and its log has every line exactly once',
+    { tag: ['@CHAOS-010'] },
+    async ({ api }) => {
+      test.setTimeout(450_000)
+      const { scriptRunId, whileStopped } = restart!
+      // The stop detached the run's job: the container kept running while the orchestrator was away.
+      expect(whileStopped.scriptRun).toBe('running')
+      expect(whileStopped.scriptRunContainer).toBe('running')
+      // The restarted orchestrator's job adopts the container, follows its log from the stored cursor and finishes it.
+      const run = await waitForScriptRun(api, scriptRunId, 'completed', 360_000)
+      expect(run).toMatchObject({
+        exitCode: 0,
+        errors: [],
+        error: null,
+        result: { ticks: RESTART_TICKS },
+        progress: { done: RESTART_TICKS, total: RESTART_TICKS },
+      })
+      expect(run.log.droppedLines).toBe(0)
+      const lines = await allScriptRunLogs(api, scriptRunId)
+      expect(lines.map((line) => line.line)).toEqual(lines.map((_, index) => index + 1))
+      const ticks = lines.filter((line) => line.stream === 'stdout' && line.text.startsWith('tick ')).map((line) => line.text)
+      expect(ticks).toEqual(Array.from({ length: RESTART_TICKS }, (_, n) => `tick ${n}`))
+    },
+  )
 
   test('a scan running across the restart completes with exact counts and no node goes offline', { tag: ['@CHAOS-002'] }, async ({ api, adminApi, scans }) => {
     test.setTimeout(450_000)
@@ -1143,7 +1247,12 @@ test.describe('logs', () => {
       for (const [what, value] of Object.entries(values)) if (value && value.length >= 8 && text.includes(value)) leaks.push(`${what} in the log of ${where}`)
     }
     // Unredacted token shapes (the redactions keep only the prefix: `snt_***`, `swt_<workerId>.[REDACTED]`, …).
-    const shapes = [/sk_scantor_(?:editor_)?[A-Za-z0-9]{8,}/, /\b(?:snt|sst|spk|sic|sec)_[A-Za-z0-9_-]{16,}/, /\bswt_[0-9a-f-]{36}\.[A-Za-z0-9_-]{8,}/]
+    const shapes = [
+      /sk_scantor_(?:editor_)?[A-Za-z0-9]{8,}/,
+      /\b(?:snt|sst|spk|sic|sec)_[A-Za-z0-9_-]{16,}/,
+      /\bswt_[0-9a-f-]{36}\.[A-Za-z0-9_-]{8,}/,
+      /\bssr_[0-9a-f-]{36}\.[A-Za-z0-9_-]{8,}/,
+    ]
     const scantorComponent = (name: string) =>
       name === CONTAINERS.orchestrator || name === CONTAINERS.node || name === 'scantor-node' || name.startsWith('scantor-w-')
 

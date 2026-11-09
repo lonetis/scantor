@@ -73,7 +73,8 @@ const test = base.extend<object, HeadersWorker>({
         await api.request.dispose()
       }
     },
-    { scope: 'worker', timeout: 180_000 },
+    // The world's script run builds its image after the files scan has completed.
+    { scope: 'worker', timeout: 240_000 },
   ],
   traffic: [
     async ({ browser, adminApi, openapi, uiTenant, world }, use) => {

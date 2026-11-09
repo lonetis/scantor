@@ -29,9 +29,20 @@ test.describe('MCP documentation drift', () => {
         for (const { file, text } of documents()) {
           for (const name of toolMentions(text)) (mentioned.get(name) ?? mentioned.set(name, new Set()).get(name)!).add(file)
         }
-        // The parser finds the tools the MCP guide and both skills name.
-        expect([...mentioned.keys()]).toEqual(expect.arrayContaining(['get_authoring_guide', 'write_task_files', 'start_scan', 'query_analyses', 'list_nodes']))
+        // The parser finds the tools the MCP guide and the skills name.
+        expect([...mentioned.keys()]).toEqual(
+          expect.arrayContaining([
+            'get_authoring_guide',
+            'write_task_files',
+            'start_scan',
+            'query_analyses',
+            'list_nodes',
+            'start_script_run',
+            'get_script_run_logs',
+          ]),
+        )
         expect([...(mentioned.get('start_scan') ?? [])]).toEqual(expect.arrayContaining(['docs/guide/mcp.md', 'skills/scantor-scans/SKILL.md']))
+        expect([...(mentioned.get('start_script_run') ?? [])]).toEqual(expect.arrayContaining(['docs/guide/mcp.md', 'skills/scantor-scripts/SKILL.md']))
         const unknown = [...mentioned].filter(([name]) => !tools.has(name)).map(([name, files]) => `${name} (${[...files].join(', ')})`)
         expect(unknown, 'tools mentioned but not served').toEqual([])
       } finally {

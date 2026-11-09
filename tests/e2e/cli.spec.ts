@@ -8,6 +8,7 @@ import { gunzipSync } from 'node:zlib'
 import tar from 'tar-stream'
 import { parse as parseYaml } from 'yaml'
 import type { Scan } from '#shared/types/scans'
+import type { Script, ScriptRun } from '#shared/types/scripts'
 import { ok } from '../helpers/api-client'
 import { FIXTURE_DATA_SOURCES, scantor } from '../helpers/cli'
 import { CONTAINERS, docker } from '../helpers/docker'
@@ -17,7 +18,7 @@ import { exampleTaskDir } from '../helpers/tasks'
 import { deleteUser } from '../helpers/users'
 import { buildTarGz } from '../helpers/tar'
 import { CliProcess, jsonLines, scantorBytes, scantorEnv, spawnScantor } from '../helpers/e2e-examples-cli-process'
-import { childEnv } from '../helpers/env'
+import { childEnv, env as testEnv } from '../helpers/env'
 import {
   describeRun,
   errorJson,
@@ -630,8 +631,10 @@ test.describe('task pipeline commands', () => {
       const first = join(root, 'first')
       await cp(ECHO, first, { recursive: true })
       await writeFiles(first, {
-        // scantor.yaml, Dockerfile and .dockerignore are matched here but always packed; !keep.log is an exception.
-        '.dockerignore': '*.log\n!keep.log\nbuild/\nscantor.yaml\nDockerfile\n.dockerignore\n',
+        // scantor.yaml, scantor-script.yaml, Dockerfile and .dockerignore are matched here but always packed;
+        // !keep.log is an exception.
+        '.dockerignore': '*.log\n!keep.log\nbuild/\nscantor.yaml\nscantor-script.yaml\nDockerfile\n.dockerignore\n',
+        'scantor-script.yaml': 'scantor: 1\nname: echo\nlanguage: python\n',
         'keep.log': 'kept\n',
         'drop.log': 'dropped\n',
         'build/out.bin': 'ignored\n',
@@ -659,7 +662,17 @@ test.describe('task pipeline commands', () => {
       })
 
       expect(names).toEqual(
-        expect.arrayContaining(['scantor.yaml', 'Dockerfile', '.dockerignore', 'keep.log', 'main.py', 'data/a.txt', 'run.sh', 'sub/nested.txt']),
+        expect.arrayContaining([
+          'scantor.yaml',
+          'scantor-script.yaml',
+          'Dockerfile',
+          '.dockerignore',
+          'keep.log',
+          'main.py',
+          'data/a.txt',
+          'run.sh',
+          'sub/nested.txt',
+        ]),
       )
       for (const excluded of ['drop.log', 'build/out.bin', '.git', '.git/HEAD', 'sub/.git/config', '.scantor', 'sub/.scantor/y']) {
         expect(names, excluded).not.toContain(excluded)
@@ -1971,4 +1984,306 @@ test.describe('task, revision and node commands', () => {
       await deleteUser(adminApi, admin.id)
     }
   })
+})
+
+// ── scripts ─────────────────────────────────────────────────────────────────────────────────────────
+
+/** The files-report fixture script: reads every file of a scan of the `files` example and stores a CSV and a summary. */
+const FILES_REPORT = join(testEnv.paths.tests, 'fixtures', 'scripts', 'files-report')
+
+/** Ticks once a second up to `seconds`, saving its position as checkpoint on every tick; a resumed run continues there. */
+const TICKER_MAIN = `"""ticker: ticks once a second up to \`seconds\` and checkpoints every tick."""
+
+import time
+
+from pydantic import BaseModel
+
+import scantor
+from scantor.script import Script, ScriptContext
+
+
+class Config(scantor.Config):
+    seconds: int = 600
+
+
+class Summary(BaseModel):
+    ticks: int
+    start: int
+
+
+def run(ctx: ScriptContext, config: Config) -> Summary:
+    state = ctx.resume_state or {"ticks": 0}
+    start = state["ticks"]
+    for tick in range(start, config.seconds):
+        ctx.check_cancelled()
+        state["ticks"] = tick + 1
+        ctx.progress(state["ticks"], config.seconds)
+        ctx.checkpoint(state)
+        time.sleep(1)
+    return Summary(ticks=state["ticks"], start=start)
+
+
+script = Script(run=run, config=Config, result=Summary)
+`
+
+interface ScriptPushResult {
+  script: Script
+  created: boolean
+  uploaded: boolean
+}
+
+test.describe('script commands', () => {
+  test(
+    'scripts init writes the scaffold; scripts push and push upload a script folder; the script and file commands manage it',
+    { tag: ['@CLI-012', '@CLI-016'] },
+    async ({ user, api }) => {
+      const root = await tempDir('scripts-init')
+      const token = user.apiKey
+      const cli = (args: string[], options: { cwd?: string; input?: string; env?: Record<string, string> } = {}) =>
+        scantor(args, { token, cwd: root, ...options })
+      const name = unique('cli-script')
+      const created = unique('cli-script-created')
+      try {
+        // init renders the scaffold locally, derives the name from the folder and refuses a non-empty one.
+        const none = await cli(['scripts', 'init'])
+        expect(none.exitCode, describeRun(none)).toBe(2)
+        expect(none.stderr).toContain('give a directory or --name')
+        const init = await cli(['scripts', 'init', name, '--description', 'counts files', '-o', 'json'])
+        expect(init.exitCode, describeRun(init)).toBe(0)
+        const dir = join(root, name)
+        expect(init.json).toMatchObject({ dir, name, language: 'python' })
+        expect((init.json as { files: string[] }).files).toEqual(
+          expect.arrayContaining(['scantor-script.yaml', 'Dockerfile', 'main.py', 'models.py', 'requirements.txt', 'AGENTS.md']),
+        )
+        expect(parseYaml(await readFile(join(dir, 'scantor-script.yaml'), 'utf8'))).toEqual({ scantor: 1, name, language: 'python', description: 'counts files' })
+        expect(await readFile(join(dir, 'main.py'), 'utf8')).toContain('script = Script(run=run, config=Config, result=Summary)')
+        const derived = await cli(['scripts', 'init', 'Other_Dir'])
+        expect(derived.exitCode, describeRun(derived)).toBe(0)
+        expect(derived.stdout).toContain('Created script "other-dir" (python) in Other_Dir')
+        const again = await cli(['scripts', 'init', name])
+        expect(again.exitCode, describeRun(again)).toBe(2)
+        expect(again.stderr).toContain('already exists and is not empty')
+        expect((await cli(['scripts', 'init', 'x', '--language', 'go'])).exitCode).toBe(2)
+
+        // scripts push creates the script on the first upload; push delegates a script folder to it.
+        const pushed = await cli(['scripts', 'push', name, '-o', 'json'])
+        expect(pushed.exitCode, describeRun(pushed)).toBe(0)
+        expect(pushed.json).toMatchObject({ script: { name, source: { kind: 'upload' }, description: 'counts files' }, created: true, uploaded: true })
+        const delegated = await cli(['push', name, '-o', 'json'])
+        expect(delegated.exitCode, describeRun(delegated)).toBe(0)
+        expect(delegated.json).toMatchObject({ script: { name }, created: false, uploaded: true })
+        for (const flags of [['--wait'], ['-m', 'a message'], ['--no-publish']]) {
+          const refused = await cli(['push', name, ...flags])
+          expect(refused.exitCode, describeRun(refused)).toBe(2)
+          expect(refused.stderr).toContain('is a script folder')
+        }
+        // A folder with both manifests is neither; a folder without a manifest is no script.
+        const both = join(root, 'both')
+        await cp(dir, both, { recursive: true })
+        await writeFiles(both, { 'scantor.yaml': `scantor: 1\nname: ${name}\nlanguage: python\n` })
+        for (const command of [['push'], ['scripts', 'push']]) {
+          const refused = await cli([...command, 'both'])
+          expect(refused.exitCode, describeRun(refused)).toBe(2)
+          expect(refused.stderr).toContain('holds both scantor.yaml and scantor-script.yaml')
+        }
+        await mkdir(join(root, 'empty'))
+        const empty = await cli(['scripts', 'push', 'empty'])
+        expect(empty.exitCode, describeRun(empty)).toBe(2)
+        expect(empty.stderr).toContain('has no scantor-script.yaml')
+
+        // Platform changes that were never uploaded block an upload until --force replaces them.
+        const edit = await cli(['scripts', 'files', 'put', name, 'notes.txt=-'], { input: 'edited on the platform\n' })
+        expect(edit.exitCode, describeRun(edit)).toBe(0)
+        const dirty = await cli(['scripts', 'push', name, '-o', 'json'])
+        expect(dirty.exitCode, describeRun(dirty)).toBe(2)
+        expect(errorJson(dirty)).toMatchObject({ error: { code: 'workspaceDirty', exitCode: 2 } })
+        const forced = await cli(['push', name, '--force', '-o', 'json'])
+        expect(forced.exitCode, describeRun(forced)).toBe(0)
+        expect(forced.json).toMatchObject({ created: false, uploaded: true })
+
+        // Inside the editor the folder below .scripts already is the script's folder: nothing is uploaded.
+        const workspace = join(root, 'workspace')
+        const editorDir = join(workspace, '.scripts', name)
+        await mkdir(join(workspace, '.scripts'), { recursive: true })
+        await cp(dir, editorDir, { recursive: true })
+        for (const command of [['scripts', 'push'], ['push']]) {
+          const inEditor = await cli([...command, '-o', 'json'], { cwd: editorDir, env: { SCANTOR_WORKSPACE: workspace } })
+          expect(inEditor.exitCode, describeRun(inEditor)).toBe(0)
+          expect(inEditor.json as ScriptPushResult).toMatchObject({ script: { name }, uploaded: false })
+        }
+        const human = await cli(['push'], { cwd: editorDir, env: { SCANTOR_WORKSPACE: workspace } })
+        expect(human.stdout).toContain(`Nothing to upload: inside the editor the folder already is the folder of script ${name}`)
+        const allScripts = await cli(['push'], { cwd: join(workspace, '.scripts'), env: { SCANTOR_WORKSPACE: workspace } })
+        expect(allScripts.exitCode, describeRun(allScripts)).toBe(2)
+        expect(allScripts.stderr).toContain('is the folder of all scripts')
+
+        // files list|read|write|delete work on the platform folder.
+        const listed = await cli(['scripts', 'files', 'ls', name, '-o', 'json'])
+        expect(listed.exitCode, describeRun(listed)).toBe(0)
+        const paths = (listed.json as { entries: { path: string }[] }).entries.map((entry) => entry.path)
+        expect(paths).toEqual(expect.arrayContaining(['scantor-script.yaml', 'main.py', 'models.py']))
+        expect(paths).not.toContain('notes.txt')
+        const cat = await cli(['scripts', 'files', 'cat', name, 'main.py'])
+        expect(cat.exitCode, describeRun(cat)).toBe(0)
+        expect(cat.stdout).toBe(await readFile(join(dir, 'main.py'), 'utf8'))
+        const put = await cli(['scripts', 'files', 'write', name, 'lib/extra.txt=-', '-o', 'json'], { input: 'extra\n' })
+        expect(put.exitCode, describeRun(put)).toBe(0)
+        expect(put.json).toMatchObject({ written: ['lib/extra.txt'], workspace: { packSha256: expect.stringMatching(/^[0-9a-f]{64}$/) } })
+        const removed = await cli(['scripts', 'files', 'rm', name, 'lib', '--recursive', '-o', 'json'])
+        expect(removed.exitCode, describeRun(removed)).toBe(0)
+        expect((removed.json as { deleted: string[] }).deleted).toContain('lib')
+        expect((await cli(['scripts', 'files', 'read', name, '../outside'])).exitCode).toBe(2)
+
+        // list, get, create and delete.
+        const list = await cli(['scripts', 'list', '--search', name, '-o', 'json'])
+        expect(list.exitCode, describeRun(list)).toBe(0)
+        expect((list.json as { items: Script[] }).items.map((script) => script.name)).toEqual([name])
+        const got = await cli(['scripts', 'get', name, '-o', 'json'])
+        expect(got.json).toMatchObject({ name, language: 'python', source: { kind: 'upload' }, latestRun: null })
+        const create = await cli(['scripts', 'create', created, '--description', 'from the scaffold', '-o', 'json'])
+        expect(create.exitCode, describeRun(create)).toBe(0)
+        expect(create.json).toMatchObject({ name: created, description: 'from the scaffold', source: { kind: 'scaffold' } })
+        const taken = await cli(['scripts', 'create', created, '-o', 'json'])
+        expect(taken.exitCode, describeRun(taken)).toBe(2)
+        expect(errorJson(taken)).toMatchObject({ error: { code: 'alreadyExists', exitCode: 2 } })
+        const deleted = await cli(['scripts', 'delete', created, '--wait'])
+        expect(deleted.exitCode, describeRun(deleted)).toBe(0)
+        const gone = await cli(['scripts', 'get', created])
+        expect(gone.exitCode, describeRun(gone)).toBe(2)
+      } finally {
+        for (const script of [name, created]) {
+          const response = await api.call('deleteScript', { path: { script } })
+          expect([202, 404], `deleteScript ${script} answered ${response.status}`).toContain(response.status)
+        }
+        await removeTree(root)
+      }
+    },
+  )
+
+  test(
+    'scripts run follows runs of a script on a scan; runs list, get, logs, source and outputs get show them; cancel and restart --resume',
+    { tag: ['@CLI-013', '@CLI-014', '@CLI-015'] },
+    async ({ user, api, scans, shared }) => {
+      const files = await shared.example('files')
+      const scan = await scans.start({ revision: files.revision.id, name: unique('cli-script-input'), scanConfig: { items: ['alpha.example', 'beta.example'] } })
+      await scans.wait(scan.id)
+      const root = await tempDir('scripts-run')
+      const token = user.apiKey
+      const cli = (args: string[], options: { input?: string } = {}) => scantor(args, { token, cwd: root, ...options })
+      // A script name, not a folder: run from a directory without a folder of that name.
+      const byName = (args: string[], options: { input?: string } = {}) => scantor(args, { token, ...options })
+      const name = unique('cli-report')
+      try {
+        const init = await cli(['scripts', 'init', name])
+        expect(init.exitCode, describeRun(init)).toBe(0)
+        await writeFiles(join(root, name), {
+          'main.py': await readFile(join(FILES_REPORT, 'main.py')),
+          'models.py': await readFile(join(FILES_REPORT, 'models.py')),
+        })
+
+        // A folder is uploaded first; --follow prints the log until the run ends and exits 0 for a completed run.
+        const sample = await cli(['scripts', 'run', `./${name}`, '--scan', scan.id, '--limit', '1', '--follow'])
+        expect(sample.exitCode, describeRun(sample)).toBe(0)
+        expect(sample.stderr).toContain(`created script ${name}`)
+        expect(sample.stdout).toMatch(/^build +\S/m)
+        expect(sample.stdout).toMatch(/^stdout report written analyses=1 files=\d+$/m)
+        expect(sample.stdout).toMatch(/^state:? +completed/m)
+
+        // With -o json, --follow prints only the final run; the image of the unchanged folder is reused.
+        const full = await byName(['scripts', 'run', name, '--scan', scan.id, '--follow', '-o', 'json'])
+        expect(full.exitCode, describeRun(full)).toBe(0)
+        const run = full.json as ScriptRun
+        expect(run).toMatchObject({ scriptName: name, state: 'completed', scans: [{ id: scan.id }], input: { settings: { limit: null } }, exitCode: 0 })
+        expect(run.result).toMatchObject({ scan: scan.name, analyses: 2, resumed: false })
+        expect(run.image?.cached).toBe(true)
+        expect(run.outputs.map((output) => output.name).sort()).toEqual(['files.csv', 'summary.json'])
+
+        // runs list (newest first) and get.
+        const list = await byName(['scripts', 'runs', 'list', name, '-o', 'json'])
+        expect(list.exitCode, describeRun(list)).toBe(0)
+        const items = (list.json as { items: ScriptRun[] }).items
+        expect(items.map((item) => item.id)).toHaveLength(2)
+        expect(items[0]!.id).toBe(run.id)
+        expect(items[1]).toMatchObject({ state: 'completed', input: { settings: { limit: 1 } } })
+        const got = await byName(['scripts', 'runs', 'get', run.id, '--wait', '-o', 'json'])
+        expect(got.exitCode, describeRun(got)).toBe(0)
+        expect(got.json).toMatchObject({ id: run.id, state: 'completed' })
+        expect(((got.json as ScriptRun).logTail ?? []).length).toBeGreaterThan(0)
+        expect((await byName(['scripts', 'get', name, '-o', 'json'])).json).toMatchObject({ name, latestRun: { id: run.id, state: 'completed' } })
+
+        // runs logs prints the stored lines: NDJSON with -o json, "<stream> <text>" for humans.
+        const logs = await byName(['scripts', 'runs', 'logs', run.id, '-o', 'json'])
+        expect(logs.exitCode, describeRun(logs)).toBe(0)
+        const lines = jsonLines(logs.stdout) as { line: number; at: string; stream: string; text: string }[]
+        for (const line of lines) expect(Object.keys(line).sort()).toEqual(['at', 'line', 'stream', 'text'])
+        expect(lines.map((line) => line.line)).toEqual(lines.map((_, index) => lines[0]!.line + index))
+        expect(lines.some((line) => line.stream === 'stdout' && /^report written analyses=2 files=\d+$/.test(line.text))).toBe(true)
+        const human = await byName(['scripts', 'runs', 'logs', run.id])
+        expect(human.stdout).toMatch(/^stdout report written analyses=2 files=\d+$/m)
+        const tail = await byName(['scripts', 'runs', 'logs', run.id, '--after-line', String(lines.at(-1)!.line - 1), '-o', 'json'])
+        expect(jsonLines(tail.stdout)).toEqual([lines.at(-1)])
+
+        // runs outputs get verifies size and SHA-256 and replaces a file only with --force; runs source downloads the snapshot.
+        const summary = run.outputs.find((output) => output.name === 'summary.json')!
+        const saved = await cli(['scripts', 'runs', 'outputs', 'get', run.id, summary.id, '-o', 'json'])
+        expect(saved.exitCode, describeRun(saved)).toBe(0)
+        expect(saved.json).toMatchObject({ bytes: summary.size, sha256: summary.sha256 })
+        expect(JSON.parse(await readFile(join(root, 'summary.json'), 'utf8'))).toMatchObject({ scan: scan.name, analyses: 2 })
+        expect((await cli(['scripts', 'runs', 'outputs', 'get', run.id, summary.id])).exitCode).toBe(2)
+        expect((await cli(['scripts', 'runs', 'outputs', 'get', run.id, summary.id, '--force'])).exitCode).toBe(0)
+        const csv = run.outputs.find((output) => output.name === 'files.csv')!
+        const printed = await cli(['scripts', 'runs', 'outputs', 'get', run.id, csv.id, '--file', '-'])
+        expect(printed.exitCode, describeRun(printed)).toBe(0)
+        expect(printed.stdout.split(/\r?\n/)[0]).toBe('seq,item,files,bytes,upper')
+        const source = await cli(['scripts', 'runs', 'source', run.id, '--file', 'source.tgz', '-o', 'json'])
+        expect(source.exitCode, describeRun(source)).toBe(0)
+        expect(source.json).toMatchObject({ bytes: run.source.packBytes })
+        const { entries } = await readPack(await readFile(join(root, 'source.tgz')))
+        expect(entries.map((entry) => entry.name)).toEqual(expect.arrayContaining(['Dockerfile', 'main.py', 'models.py', 'scantor-script.yaml']))
+
+        // A ticking version of the folder: cancel its run, then resume it from its checkpoint.
+        const put = await byName(['scripts', 'files', 'put', name, 'main.py=-'], { input: TICKER_MAIN })
+        expect(put.exitCode, describeRun(put)).toBe(0)
+        const started = await byName(['scripts', 'run', name, '--scan', scan.id, '-o', 'json'])
+        expect(started.exitCode, describeRun(started)).toBe(0)
+        const ticking = started.json as ScriptRun
+        expect(ticking).toMatchObject({ scriptName: name, restartedFrom: null })
+        expect(['queued', 'building']).toContain(ticking.state)
+        await expect
+          .poll(
+            async () => {
+              const current = ok(await api.call<ScriptRun>('getScriptRun', { path: { scriptRunId: ticking.id } }), 'getScriptRun')
+              return current.state === 'running' && current.checkpoint !== null
+            },
+            { timeout: 240_000, intervals: [1000, 2000], message: 'the ticking run saved a checkpoint' },
+          )
+          .toBe(true)
+        const cancelled = await byName(['scripts', 'runs', 'cancel', ticking.id, '-o', 'json'])
+        expect(cancelled.exitCode, describeRun(cancelled)).toBe(0)
+        expect(cancelled.json).toMatchObject({ id: ticking.id, state: 'cancelled' })
+        const waited = await byName(['scripts', 'runs', 'get', ticking.id, '--wait', '-o', 'json'])
+        expect(waited.exitCode, describeRun(waited)).toBe(1)
+        // Cancelling a cancelled run returns it unchanged; cancelling a completed one is invalidState.
+        const twice = await byName(['scripts', 'runs', 'cancel', ticking.id, '-o', 'json'])
+        expect(twice.exitCode, describeRun(twice)).toBe(0)
+        expect(twice.json).toMatchObject({ id: ticking.id, state: 'cancelled' })
+        const completed = await byName(['scripts', 'runs', 'cancel', run.id, '-o', 'json'])
+        expect(completed.exitCode, describeRun(completed)).toBe(2)
+        expect(errorJson(completed)).toMatchObject({ error: { code: 'invalidState', exitCode: 2 } })
+        const resumed = await byName(['scripts', 'runs', 'restart', ticking.id, '--resume', '--config', '{"seconds": 2}', '-o', 'json'])
+        expect(resumed.exitCode, describeRun(resumed)).toBe(0)
+        const resumedRun = resumed.json as ScriptRun
+        expect(resumedRun).toMatchObject({ restartedFrom: { id: ticking.id, resume: true }, input: { config: { seconds: 2 } }, scans: [{ id: scan.id }] })
+        const finished = await byName(['scripts', 'runs', 'get', resumedRun.id, '--wait', '-o', 'json'])
+        expect(finished.exitCode, describeRun(finished)).toBe(0)
+        const result = (finished.json as ScriptRun).result as { ticks: number; start: number }
+        expect(result.start, 'the resumed run continues after the checkpoint').toBeGreaterThanOrEqual(1)
+        expect(result.ticks).toBe(Math.max(2, result.start))
+      } finally {
+        const response = await api.call('deleteScript', { path: { script: name } })
+        expect([202, 404], `deleteScript ${name} answered ${response.status}`).toContain(response.status)
+        await removeTree(root)
+      }
+    },
+  )
 })

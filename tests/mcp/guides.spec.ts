@@ -42,7 +42,18 @@ test.describe('MCP instructions and guides', () => {
         try {
           const tools = (await client.listTools()).tools.map((tool) => tool.name)
           const named = toolMentions(instructions!)
-          expect(named).toEqual(expect.arrayContaining(['create_task', 'test_task', 'publish_revision', 'start_scan', 'get_scan', 'export_scan']))
+          expect(named).toEqual(
+            expect.arrayContaining([
+              'create_task',
+              'test_task',
+              'publish_revision',
+              'start_scan',
+              'get_scan',
+              'export_scan',
+              'create_script',
+              'start_script_run',
+            ]),
+          )
           expect(
             named.filter((name) => !tools.includes(name)),
             'tools named by the instructions that do not exist',
@@ -95,6 +106,19 @@ test.describe('MCP instructions and guides', () => {
       expect(call.result.isError, `${language}: ${call.texts.join('\n').slice(0, 300)}`).toBeFalsy()
       expect(call.texts, language).toHaveLength(1)
       expect(call.texts[0], language).toBe(repoFile(`docs/guide/authoring-${language}.md`))
+    }
+  })
+
+  test('get_authoring_guide with kind script returns the scripts guide of a language with script support', { tag: ['@MCP-016'] }, async ({ mcpKey }) => {
+    const table = JSON.parse(repoFile('schemas/languages.json')) as { languages: Record<string, { script?: { guide: string } }> }
+    for (const [language, row] of Object.entries(table.languages)) {
+      const call = await callTool(mcpKey, 'get_authoring_guide', { language, kind: 'script' })
+      if (!row.script) {
+        expect(call.result.isError, language).toBe(true)
+        continue
+      }
+      expect(call.result.isError, `${language}: ${call.texts.join('\n').slice(0, 300)}`).toBeFalsy()
+      expect(call.texts, language).toEqual([repoFile(row.script.guide)])
     }
   })
 })

@@ -25,6 +25,7 @@ import {
 } from '../helpers/api-platform-editor'
 import { withLazyTenant, withPlatformAdmin, withWorkerTenant } from '../helpers/api-platform-tenant'
 import { stackEnv } from '../helpers/docker'
+import { createScript } from '../helpers/scripts'
 import { exampleTaskDir, packTask } from '../helpers/tasks'
 import { newApiContext } from '../helpers/users'
 import { expect, test as base, unique } from '../fixtures'
@@ -217,6 +218,34 @@ test.describe('editor sessions', () => {
         // The key may read its own editor.
         expect(ok(await keyApi.call<{ state: string }>('getEditor'), 'getEditor').state).toBe('running')
       })
+      await stopEditor(freshApi)
+    },
+  )
+
+  test(
+    'openScript opens the folder of one of your scripts; combined with open, unknown or foreign it is refused',
+    { tag: ['@EDIT-016'] },
+    async ({ freshApi, scripts }) => {
+      test.setTimeout(180_000)
+      const own = unique('edit-script')
+      ok(await createScript(freshApi, { name: own }), 'createScript')
+      // A script of another user (the worker's tenant) is not found, like an unknown name.
+      const foreign = await scripts.create({ name: unique('edit-foreign-script') })
+      for (const openScript of [foreign.name, unique('edit-missing-script')]) {
+        const response = await freshApi.call('createEditorSession', { body: { openScript } })
+        expect(response.status, openScript).toBe(404)
+        expect(response.body, openScript).toMatchObject({ error: { code: 'notFound' } })
+      }
+      const both = await freshApi.call('createEditorSession', { body: { open: own, openScript: own } })
+      expect(both.status).toBe(400)
+      expect(both.body).toMatchObject({ error: { code: 'validationFailed', details: { issues: [{ path: 'openScript' }] } } })
+      // None of the refused requests started an editor.
+      expect((await editorStatus(freshApi)).state).toBe('stopped')
+
+      const session = await openEditorSession(freshApi, { openScript: own })
+      const opened = await redeem(session.body.url)
+      expect(opened.status, opened.body).toBe(302)
+      expect(opened.headers['location']).toBe(`/?folder=${WORKSPACE_ROOT}/.scripts/${own}`)
       await stopEditor(freshApi)
     },
   )

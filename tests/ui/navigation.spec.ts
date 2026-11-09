@@ -1,4 +1,5 @@
 import type { Locator, Page } from '@playwright/test'
+import type { Script } from '#shared/types/scripts'
 import { ok } from '../helpers/api-client'
 import { expectToast } from '../helpers/ui'
 import {
@@ -75,6 +76,7 @@ test.describe('sidebar of a user', () => {
     for (const [name, path] of [
       ['Overview', '/'],
       ['Tasks', '/tasks'],
+      ['Scripts', '/scripts'],
       ['Scans', '/scans'],
       ['Templates', '/templates'],
       ['Editor', '/editor'],
@@ -83,6 +85,15 @@ test.describe('sidebar of a user', () => {
     ]) {
       await expect(sidebarLink(page, name!)).toHaveAttribute('href', path!)
     }
+    // The Workspace group in its order: Scripts follow Tasks.
+    await expect(nav.getByRole('link').filter({ hasText: /Overview|Tasks|Scripts|Scans|Templates|Editor/ })).toHaveText([
+      /Overview/,
+      /Tasks/,
+      /Scripts/,
+      /Scans/,
+      /Templates/,
+      /Editor/,
+    ])
     await expect(nav.getByText('Admin', { exact: true })).toHaveCount(0)
     for (const name of ['Nodes', 'Users', 'Admin tools']) await expect(sidebarLink(page, name)).toHaveCount(0)
   })
@@ -223,11 +234,13 @@ test.describe('sidebar of a user', () => {
     await docs.close()
   })
 
-  test('every page title is "<Page> · scantor", and a task page uses the task name', { tag: ['@UI-NAV-010'] }, async ({ page, api, tasks }) => {
+  test('every page title is "<Page> · scantor", and a task or script page uses its name', { tag: ['@UI-NAV-010'] }, async ({ page, api, tasks }) => {
     for (const [path, title] of [
       ['/', 'Overview · scantor'],
       ['/tasks', 'Tasks · scantor'],
       ['/tasks/new', 'New task · scantor'],
+      ['/scripts', 'Scripts · scantor'],
+      ['/scripts/new', 'New script · scantor'],
       ['/scans', 'Scans · scantor'],
       ['/scans/new', 'New scan · scantor'],
       ['/templates', 'Templates · scantor'],
@@ -243,6 +256,16 @@ test.describe('sidebar of a user', () => {
     const task = await createScaffoldTask(api, name)
     await openPage(page, `/tasks/${task.id}`)
     await expect(page).toHaveTitle(`${name} · scantor`)
+
+    const scriptName = unique('title-script')
+    const script = ok(await api.call<Script>('createScript', { body: { name: scriptName } }), 'createScript')
+    try {
+      await openPage(page, `/scripts/${script.id}`)
+      await expect(page).toHaveTitle(`${scriptName} · scantor`)
+    } finally {
+      const deleted = await api.call('deleteScript', { path: { script: script.id } })
+      expect([202, 404], `deleteScript answered ${deleted.status}`).toContain(deleted.status)
+    }
   })
 
   test('the theme toggle switches system, light and dark; dark is the default and the choice persists', { tag: ['@UI-NAV-011'] }, async ({ page }) => {
@@ -299,6 +322,7 @@ test.describe('sidebar of an admin', () => {
     for (const [name, path] of [
       ['Overview', '/'],
       ['Tasks', '/tasks'],
+      ['Scripts', '/scripts'],
       ['Scans', '/scans'],
       ['Templates', '/templates'],
       ['CLI & MCP access', '/account/access'],
@@ -847,6 +871,7 @@ test.describe('UI preferences', () => {
       ['/', (p: Page) => p.getByRole('link', { name: 'New task', exact: true }).first()],
       ['/tasks', (p: Page) => p.getByLabel('Tasks', { exact: true }).getByText(name)],
       [`/tasks/${task.id}`, (p: Page) => p.getByRole('button', { name: 'Check now' })],
+      ['/scripts', (p: Page) => p.getByRole('link', { name: 'New script', exact: true })],
       ['/scans', (p: Page) => p.getByRole('button', { name: 'Filter by state' })],
       ['/templates', (p: Page) => p.getByRole('button', { name: 'Refresh', exact: true })],
       ['/account', (p: Page) => p.getByRole('heading', { name: 'Profile' })],

@@ -9,20 +9,30 @@ import { env, type TestEnv } from './helpers/env'
 import { connectMcp, connectMcpWithKey, DEFAULT_MCP_SCOPES, registerClient, type McpConnection } from './helpers/mcp'
 import { OpenApiIndex } from './helpers/openapi'
 import { cancelAndDeleteScan, scanCounts, startScan, waitForScanState, type StartScanBody } from './helpers/scans'
+import {
+  createScript,
+  deleteScriptAndWait,
+  fixtureScriptDir,
+  readScriptFiles,
+  scriptManifestName,
+  uploadScriptFiles,
+  type ScriptFiles,
+} from './helpers/scripts'
 import { deleteTask, exampleTaskDir, fixtureTaskDir, manifestName, uploadAndPublish, type UploadedTask } from './helpers/tasks'
 import { unique } from './helpers/unique'
 import { createUser, deleteUser, newApiContext, signedInContext, type TestUser } from './helpers/users'
 import { installVirtualAuthenticator, type VirtualAuthenticator } from './helpers/webauthn'
 import type { Revision } from '#shared/types/revisions'
 import type { Scan } from '#shared/types/scans'
+import type { Script } from '#shared/types/scripts'
 import type { ScanState } from '#shared/utils/enums'
 
 // The fixtures of the suite (docs/testing.md §7.7). Specs import `test` and `expect` only from this file.
 //
 // Isolation: every Playwright worker gets its own tenant (`user`, created by the admin and signed in once through the
-// limiter); tests that change account-level state use `freshUser`. `tasks` and `scans` delete what they created, and
-// the tenants are deleted at worker teardown, which purges everything else they own. Teardown errors fail the test
-// (a 404 counts as success).
+// limiter); tests that change account-level state use `freshUser`. `tasks`, `scans` and `scripts` delete what they
+// created, and the tenants are deleted at worker teardown, which purges everything else they own. Teardown errors fail
+// the test (a 404 counts as success).
 
 export { expect }
 export { unique }
@@ -57,6 +67,20 @@ export interface ScansFixture {
   track(scanId: string): void
 }
 
+export interface ScriptsFixture {
+  /**
+   * Uploads a script folder (a directory or a file map) under a unique name (default: unique(<manifest name>)); the
+   * manifest is renamed. Returns the script.
+   */
+  upload(source: string | ScriptFiles, options?: { name?: string }): Promise<Script>
+  /** A fixture script of tests/fixtures/scripts/<name>. */
+  fixture(name: string, options?: { name?: string }): Promise<Script>
+  /** Creates a script from the scaffold (createScript) under a unique name (default: unique('script')). */
+  create(options?: { name?: string; description?: string }): Promise<Script>
+  /** Registers a script created another way (CLI, MCP, UI, a test's own upload) for deletion at teardown. */
+  track(script: string): void
+}
+
 interface TestFixtures {
   /** whose session `page` and `api` use: the worker's tenant (default) or the seeded admin */
   role: 'user' | 'admin'
@@ -74,6 +98,7 @@ interface TestFixtures {
   webauthn: VirtualAuthenticator
   tasks: TasksFixture
   scans: ScansFixture
+  scripts: ScriptsFixture
   /** creates the fresh user on first use and deletes it at teardown (shared by `freshUser` and `page`) */
   freshUserHandle: { get(): Promise<Tenant> }
 }
@@ -255,8 +280,32 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     }
   },
 
-  // Depends on `tasks`, so its teardown (scans first) runs before the tasks are deleted.
-  scans: async ({ api, tasks: _tasks }, use) => {
+  // Deletes every script it created or tracks and waits for each scriptDelete job, going on while the job defers itself
+  // for the script's runs to stop. `scans` depends on it, so the scans are deleted first: their deletion cancels the
+  // runs that read them.
+  scripts: async ({ api }, use) => {
+    const created: string[] = []
+    const upload = async (source: string | ScriptFiles, options: { name?: string } = {}) => {
+      const files = typeof source === 'string' ? await readScriptFiles(source) : source
+      const name = options.name ?? unique(scriptManifestName(files))
+      created.push(name)
+      return uploadScriptFiles(api, files, name)
+    }
+    await use({
+      upload,
+      fixture: (name, options) => upload(fixtureScriptDir(name), options),
+      create: async (options = {}) => {
+        const name = options.name ?? unique('script')
+        created.push(name)
+        return ok(await createScript(api, { name, description: options.description }), 'createScript')
+      },
+      track: (script) => void created.push(script),
+    })
+    for (const script of [...new Set(created)].reverse()) await deleteScriptAndWait(api, script)
+  },
+
+  // Depends on `tasks` and `scripts`, so its teardown (scans first) runs before the tasks and scripts are deleted.
+  scans: async ({ api, tasks: _tasks, scripts: _scripts }, use) => {
     const started: string[] = []
     await use({
       start: async (body) => {

@@ -2,6 +2,16 @@ import type { NotificationSettings, NotificationTestResult } from '#shared/types
 import { ok, type ApiResponse } from '../helpers/api-client'
 import { stackValue } from '../helpers/api-auth'
 import { NTFY_TOKEN, ntfyMessages } from '../helpers/fixtures-server'
+import {
+  cancelScriptRun,
+  probeScriptFiles,
+  probeWaiting,
+  runScript,
+  startRun,
+  waitForScriptRun,
+  waitForScriptRunContainerGone,
+  waitForScriptRunLog,
+} from '../helpers/scripts'
 import { expect, test, unique } from '../fixtures'
 
 // Push notifications (docs/api.md §4.3, docs/architecture.md §11.6): the caller's ntfy settings, the test message and
@@ -151,4 +161,57 @@ test.describe('notifications', () => {
       ok(await api.call('updateNotificationSettings', { body: { ntfy: { enabled: false } } }), 'unsubscribe')
     }
   })
+
+  test(
+    'completed and failed script runs notify the subscribed owner, a cancelled one does not',
+    { tag: ['@NOTIF-005'] },
+    async ({ api, tasks, scans, scripts, request }) => {
+      test.setTimeout(420_000)
+      const topic = unique('notif')
+      const publicUrl = stackValue('SCANTOR_PUBLIC_URL')
+      ok(
+        await api.call('updateNotificationSettings', { body: { ntfy: { topic, enabled: true, triggers: ['scriptRunCompleted', 'scriptRunFailed'] } } }),
+        'subscribe',
+      )
+      try {
+        const echo = await tasks.example('echo')
+        const scan = await scans.start({ revision: echo.revision.id })
+        await scans.wait(scan.id)
+        const script = await scripts.upload(probeScriptFiles())
+        const body = { scans: [scan.id] }
+
+        // The cancelled run settles first, so a message of it would arrive before the other two.
+        const cancelled = await startRun(api, script.name, { ...body, config: { mode: 'wait', label: 'notif' } })
+        await waitForScriptRunLog(api, cancelled.id, probeWaiting('notif'))
+        ok(await cancelScriptRun(api, cancelled.id), 'cancelScriptRun')
+        await waitForScriptRun(api, cancelled.id, 'cancelled')
+        await waitForScriptRunContainerGone(cancelled.id)
+
+        const [completed, failed] = await Promise.all([
+          runScript(api, script.name, { ...body, config: { mode: 'ok' } }),
+          runScript(api, script.name, { ...body, config: { mode: 'exit', count: 3 } }, { state: 'failed' }),
+        ])
+        const completedTitle = `Script run of "${script.name}" completed`
+        const failedTitle = `Script run of "${script.name}" failed`
+        await expect
+          .poll(async () => (await ntfyMessages(request, topic)).map((message) => message.title).sort(), { timeout: 60_000 })
+          .toEqual([completedTitle, failedTitle].sort())
+        const messages = await ntfyMessages(request, topic)
+        expect(messages.find((message) => message.title === completedTitle)).toMatchObject({
+          message: `Script run of ${script.name} completed`,
+          priority: 3,
+          tags: ['white_check_mark', 'scantor'],
+          click: `${publicUrl}/scripts/${script.id}/runs/${completed.id}`,
+        })
+        expect(messages.find((message) => message.title === failedTitle)).toMatchObject({
+          message: `Script run of ${script.name} failed: exited with code 3`,
+          priority: 5,
+          tags: ['x', 'scantor'],
+          click: `${publicUrl}/scripts/${script.id}/runs/${failed.id}`,
+        })
+      } finally {
+        ok(await api.call('updateNotificationSettings', { body: { ntfy: { enabled: false } } }), 'unsubscribe')
+      }
+    },
+  )
 })

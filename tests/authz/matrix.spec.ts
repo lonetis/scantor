@@ -8,6 +8,7 @@ import type { Credential } from '#shared/types/credentials'
 import type { Export } from '#shared/types/exports'
 import type { NodeWithToken } from '#shared/types/nodes'
 import type { Scan } from '#shared/types/scans'
+import type { Script, ScriptRun } from '#shared/types/scripts'
 import type { Task } from '#shared/types/tasks'
 import type { TestRun } from '#shared/types/test-runs'
 import type { Upload } from '#shared/types/uploads'
@@ -24,6 +25,7 @@ import {
   isDestructive,
   isOk,
   isRead,
+  networkRequest,
   operationsOf,
   Principals,
   referencesOwned,
@@ -38,6 +40,7 @@ import { connectWithGrant, registerMatrixClient, type McpGrant } from '../helper
 import { connectMcpWithKey, DEFAULT_MCP_SCOPES, resultText } from '../helpers/mcp'
 import type { OpenApiIndex, OpenApiOperation } from '../helpers/openapi'
 import { cancelAndDeleteScan, SMALL_SETTINGS, startScan } from '../helpers/scans'
+import { fetchFromScriptsNetwork } from '../helpers/security-scripts'
 import { createUser, deleteUser, newApiContext } from '../helpers/users'
 import { OWNED_PARAMS, REQUESTS, type Ids } from './requests'
 import { expect, test as base, unique } from '../fixtures'
@@ -45,7 +48,9 @@ import { expect, test as base, unique } from '../fixtures'
 // The generated authorization matrix (docs/security.md §7, docs/testing.md §8.5). Every operation of the live OpenAPI
 // document is called by every principal of its scope's row, with the request authz/requests.ts builds for it against
 // the resources the authz-setup project seeded (.auth/authz.json): anonymous callers, user B with A's ids, A, the
-// admin (session and `default` key), an admin's `editor` key, node and worker tokens, setup tokens and tools cookies.
+// admin (session and `default` key), an admin's `editor` key, node, worker and script-run tokens, setup tokens and
+// tools cookies. The script runtime API answers only peers on the scripts network, so its credential checks also run
+// from a container there (helpers/security-scripts.ts); the security specs prove what a running run's token reaches.
 // The tests are fixed per principal and scope and loop over the operations at run time, so a new operation is covered
 // without a new test (and fails until requests.ts has its factory). Reads run first; destructive operations run last
 // on throwaway copies; after all of B's attempts the fingerprint of A's GET representations is unchanged.
@@ -70,10 +75,20 @@ test.use({ storageState: { cookies: [], origins: [] } })
 const NOT_FOUND = 'notFound'
 /** Scan settings whose workers can never be placed (no node is in this pool): such a scan starts but never runs. */
 const UNPLACEABLE = { ...SMALL_SETTINGS, nodeSelector: { pool: 'authz-matrix-nowhere' } }
+/**
+ * Script-run settings above every instance cap (SCANTOR_SCRIPT_RUN_MAX_CPUS) but within the request schema: a start
+ * that passes the script and scan checks answers 400 validationFailed instead of creating a run.
+ */
+const OVER_CAP = { resources: { cpus: 1024 } }
+
+/** The `Cookie` header of a saved session (storage state). */
+function sessionCookie(state: string): string {
+  return (JSON.parse(readFileSync(state, 'utf8')) as { cookies: { name: string; value: string }[] }).cookies.map((c) => `${c.name}=${c.value}`).join('; ')
+}
 
 /** Destructive operations in an order that keeps parents alive until their children were tried. */
 function destructiveRank(op: OpenApiOperation): number {
-  if (op.operationId === 'deleteTask' || op.operationId === 'deleteScan') return 3
+  if (op.operationId === 'deleteTask' || op.operationId === 'deleteScan' || op.operationId === 'deleteScript') return 3
   return op.method === 'delete' ? 2 : 1
 }
 const byDestructiveOrder = (x: OpenApiOperation, y: OpenApiOperation) => destructiveRank(x) - destructiveRank(y) || x.operationId.localeCompare(y.operationId)
@@ -98,14 +113,15 @@ interface Throwaways {
 /**
  * Copies of A's addressable resources, created as A, for destructive cases and for the owner's and the admin's
  * mutations: a scaffold task, a scan of alpha's revision (its workers can never be placed, so it never runs), an export,
- * a list upload, a git credential and an API key. A's completed test run stands in for a copy: the only destructive
- * operation on it, cancelTestRun, cannot change a finished run. Nothing of A's seeded resources is changed by creating
- * the copies, so the fingerprint stays valid. `cleanup` removes whatever is left of them (404 counts as removed).
+ * a list upload, a git credential, an API key and a scaffold script. A's completed test run and script run stand in
+ * for copies: the only destructive operations on them, cancelTestRun and cancelScriptRun, cannot change a finished
+ * run. Nothing of A's seeded resources is changed by creating the copies, so the fingerprint stays valid. `cleanup`
+ * removes whatever is left of them (404 counts as removed).
  */
 async function createThrowaways(seed: Seed, openapi: OpenApiIndex): Promise<Throwaways> {
   const a = await clientFor(openapi, { storageState: seed.a.storageState })
   const name = unique('authz-copy')
-  const [task, scan, exported, upload, credential, key] = await Promise.all([
+  const [task, scan, exported, upload, credential, key, script] = await Promise.all([
     a.call<Task>('createTask', { body: { name, language: 'python' } }).then((r) => ok(r, 'createTask')),
     startScan(a, { revision: seed.a.revisionId, name, scanConfig: { items: ['authz-copy'] }, settings: UNPLACEABLE }),
     a.call<Export>('exportScan', { path: { scanId: seed.a.scanId }, body: { format: 'csv' } }).then((r) => ok(r, 'exportScan')),
@@ -120,6 +136,7 @@ async function createThrowaways(seed: Seed, openapi: OpenApiIndex): Promise<Thro
       .call<Credential>('createCredential', { body: { kind: 'gitToken', name, host: idsOfA(seed).gitHost, username: 'authz', token: 'authz-token' } })
       .then((r) => ok(r, 'createCredential')),
     a.call<CreatedApiKey>('createApiKey', { body: { name: name.slice(0, 32), expiresInDays: 1 } }).then((r) => ok(r, 'createApiKey')),
+    a.call<Script>('createScript', { body: { name } }).then((r) => ok(r, 'createScript')),
   ])
   const ids = idsOfA(seed, {
     task: task.id,
@@ -128,6 +145,7 @@ async function createThrowaways(seed: Seed, openapi: OpenApiIndex): Promise<Thro
     uploadId: upload.id,
     credentialId: credential.id,
     keyId: key.apiKey.id,
+    script: script.id,
   })
   return {
     ids,
@@ -142,6 +160,7 @@ async function createThrowaways(seed: Seed, openapi: OpenApiIndex): Promise<Thro
           a.call('deleteCredential', { path: { credentialId: credential.id } }),
           a.call('deleteApiKey', { path: { keyId: key.apiKey.id } }),
           a.call('deleteTask', { path: { task: task.id } }),
+          a.call('deleteScript', { path: { script: script.id } }),
         ])
         for (const answer of answers) expect([200, 202, 204, 404, 409], `cleanup of a copy answered ${answer.status}`).toContain(answer.status)
       } finally {
@@ -169,6 +188,14 @@ async function expectThrowawaysIntact(seed: Seed, openapi: OpenApiIndex, ids: Id
     expect(credentials.items.map((c) => c.id)).toContain(ids.credentialId)
     const keys = ok(await a.call<ItemList<{ id: string }>>('listApiKeys'), 'listApiKeys')
     expect(keys.items.map((k) => k.id)).toContain(ids.keyId)
+    expect((await a.call('getScript', { path: { script: ids.script } })).status, 'the script copy').toBe(200)
+    expect(
+      (await a.call('readScriptFile', { path: { script: ids.script }, query: { path: 'scantor-script.yaml' } })).status,
+      'the manifest of the script copy',
+    ).toBe(200)
+    const scriptRun = await a.call<ScriptRun>('getScriptRun', { path: { scriptRunId: ids.scriptRunId } })
+    expect(scriptRun.status).toBe(200)
+    expect(scriptRun.body.state, 'A’s script run is still completed').toBe('completed')
   } finally {
     await a.request.dispose()
   }
@@ -229,10 +256,10 @@ test.describe('authorization matrix', () => {
 
   test(
     'machine credentials are never user principals on owner and admin operations',
-    { tag: ['@AUTHZ-001', '@AUTHZ-008'] },
+    { tag: ['@AUTHZ-001', '@AUTHZ-008', '@AUTHZ-017'] },
     async ({ openapi, seed, principals }) => {
       const ids = idsOfA(seed, { userId: randomUUID(), nodeId: randomUUID() })
-      for (const name of ['nodeToken', 'workerToken', 'setupToken'] as const) {
+      for (const name of ['nodeToken', 'workerToken', 'scriptRunToken', 'setupToken'] as const) {
         const context = await principals.get(name)
         for (const op of [...operationsOf(openapi, 'owner'), ...operationsOf(openapi, 'admin')]) {
           await expectStatus(name, op, await send(context, op, buildRequest(op, ids)), 401, 'unauthorized')
@@ -250,7 +277,22 @@ test.describe('authorization matrix', () => {
       const ids = idsOfA(seed)
       const reads = crossTenantOperations(openapi, (op) => isRead(op))
       expect(reads.map((op) => op.operationId)).toEqual(
-        expect.arrayContaining(['getTask', 'getRevision', 'getScan', 'getAnalysis', 'getFileDownload', 'getTestRun', 'getExport', 'getUpload', 'getJob']),
+        expect.arrayContaining([
+          'getTask',
+          'getRevision',
+          'getScan',
+          'getAnalysis',
+          'getFileDownload',
+          'getTestRun',
+          'getExport',
+          'getUpload',
+          'getJob',
+          'getScript',
+          'getScriptRun',
+          'getScriptRunLogs',
+          'readScriptRunOutput',
+          'getScriptRunSourceDownload',
+        ]),
       )
       for (const name of ['bSession', 'bKey'] as const) {
         const context = await principals.get(name)
@@ -262,7 +304,19 @@ test.describe('authorization matrix', () => {
       const ids = idsOfA(seed)
       const mutations = crossTenantOperations(openapi, (op) => !isRead(op) && !isDestructive(op))
       expect(mutations.map((op) => op.operationId)).toEqual(
-        expect.arrayContaining(['updateCredential', 'writeTaskFiles', 'publishRevision', 'pauseScan', 'scaleScan', 'restartScan', 'exportScan', 'testTask']),
+        expect.arrayContaining([
+          'updateCredential',
+          'writeTaskFiles',
+          'publishRevision',
+          'pauseScan',
+          'scaleScan',
+          'restartScan',
+          'exportScan',
+          'testTask',
+          'writeScriptFiles',
+          'startScriptRun',
+          'restartScriptRun',
+        ]),
       )
       for (const name of ['bSession', 'bKey'] as const) {
         const context = await principals.get(name)
@@ -289,6 +343,9 @@ test.describe('authorization matrix', () => {
               'deleteUpload',
               'deleteCredential',
               'deleteApiKey',
+              'deleteScript',
+              'deleteScriptFile',
+              'cancelScriptRun',
             ]),
           )
           for (const name of ['bSession', 'bKey'] as const) {
@@ -369,18 +426,30 @@ test.describe('authorization matrix', () => {
       const all = crossTenantOperations(openapi, (op) => !isRead(op) && !isAccountScoped(op) && REQUESTS[op.operationId]?.bodyRefs !== true)
       const ordered = all.filter((op) => !isDestructive(op)).concat(all.filter(isDestructive).sort(byDestructiveOrder))
       expect(ordered.map((op) => op.operationId)).toEqual(
-        expect.arrayContaining(['writeTaskFiles', 'updateCredential', 'pauseScan', 'cancelScan', 'deleteScan', 'deleteTask']),
+        expect.arrayContaining([
+          'writeTaskFiles',
+          'updateCredential',
+          'pauseScan',
+          'cancelScan',
+          'deleteScan',
+          'deleteTask',
+          'writeScriptFiles',
+          'restartScriptRun',
+          'cancelScriptRun',
+          'deleteScript',
+        ]),
       )
       const context = await principals.get('adminSession')
       for (const op of ordered) {
         const answer = await send(context, op, buildRequest(op, copies.ids, 'safe'))
         expect.soft(isOk(answer.status), `adminSession: ${describeAnswer(op, answer)}`).toBe(true)
       }
-      // The admin's writes landed on A's copies: the credential was renamed and the task deleted.
+      // The admin's writes landed on A's copies: the task, the upload and the script were deleted.
       const a = await clientFor(openapi, { storageState: seed.a.storageState })
       try {
         expect((await a.call('getTask', { path: { task: copies.ids.task } })).status).toBe(404)
         expect((await a.call('getUpload', { path: { uploadId: copies.ids.uploadId } })).status).toBe(404)
+        expect((await a.call('getScript', { path: { script: copies.ids.script } })).status, 'the script copy is being deleted').toBe(404)
       } finally {
         await a.request.dispose()
       }
@@ -398,6 +467,8 @@ test.describe('authorization matrix', () => {
         expect(await findInList<{ id: string }>(admin, 'listScans', {}, (s) => s.id === seed.a.scanId), 'A’s scan').toBeTruthy()
         expect(await findInList<{ id: string }>(admin, 'listJobs', {}, (j) => j.id === seed.a.jobId), 'A’s job').toBeTruthy()
         expect(await findInList<{ id: string }>(admin, 'listExports', {}, (e) => e.id === seed.a.exportId), 'A’s export').toBeTruthy()
+        expect(await findInList<Script>(admin, 'listScripts', {}, (s) => s.id === seed.a.scriptId), 'A’s script').toBeTruthy()
+        expect(await findInList<Script>(admin, 'listScripts', {}, (s) => s.id === seed.b.scriptId), 'B’s script').toBeTruthy()
       } finally {
         await admin.request.dispose()
       }
@@ -434,7 +505,7 @@ test.describe('authorization matrix', () => {
   })
 
   test('a userId filter is admin-only except for the caller’s own id', { tag: ['@AUTHZ-004'] }, async ({ openapi, seed, principals }) => {
-    const lists = ['listTasks', 'listScans', 'listJobs'].map((id) => openapi.get(id))
+    const lists = ['listTasks', 'listScans', 'listJobs', 'listScripts'].map((id) => openapi.get(id))
     for (const op of lists)
       expect(
         op.parameters.map((p) => p.name),
@@ -462,6 +533,9 @@ test.describe('authorization matrix', () => {
       expect(new Set(scans.items.map((s) => s.userId))).toEqual(new Set([seed.a.id]))
       const jobs = ok(await admin.call<Page<{ id: string }>>('listJobs', { query: { userId: seed.a.id, limit: 200 }, validate: false }), 'listJobs')
       expect(jobs.items.map((j) => j.id)).toContain(seed.a.jobId)
+      const scripts = ok(await admin.call<Page<Script>>('listScripts', { query: { userId: seed.a.id, limit: 200 }, validate: false }), 'listScripts')
+      expect(scripts.items.map((x) => x.id)).toContain(seed.a.scriptId)
+      expect(new Set(scripts.items.map((x) => x.userId))).toEqual(new Set([seed.a.id]))
       const jobsOfB = ok(await b.call<Page<{ id: string }>>('listJobs', { query: { limit: 200 }, validate: false }), 'listJobs').items.map((j) => j.id)
       for (const id of jobsOfB)
         expect(
@@ -488,6 +562,9 @@ test.describe('authorization matrix', () => {
       a.credentialId,
       a.jobId,
       a.keyId,
+      a.scriptId,
+      a.scriptRunId,
+      a.outputId,
       ...a.workers.map((w) => w.id),
     ]
     const lists: [string, Record<string, string>][] = [
@@ -501,6 +578,8 @@ test.describe('authorization matrix', () => {
       ['listCredentials', {}],
       ['listApiKeys', {}],
       ['listOAuthApps', {}],
+      ['listScripts', {}],
+      ['listScriptRuns', { script: seed.b.scriptId }],
     ]
     for (const name of ['bSession', 'bKey'] as const) {
       const context = await principals.get(name)
@@ -515,6 +594,8 @@ test.describe('authorization matrix', () => {
       expect((tasks.json as Page<Task>).items.map((t) => t.id)).toContain(seed.b.taskId)
       const revisions = await send(context, openapi.get('listRevisions'), { path: { task: seed.b.taskId } })
       expect(revisions.text).toContain(seed.b.revisionId)
+      const scripts = await send(context, openapi.get('listScripts'), { query: { limit: 200 } })
+      expect((scripts.json as Page<Script>).items.map((x) => x.id)).toContain(seed.b.scriptId)
     }
   })
 
@@ -563,10 +644,41 @@ test.describe('authorization matrix', () => {
     }
   })
 
+  test(
+    'script names resolve only among the caller’s scripts, and admins reach other users’ scripts only by id',
+    { tag: ['@AUTHZ-006'] },
+    async ({ openapi, seed }) => {
+      const b = await clientFor(openapi, { storageState: seed.b.storageState })
+      const admin = await clientFor(openapi, { storageState: seed.admin.storageState })
+      try {
+        // A and B each own a script `alpha` (next to their task `alpha`: tasks and scripts have separate names).
+        expect(ok(await b.call<Script>('getScript', { path: { script: 'alpha' } }), 'getScript').id).toBe(seed.b.scriptId)
+        expect(ok(await b.call<Page<ScriptRun>>('listScriptRuns', { path: { script: 'alpha' } }), 'listScriptRuns').items.map((r) => r.id)).not.toContain(
+          seed.a.scriptRunId,
+        )
+        expect((await b.call('readScriptFile', { path: { script: 'alpha' }, query: { path: 'main.py' } })).status, 'B’s scaffold').toBe(200)
+        // B's run of `alpha` would run B's script: A's scan is not one of B's (404 before anything is created).
+        expect((await b.call('startScriptRun', { path: { script: 'alpha' }, body: { scans: [seed.a.scanId], settings: OVER_CAP } })).status).toBe(404)
+
+        // An admin's name lookups are the admin's own: there is no `alpha` of the admin.
+        for (const operationId of ['getScript', 'listScriptFiles', 'listScriptRuns', 'downloadScriptWorkspace']) {
+          expect.soft((await admin.call(operationId, { path: { script: 'alpha' } })).status, `${operationId} of alpha`).toBe(404)
+        }
+        expect((await admin.call('startScriptRun', { path: { script: 'alpha' }, body: { scans: [seed.a.scanId], settings: OVER_CAP } })).status).toBe(404)
+        // By id the admin reaches either tenant's script.
+        expect(ok(await admin.call<Script>('getScript', { path: { script: seed.a.scriptId } }), 'getScript').userId).toBe(seed.a.id)
+        expect(ok(await admin.call<Script>('getScript', { path: { script: seed.b.scriptId } }), 'getScript').userId).toBe(seed.b.id)
+      } finally {
+        await b.request.dispose()
+        await admin.request.dispose()
+      }
+    },
+  )
+
   test('a create that references another user’s document answers 404, also for admins', { tag: ['@AUTHZ-007'] }, async ({ openapi, seed, principals }) => {
     const ids = idsOfA(seed)
     const creates = [...openapi.operations.values()].filter((op) => REQUESTS[op.operationId]?.bodyRefs === true)
-    expect(creates.map((op) => op.operationId).sort()).toEqual(['estimateTemplate', 'importGitTask', 'startScan'])
+    expect(creates.map((op) => op.operationId).sort()).toEqual(['estimateTemplate', 'importGitTask', 'startScan', 'startScriptRun'])
     const references: { label: string; op: string; body: Record<string, unknown> }[] = [
       { label: 'A’s revision id', op: 'startScan', body: { revision: seed.a.revisionId, scanConfig: { items: ['x'] }, settings: UNPLACEABLE } },
       { label: 'A’s task id as a revision reference', op: 'startScan', body: { revision: seed.a.taskId, scanConfig: { items: ['x'] }, settings: UNPLACEABLE } },
@@ -578,24 +690,59 @@ test.describe('authorization matrix', () => {
       { label: 'A’s credential', op: 'importGitTask', body: buildRequest(openapi.get('importGitTask'), ids).body as Record<string, unknown> },
       { label: 'A’s upload', op: 'estimateTemplate', body: { scanConfig: { upload: seed.a.uploadId } } },
     ]
-    for (const name of ['bSession', 'bKey', 'adminSession', 'adminKey'] as const) {
-      const context = await principals.get(name)
-      for (const reference of references) {
-        // B's own revision in a scan with A's upload: only B may use B's revision, so the admin case uses the admin's
-        // view of the same body (B's revision is not the admin's own document either).
-        const op = openapi.get(reference.op)
-        const answer = await send(context, op, { path: { template: 'list' }, body: reference.body })
-        await expectStatus(`${name} (${reference.label})`, op, answer, 404, NOT_FOUND)
-        if (answer.status === 201 && op.operationId === 'startScan') {
-          const leaked = await clientFor(openapi, name.startsWith('admin') ? { storageState: seed.admin.storageState } : { storageState: seed.b.storageState })
-          await cancelAndDeleteScan(leaked, (answer.json as Scan).id, { waitForJob: true })
-          await leaked.request.dispose()
+    // Script runs read only the scans of the script's owner, also when an admin starts another user's script
+    // (docs/scripts.md): a scan of B's that never runs (its workers can never be placed) stands in for B's data.
+    // OVER_CAP makes every start that passes the scan check a 400, so a missing check never creates a run.
+    const b = await clientFor(openapi, { storageState: seed.b.storageState })
+    let scanOfB: Scan | undefined
+    try {
+      scanOfB = await startScan(b, { revision: seed.b.revisionId, name: unique('authz-refs'), scanConfig: { items: ['authz-refs'] }, settings: UNPLACEABLE })
+      const scriptReferences: { label: string; principals: readonly PrincipalName[]; script: string; scans: string[] }[] = [
+        { label: 'A’s scan for B’s script', principals: ['bSession', 'bKey'], script: seed.b.scriptId, scans: [seed.a.scanId] },
+        { label: 'A’s scan next to B’s own', principals: ['bSession', 'bKey'], script: seed.b.scriptId, scans: [scanOfB.id, seed.a.scanId] },
+        { label: 'B’s scan for A’s script', principals: ['adminSession', 'adminKey'], script: seed.a.scriptId, scans: [scanOfB.id] },
+        {
+          label: 'B’s scan next to A’s own for A’s script',
+          principals: ['adminSession', 'adminKey'],
+          script: seed.a.scriptId,
+          scans: [seed.a.scanId, scanOfB.id],
+        },
+      ]
+      for (const name of ['bSession', 'bKey', 'adminSession', 'adminKey'] as const) {
+        const context = await principals.get(name)
+        for (const reference of references) {
+          // B's own revision in a scan with A's upload: only B may use B's revision, so the admin case uses the admin's
+          // view of the same body (B's revision is not the admin's own document either).
+          const op = openapi.get(reference.op)
+          const answer = await send(context, op, { path: { template: 'list' }, body: reference.body })
+          await expectStatus(`${name} (${reference.label})`, op, answer, 404, NOT_FOUND)
+          if (answer.status === 201 && op.operationId === 'startScan') {
+            const leaked = await clientFor(
+              openapi,
+              name.startsWith('admin') ? { storageState: seed.admin.storageState } : { storageState: seed.b.storageState },
+            )
+            await cancelAndDeleteScan(leaked, (answer.json as Scan).id, { waitForJob: true })
+            await leaked.request.dispose()
+          }
+        }
+        const op = openapi.get('startScriptRun')
+        for (const reference of scriptReferences.filter((r) => r.principals.includes(name))) {
+          const answer = await send(context, op, { path: { script: reference.script }, body: { scans: reference.scans, settings: OVER_CAP } })
+          await expectStatus(`${name} (${reference.label})`, op, answer, 404, NOT_FOUND)
         }
       }
-    }
-    // The control: with the caller's own upload the same estimate works.
-    const b = await clientFor(openapi, { storageState: seed.b.storageState })
-    try {
+      // The controls: B's own scan for B's script and A's own scan for A's script (by the admin) pass the scan check
+      // and stop at the settings cap.
+      const startScriptRun = openapi.get('startScriptRun')
+      for (const [name, script, scanId] of [
+        ['bSession', seed.b.scriptId, scanOfB.id],
+        ['adminSession', seed.a.scriptId, seed.a.scanId],
+      ] as const) {
+        const answer = await send(await principals.get(name), startScriptRun, { path: { script }, body: { scans: [scanId], settings: OVER_CAP } })
+        await expectStatus(`${name} (the script owner’s own scan)`, startScriptRun, answer, 400, 'validationFailed')
+      }
+
+      // The control: with the caller's own upload the same estimate works.
       const upload = ok(
         await b.call<Upload>('createUpload', {
           body: Buffer.from('b.example\n'),
@@ -607,6 +754,7 @@ test.describe('authorization matrix', () => {
       expect((await b.call('estimateTemplate', { path: { template: 'list' }, body: { scanConfig: { upload: upload.id } }, validate: false })).status).toBe(200)
       await b.call('deleteUpload', { path: { uploadId: upload.id } })
     } finally {
+      if (scanOfB) await cancelAndDeleteScan(b, scanOfB.id)
       await b.request.dispose()
     }
   })
@@ -791,6 +939,7 @@ test.describe('authorization matrix', () => {
       'adminKey',
       'nodeToken',
       'workerToken',
+      'scriptRunToken',
       'setupToken',
       'invalidBearer',
       'invalidApiKey',
@@ -829,7 +978,7 @@ test.describe('authorization matrix', () => {
       'postNodeStatus',
       'postWorkerLogs',
     ])
-    for (const name of ['anonymous', 'aSession', 'aKey', 'adminSession', 'adminKey', 'workerToken', 'setupToken', 'invalidBearer'] as const) {
+    for (const name of ['anonymous', 'aSession', 'aKey', 'adminSession', 'adminKey', 'workerToken', 'scriptRunToken', 'setupToken', 'invalidBearer'] as const) {
       const context = await principals.get(name)
       for (const op of operations) {
         const answer = await send(context, op, buildRequest(op, ids))
@@ -905,7 +1054,18 @@ test.describe('authorization matrix', () => {
       expect(operations.map((op) => op.operationId)).toEqual(expect.arrayContaining(schedulerRoutes))
       const ids = idsOfA(seed)
       // Everything but a worker token: 401 (the seeded worker's token is a stopped worker's).
-      for (const name of ['anonymous', 'aSession', 'aKey', 'adminSession', 'adminKey', 'nodeToken', 'setupToken', 'invalidBearer', 'workerToken'] as const) {
+      for (const name of [
+        'anonymous',
+        'aSession',
+        'aKey',
+        'adminSession',
+        'adminKey',
+        'nodeToken',
+        'scriptRunToken',
+        'setupToken',
+        'invalidBearer',
+        'workerToken',
+      ] as const) {
         const context = await principals.get(name)
         for (const op of operations) await expectStatus(name, op, await send(context, op, buildRequest(op, ids)), 401, 'unauthorized')
       }
@@ -979,10 +1139,81 @@ test.describe('authorization matrix', () => {
     },
   )
 
+  test(
+    'scriptRun-scope operations reject every credential but a running script run’s token from the scripts network',
+    { tag: ['@AUTHZ-017'] },
+    async ({ openapi, seed, principals }) => {
+      test.setTimeout(180_000)
+      const operations = operationsOf(openapi, 'scriptRun')
+      expect(operations.map((op) => op.operationId).sort()).toEqual([
+        'scriptRuntimeAggregate',
+        'scriptRuntimeBootstrap',
+        'scriptRuntimeCheckpoint',
+        'scriptRuntimeCompleteOutput',
+        'scriptRuntimeCreateOutput',
+        'scriptRuntimeCreateOutputPart',
+        'scriptRuntimeDescribe',
+        'scriptRuntimeFileUrl',
+        'scriptRuntimeFinish',
+        'scriptRuntimeOutputUrl',
+        'scriptRuntimeProgress',
+        'scriptRuntimeStreamAnalyses',
+      ])
+      for (const op of operations) expect.soft(op.extensions['x-mcp'], `${op.operationId} is no MCP tool`).toBe(false)
+      const ids = idsOfA(seed)
+
+      // From outside the scripts network (the runner reaches the orchestrator through Traefik) the peer check refuses
+      // every request before any credential is looked at: 403, also for a script-run token.
+      const everyone: PrincipalName[] = [
+        'anonymous',
+        'aSession',
+        'aKey',
+        'bSession',
+        'bKey',
+        'adminSession',
+        'adminKey',
+        'nodeToken',
+        'workerToken',
+        'scriptRunToken',
+        'setupToken',
+        'invalidBearer',
+        'invalidApiKey',
+      ]
+      for (const name of everyone) {
+        const context = await principals.get(name)
+        for (const op of operations) await expectStatus(name, op, await send(context, op, buildRequest(op, ids)), 403, 'forbidden')
+      }
+
+      // From a container on the scripts network the peer check passes and the credential decides: 401 for anything but
+      // the token of a running script run, the token of A's ended run included (tests/security/script-runs.spec.ts
+      // proves what a running run's token reaches).
+      const credentials: [string, Record<string, string>][] = [
+        ['anonymous', {}],
+        ['A’s session cookie', { Cookie: sessionCookie(seed.a.storageState) }],
+        ['A’s API key', { Authorization: `Bearer ${seed.a.key}` }],
+        ['A’s API key as X-API-Key', { 'X-API-Key': seed.a.key }],
+        ['the admin’s API key', { Authorization: `Bearer ${seed.admin.key}` }],
+        ['the node token of N1', { Authorization: `Bearer ${seed.n1.token}` }],
+        ['a worker token', { Authorization: `Bearer ${seed.a.workers[0]!.token}` }],
+        ['the token of A’s ended script run', { Authorization: `Bearer ${seed.a.scriptRunToken}` }],
+        ['an invalid Bearer value', { Authorization: 'Bearer not-a-credential' }],
+      ]
+      const sent = credentials.flatMap(([label, headers]) =>
+        operations.map((op) => ({ label, op, request: networkRequest(op, buildRequest(op, ids), headers) })),
+      )
+      const answers = await fetchFromScriptsNetwork(sent.map((entry) => entry.request))
+      expect(answers).toHaveLength(sent.length)
+      sent.forEach(({ label, op }, index) => {
+        const answer = answers[index]!
+        const description = `${label}: ${op.operationId} (${op.method.toUpperCase()} ${op.path}) from the scripts network answered ${JSON.stringify(answer)}`
+        expect.soft(answer.status, description).toBe(401)
+        expect.soft(answer.code, description).toBe('unauthorized')
+      })
+    },
+  )
+
   test('forwardAuth succeeds only with an admin’s tools cookie', { tag: ['@AUTHZ-014'] }, async ({ env, seed, adminApi }) => {
     const rawdata = `https://traefik.${env.domain}/api/rawdata`
-    const sessionCookie = (state: string) =>
-      (JSON.parse(readFileSync(state, 'utf8')) as { cookies: { name: string; value: string }[] }).cookies.map((c) => `${c.name}=${c.value}`).join('; ')
     // Tools cookies minted with the stack's key (helpers/keys.ts) for B, whom no case ever promotes (A is an admin for a
     // moment in the editor-key case, and the user cache keeps a role for up to 30 s), and for the admin: forwardAuth
     // checks the current role of the cookie's user, whatever the cookie claims.
@@ -1052,7 +1283,18 @@ test.describe('authorization matrix', () => {
     const setupOps = operationsOf(openapi, 'setup')
     expect(setupOps.map((op) => op.operationId).sort()).toEqual(['createSetupAdmin', 'createSetupPasskeyToken'])
     const ids = idsOfA(seed)
-    for (const name of ['anonymous', 'setupToken', 'aSession', 'aKey', 'adminSession', 'adminKey', 'nodeToken', 'workerToken', 'invalidBearer'] as const) {
+    for (const name of [
+      'anonymous',
+      'setupToken',
+      'aSession',
+      'aKey',
+      'adminSession',
+      'adminKey',
+      'nodeToken',
+      'workerToken',
+      'scriptRunToken',
+      'invalidBearer',
+    ] as const) {
       const context = await principals.get(name)
       for (const op of setupOps) await expectStatus(name, op, await send(context, op, buildRequest(op, ids)), 409, 'setupCompleted')
       for (const [method, path] of [
@@ -1107,7 +1349,19 @@ test.describe('authorization matrix', () => {
             expect.soft(mcpError(result)?.httpStatus, `${tool.name}: ${resultText(result)}`).toBe(404)
           }
           expect(called, 'the tools that address A’s resources').toEqual(
-            expect.arrayContaining(['get_task', 'get_scan', 'query_analyses', 'start_scan', 'cancel_scan']),
+            expect.arrayContaining([
+              'get_task',
+              'get_scan',
+              'query_analyses',
+              'start_scan',
+              'cancel_scan',
+              'get_script',
+              'write_script_files',
+              'start_script_run',
+              'get_script_run_logs',
+              'read_script_run_output',
+              'cancel_script_run',
+            ]),
           )
           await expectThrowawaysIntact(seed, openapi, copies.ids)
         } finally {

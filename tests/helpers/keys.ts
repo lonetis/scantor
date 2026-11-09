@@ -4,10 +4,10 @@ import { join } from 'node:path'
 import { env } from './env'
 
 // Key derivations of docs/architecture.md §9 from the test stack's SCANTOR_SECRET, for white-box tests: the
-// per-scan RabbitMQ password, worker tokens (with the worker documents of listScanWorkers), the read-only MongoDB
-// user, the registry push credential and the tools and editor cookies. A TypeScript twin of Go internal/keys and
-// orchestrator/server/utils/keys.ts; `verifyVectors()` checks it against tests/corpora/keys-vectors.json, which pins
-// all three implementations.
+// per-scan RabbitMQ password, worker tokens (with the worker documents of listScanWorkers), script-run tokens, the
+// read-only MongoDB user, the registry push credential and the tools and editor cookies. A TypeScript twin of Go
+// internal/keys and orchestrator/server/utils/keys.ts; `verifyVectors()` checks it against
+// tests/corpora/keys-vectors.json, which pins all three implementations.
 //
 //   key(label) = HKDF-SHA256(ikm = UTF-8(secret), salt = UTF-8("scantor-v1"), info = UTF-8(label), L = 32)
 
@@ -26,6 +26,7 @@ export type KeyLabel =
   | 'editor-cookie'
   | 'builtin-node'
   | 'mongo-query'
+  | 'script-run-token'
 
 const b64url = (data: Buffer) => data.toString('base64url')
 const hmac = (key: Buffer, message: string) => createHmac('sha256', key).update(message, 'utf8').digest()
@@ -65,6 +66,12 @@ export class Keys {
     return `swt_${worker.workerId}.${mac}`
   }
 
+  /** a script-run token `ssr_<scriptRunId>.<mac>` (the run's script and owner) */
+  scriptRunToken(run: { scriptRunId: string; scriptId: string; userId: string }): string {
+    const mac = b64url(hmac(this.derive('script-run-token'), `${run.scriptRunId}\n${run.scriptId}\n${run.userId}`))
+    return `ssr_${run.scriptRunId}.${mac}`
+  }
+
   /** a `scantor_editor` cookie value */
   editorCookie(userId: string, editorStartedAtMs: number, expiresAtMs: number): string {
     const payload = `v1.${userId}.${editorStartedAtMs}.${expiresAtMs}`
@@ -96,6 +103,7 @@ interface Vectors {
   builtinNodeToken: { secret: string; value: string }[]
   amqpPassword: { secret: string; scanId: string; value: string }[]
   workerToken: { secret: string; workerId: string; scanId: string; role: string; nodeId: string; value: string }[]
+  scriptRunToken: { secret: string; scriptRunId: string; scriptId: string; userId: string; value: string }[]
   editorCookie: { secret: string; userId: string; editorStartedAtMs: number; expiresAtMs: number; value: string }[]
   toolsCookieSignature: { secret: string; signingInput: string; signature: string }[]
 }
@@ -114,6 +122,7 @@ export function verifyVectors(file = join(env.paths.tests, 'corpora', 'keys-vect
   for (const v of vectors.builtinNodeToken) check('builtinNodeToken', new Keys(v.secret).builtinNodeToken(), v.value)
   for (const v of vectors.amqpPassword) check(`amqpPassword ${v.scanId}`, new Keys(v.secret).amqpPassword(v.scanId), v.value)
   for (const v of vectors.workerToken) check(`workerToken ${v.workerId}`, new Keys(v.secret).workerToken(v), v.value)
+  for (const v of vectors.scriptRunToken) check(`scriptRunToken ${v.scriptRunId}`, new Keys(v.secret).scriptRunToken(v), v.value)
   for (const v of vectors.editorCookie)
     check(`editorCookie ${v.userId}`, new Keys(v.secret).editorCookie(v.userId, v.editorStartedAtMs, v.expiresAtMs), v.value)
   for (const v of vectors.toolsCookieSignature) check('toolsCookieSignature', new Keys(v.secret).toolsCookieSignature(v.signingInput), v.signature)

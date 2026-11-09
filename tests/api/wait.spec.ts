@@ -3,12 +3,14 @@ import { request as httpsRequest } from 'node:https'
 import { readFileSync } from 'node:fs'
 import type { Export } from '#shared/types/exports'
 import type { Revision } from '#shared/types/revisions'
+import type { ScriptRun } from '#shared/types/scripts'
 import type { UploadTaskResult } from '#shared/types/tasks'
 import type { TestRun } from '#shared/types/test-runs'
 import { ok, type ApiResponse } from '../helpers/api-client'
 import { rawJson, settleScan, testRunJob, UNPLACEABLE_SETTINGS, uploadResultsetWorkspace, waitUntilAnalysisRuns } from '../helpers/api-results'
 import { removeResultsetTask, writeResultsetTask } from '../helpers/api-results-task'
 import { env } from '../helpers/env'
+import { cancelScriptRun, getScriptRun, probeScriptFiles, probeWaiting, restartScriptRun, startScriptRun, waitForScriptRunLog } from '../helpers/scripts'
 import { packTask } from '../helpers/tasks'
 import { expect, test as fixturesTest, unique } from '../fixtures'
 import { apiResultsTest } from '../helpers/api-results-fixtures'
@@ -19,7 +21,8 @@ const test = apiResultsTest(fixturesTest)
 // `settled` at once for a settled resource; otherwise the request holds until the resource settles or the time runs
 // out (`timeout`), always with the normal status and body. Unsettled resources are made deterministic: a scan whose
 // node selector matches no node stays `running`, a revision with a slow build step stays `building` for a while,
-// a test run and its testRun job wait for a sleeping analysis. SCANTOR_MAX_CONCURRENT_WAITS is 20 in the stack.
+// a test run and its testRun job wait for a sleeping analysis, a script run of the probe script waits until it is
+// cancelled. SCANTOR_MAX_CONCURRENT_WAITS is 20 in the stack.
 
 const MAX_CONCURRENT_WAITS = 20
 const BUILD_SECONDS = 5
@@ -220,6 +223,77 @@ test.describe('wait on long-running operations', () => {
 
     await expectWaitBounds('getTestRun', (wait) => api.call('getTestRun', { path: { testRunId }, query: { wait } }))
     await expectWaitBounds('testTask', (wait) => api.call('testTask', { path: { task: task.name }, body: {}, query: { wait } }))
+  })
+
+  test('startScriptRun, getScriptRun and restartScriptRun wait for the script run', { tag: ['@API-012', '@SRUN-019'] }, async ({ api, scripts, resultset }) => {
+    test.setTimeout(300_000)
+    // Any scan of the user binds the probe; one that never gets a worker is the cheapest.
+    const scan = await resultset.start({ scanConfig: { items: ['a'] }, settings: UNPLACEABLE_SETTINGS })
+    const script = await scripts.upload(probeScriptFiles())
+    const runsPath = api.openapi.get('startScriptRun').path.replace('{script}', encodeURIComponent(script.name))
+    const unsettled = (run: ScriptRun) => ['queued', 'building', 'running'].includes(run.state)
+
+    // A run that waits until it is cancelled.
+    const slow = await timed(() => startScriptRun(api, script.name, { scans: [scan.id], config: { mode: 'wait', label: 'wait' } }, 1))
+    expect(slow.status).toBe(201)
+    expect(slow.headers['scantor-wait']).toBe('timeout')
+    expect(unsettled(slow.body)).toBe(true)
+    expect(slow.elapsedMs).toBeGreaterThanOrEqual(900)
+    const scriptRunId = slow.body.id
+
+    expect((await getScriptRun(api, scriptRunId)).headers['scantor-wait']).toBeUndefined()
+    expect((await getScriptRun(api, scriptRunId, 0)).headers['scantor-wait']).toBeUndefined()
+    const short = await timed(() => getScriptRun(api, scriptRunId, 1))
+    expect(short.status).toBe(200)
+    expect(short.headers['scantor-wait']).toBe('timeout')
+    expect(unsettled(short.body)).toBe(true)
+    expect(short.elapsedMs).toBeGreaterThanOrEqual(900)
+
+    // A wait held while the run is cancelled returns the cancelled run.
+    await waitForScriptRunLog(api, scriptRunId, probeWaiting('wait'))
+    const held = timed(() => getScriptRun(api, scriptRunId, 25))
+    ok(await cancelScriptRun(api, scriptRunId), 'cancelScriptRun')
+    const released = await held
+    expect(released.status).toBe(200)
+    expect(released.headers['scantor-wait']).toBe('settled')
+    expect(released.body.state).toBe('cancelled')
+    expect(released.elapsedMs).toBeLessThan(24_000)
+    const settled = await timed(() => getScriptRun(api, scriptRunId, 60))
+    expect(settled.headers['scantor-wait']).toBe('settled')
+    expect(settled.elapsedMs).toBeLessThan(10_000)
+
+    // Its restart waits the same way (the restarted run waits too, until it is cancelled).
+    const restarted = await timed(() => restartScriptRun(api, scriptRunId, {}, 1))
+    expect(restarted.status).toBe(201)
+    expect(restarted.headers['scantor-wait']).toBe('timeout')
+    expect(unsettled(restarted.body)).toBe(true)
+    expect(restarted.elapsedMs).toBeGreaterThanOrEqual(900)
+    ok(await cancelScriptRun(api, restarted.body.id), 'cancelScriptRun')
+
+    // A quick run settles within the wait, and so does its restart.
+    const quick = await rawJson<ScriptRun>(api, 'POST', runsPath, {
+      data: { scans: [scan.id], config: { mode: 'ok' } },
+      params: { wait: 120 },
+      timeoutMs: 150_000,
+    })
+    expect(quick.status).toBe(201)
+    expect(quick.headers['scantor-wait']).toBe('settled')
+    expect(quick.body.state).toBe('completed')
+    const restartPath = api.openapi.get('restartScriptRun').path.replace('{scriptRunId}', quick.body.id)
+    const quickAgain = await rawJson<ScriptRun>(api, 'POST', restartPath, { data: {}, params: { wait: 120 }, timeoutMs: 150_000 })
+    expect(quickAgain.status).toBe(201)
+    expect(quickAgain.headers['scantor-wait']).toBe('settled')
+    expect(quickAgain.body).toMatchObject({ state: 'completed', restartedFrom: { id: quick.body.id, resume: false } })
+    const unwaited = await startScriptRun(api, script.name, { scans: [scan.id], config: { mode: 'ok' } })
+    expect(unwaited.status).toBe(201)
+    expect(unwaited.headers['scantor-wait']).toBeUndefined()
+    ok(await cancelScriptRun(api, unwaited.body.id), 'cancelScriptRun')
+
+    await expectWaitBounds('getScriptRun', (wait) => api.call('getScriptRun', { path: { scriptRunId }, query: { wait } }))
+    await expectWaitBounds('startScriptRun', (wait) =>
+      api.call('startScriptRun', { path: { script: script.name }, body: { scans: [scan.id] }, query: { wait } }),
+    )
+    await expectWaitBounds('restartScriptRun', (wait) => api.call('restartScriptRun', { path: { scriptRunId }, body: {}, query: { wait } }))
   })
 })
 

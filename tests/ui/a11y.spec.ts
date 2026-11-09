@@ -1,5 +1,6 @@
 import type { Locator, Page } from '@playwright/test'
 import type { NodeWithToken } from '#shared/types/nodes'
+import type { Script, ScriptRun } from '#shared/types/scripts'
 import type { TestRun } from '#shared/types/test-runs'
 import { ok } from '../helpers/api-client'
 import {
@@ -73,7 +74,8 @@ const test = base.extend<{ viewers: Viewers }, A11yWorker>({
         await api.request.dispose()
       }
     },
-    { scope: 'worker', timeout: 180_000 },
+    // The world's script run builds its image after the files scan has completed.
+    { scope: 'worker', timeout: 240_000 },
   ],
   crawl: [
     async ({ browser, adminApi, openapi, uiTenant, world }, use) => {
@@ -218,7 +220,40 @@ const CANONICAL_NAMES = [
   'Read only',
   'Read and write',
   'Admin',
+  'New script',
+  'Run script',
+  'Download script',
+  'Delete script',
+  'Back to the scripts',
+  'Try on 100 analyses',
+  'Run on all',
+  'Add secret',
+  'Remove',
+  'Cancel script run',
+  'Run again',
+  'Resume',
+  'Download source',
+  'Back to the script',
 ]
+
+/** A script that ticks once a second for an hour: its runs stay active until they are cancelled. */
+const SLEEPING_SCRIPT_MAIN = `"""Ticks once a second for an hour (a run that stays active until it is cancelled)."""
+
+import time
+
+import scantor
+from scantor.script import Script, ScriptContext
+
+
+def run(ctx: ScriptContext, config: scantor.Empty) -> None:
+    for tick in range(3600):
+        ctx.check_cancelled()
+        ctx.progress(tick, 3600)
+        time.sleep(1)
+
+
+script = Script(run=run)
+`
 
 /** Tables whose rows lack data-row-id (the product bug of 'the rows of every table carry data-row-id'). */
 const KNOWN_ROWS_WITHOUT_ID = /(^| )schema$|^Pending reasons$/
@@ -281,6 +316,10 @@ test.describe('dashboard accessibility', () => {
         '/scans',
         '/scans/:id',
         '/scans/new',
+        '/scripts',
+        '/scripts/:id',
+        '/scripts/:id/runs/:id',
+        '/scripts/new',
         '/setup',
         '/tasks',
         '/tasks/:id',
@@ -353,6 +392,8 @@ test.describe('dashboard accessibility', () => {
       form.some((n) => /^Show value of \S/.test(n)),
       'Show value of <field>',
     ).toBe(true)
+    // The output files of a script run (the scaffold stores analyses.csv).
+    expect([...names('script run')]).toEqual(expect.arrayContaining(['Download analyses.csv', 'Copy SHA-256 of analyses.csv']))
   })
 
   test('no two buttons in a table share a name', { tag: ['@UI-NAV-023'] }, ({ crawl }) => {
@@ -363,7 +404,7 @@ test.describe('dashboard accessibility', () => {
   })
 
   test('every canonical control name of the contract exists', { tag: ['@UI-NAV-023'] }, async ({ crawl, viewers, adminApi, uiTenant, openapi, world }) => {
-    test.setTimeout(150_000)
+    test.setTimeout(210_000)
     expectComplete(crawl)
     const names = new Set(crawl.flatMap((report) => namesIn(report.snapshot).map((x) => x.name)))
 
@@ -404,6 +445,35 @@ test.describe('dashboard accessibility', () => {
       await expect
         .poll(async () => ok(await api.call<TestRun>('getTestRun', { path: { testRunId: run.id } }), 'getTestRun').state, { timeout: 60_000 })
         .toBe('cancelled')
+
+      // A secret row of the script-run form has "Show value of <name>" and "Remove <name>" ("secret 1" until named).
+      const addSecret = user.getByRole('button', { name: 'Add secret', exact: true })
+      await open(user, `/scripts/${world.script.id}?tab=runs`, () => expect(addSecret).toBeVisible({ timeout: 20_000 }))
+      await addSecret.click()
+      for (const name of ['Show value of secret 1', 'Remove secret 1']) {
+        await expect(user.getByRole('button', { name, exact: true })).toBeVisible()
+        names.add(name)
+      }
+
+      // An active script run offers "Cancel script run", whose confirmation names the action.
+      const sleeper = ok(await api.call<Script>('createScript', { body: { name: unique('a11y-sleeper') } }), 'createScript')
+      try {
+        ok(await api.call('writeScriptFiles', { path: { script: sleeper.id }, body: { files: { 'main.py': SLEEPING_SCRIPT_MAIN } } }), 'writeScriptFiles')
+        const scriptRun = ok(await api.call<ScriptRun>('startScriptRun', { path: { script: sleeper.id }, body: { scans: [world.scan.id] } }), 'startScriptRun')
+        const cancelRun = user.getByRole('button', { name: 'Cancel script run', exact: true })
+        await open(user, `/scripts/${sleeper.id}/runs/${scriptRun.id}`, () => expect(cancelRun).toBeVisible({ timeout: 20_000 }))
+        names.add('Cancel script run')
+        await cancelRun.click()
+        const confirmation = user.getByRole('dialog', { name: 'Cancel script run' })
+        await expect(confirmation.getByRole('button', { name: /^(OK|Yes|Confirm)$/i })).toHaveCount(0)
+        await confirmation.getByRole('button', { name: 'Cancel script run', exact: true }).click()
+        await expect
+          .poll(async () => ok(await api.call<ScriptRun>('getScriptRun', { path: { scriptRunId: scriptRun.id } }), 'getScriptRun').state, { timeout: 60_000 })
+          .toBe('cancelled')
+      } finally {
+        const deleted = await api.call('deleteScript', { path: { script: sleeper.id } })
+        expect([202, 404], `deleteScript answered ${deleted.status}`).toContain(deleted.status)
+      }
     } finally {
       await api.request.dispose()
     }
@@ -446,7 +516,19 @@ test.describe('dashboard accessibility', () => {
     // The schema tables and the pending reasons, which lack the attribute, are the product bug of the next test.
     const resources = tables.filter((t) => !KNOWN_ROWS_WITHOUT_ID.test(t.componentLabel ?? ''))
     expect([...new Set(resources.map((t) => t.componentLabel))]).toEqual(
-      expect.arrayContaining(['Tasks', 'Revisions', 'Test run history', 'Analyses', 'Exports', 'Workers', 'Nodes', 'Users', 'API keys']),
+      expect.arrayContaining([
+        'Tasks',
+        'Revisions',
+        'Test run history',
+        'Analyses',
+        'Exports',
+        'Workers',
+        'Nodes',
+        'Users',
+        'API keys',
+        'Scripts',
+        'Script run history',
+      ]),
     )
     expect(resources.filter((t) => t.rowsWithoutId > 0).map((t) => `${t.where} "${t.componentLabel}": ${t.rowsWithoutId} of ${t.dataRows} rows`)).toEqual([])
     expect(
@@ -478,6 +560,11 @@ test.describe('dashboard accessibility', () => {
       'build-errors',
       'analysis-slideover',
       'unpublished-badge',
+      'script-run-form',
+      'script-run-progress',
+      'script-run-result',
+      'script-run-outputs',
+      'script-run-log',
     ]
     expect(documented.filter((id) => !ids.has(id))).toEqual([])
   })
@@ -573,6 +660,17 @@ test.describe('dashboard accessibility', () => {
     await expect(dialog).toBeHidden()
     await expect(remove).toBeFocused()
     await expect(page.getByTestId('unpublished-badge').first()).toBeVisible()
+
+    // "Run script" on the scan page.
+    const runScript = page.getByRole('button', { name: 'Run script', exact: true })
+    await open(page, `/scans/${world.scan.id}`, () => expect(runScript).toBeVisible({ timeout: 20_000 }))
+    await runScript.click()
+    dialog = page.getByRole('dialog', { name: 'Run script' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByRole('link', { name: new RegExp(`^${world.script.name}`) })).toBeVisible()
+    await expectFocusTrapped(page, dialog)
+    await closeWithEscape(page, dialog)
+    await expect(runScript).toBeFocused()
 
     // The analysis slideover of the results.
     await open(page, `/scans/${world.scan.id}?tab=results`, (p) => row(p, world.analysis.seq))

@@ -4,6 +4,7 @@ import type { Analysis } from '#shared/types/analyses'
 import type { Page } from '#shared/types/common'
 import type { Credential } from '#shared/types/credentials'
 import type { Export } from '#shared/types/exports'
+import type { Script, ScriptRun } from '#shared/types/scripts'
 import type { TestRun } from '#shared/types/test-runs'
 import type { Upload } from '#shared/types/uploads'
 import type { Worker } from '#shared/types/workers'
@@ -22,15 +23,24 @@ import {
 import { PRIVATE_GIT_CREDENTIAL } from '../helpers/fixtures-server'
 import { stackKeys } from '../helpers/keys'
 import { startScan, waitForScanState } from '../helpers/scans'
+import {
+  AUTHZ_SCRIPT_OUTPUT,
+  authzScriptFiles,
+  createScriptWithFiles,
+  scriptRunToken,
+  startScriptRun,
+  waitForSettledScriptRun,
+} from '../helpers/security-scripts'
 import { exampleTaskDir, uploadAndPublish } from '../helpers/tasks'
 import { createUser, deleteUser, signedInContext } from '../helpers/users'
 import { expect, test as setup } from '../fixtures'
 
 // The `authz-setup` project (docs/testing.md §8.5, docs/security.md §7): seeds tenants A and B through the API (one
 // sign-in each through the limiter; the admin reuses the global setup session), creates every resource kind of A that
-// an operation can address, uses remote-1 as node N1 read-only, derives the tokens of A's (stopped) workers, and writes
-// all ids and credentials to this run's seed file (helpers/authz-seed.ts seedFile) together with the fingerprint of A's
-// GET representations. The `authz-teardown` project deletes A and B and the admin's matrix key.
+// an operation can address, uses remote-1 as node N1 read-only, derives the tokens of A's (stopped) workers and of A's
+// (completed) script run, and writes all ids and credentials to this run's seed file (helpers/authz-seed.ts seedFile)
+// together with the fingerprint of A's GET representations. The `authz-teardown` project deletes A and B and the
+// admin's matrix key.
 
 /**
  * Creates a user, signs in (one limiter slot), saves the storage state and creates a `default` API key. The user's id
@@ -55,6 +65,19 @@ async function seedUser(
   }
 }
 
+/**
+ * A completed run of A's script on A's scan, settled (its last log lines and the script's pointer written), and its
+ * stored output.
+ */
+async function completedScriptRun(api: ApiClient, scriptId: string, scanId: string): Promise<{ run: ScriptRun; outputId: string }> {
+  const started = await startScriptRun(api, scriptId, { scans: [scanId], settings: { limit: 1 } })
+  const run = await waitForSettledScriptRun(api, started.id, 240_000)
+  expect(run.state, JSON.stringify({ errors: run.errors, error: run.error, logTail: run.logTail })).toBe('completed')
+  const output = run.outputs.find((o) => o.name === AUTHZ_SCRIPT_OUTPUT)
+  expect(output, `the run stored ${AUTHZ_SCRIPT_OUTPUT}`).toBeTruthy()
+  return { run, outputId: output!.id }
+}
+
 /** Polls a test run until it ended (long-polling getTestRun). */
 async function waitForTestRun(api: ApiClient, testRunId: string, timeoutMs = 120_000): Promise<TestRun> {
   const deadline = Date.now() + timeoutMs
@@ -70,8 +93,9 @@ async function waitForTestRun(api: ApiClient, testRunId: string, timeoutMs = 120
 setup.use({ storageState: { cookies: [], origins: [] } })
 
 setup('seed tenants A and B for the authorization matrix', async ({ adminApi, openapi, env }, testInfo) => {
-  // The seed builds three images (cached after the first run) and runs a scan and a test run.
-  setup.setTimeout(180_000)
+  // The seed builds three task images and a script image (cached after the first run) and runs a scan, a test run and
+  // a script run.
+  setup.setTimeout(300_000)
   const version = ok(await adminApi.getHealth(), 'getHealth').version
   const adminAccount = ok(await adminApi.getAccount(), 'getAccount')
   const adminKey = ok(await adminApi.call<CreatedApiKey>('createApiKey', { body: { name: 'authz-matrix-admin', expiresInDays: 1 } }), 'createApiKey')
@@ -92,8 +116,10 @@ setup('seed tenants A and B for the authorization matrix', async ({ adminApi, op
 
     // Both tenants own a task named `alpha`: the `files` example (template `list`, results with FileRefs). A also owns
     // the `sleep` example for the worker-scope case of the matrix (a scan whose workers stay active), built here in
-    // parallel so the matrix never waits for a build. The list upload and the git credential need no build.
-    const [alphaA, alphaB, sleepA, upload, credential] = await Promise.all([
+    // parallel so the matrix never waits for a build. The list upload and the git credential need no build. Both also
+    // own a script named `alpha` (scripts and tasks have separate names): A's is the matrix's `authz` script, B's the
+    // scaffold.
+    const [alphaA, alphaB, sleepA, upload, credential, scriptA, scriptB] = await Promise.all([
       uploadAndPublish(aApi, exampleTaskDir('files'), 'alpha'),
       uploadAndPublish(bApi, exampleTaskDir('files'), 'alpha'),
       uploadAndPublish(aApi, exampleTaskDir('sleep'), 'authz-sleep'),
@@ -115,6 +141,8 @@ setup('seed tenants A and B for the authorization matrix', async ({ adminApi, op
           },
         })
         .then((r) => ok(r, 'createCredential')),
+      createScriptWithFiles(aApi, 'alpha', authzScriptFiles('alpha')),
+      bApi.call<Script>('createScript', { body: { name: 'alpha' } }).then((r) => ok(r, 'createScript')),
     ])
 
     // A: a completed test run and a completed scan, one analysis with files each, in parallel.
@@ -139,18 +167,21 @@ setup('seed tenants A and B for the authorization matrix', async ({ adminApi, op
     const testRunFileId = testRun.analyses?.[0]?.files[0]?.id
     expect(testRunFileId, 'the test run analysis stored a file').toBeTruthy()
 
-    // A: a ready export (its job is A's job).
-    const exported = ok(await aApi.call<Export>('exportScan', { path: { scanId: scan.id }, body: { format: 'jsonl' }, query: { wait: 120 } }), 'exportScan')
+    // A: a ready export (its job is A's job) and a completed script run of the scan, in parallel. The workers drain and
+    // stop after the completion; the scan's representation (workers summary) and the workers' tokens (a stopped
+    // worker's token is refused) are final only then.
+    const [exported, scripted] = await Promise.all([
+      aApi.call<Export>('exportScan', { path: { scanId: scan.id }, body: { format: 'jsonl' }, query: { wait: 120 } }).then((r) => ok(r, 'exportScan')),
+      completedScriptRun(aApi, scriptA.id, scan.id),
+      expect
+        .poll(async () => ok(await aApi.getScan(scan.id), 'getScan').workers, {
+          timeout: 120_000,
+          intervals: [1_000],
+          message: 'the workers of A’s scan stopped',
+        })
+        .toEqual(expect.objectContaining({ active: 0, desired: 0, pending: 0 })),
+    ])
     expect(exported.state).toBe('ready')
-    // The workers drain and stop after the completion; the scan's representation (workers summary) and the workers'
-    // tokens (a stopped worker's token is refused) are final only then.
-    await expect
-      .poll(async () => ok(await aApi.getScan(scan.id), 'getScan').workers, {
-        timeout: 120_000,
-        intervals: [1_000],
-        message: 'the workers of A’s scan stopped',
-      })
-      .toEqual(expect.objectContaining({ active: 0, desired: 0, pending: 0 }))
     const analyses = ok(await aApi.call<Page<Analysis>>('listAnalyses', { path: { scanId: scan.id } }), 'listAnalyses')
     expect(analyses.items).toHaveLength(1)
     const analysis = analyses.items[0]!
@@ -191,6 +222,11 @@ setup('seed tenants A and B for the authorization matrix', async ({ adminApi, op
       workers: seededWorkers,
       sleepTaskId: sleepA.task.id,
       sleepRevisionId: sleepA.revision.id,
+      scriptId: scriptA.id,
+      scriptName: scriptA.name,
+      scriptRunId: scripted.run.id,
+      outputId: scripted.outputId,
+      scriptRunToken: scriptRunToken(scripted.run),
     }
     const b: TenantB = {
       ...seededB.user,
@@ -198,9 +234,12 @@ setup('seed tenants A and B for the authorization matrix', async ({ adminApi, op
       taskName: alphaB.task.name,
       revisionId: alphaB.revision.id,
       revisionNumber: alphaB.revision.number,
+      scriptId: scriptB.id,
+      scriptName: scriptB.name,
     }
     expect(a.taskName).toBe('alpha')
     expect(b.taskName).toBe('alpha')
+    expect([a.scriptName, b.scriptName]).toEqual(['alpha', 'alpha'])
 
     // The fingerprint must be stable on its own before B's attempts can be judged by it.
     const representations = await representationsOfA(aApi, a)

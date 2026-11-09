@@ -5,6 +5,7 @@ import type { Analysis } from '#shared/types/analyses'
 import type { ItemList, Page as ListPage } from '#shared/types/common'
 import type { Node } from '#shared/types/nodes'
 import type { Scan } from '#shared/types/scans'
+import type { Script, ScriptRun } from '#shared/types/scripts'
 import type { Task } from '#shared/types/tasks'
 import type { TestRun } from '#shared/types/test-runs'
 import { ApiClient, ok } from './api-client'
@@ -96,16 +97,45 @@ export interface UiWorld {
   git: Task
   /** the `sleep` example (long test runs that can be cancelled), only when asked for */
   sleep?: UploadedTask
+  /** a script from the scaffold with a completed run on `scan` (progress, result, an output file and a checkpoint) */
+  script: Script
+  scriptRun: ScriptRun
 }
+
+const SETTLED_RUN_STATES: readonly string[] = ['completed', 'failed', 'cancelled']
 
 async function waitForTestRun(api: ApiClient, testRunId: string, timeoutMs = 120_000): Promise<TestRun> {
   const deadline = Date.now() + timeoutMs
   for (;;) {
     const wait = Math.max(1, Math.min(60, Math.ceil((deadline - Date.now()) / 1000)))
     const run = ok(await api.call<TestRun>('getTestRun', { path: { testRunId }, query: { wait } }), 'getTestRun')
-    if (['completed', 'failed', 'cancelled'].includes(run.state)) return run
+    if (SETTLED_RUN_STATES.includes(run.state)) return run
     if (Date.now() > deadline) throw new Error(`test run ${testRunId} is still ${run.state} after ${timeoutMs / 1000} s`)
   }
+}
+
+/** Long-polls getScriptRun until the run has ended (completed, failed or cancelled). */
+export async function waitForScriptRun(api: ApiClient, scriptRunId: string, timeoutMs = 150_000): Promise<ScriptRun> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const wait = Math.max(1, Math.min(60, Math.ceil((deadline - Date.now()) / 1000)))
+    const run = ok(await api.call<ScriptRun>('getScriptRun', { path: { scriptRunId }, query: { wait } }), 'getScriptRun')
+    if (SETTLED_RUN_STATES.includes(run.state)) return run
+    if (Date.now() > deadline) throw new Error(`script run ${scriptRunId} is still ${run.state} after ${timeoutMs / 1000} s`)
+  }
+}
+
+/**
+ * Runs the scaffolded script on the completed scan and waits until the run has completed: the scaffold reads every
+ * succeeded analysis, reports progress, saves a checkpoint, stores `analyses.csv` and returns a summary. The script is
+ * read again afterwards, so its `latestRun`, `recentRuns` and `describe` include the run.
+ */
+async function runScript(api: ApiClient, created: Promise<Script>, scan: Scan): Promise<{ script: Script; scriptRun: ScriptRun }> {
+  const script = await created
+  const started = ok(await api.call<ScriptRun>('startScriptRun', { path: { script: script.id }, body: { scans: [scan.id] } }), 'startScriptRun')
+  const run = await waitForScriptRun(api, started.id)
+  expect(run.state, `the world's script run: ${JSON.stringify({ errors: run.errors, error: run.error, logTail: run.logTail })}`).toBe('completed')
+  return { script: ok(await api.call<Script>('getScript', { path: { script: script.id } }), 'getScript'), scriptRun: run }
 }
 
 /**
@@ -113,6 +143,12 @@ async function waitForTestRun(api: ApiClient, testRunId: string, timeoutMs = 120
  * soon as its own revision is ready. Nothing is removed here: deleting the tenant purges all of it.
  */
 export async function createWorld(api: ApiClient, label: string, options: { sleep?: boolean } = {}): Promise<UiWorld> {
+  // The scaffold is created at once; its run starts as soon as the files scan has completed.
+  const scriptCreated = api
+    .call<Script>('createScript', { body: { name: unique(`${label}-script`), description: 'Counts the files of the succeeded analyses of a scan.' } })
+    .then((r) => ok(r, 'createScript'))
+  // A failure surfaces where the files chain awaits it; this copy only keeps it from going unhandled meanwhile.
+  scriptCreated.catch(() => undefined)
   const zooChain = (async () => {
     const zoo = await uploadAndPublish(api, fixtureTaskDir('schema-zoo'), unique(`${label}-zoo`), { timeoutMs: 150_000 })
     const started = ok(await api.call<TestRun>('testTask', { path: { task: zoo.task.id }, body: { limit: 1 } }), 'testTask')
@@ -136,15 +172,16 @@ export async function createWorld(api: ApiClient, label: string, options: { slee
         })
         .toContain('workersPending'),
     ])
-    const [analyses, exported] = await Promise.all([
+    const [analyses, exported, scripted] = await Promise.all([
       api.call<ListPage<Analysis>>('listAnalyses', { path: { scanId: scan.id } }).then((r) => ok(r, 'listAnalyses')),
       api
         .call<{ id: string; state: string }>('exportScan', { path: { scanId: scan.id }, body: { format: 'jsonl' }, query: { wait: 60 } })
         .then((r) => ok(r, 'exportScan')),
+      runScript(api, scriptCreated, completed),
     ])
     const analysis = analyses.items.find((a) => a.seq === 0) ?? analyses.items[0]
     if (!analysis) throw new Error(`the scan ${scan.id} of the world has no analyses`)
-    return { files, scan: completed, analysis, exportId: exported.id, pendingScan }
+    return { files, scan: completed, analysis, exportId: exported.id, pendingScan, ...scripted }
   })()
   const [zoo, files, failed, draft, git, sleep] = await Promise.all([
     zooChain,
@@ -194,6 +231,8 @@ const button = (page: Page, name: string | RegExp) =>
 export function uiPages(world: UiWorld, tenant: UiTenant, node: Node): UiPage[] {
   const zoo = world.zoo.task
   const scan = world.scan
+  const script = world.script
+  const scriptRun = world.scriptRun
   return [
     { name: 'login', path: '/login', viewer: 'anonymous', ready: (p) => button(p, 'Sign in') },
     { name: 'setup', path: '/setup', viewer: 'anonymous', ready: (p) => button(p, 'Sign in') },
@@ -225,6 +264,23 @@ export function uiPages(world: UiWorld, tenant: UiTenant, node: Node): UiPage[] 
       viewer: 'user',
       ready: (p) => testId(p, 'build-errors'),
     },
+    { name: 'scripts', path: '/scripts', viewer: 'user', ready: (p) => row(p, script.id) },
+    { name: 'new script', path: '/scripts/new', viewer: 'user', ready: (p) => button(p, 'Create script') },
+    {
+      name: 'script overview',
+      path: `/scripts/${script.id}?tab=overview`,
+      viewer: 'user',
+      // The recent runs list links the world's run.
+      ready: (p) => expect(p.locator(`a[href="/scripts/${script.id}/runs/${scriptRun.id}"]`).first()).toBeVisible({ timeout: SLOW }),
+    },
+    {
+      name: 'script files',
+      path: `/scripts/${script.id}?tab=files`,
+      viewer: 'user',
+      ready: (p) => expect(p.getByText('scantor-script.yaml', { exact: true }).filter({ visible: true }).first()).toBeVisible({ timeout: SLOW }),
+    },
+    { name: 'script runs', path: `/scripts/${script.id}?tab=runs`, viewer: 'user', ready: (p) => row(p, scriptRun.id) },
+    { name: 'script run', path: `/scripts/${script.id}/runs/${scriptRun.id}`, viewer: 'user', ready: (p) => testId(p, 'script-run-result') },
     { name: 'editor', path: '/editor', viewer: 'user', ready: (p) => button(p, 'Stop editor') },
     { name: 'scans', path: '/scans', viewer: 'user', ready: (p) => row(p, scan.id) },
     { name: 'new scan', path: `/scans/new?revision=${encodeURIComponent(`${zoo.id}@latest`)}`, viewer: 'user', ready: (p) => button(p, 'Edit as JSON') },

@@ -1,0 +1,1 @@
+# This script needs no packages beyond the connector (pydantic and scantor.script are part of the base image).

@@ -208,7 +208,8 @@ const SELF_CONTAINED = new Set([
 test.describe('Dockerfile policy', () => {
   test('every case of the corpus gets exactly its static errors and warnings from the pipeline’s static check', { tag: ['@SEC-001', '@SEC-002'] }, async () => {
     const cases = await loadCorpus()
-    // The corpus has a sample of every rule D1–D11 and of every D5 host kind of SEC-002.
+    // The corpus has a sample of every rule D1–D11 and of every D5 host kind of SEC-002, local task and script image
+    // paths included.
     expect([...new Set(cases.flatMap((c) => c.expect.errors.map((e) => e.rule)))].sort()).toEqual(
       ['D1', 'D10', 'D11', 'D2', 'D3', 'D4', 'D5', 'D6', 'D7', 'D8', 'D9'].sort(),
     )
@@ -225,6 +226,10 @@ test.describe('Dockerfile policy', () => {
         'd5-registry-service',
         'd5-platform-hosts',
         'd5-tasks-any-host',
+        'd5-scripts-any-host',
+        'd5-from-local-script',
+        'd5-copy-from-local-script',
+        'd5-mount-from-local-script',
         'd5-bare-hex-id',
         'd5-variable',
         'd5-mount-from-registry',

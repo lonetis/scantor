@@ -16,6 +16,10 @@ export interface Ids {
   fileId: string
   testRunId: string
   testRunFileId: string
+  script: string
+  scriptRunId: string
+  /** a stored output of the script run */
+  outputId: string
   exportId: string
   uploadId: string
   credentialId: string
@@ -65,6 +69,9 @@ export const OWNED_PARAMS = new Set([
   'analysisId',
   'fileId',
   'testRunId',
+  'script',
+  'scriptRunId',
+  'outputId',
   'exportId',
   'uploadId',
   'credentialId',
@@ -82,6 +89,9 @@ export const PARAMS: Record<string, (ids: Ids) => string> = {
   analysisId: (ids) => ids.analysisId,
   fileId: (ids) => ids.fileId,
   testRunId: (ids) => ids.testRunId,
+  script: (ids) => ids.script,
+  scriptRunId: (ids) => ids.scriptRunId,
+  outputId: (ids) => ids.outputId,
   exportId: (ids) => ids.exportId,
   uploadId: (ids) => ids.uploadId,
   credentialId: (ids) => ids.credentialId,
@@ -105,6 +115,10 @@ const capacity = { cpus: 1, memoryBytes: 1073741824, diskFreeBytes: 107374182400
 /** `info` of postNodeStatus: the capacity and the daemon version. */
 const nodeInfo = (ids: Ids) => ({ version: ids.version, ...capacity })
 const scantorError = { type: 'taskError', message: 'authz matrix', retryable: false, phase: 'run', attempt: 1, at: new Date(0).toISOString() }
+/** An empty gzip stream: never a valid task or script folder. */
+const EMPTY_GZIP = Buffer.from('1f8b0800000000000003030000000000000000', 'hex')
+/** Below the 1 s minimum of a script run's timeoutMs: 400 validationFailed before any script, run or scan is loaded. */
+const BAD_RUN_SETTINGS = { timeoutMs: 1 }
 
 export const REQUESTS: Record<string, OperationRequests> = {
   // ── public, setup, tools ──────────────────────────────────────────────────────────────────────────
@@ -156,13 +170,8 @@ export const REQUESTS: Record<string, OperationRequests> = {
   listTasks: { valid: none },
   createTask: { valid: () => ({ body: { name: 'authz-matrix-task', language: 'python' } }), safe: () => ({ body: { name: 'new', language: 'python' } }) },
   uploadTask: {
-    // An empty gzip stream: never a valid task folder.
-    valid: () => ({
-      body: Buffer.from('1f8b0800000000000003030000000000000000', 'hex'),
-      headers: { 'Content-Type': 'application/gzip' },
-      query: { publish: false },
-    }),
-    safe: () => ({ body: Buffer.from('1f8b0800000000000003030000000000000000', 'hex'), headers: { 'Content-Type': 'application/gzip' }, query: BAD_WAIT }),
+    valid: () => ({ body: EMPTY_GZIP, headers: { 'Content-Type': 'application/gzip' }, query: { publish: false } }),
+    safe: () => ({ body: EMPTY_GZIP, headers: { 'Content-Type': 'application/gzip' }, query: BAD_WAIT }),
   },
   importGitTask: {
     valid: (ids) => ({ body: { url: GIT_REPOS.private, credentialId: ids.credentialId } }),
@@ -192,6 +201,35 @@ export const REQUESTS: Record<string, OperationRequests> = {
   getTestRunFileDownload: { valid: (ids) => ({ path: { fileId: ids.testRunFileId } }) },
   readTestRunFile: { valid: (ids) => ({ path: { fileId: ids.testRunFileId } }) },
   streamTestRun: { valid: none },
+
+  // ── scripts, files and runs ───────────────────────────────────────────────────────────────────────
+  listScripts: { valid: none },
+  createScript: { valid: () => ({ body: { name: 'authz-matrix-script' } }), safe: () => ({ body: { name: 'new' } }) },
+  uploadScript: {
+    valid: () => ({ body: EMPTY_GZIP, headers: { 'Content-Type': 'application/gzip' } }),
+    safe: () => ({ body: EMPTY_GZIP, headers: { 'Content-Type': 'application/gzip' }, query: { force: 'maybe' } }),
+  },
+  getScript: { valid: none },
+  deleteScript: { valid: none },
+  downloadScriptWorkspace: { valid: none },
+  listScriptFiles: { valid: () => ({ query: { recursive: true } }) },
+  readScriptFile: { valid: () => ({ query: { path: 'scantor-script.yaml' } }) },
+  writeScriptFiles: { valid: () => ({ body: { files: { 'authz-notes.txt': 'written by the authorization matrix\n' } } }) },
+  deleteScriptFile: { valid: () => ({ query: { path: 'scantor-script.yaml' } }) },
+  startScriptRun: {
+    valid: (ids) => ({ body: { scans: [ids.scanId], settings: { limit: 1 } } }),
+    safe: (ids) => ({ body: { scans: [ids.scanId], settings: BAD_RUN_SETTINGS } }),
+    bodyRefs: true,
+  },
+  listScriptRuns: { valid: none },
+  getScriptRun: { valid: none },
+  // A's seeded run is completed: 409 invalidState for every principal that may call it.
+  cancelScriptRun: { valid: none },
+  restartScriptRun: { valid: () => ({ body: { settings: { limit: 1 } } }), safe: () => ({ body: { settings: BAD_RUN_SETTINGS } }) },
+  getScriptRunLogs: { valid: () => ({ query: { limit: 10 } }) },
+  getScriptRunOutputDownload: { valid: none },
+  readScriptRunOutput: { valid: none },
+  getScriptRunSourceDownload: { valid: none },
 
   // ── uploads ───────────────────────────────────────────────────────────────────────────────────────
   listUploads: { valid: none },
@@ -340,4 +378,18 @@ export const REQUESTS: Record<string, OperationRequests> = {
   },
   schedulerCheckpoint: { valid: (ids) => ({ headers: { 'X-Scantor-Version': ids.version }, body: { epoch: 0, confirmed: 0, tailHash: null } }) },
   schedulerDone: { valid: (ids) => ({ headers: { 'X-Scantor-Version': ids.version }, body: { epoch: 0, outcome: 'done', confirmed: 0, tailHash: null } }) },
+
+  // ── script runtime API (script-run tokens, from the scripts network only) ─────────────────────────────
+  scriptRuntimeBootstrap: { valid: none },
+  scriptRuntimeStreamAnalyses: { valid: () => ({ body: { status: ['succeeded'], fileUrls: false } }) },
+  scriptRuntimeAggregate: { valid: () => ({ body: { pipeline: [{ $count: 'n' }] } }) },
+  scriptRuntimeFileUrl: { valid: none },
+  scriptRuntimeProgress: { valid: () => ({ body: { done: 0, total: 1, message: 'authz matrix' } }) },
+  scriptRuntimeCheckpoint: { valid: () => ({ body: { state: { authz: true } } }) },
+  scriptRuntimeDescribe: { valid: () => ({ body: { configSchema: null, resultSchema: null } }) },
+  scriptRuntimeCreateOutput: { valid: () => ({ body: { name: 'authz.txt', contentType: 'text/plain' } }) },
+  scriptRuntimeCreateOutputPart: { valid: () => ({ body: { partNumber: 1, size: 5 } }) },
+  scriptRuntimeCompleteOutput: { valid: () => ({ body: { parts: [{ partNumber: 1, etag: '"authz"' }], sha256: '0'.repeat(64) } }) },
+  scriptRuntimeOutputUrl: { valid: none },
+  scriptRuntimeFinish: { valid: () => ({ body: { result: { authz: true } } }) },
 }

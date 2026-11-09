@@ -3,13 +3,18 @@ import { OWNED_PARAMS, PARAMS, REQUESTS, type Ids, type RequestSpec } from '../a
 import type { OpenApiIndex, OpenApiOperation } from './openapi'
 import type { Seed } from './authz-seed'
 import { env } from './env'
+import type { NetworkRequest } from './security-scripts'
 import { newApiContext } from './users'
 
 // Mechanics of the generated authorization matrix (docs/testing.md §8.5, docs/security.md §7): the principals, the
 // request built for an operation from authz/requests.ts, a raw sender that never follows redirects or validates
 // schemas, and the classification of operations (reads first, destructive operations last).
 
-/** The principals of docs/security.md §7. Sessions are cookies (storage states); keys and tokens are Bearer values. */
+/**
+ * The principals of docs/security.md §7. Sessions are cookies (storage states); keys and tokens are Bearer values.
+ * `scriptRunToken` is the token of A's completed script run: the script runtime API refuses every request from outside
+ * the scripts network before it looks at a token (403), and every other API never takes one (401).
+ */
 export type PrincipalName =
   | 'anonymous'
   | 'aSession'
@@ -20,6 +25,7 @@ export type PrincipalName =
   | 'adminKey'
   | 'nodeToken'
   | 'workerToken'
+  | 'scriptRunToken'
   | 'setupToken'
   | 'invalidBearer'
   | 'invalidApiKey'
@@ -65,6 +71,8 @@ export class Principals {
         return bearer(seed.n1.token)
       case 'workerToken':
         return bearer(seed.a.workers[0]!.token)
+      case 'scriptRunToken':
+        return bearer(seed.a.scriptRunToken)
       case 'setupToken':
         return newApiContext({ headers: { 'X-Scantor-Setup-Token': FAKE_SETUP_TOKEN } })
       case 'invalidBearer':
@@ -91,6 +99,9 @@ export function idsOfA(seed: Seed, overrides: Partial<Ids> = {}): Ids {
     fileId: a.fileId,
     testRunId: a.testRunId,
     testRunFileId: a.testRunFileId,
+    script: a.scriptId,
+    scriptRunId: a.scriptRunId,
+    outputId: a.outputId,
     exportId: a.exportId,
     uploadId: a.uploadId,
     credentialId: a.credentialId,
@@ -185,6 +196,25 @@ export async function send(
     }
   }
   return { status: response.status(), headers: responseHeaders, json, text: raw.toString('utf8') }
+}
+
+/**
+ * The request of an operation as a container sends it (helpers/security-scripts.ts fetchFromScriptsNetwork): the
+ * expanded path with its query, the JSON body as text and the request's headers plus `credential`.
+ */
+export function networkRequest(op: OpenApiOperation, spec: RequestSpec, credential: Record<string, string> = {}): NetworkRequest {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(spec.query ?? {})) if (value !== undefined) query.set(key, String(value))
+  const search = query.toString()
+  const headers: Record<string, string> = { ...spec.headers, ...credential }
+  let body: string | undefined
+  if (Buffer.isBuffer(spec.body)) body = spec.body.toString('latin1')
+  else if (spec.body !== undefined) {
+    body = JSON.stringify(spec.body)
+    headers['Content-Type'] ??= 'application/json'
+  }
+  const path = expandPath(op.path, (spec.path ?? {}) as Record<string, string | number>, false)
+  return { method: op.method.toUpperCase(), path: search ? `${path}?${search}` : path, headers, body }
 }
 
 /** A short description of an answer for assertion messages. */

@@ -1,0 +1,8 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/main/schemas/script-manifest.schema.json
+scantor: 1
+name: files-report
+language: python
+description: Reads every file of a scan of the example task files and writes a CSV and a JSON report.
+defaults:
+  resources:
+    memoryMiB: 512

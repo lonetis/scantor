@@ -364,7 +364,7 @@ test.describe('start validation', () => {
 })
 
 test.describe('reads', () => {
-  test('listScans returns summaries filtered by state and task, without deleted scans', { tag: ['@SCAN-014'] }, async ({ api, shared, scans }) => {
+  test('listScans returns summaries filtered by state, task and name, without deleted scans', { tag: ['@SCAN-014'] }, async ({ api, shared, scans }) => {
     const sleep = await shared.get('sleep')
     const start = (name: string) => scans.start({ revision: sleep.revision.ref, name, settings: UNPLACEABLE_SETTINGS })
     const active = await start('active')
@@ -401,6 +401,11 @@ test.describe('reads', () => {
     expect(await ids({ task: sleep.task.name, state: 'creating,running' })).toEqual([active.id])
     expect(await ids({ task: sleep.task.name, state: 'cancelled,creating,running' })).toEqual([cancelled.id, active.id])
     expect(await ids({ task: sleep.task.name, state: 'deleting,deleted' })).toEqual([deleted.id])
+    // q: a case-insensitive substring of the name (at most 64 characters).
+    expect(await ids({ q: 'CANCEL' })).toEqual([cancelled.id])
+    expect(await ids({ q: 'tiv', task: sleep.task.name })).toEqual([active.id])
+    expect(await ids({ q: 'nothing-like-this' })).toEqual([])
+    expect((await api.call('listScans', { query: { q: 'x'.repeat(65) } })).status).toBe(400)
   })
 
   test('getScan returns progress and workers and long-polls until the scan settles', { tag: ['@SCAN-015', '@SCAN-017'] }, async ({ api, shared, scans }) => {

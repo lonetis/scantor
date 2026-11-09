@@ -10,7 +10,7 @@ import { env } from './env'
 export const INSTRUCTIONS_START = '<!-- scantor:mcp-instructions:start -->'
 export const INSTRUCTIONS_END = '<!-- scantor:mcp-instructions:end -->'
 /** Guides served by name (docs/mcp.md §6). */
-export const GUIDE_NAMES = ['templates', 'manifest', 'errors-and-retries', 'cli', 'mcp', 'remote-nodes'] as const
+export const GUIDE_NAMES = ['templates', 'manifest', 'errors-and-retries', 'cli', 'mcp', 'remote-nodes', 'scripts'] as const
 
 /** A file of the repository checkout (/src in the runner). */
 export function repoFile(path: string): string {

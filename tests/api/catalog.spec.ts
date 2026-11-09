@@ -19,6 +19,7 @@ interface LanguageRow {
   image: string
   entry: string
   extensions: string[]
+  script?: { entry: string; scaffold: string; guide: string }
 }
 
 const languagesTable = JSON.parse(readFileSync(join(env.paths.repo, 'schemas', 'languages.json'), 'utf8')) as { languages: Record<string, LanguageRow> }
@@ -151,6 +152,20 @@ test.describe('guides', () => {
       expect(response.status, language).toBe(404)
       expect(response.body).toMatchObject({ error: { code: 'notFound' } })
     }
+    // kind=script serves the language row's scripts guide, and 404 for a language without script support.
+    for (const language of LANGUAGES) {
+      const guide = languagesTable.languages[language]!.script?.guide
+      const response = await api.call('getAuthoringGuide', { path: { language }, query: { kind: 'script' } })
+      if (!guide) {
+        expect(response.status, language).toBe(404)
+        expect(response.body).toMatchObject({ error: { code: 'notFound' } })
+        continue
+      }
+      expect(response.status, language).toBe(200)
+      expect(response.headers['content-type']).toMatch(/^text\/markdown/)
+      expect(response.raw.toString('utf8').split('\n')[0]).toBe(guideHeading(guide.replace(/^docs\/guide\//, '')))
+    }
+    expect((await api.call('getAuthoringGuide', { path: { language: 'python' }, query: { kind: 'tasks' } })).status).toBe(400)
   })
 
   test('getGuide serves the six named guides and 404 for any other name', { tag: ['@CAT-008'] }, async ({ api }) => {

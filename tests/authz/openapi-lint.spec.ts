@@ -9,7 +9,7 @@ import { expect, test } from '../fixtures'
 // unreachable, so a missing operation is a broken route). Complements the generated matrix in matrix.spec.ts.
 
 const METHODS = ['get', 'put', 'post', 'delete', 'patch'] as const
-const SCOPES = ['owner', 'admin', 'public', 'node', 'worker', 'setup', 'tools']
+const SCOPES = ['owner', 'admin', 'public', 'node', 'worker', 'setup', 'tools', 'scriptRun']
 const MAX_MCP_OPERATIONS = 45
 
 /** Verbs an operationId may start with (docs/api.md §1.1: `list…`, `get…`, `create…`, … ). */
@@ -54,11 +54,13 @@ const VERBS = new Set([
  * machine protocol first (`nodeHello`, `runtimeBootstrap`, `schedulerDone`, `toolsForwardAuth`). Allowed only on the
  * machine scopes.
  */
-const MACHINE_NAMESPACES: Record<string, string[]> = { node: ['node'], worker: ['runtime', 'scheduler'], tools: ['tools'] }
+const MACHINE_NAMESPACES: Record<string, string[]> = { node: ['node'], worker: ['runtime', 'scheduler'], tools: ['tools'], scriptRun: ['scriptRuntime'] }
 
 /** The operations docs/api.md §1.1 marks `x-session-only` and `x-destructive`. */
 const SESSION_ONLY = ['createApiKey', 'createToolsSession', 'removeAccountPassword', 'setAccountPassword']
-const DESTRUCTIVE = ['banUser', 'cancelScan', 'cancelTestRun', 'rotateNodeToken']
+const DESTRUCTIVE = ['banUser', 'cancelScan', 'cancelScriptRun', 'cancelTestRun', 'rotateNodeToken']
+/** Scopes whose credentials an MCP tool call can never carry: their operations are no tools (docs/mcp.md §5). */
+const MACHINE_SCOPES = ['node', 'worker', 'setup', 'tools', 'scriptRun']
 
 interface RawOperation {
   operationId: string
@@ -84,6 +86,7 @@ function scopesForPath(path: string, method: string): string[] {
   if (path === '/api/setup/status' && method === 'GET') return ['public']
   if (path.startsWith('/api/node/') || path === '/api/registry/token') return ['node']
   if (path.startsWith('/api/runtime/')) return ['worker']
+  if (path.startsWith('/api/script-runtime/')) return ['scriptRun']
   if (path.startsWith('/api/setup/')) return ['setup']
   if (path === '/api/tools/forward-auth') return ['tools']
   return ['owner', 'admin']
@@ -145,7 +148,8 @@ test.describe('OpenAPI lint', () => {
       expect.soft(operationId, 'camelCase').toMatch(/^[a-z]+(?:[A-Z][a-z0-9]*)*$/)
       const first = /^[a-z]+/.exec(operationId)?.[0] ?? ''
       const scope = String(op['x-scantor-scope'])
-      const allowed = VERBS.has(first) || (MACHINE_NAMESPACES[scope] ?? []).includes(first)
+      // A namespace may be camelCase itself (scriptRuntime…), so it is matched as a prefix followed by the next word.
+      const allowed = VERBS.has(first) || (MACHINE_NAMESPACES[scope] ?? []).some((namespace) => new RegExp(`^${namespace}[A-Z]`).test(operationId))
       expect.soft(allowed, `${operationId} starts with a verb (or its machine namespace), not "${first}"`).toBe(true)
     }
   })
@@ -182,10 +186,11 @@ test.describe('OpenAPI lint', () => {
     }
   })
 
-  test('at most 45 operations are MCP tools', { tag: ['@OAS-002'] }, () => {
+  test('at most 45 operations are MCP tools, none of them a machine operation', { tag: ['@OAS-002'] }, () => {
     const tools = operations.filter(({ op }) => op['x-mcp'] === true)
     expect(tools.length).toBeGreaterThan(0)
     expect(tools.length).toBeLessThanOrEqual(MAX_MCP_OPERATIONS)
+    for (const { operationId, op } of tools) expect.soft(MACHINE_SCOPES, `${operationId} is an MCP tool`).not.toContain(op['x-scantor-scope'])
   })
 
   test('every request body has a schema', { tag: ['@OAS-002'] }, () => {
@@ -226,12 +231,15 @@ test.describe('OpenAPI lint', () => {
       expect.soft(allowed, `${operationId} (${method} ${path}) has scope ${String(op['x-scantor-scope'])}`).toContain(op['x-scantor-scope'])
     }
     // The document exercises every prefix rule, so the check above is not vacuous.
-    expect([...seen].sort()).toEqual(['node', 'owner|admin', 'public', 'setup', 'tools', 'worker'])
+    expect([...seen].sort()).toEqual(['node', 'owner|admin', 'public', 'scriptRun', 'setup', 'tools', 'worker'])
     const byId = new Map(operations.map((o) => [o.operationId, o.op['x-scantor-scope']]))
     expect(byId.get('getSetupStatus'), 'the setup status is public').toBe('public')
     expect(byId.get('getHealth')).toBe('public')
     expect(byId.get('getRegistryToken')).toBe('node')
     expect(byId.get('createRegistryToken')).toBe('node')
     expect(byId.get('toolsForwardAuth')).toBe('tools')
+    expect(byId.get('scriptRuntimeBootstrap'), 'the script runtime API').toBe('scriptRun')
+    // The owner routes of scripts are not machine routes, although their paths start like it.
+    expect(byId.get('getScriptRun')).toBe('owner')
   })
 })

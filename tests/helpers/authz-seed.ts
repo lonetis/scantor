@@ -49,7 +49,10 @@ export interface SeededWorker {
   token: string
 }
 
-/** A's resources (docs/security.md §7): task `alpha` with a ready revision, test run, scan, export, upload, … */
+/**
+ * A's resources (docs/security.md §7): task `alpha` with a ready revision, test run, scan, export, upload, …, and
+ * script `alpha` with a completed run of A's scan (an output, its source, a log).
+ */
 export interface TenantA extends SeededUser {
   taskId: string
   taskName: string
@@ -68,14 +71,24 @@ export interface TenantA extends SeededUser {
   /** the `sleep` example, for scans whose workers stay active (the worker-scope case) */
   sleepTaskId: string
   sleepRevisionId: string
+  scriptId: string
+  scriptName: string
+  /** a completed run of the script on A's scan */
+  scriptRunId: string
+  /** the run's stored output (helpers/security-scripts.ts AUTHZ_SCRIPT_OUTPUT) */
+  outputId: string
+  /** the run's `ssr_` token, derived by helpers/keys.ts (the run ended, so it is refused everywhere) */
+  scriptRunToken: string
 }
 
-/** B owns a task with the same name `alpha` (name lookups are caller-scoped). */
+/** B owns a task and a script with the same name `alpha` (name lookups are caller-scoped). */
 export interface TenantB extends SeededUser {
   taskId: string
   taskName: string
   revisionId: string
   revisionNumber: number
+  scriptId: string
+  scriptName: string
 }
 
 export interface Seed {
@@ -137,11 +150,12 @@ function part(response: ApiResponse): unknown {
 }
 
 /**
- * The task without `updatedAt`: getTaskWorkspace, a read that A and the admin legitimately call in parallel tests,
- * refreshes the cached `tasks.workspace` and with it `updatedAt` (docs/api.md §4.6). Every write B could make shows in
- * the workspace summary, the file list, the manifest or the revisions instead.
+ * A task or script without `updatedAt`: getTaskWorkspace and downloadScriptWorkspace, reads that A and the admin
+ * legitimately call in parallel tests, refresh the cached `workspace` and with it `updatedAt` (docs/api.md §4.6,
+ * docs/scripts.md). Every write B could make shows in the workspace summary, the file list, the manifest, the
+ * revisions or the runs instead.
  */
-function taskPart(response: ApiResponse): unknown {
+function withoutUpdatedAt(response: ApiResponse): unknown {
   const value = part(response) as { status: number; body: unknown }
   if (value.body && typeof value.body === 'object') delete (value.body as Record<string, unknown>).updatedAt
   return value
@@ -149,14 +163,17 @@ function taskPart(response: ApiResponse): unknown {
 
 /**
  * A's GET representations, read as A: task, revision, manifest and file list, scan, analysis, test run, export, upload,
- * credential, job and API key. Normalized (volatile keys dropped) so that only real changes alter the fingerprint.
+ * credential, job, API key, and script (with its manifest, files, runs, the run and its log). Normalized (volatile
+ * keys dropped) so that only real changes alter the fingerprint.
  */
 export async function representationsOfA(api: ApiClient, a: TenantA): Promise<Record<string, unknown>> {
   const task = { task: a.taskId }
+  const script = { script: a.scriptId }
+  const scriptRun = { scriptRunId: a.scriptRunId }
   const credentials = await api.call<ItemList<Credential>>('listCredentials')
   const keys = await api.call<ItemList<ApiKey>>('listApiKeys')
   return {
-    task: taskPart(await api.call('getTask', { path: task })),
+    task: withoutUpdatedAt(await api.call('getTask', { path: task })),
     revision: part(await api.call('getRevision', { path: { ...task, revision: a.revisionId } })),
     revisions: part(await api.call('listRevisions', { path: task })),
     manifest: part(await api.call('readTaskFile', { path: task, query: { path: 'scantor.yaml' } })),
@@ -169,6 +186,12 @@ export async function representationsOfA(api: ApiClient, a: TenantA): Promise<Re
     credential: normalize(credentials.body.items?.find((c) => c.id === a.credentialId) ?? null),
     job: part(await api.call('getJob', { path: { jobId: a.jobId } })),
     apiKey: normalize(keys.body.items?.find((k) => k.id === a.keyId) ?? null),
+    script: withoutUpdatedAt(await api.call('getScript', { path: script })),
+    scriptManifest: part(await api.call('readScriptFile', { path: script, query: { path: 'scantor-script.yaml' } })),
+    scriptFiles: part(await api.call('listScriptFiles', { path: script, query: { recursive: true } })),
+    scriptRuns: part(await api.call('listScriptRuns', { path: script })),
+    scriptRun: part(await api.call('getScriptRun', { path: scriptRun })),
+    scriptRunLogs: part(await api.call('getScriptRunLogs', { path: scriptRun })),
   }
 }
 

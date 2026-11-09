@@ -11,6 +11,7 @@ const EXAMPLE = '.env.example'
 /** Variables that are not configuration (internal contract, base-image ENV contract, connector protocol). */
 const NOT_CONFIGURATION = [
   'SCANTOR_WORKER_TOKEN',
+  'SCANTOR_SCRIPT_TOKEN',
   'SCANTOR_DIND',
   'SCANTOR_REGISTRY_PUSH_PASSWORD',
   'SCANTOR_LANGUAGE',
@@ -18,6 +19,7 @@ const NOT_CONFIGURATION = [
   'SCANTOR_CHECK_CMD',
   'SCANTOR_DEBUG_CMD',
   'SCANTOR_DEBUG_PORT',
+  'SCANTOR_SCRIPT_CMD',
   'SCANTOR_PROTOCOL_IN_FD',
   'SCANTOR_PROTOCOL_OUT_FD',
   'SCANTOR_PROTOCOL_VERSIONS',
