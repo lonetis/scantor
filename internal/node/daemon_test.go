@@ -205,6 +205,10 @@ func TestInvalidAssignmentIsNeverCreated(t *testing.T) {
 
 func TestCrashBackoffAndRestart(t *testing.T) {
 	h := newHarness(t, nil)
+	// The backoff entry of the status is what this test reads, so the backoff lasts long enough for a status report to
+	// fall into it even when a report is late (a debounced report can be delayed past a 100 ms backoff on a loaded host;
+	// the periodic reports every 200 ms land inside 1 s).
+	h.d.t.crashBase, h.d.t.crashMax = time.Second, time.Second
 	h.docker.logs[workerName(testWorker1)] = strings.Repeat("x", 5000) + "\nboom é\n"
 	h.start()
 	h.orch.setDesired(testAssignment(testWorker1))
@@ -237,11 +241,14 @@ func TestCrashDelayDoubles(t *testing.T) {
 	h.orch.setDesired(testAssignment(testWorker1))
 	h.waitWorkerState(testWorker1, api.NodeWorkerRunning)
 	var delays []time.Duration
-	for i := 0; i < 3; i++ {
-		h.docker.exit(workerName(testWorker1), 1, false)
-		st := h.waitWorkerState(testWorker1, api.NodeWorkerBackoff)
-		delays = append(delays, st.NextRestartAt.Sub(st.LastExit.At.Time))
-		h.waitWorkerState(testWorker1, api.NodeWorkerRunning)
+	for i := 1; i <= 3; i++ {
+		exited := h.docker.exitAt(t, workerName(testWorker1), 1, false)
+		restart := h.waitScheduledRestart(testWorker1, i)
+		if restart.crashes != i {
+			t.Fatalf("exit %d counted as crash %d", i, restart.crashes)
+		}
+		delays = append(delays, restart.at.Sub(exited))
+		h.waitRestarted(testWorker1, i)
 	}
 	// 100 ms, 200 ms, 400 ms (crashMax) with ±10 % jitter (plus scheduling slack).
 	for i, want := range []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond} {
@@ -256,10 +263,13 @@ func TestCleanExitIsTransient(t *testing.T) {
 	h.start()
 	h.orch.setDesired(testAssignment(testWorker1))
 	h.waitWorkerState(testWorker1, api.NodeWorkerRunning)
-	h.docker.exit(workerName(testWorker1), 0, false)
-	st := h.waitWorkerState(testWorker1, api.NodeWorkerBackoff)
-	if d := st.NextRestartAt.Sub(st.LastExit.At.Time); d < 140*time.Millisecond || d > 300*time.Millisecond {
+	exited := h.docker.exitAt(t, workerName(testWorker1), 0, false)
+	restart := h.waitScheduledRestart(testWorker1, 1)
+	if d := restart.at.Sub(exited); d < 140*time.Millisecond || d > 300*time.Millisecond {
 		t.Errorf("exit 0 delay = %s, want exitZeroDelay (150 ms)", d)
+	}
+	if restart.crashes != 0 {
+		t.Errorf("exit 0 logged as crash %d", restart.crashes)
 	}
 	a := h.d.sessionActorForTest(testWorker1)
 	if a == nil {

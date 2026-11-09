@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -208,6 +209,20 @@ func (f *fakeDocker) exit(name string, code int, oom bool) {
 	defer f.mu.Unlock()
 	c := f.findContainer(name)
 	f.exitLocked(c, code, oom)
+}
+
+// exitAt lets the container exit like exit and returns the FinishedAt time the engine recorded for it.
+func (f *fakeDocker) exitAt(t *testing.T, name string, code int, oom bool) time.Time {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c := f.findContainer(name)
+	f.exitLocked(c, code, oom)
+	at, err := time.Parse(time.RFC3339Nano, c.state.FinishedAt)
+	if err != nil {
+		t.Fatalf("FinishedAt %q: %v", c.state.FinishedAt, err)
+	}
+	return at
 }
 
 func (f *fakeDocker) exitLocked(c *fakeContainer, code int, oom bool) {

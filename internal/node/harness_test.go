@@ -9,10 +9,13 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"io"
 	"log/slog"
 	"math/big"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -199,6 +202,62 @@ func (h *harness) waitWorkerState(workerID, state string) api.NodeWorkerStatus {
 }
 
 func (h *harness) logContains(s string) bool { return strings.Contains(h.logs.String(), s) }
+
+// exitedLine matches the line the daemon logs when it records a worker exit and schedules the restart.
+var exitedLine = regexp.MustCompile(`msg="worker container exited" .*\bworkerId=(\S+) .*\bcrashes=(\d+) nextRestartAt=(\S+)`)
+
+// scheduledRestart is one restart the daemon scheduled after an exit of a worker container.
+type scheduledRestart struct {
+	crashes int
+	at      time.Time
+}
+
+// waitScheduledRestart waits for the n-th (1-based) restart the daemon scheduled for workerID and returns it. It reads
+// the daemon's "worker container exited" log line, which recordExit writes before it requests a status report: a
+// backoff of a few hundred milliseconds can end before any status report shows it, so tests that check the schedule
+// itself must not depend on catching the transient backoff state in a report.
+func (h *harness) waitScheduledRestart(workerID string, n int) scheduledRestart {
+	h.t.Helper()
+	var got scheduledRestart
+	eventually(h.t, 5*time.Second, fmt.Sprintf("restart %d of worker %s scheduled", n, workerID), func() bool {
+		var seen []scheduledRestart
+		for _, m := range exitedLine.FindAllStringSubmatch(h.logs.String(), -1) {
+			if m[1] != workerID {
+				continue
+			}
+			crashes, err := strconv.Atoi(m[2])
+			if err != nil {
+				h.t.Fatalf("crashes in %q: %v", m[0], err)
+			}
+			at, err := time.Parse(time.RFC3339Nano, m[3])
+			if err != nil {
+				h.t.Fatalf("nextRestartAt in %q: %v", m[0], err)
+			}
+			seen = append(seen, scheduledRestart{crashes: crashes, at: at})
+		}
+		if len(seen) < n {
+			return false
+		}
+		got = seen[n-1]
+		return true
+	})
+	return got
+}
+
+// waitRestarted waits until a status reports workerID running after its n-th restart.
+func (h *harness) waitRestarted(workerID string, n int) api.NodeWorkerStatus {
+	h.t.Helper()
+	var got api.NodeWorkerStatus
+	eventually(h.t, 5*time.Second, fmt.Sprintf("worker %s running after restart %d", workerID, n), func() bool {
+		w := h.orch.workerStatus(workerID)
+		if w != nil && w.State == api.NodeWorkerRunning && w.Restarts != nil && *w.Restarts >= n {
+			got = *w
+			return true
+		}
+		return false
+	})
+	return got
+}
 
 var _ io.Writer = (*syncBuffer)(nil)
 
