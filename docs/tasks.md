@@ -223,12 +223,15 @@ the task pipeline and the CLI read them from the image config or the container e
 | `SCANTOR_CHECK_CMD` | `python -m scantor.check {entry}` | `node /node_modules/@scantor/connector/check.js {entry}` | `/opt/scantor/bin/scantor-go-check` |
 | `SCANTOR_DEBUG_CMD` | `python -m debugpy --listen 0.0.0.0:5678 --wait-for-client -m scantor.serve {entry}` | `node --inspect-brk=0.0.0.0:9229 /node_modules/@scantor/connector/serve.js {entry}` | `dlv exec --headless --listen=0.0.0.0:2345 --api-version=2 --accept-multiclient {entry}` |
 | `SCANTOR_DEBUG_PORT` | `5678` | `9229` | `2345` |
+| `SCANTOR_SCRIPT_CMD` (optional: the base image of a language with a `script` object, [scripts](scripts.md) §2.4) | `python -m scantor.script {entry}` | – | – |
 
 Command templates ([runtime](runtime.md) §3.3): the value is split into arguments on ASCII whitespace; a
 double-quoted span is one argument (escapes `\"` and `\\`); there is no shell. The only placeholder is
 `{entry}`, replaced in every argument by the manifest entry; a relative entry is relative to the working
 directory `/task`, in which every command runs. The debug port is written literally into
-`SCANTOR_DEBUG_CMD` and repeated in `SCANTOR_DEBUG_PORT`. The runtime learns the entry from
+`SCANTOR_DEBUG_CMD` and repeated in `SCANTOR_DEBUG_PORT`. `SCANTOR_SCRIPT_CMD` is run by `scantor runtime script`
+in script-run containers with the script manifest's entry ([runtime](runtime.md) §2); a base image without it
+cannot run scripts. The runtime learns the entry from
 `revision.entry` in `GET /api/runtime/bootstrap` (worker mode), from `--entry` (describe and check) or
 from `entry` in the local-mode spec (§11.3). A Dockerfile may override
 these variables (for example `ENV SCANTOR_CONNECTOR_CMD="xvfb-run -a python -m scantor.serve {entry}"`
@@ -1105,7 +1108,7 @@ and the rule id in the message.
 | D2 | No parser directives `# syntax=` or `# check=` (an `# escape=` directive is allowed). | a custom frontend runs an arbitrary image with full LLB access |
 | D3 | `ARG SCANTOR_BASE` is declared before the first `FROM`, without a default value. | the pipeline always supplies it |
 | D4 | The final stage is `FROM ${SCANTOR_BASE}` (or `$SCANTOR_BASE`), directly or through earlier stage names that lead to it. Earlier stages may use other allowed images. | the final image must carry the connector and ENV contract |
-| D5 | Every image reference in `FROM`, `COPY --from=` and `RUN --mount=…,from=` is an earlier stage name, an earlier stage index (`COPY --from` only), `${SCANTOR_BASE}`, `scratch` (BuildKit's empty image, spelled exactly so; never pulled) or a literal reference (a numeric `COPY --from` that is not the index of an earlier stage is rejected, and so is any numeric `RUN --mount` `from=`, because BuildKit reads it as the Docker Hub image `library/<n>`, never as a stage index): no `$` other than `SCANTOR_BASE`; a valid normalised reference; not a bare image id (`sha256:…` or 64 hex characters); its registry host is not `localhost`, `*.localhost`, `host.docker.internal`, an IP literal in a loopback, unspecified (`0.0.0.0`, `::`), private, link-local or unique-local range, the internal registry service name (`registry`, any port), the host of `SCANTOR_REGISTRY_PUBLIC_HOST` or the host of `SCANTOR_PUBLIC_URL`; its repository path does not start with `tasks/` (case-insensitive, on any host, including Docker Hub). | BuildKit prefers local images, so `COPY --from=localhost:5000/tasks/<victim>` would read another user's image ([security](security.md) BLD-2) |
+| D5 | Every image reference in `FROM`, `COPY --from=` and `RUN --mount=…,from=` is an earlier stage name, an earlier stage index (`COPY --from` only), `${SCANTOR_BASE}`, `scratch` (BuildKit's empty image, spelled exactly so; never pulled) or a literal reference (a numeric `COPY --from` that is not the index of an earlier stage is rejected, and so is any numeric `RUN --mount` `from=`, because BuildKit reads it as the Docker Hub image `library/<n>`, never as a stage index): no `$` other than `SCANTOR_BASE`; a valid normalised reference; not a bare image id (`sha256:…` or 64 hex characters); its registry host is not `localhost`, `*.localhost`, `host.docker.internal`, an IP literal in a loopback, unspecified (`0.0.0.0`, `::`), private, link-local or unique-local range, the internal registry service name (`registry`, any port), the host of `SCANTOR_REGISTRY_PUBLIC_HOST` or the host of `SCANTOR_PUBLIC_URL`; its repository path does not start with `tasks/` or `scripts/` (case-insensitive, on any host, including Docker Hub). | BuildKit prefers local images, so `COPY --from=localhost:5000/tasks/<victim>` would read another user's task image, and `FROM scripts/<id>:<pack>` another user's local script image ([security](security.md) BLD-2) |
 | D6 | No `--platform` flag on `FROM`. | single-architecture builds; the revision records the built platform |
 | D7 | `ADD` sources are local paths only: no `http://`, `https://`, `git@`, `git://` or `*.git` URLs, no `--checksum`, no `--keep-git-dir`. | the daemon fetches ADD URLs from the host network namespace |
 | D8 | `RUN --mount` types `bind` and `tmpfs` only (`cache`, `secret`, `ssh` rejected); no `RUN --network=` other than `default`; no `RUN --security=`. | cache mounts are shared across users; host network and insecure entitlements |
@@ -1113,7 +1116,7 @@ and the rule id in the message.
 | D10 | No `ARG` whose name starts with `BUILDKIT_` (case-insensitive), as written or without its shell quoting and escapes (`ARG "BUILDKIT_X"`, `ARG BUILD\KIT_X`). | frontend and builder knobs |
 | D11 | No `ONBUILD` and no `VOLUME`. | ONBUILD hides deferred instructions; anonymous volumes leak worker disk |
 | W1 | `ENTRYPOINT`, `CMD`, `HEALTHCHECK` and `STOPSIGNAL` are ignored (the runtime is the entrypoint) — warning. | every runtime container sets its own entrypoint, stop signal and healthcheck ([runtime](runtime.md) §5.3) |
-| W2 | `ENV` overriding a `SCANTOR_*` variable — warning naming it. | allowed, e.g. to wrap the connector command |
+| W2 | `ENV` overriding a `SCANTOR_*` variable (the ENV contract of §4.2, `SCANTOR_SCRIPT_CMD` included) — warning naming it. | allowed, e.g. to wrap the connector or script command |
 | W3 | No `.dockerignore` — warning. | |
 
 Build-time rules outside the Dockerfile: only public base and builder images can be pulled (no registry
@@ -1161,10 +1164,12 @@ stdout is a terminal) and exit with §9.9 codes. They need no platform credentia
 | orchestrator `testRun` job | same with `--tag tasks/<taskId>:draft-<packSha256> --skip-check --reuse-existing` and no `--push` |
 | `scantor validate [dir]` | `task build --allow-privileged` with tag `scantor-dev/<name>:<packSha256[0:12]>`, no push, local Docker (local builds run on the user's own Docker; publish re-checks the manifest with the owner's `canRunPrivileged` on the server) |
 | `scantor dev run` / `scantor dev debug` | as validate (including `--allow-privileged`) with `--skip-check` (`dev debug` adds `--debug-build`), then local mode (§11.4) |
-| `scantor push [dir]` | `task pack` locally, then `POST /api/tasks/upload` (the server runs the full pipeline); inside the editor (`SCANTOR_WORKSPACE` set and the folder inside it) only `POST …/revisions` |
+| `scantor push [dir]` | `task pack` locally, then `POST /api/tasks/upload` (the server runs the full pipeline); inside the editor (`SCANTOR_WORKSPACE` set and the folder inside it) only `POST …/revisions`. A folder with `scantor-script.yaml` is uploaded as a script instead (`POST /api/scripts/upload`, [scripts](scripts.md) §12) |
+| orchestrator `scriptRun` job | the run's stored `script-runs/<runId>/source.tar.gz` streamed into `scantor script build - --tag scripts/<scriptId>:<packSha256> --expect-name <script> --reuse-existing --events ndjson`: the same pack, static step (with `scantor-script.yaml` and rules S1–S6 instead of the task manifest) and build, no describe, check or push ([scripts](scripts.md) §4) |
 
 Hidden commands of the binary (omitted from `--help` and from the generated CLI reference
-`docs/guide/cli.md`): `scantor task pack | check-static | build` (this section), `scantor workspace …`
+`docs/guide/cli.md`): `scantor task pack | check-static | build` (this section), `scantor script build`
+([scripts](scripts.md) §4), `scantor workspace …`
 (the workspace helpers, [editor](editor.md) §9), `scantor runtime …` ([runtime](runtime.md)), `scantor
 node egress-apply` (run inside the egress helper container, [nodes](nodes.md) §9), `scantor conformance
 --language <language>` and `scantor conformance exec --case <id> --fixture <fixture> --entry <entry>
@@ -1177,8 +1182,8 @@ node egress-apply` (run inside the egress helper container, [nodes](nodes.md) §
 The pack is the build context, the revision snapshot and the unit of change detection.
 
 - File set: walk the folder; apply `.dockerignore` with Docker semantics (`moby/patternmatcher`,
-  including `!` exceptions); always include `scantor.yaml`, `Dockerfile` and `.dockerignore` even if
-  matched; always exclude `.git/` and `.scantor/` at any depth.
+  including `!` exceptions); always include `scantor.yaml`, `scantor-script.yaml`, `Dockerfile` and
+  `.dockerignore` even if matched (one global `forcedIncludes` set); always exclude `.git/` and `.scantor/` at any depth.
 - Entry types: regular files (mode normalised to `0755` if any execute bit is set, else `0644`),
   directories (`0755`), and symlinks whose target is relative and resolves inside the root (stored as
   symlinks, never dereferenced). Each target is resolved against the pack's own entries the way the
@@ -1569,7 +1574,8 @@ Guide: [[.GuideURL]]
 ## 13. Workspace
 
 - **Single source of truth**: `workspace/<taskName>/` (volume `scantor-workspaces`, subpath `<userId>`)
-  is the only input to revisions and test runs. The orchestrator process never reads or writes it; every
+  is the only input to revisions and test runs. Script folders live beside the tasks in
+  `workspace/.scripts/<scriptName>/` and follow the same helper rules ([scripts](scripts.md) §2.1). The orchestrator process never reads or writes it; every
   operation is a `scantor workspace <op>` helper container ([architecture](architecture.md) §4.1,
   [security](security.md)).
 - **Writers**: the editor (code-server, owner only), MCP/REST file routes (`writeTaskFiles`,
@@ -1680,6 +1686,9 @@ Flagged for lead review:
     same input fails again, so they are not retried.
 21. **The Go connector validates against its own exported schema** (§5.9), because Go structs carry no
     constraints or defaults; the TypeScript/JavaScript connector normalises zod's export (§6.1).
+22. **Scripts reuse the task pipeline** (§9.1): pack, the static step with a pluggable manifest checker and the
+    build are shared with `scantor script build`, and `scantor-script.yaml` joins the forced includes, so a script
+    is subject to exactly the Dockerfile policy of a task; D5 extends to `scripts/` ([scripts](scripts.md) §4).
 
 ## 16. Future extensions
 

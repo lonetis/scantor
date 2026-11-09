@@ -218,17 +218,17 @@ overview is in [architecture](architecture.md) §5. The packages:
 | Directory | Contents |
 |---|---|
 | `cmd/scantor/` | `main.go` only (below) |
-| `internal/cli/` | the cobra tree, one file per command or group (`init.go`, `validate.go`, `dev.go`, `push.go`, `tasks.go`, `revisions.go`, `scans.go`, `analyses.go`, `exports.go`, `files.go`, `api_uploads.go`, `jobs.go`, `nodes.go`, `templates.go`, `whoami.go`, `version.go`, and the hidden `task.go`, `workspace.go`, `runtime.go`, `node.go`, `conformance.go`, `docs.go`); shared API-command helpers `api_common.go` (waits, retries, hints), `api_input.go` (inline/`@file`/stdin JSON), `api_download.go` (verified downloads); `config.go` (`LoadConfig` of the CLI and the task pipeline), `output.go`, `exitcode.go`, `registry.go` (registration seam), `root.go` |
-| `internal/api/` | wire types (`types_*.go`), the typed client (`client.go`, `user.go`, `user_tasks.go`, `node.go`, `runtime.go`, `sse.go`), errors and exit classes (`errors.go`), transport policy (`transport.go`), ISO-ms time and clock offset (`time.go`); `testdata/` holds the [api](api.md) examples the round-trip tests read |
+| `internal/cli/` | the cobra tree, one file per command or group (`init.go`, `validate.go`, `dev.go`, `push.go`, `tasks.go`, `revisions.go`, `scans.go`, `analyses.go`, `exports.go`, `files.go`, `api_uploads.go`, `jobs.go`, `nodes.go`, `templates.go`, `scripts.go` and `scripts_runs.go` (the `scripts` group), `whoami.go`, `version.go`, and the hidden `task.go`, `script_build.go` (`scantor script build`), `workspace.go`, `runtime.go`, `node.go`, `conformance.go`, `docs.go`); shared API-command helpers `api_common.go` (waits, retries, hints), `api_input.go` (inline/`@file`/stdin JSON), `api_download.go` (verified downloads); `config.go` (`LoadConfig` of the CLI and the task pipeline), `output.go`, `exitcode.go`, `registry.go` (registration seam), `root.go` |
+| `internal/api/` | wire types (`types_*.go`), the typed client (`client.go`, `user.go`, `user_tasks.go`, `user_scripts.go`, `node.go`, `runtime.go`, `sse.go`), errors and exit classes (`errors.go`), transport policy (`transport.go`), ISO-ms time and clock offset (`time.go`); `testdata/` holds the [api](api.md) examples the round-trip tests read |
 | `internal/node/` | the node daemon ([nodes](nodes.md)), one package: `config.go` (`LoadConfig`), `daemon.go` and `host.go` (start-up, the hello loop, Docker host facts), `session.go` (one registered instance: conflict, unauthorized mode, shutdown, the desired set, Docker events, the worker network), `loops.go` (assignments long-poll, status reports, on-demand log tails, image GC, the egress loop), `reconcile.go` (worker recognition per [security](security.md) LBL-5 and the level-triggered reconcile pass), `actor.go` (the per-worker state machine: pull, create, inject, start, limits, exits, removal), `spec.go`, `validate.go`, `dind.go` (container spec, assignment validation, DinD modes), `images.go` (pulls, image GC), `logs.go` (log tails), `netpol.go` (the egress helper and `egress-apply`), `health.go` (status file, healthcheck, clock offset), `timing.go` (intervals and backoffs that tests shrink), `statfs_*.go` (free disk). Commands: `scantor node`, `node healthcheck` and the hidden `node egress-apply` in `internal/cli/node.go` |
-| `internal/runtime/` | the runtime ([runtime](runtime.md) §1.3): the root package holds only shared types (`config.go` with `LoadConfig`, `errors.go` with the classified `Error`, `messages.go` with the AMQP bodies of `schemas/messages/`) and imports none of its sub-packages `bootstrap`, `amqpx`, `pool`, `runner`, `scheduler`, `worker`, `local`, `describe`, `check`, `pipeline`, `scerr`, `logtail`, `upload`, `canonical`, `dind`, `health` (heartbeat file and `runtime healthcheck`); `internal/runtime/internal/{fakeapi,fakebroker,fakeconn}` are the test fakes (orchestrator, broker, scripted connector) |
-| `internal/taskpipe/` | the task pipeline ([tasks](tasks.md) §9): pack (`pack.go`, `packdir.go`, `packread.go`, `ignore.go`), check-static (`static.go`), build, describe, check and push (`pipeline.go`, `image.go`, `trace.go`, `containerrun.go`, `describe.go`, `push.go`), events and results (`events.go`, `result.go`), local mode for `dev run`/`dev debug` (`local.go`, `localevents.go`); `dockerfile/` holds the Dockerfile policy (D1–D11, W1–W3) and the image-reference rules; `testdata/stubruntime/` is the stub runtime of the integration tests |
-| `internal/workspace/` | the workspace helper operations ([editor](editor.md) §9): path rules and caps (`paths.go`, `limits.go`), extract of tar.gz and zip uploads (`extract.go`, `archive.go`), staging and commit (`commit.go`), git (`git.go`), list/read (`browse.go`), write/delete (`files.go`), scaffold rendering (`scaffold.go`), init/purge (`volumes.go`), the pack summary (`pack.go`), events and error codes; its own `LoadConfig` (`config.go`) |
+| `internal/runtime/` | the runtime ([runtime](runtime.md) §1.3): the root package holds only shared types (`config.go` with `LoadConfig`, `errors.go` with the classified `Error`, `messages.go` with the AMQP bodies of `schemas/messages/`) and imports none of its sub-packages `bootstrap`, `amqpx`, `pool`, `runner`, `scheduler`, `worker`, `local`, `describe`, `check`, `pipeline`, `scerr`, `logtail`, `upload`, `canonical`, `dind`, `health` (heartbeat file and `runtime healthcheck`), `script` (`runtime script`, the supervisor of a script-run container, [scripts](scripts.md) §10); `internal/runtime/internal/{fakeapi,fakebroker,fakeconn}` are the test fakes (orchestrator, broker, scripted connector) |
+| `internal/taskpipe/` | the task pipeline ([tasks](tasks.md) §9): pack (`pack.go`, `packdir.go`, `packread.go`, `ignore.go`), check-static (`static.go`), build, describe, check and push (`pipeline.go`, `image.go`, `trace.go`, `containerrun.go`, `describe.go`, `push.go`), events and results (`events.go` with the generic `EventOf[R]`, `result.go` with `Result` and `ScriptResult`), local mode for `dev run`/`dev debug` (`local.go`, `localevents.go`); script builds reuse pack, static (`CheckScriptStatic`) and build (`BuildScript`, [scripts](scripts.md) §4); `dockerfile/` holds the Dockerfile policy (D1–D11, W1–W3) and the image-reference rules; `testdata/stubruntime/` is the stub runtime of the integration tests |
+| `internal/workspace/` | the workspace helper operations ([editor](editor.md) §9): the (kind, name) → folder mapping of task and script folders (`folder.go`), path rules and caps (`paths.go`, `limits.go`), extract of tar.gz and zip uploads (`extract.go`, `archive.go`), staging and commit (`commit.go`), git (`git.go`), list/read (`browse.go`), write/delete (`files.go`), scaffold rendering (`scaffold.go`, `script_scaffold.go`), init/purge (`volumes.go`), the pack summary (`pack.go`), events and error codes; its own `LoadConfig` (`config.go`) |
 | `internal/templates/` | `registry.go` (`Lookup`, `List`, and the re-exported contract), `core/` (the interface, `Definition`, errors, line trimming), `fetch/` (the HTTP policy of [templates](templates.md) §7.2), one package per template (`single`, `list`, `range` (package `ranges`), `repeat`, `tranco`, `crux`, `cidr`), `templatestest/` (fake upstreams and the fixtures runner) |
 | `internal/conformance/` | the conformance harness (`harness.go`, `driver.go`, `exec.go`, `cases.go`, `suite.go`) and `testdata/<language>/<fixture>/` task folders ([protocol](protocol.md) §12) |
 | `internal/protocol/` | connector messages, the NDJSON codec, the schema validator, the fd/environment constants of connector processes |
 | `internal/container/` | the moby client, managed labels, hardening profiles, runtime injection and binary extraction |
-| `internal/manifest/`, `internal/languages/`, `internal/schema/` | `scantor.yaml` parsing and rules M1–M10, the language table, JSON Schema validation with ajv-identical defaults |
+| `internal/manifest/`, `internal/languages/`, `internal/schema/` | `scantor.yaml` parsing and rules M1–M10, `scantor-script.yaml` and rules S1–S6 (`script.go`), the language table (with the optional `script` object), JSON Schema validation with ajv-identical defaults |
 | `internal/keys/`, `internal/redact/`, `internal/envconf/`, `internal/version/` | HKDF derivations and the registry signing key, log redaction, the environment value parsers, the build version and `ImageRef` |
 | `internal/deps/` | `tools.go` (build tag `tools`), which pins modules before their first import |
 
@@ -236,7 +236,9 @@ Additional conventions:
 
 - `cmd/scantor/main.go` only builds the root command (`cli.NewRootCommand()`), executes it and exits with
   `cli.ExitCode(err)` (0 ok, 1 analysis failures, 2 validation, 3 platform). API errors map to 2 for 4xx
-  except 408, 426 and 429, and to 3 for those, 5xx, network errors and anything unclassified. A failed
+  except 408, 426 and 429, and to 3 for those, 5xx, network errors and anything unclassified. The hidden
+  runtime roles end with their own process exit code instead (`cli.ProcessExit`, passed through unchanged):
+  script mode exits with the script's code or 128 + signal, which the script-run job reads from the container. A failed
   command prints `Error: <message>` to stderr, or with `-o json` one document `{"error": {code, message,
   exitCode, status?, details?, requestId?}}` (flag and argument errors that cobra reports before the
   command runs stay plain text).
@@ -278,8 +280,8 @@ Additional conventions:
   (configuration, output, API client, Docker client, logger). Public commands are listed in
   [architecture](architecture.md) §4.2 and in the generated `docs/guide/cli.md`. Hidden commands and
   groups (`Hidden: true`, or `registerGroup(…, true)`; absent from `--help` and from `docs/guide/cli.md`):
-  `scantor task pack | check-static | build`, `scantor workspace …`, `scantor runtime …`, `scantor node
-  egress-apply`, `scantor conformance` (plus `scantor conformance exec`, [protocol](protocol.md) §12) and
+  `scantor task pack | check-static | build`, `scantor script build`, `scantor workspace …`, `scantor runtime …`
+  (including `runtime script`), `scantor node egress-apply`, `scantor conformance` (plus `scantor conformance exec`, [protocol](protocol.md) §12) and
   `scantor docs cli` (writes `docs/guide/cli.md` and refreshes the `<!-- scantor:include -->` blocks of
   `docs/guide/*.md`, used by `just docs`).
 - No language switch anywhere: language-specific behaviour comes from `schemas/languages.json` and the base
@@ -323,7 +325,9 @@ orchestrator/
 │   │                             (boot steps, component tasks, job kinds, userPurge steps, lockout hooks; never
 │   │                             I/O at load): 20.editor-listener (editor origin on container port 3001,
 │   │                             editor §8.1), 30.tasks, 40.scans, 50.results, 60.nodes (also registry and
-│   │                             runtime), 70.editor (reaper, purge step, lockout hook), 80.notifications (event sink,
+│   │                             runtime), 35.scripts (boot step 650 for the subnets of scantor-scripts; job kinds
+│   │                             scriptRun and scriptDelete, the scripts-gc component task, purge steps 15 and 65, the
+│   │                             lockout hook, the script-runtime-state flush), 70.editor (reaper, purge step, lockout hook), 80.notifications (event sink,
 │   │                             `notification` job kind, purge step); 99.start (runs the boot
 │   │                             steps in order, then starts the SCANTOR_COMPONENTS); security-headers.ts (the
 │   │                             security headers of every response in Nitro's request hook, which runs before
@@ -333,7 +337,10 @@ orchestrator/
 │   │                             analyses, catalog, configs, credentials, editor, exports, files (inline byte-range
 │   │                             reads of stored files, shared by every content route), helpers, ingestor, jobs,
 │   │                             mcp, metrics, nodes, notifications, pipeline, placement, query, reconciler, registry, revisions,
-│   │                             runtime, scans, setup, tasks, test-runs, tools, uploads, users; inflight.ts (the
+│   │                             runtime, scans, scripts (store, upload, files, delete, purge, gc), script-runs (start,
+│   │                             the scriptRun job, container spec, log writer, cleanup), script-runtime (the API of
+│   │                             script-run containers: bootstrap, stream, outputs, state), setup, tasks, test-runs,
+│   │                             tools, uploads, users; inflight.ts (the
 │   │                             in-memory in-flight store fed by runtime state polls)
 │   ├── types/                    documents.ts (MongoDB document types including internal fields, server-only),
 │   │                             openapi.ts (route-meta typing with the x-scantor extensions)
@@ -343,6 +350,7 @@ orchestrator/
 │                                 key lookups, auth §5.2), principal, operations (operation registry), authz
 │                                 (ownership helpers), request-path (canonical paths, auth §5.5), internal-auth,
 │                                 loopback (the MCP bridge's private listener, mcp §1), node-tokens, worker-tokens,
+│                                 script-run-tokens, script-network (the peer check of /api/script-runtime/*),
 │                                 users, user-cache, setup, keys, secrets, redact, logger, mongo, s3, amqp,
 │                                 rabbitmq-management, docker, labels (reads schemas/managed-labels.json), boot
 │                                 (registerBootStep, registerComponentTask), jobs (registerJobKind, createJob),
@@ -412,11 +420,12 @@ export default defineEventHandler(async (event) => {
 
 | Directory | Contents | Rules |
 |---|---|---|
-| `connectors/python/` | `pyproject.toml`, `src/scantor/` (public modules, private `_*.py` protocol internals, `templates/` proxies, `serve.py` and `check.py` behind the base image's commands), `tests/` (with `fixtures/` and a fake-runtime harness), `constraints.txt` (pinned, used as `PIP_CONSTRAINT` in the base image), `Dockerfile` (stages `wheel`, `base`, `test`), `Dockerfile.dockerignore` | snake_case API; `ruff` + `basedpyright` clean |
+| `connectors/python/` | `pyproject.toml`, `src/scantor/` (public modules, private `_*.py` protocol internals, `templates/` proxies, `serve.py` and `check.py` behind the base image's commands, `script/` (the script SDK behind `SCANTOR_SCRIPT_CMD`, [scripts](scripts.md) §11) and `_entry.py` (the entry loader tasks and scripts share)), `tests/` (with `fixtures/` and a fake-runtime harness), `constraints.txt` (pinned, used as `PIP_CONSTRAINT` in the base image), `Dockerfile` (stages `wheel`, `base`, `test`), `Dockerfile.dockerignore` | snake_case API; `ruff` + `basedpyright` clean |
 | `connectors/js/` | `package.json` (`@scantor/connector`; every export has a `scantor-source` condition pointing at `src/`), `src/*.ts` (with `src/templates/` proxies), `serve.js` and `check.js` (the entry files of `SCANTOR_CONNECTOR_CMD`/`SCANTOR_CHECK_CMD`), `tsconfig.json` (type check) and `tsconfig.build.json` (`dist/`), `eslint.config.mjs` (the recommended JS and TS rules, as in `tests/`), `test/` (with `fixtures/`, `helpers/`, `typing/`), `check-tools/` (the root `/node_modules` of the base image: typescript, @types/node), `Dockerfile`, `Dockerfile.dockerignore` | re-exports `z`; TypeScript ~6.0.3 for type checks. Tests run `src/*.ts` through Node 26 type stripping with `node --conditions=scantor-source`; the installed package ships `dist/` compiled by `tsc` (`npm run build`, also the `prepare` script) and its `package.json` drops the `scantor-source` condition, because Node does not strip types under `node_modules` ([tasks](tasks.md) §5.7). `dist/` is a build output, never edited. The `test` stage also covers the TS/JS examples, scaffolds and guides. |
 | `connectors/go/` | separate module `github.com/lonetis/scantor/connectors/go`, package `scantor` (`serve.go`, `conn.go`, `handlers.go`, `schema.go`, `validate.go`, `version.go`, …), `templates/<name>/` proxies (`templates/range` is package `ranges`) sharing `internal/proxy/`, `scantor-go-check` (the base image's `SCANTOR_CHECK_CMD`), `Dockerfile` (stages `base`, `test`), `Dockerfile.dockerignore` | depends only on the standard library and pinned schema libraries (invopop/jsonschema) |
 | `scaffolds/<language>/` | task starter templates rendered by `scantor workspace scaffold` / `scantor init` | output publishes unchanged; ships `.devcontainer/`, `.vscode/`, `.dockerignore`, `.gitignore`, `AGENTS.md` |
-| `schemas/` | `task-manifest.schema.json`, `describe.schema.json`, `languages.json`, `managed-labels.json`, `protocol/*.json`, `messages/*.json`, `templates/<name>.json` + `<name>.fixtures.json` | canonical; Go and TS read them, never copy them |
+| `scaffolds/python-script/` | the script starter (the `script.scaffold` of the python row), rendered by `scantor workspace scaffold --script` / `scantor scripts init` ([scripts](scripts.md) §3) | runs unchanged against a scan; covered by its own Go and Python tests |
+| `schemas/` | `task-manifest.schema.json`, `script-manifest.schema.json`, `describe.schema.json`, `languages.json`, `managed-labels.json`, `protocol/*.json`, `messages/*.json`, `templates/<name>.json` + `<name>.fixtures.json` | canonical; Go and TS read them, never copy them |
 | `tasks/` | example tasks | together they cover every language and every template; each has an entry in `tests/e2e/examples.ts` |
 
 The connector API, the protocol and templates are specified in [tasks](tasks.md), [protocol](protocol.md)
@@ -467,6 +476,9 @@ and [templates](templates.md).
    the scaffold.
 9. **Docs**: `docs/guide/authoring-<language>.md`, language notes in [tasks](tasks.md), the README features
    list, CLAUDE.md.
+10. **Scripts** (optional): a `script` object in the row (`entry`, `scaffold`, `guide`), `SCANTOR_SCRIPT_CMD` in the
+    base image, an SDK that speaks the script runtime API ([scripts](scripts.md) §9, §11), a script scaffold with
+    its own test, and the scripts guide. Without the object the language simply cannot write scripts (rule S3).
 
 ### 9.3 Add a template
 
@@ -633,7 +645,8 @@ Conventional Commits 1.0.0 with an emoji after the colon (the maintainer's globa
 - Scopes used in this repository: `api`, `ui`, `auth`, `mcp`, `ingestor`, `reconciler`, `placement`,
   `jobs`, `editor`, `cli`, `node`, `runtime`, `taskpipe`, `workspace`, `templates`, `protocol`,
   `connector-python`, `connector-js`, `connector-go`, `scaffolds`, `schemas`, `examples`, `compose`,
-  `images`, `tests`, `deps`, `docs`.
+  `images`, `tests`, `deps`, `docs`, `scripts` (scripts, script runs and the script runtime API across their
+  layers).
 - Breaking changes: `!` before the colon and a `BREAKING CHANGE: <what breaks and how to migrate>` footer.
   Issue references in footers (`Fixes #123`).
 - Commits authored or co-authored by an AI agent add `Co-authored-by: <agent> <noreply@…>`.
@@ -649,8 +662,8 @@ E11000`, `build(deps): 🏗️ bump better-auth to 1.7.13`, `test(chaos): ✅ ad
 |---|---|
 | `README.md` | users only, concise: short intro, features, getting started (configuration → `.env.example`, development → `docker-compose.dev.yml`, production → `docker-compose.prod.yml`), links to `docs/guide/`. No internals, no project structure, no environment variable descriptions. |
 | `CLAUDE.md` | the internal index: project structure, tech stack, design decisions, conventions, and a plain-path link (no `@` imports) to every `docs/*.md`. Updated with every structural change, new component, design decision or convention. |
-| `docs/*.md` | internal specifications ([architecture](architecture.md), [data model](data-model.md), [api](api.md) are the backbone and win on conflicts). Each starts with a purpose paragraph, uses the glossary terms exactly, links other docs relatively, records new decisions in a "Decisions" section and ends with "Future extensions". Never documents environment variable defaults. |
-| `docs/guide/*.md` | user guides (authoring per language, templates, manifest, errors and retries, CLI reference generated by `just docs`, MCP and agents, remote nodes). Embedded into the binary and the orchestrator image and served over MCP; code snippets are included from `tasks/` (a fenced block with the file's exact content between `<!-- scantor:include <path> -->` and `<!-- scantor:include:end -->`) and refreshed by `just docs`; the drift test checks referenced tools and commands. There is one `authoring-<language>.md` per row of `schemas/languages.json` (including `authoring-javascript.md`, which may point to the TypeScript guide). `mcp.md` contains the section between `<!-- scantor:mcp-instructions:start -->` and `<!-- scantor:mcp-instructions:end -->` (≤ 8 KiB) that becomes the MCP server instructions ([mcp](mcp.md) §6). |
+| `docs/*.md` | internal specifications ([architecture](architecture.md), [data model](data-model.md), [api](api.md) are the backbone and win on conflicts; feature specifications such as [scripts](scripts.md) refine them). Each starts with a purpose paragraph, uses the glossary terms exactly, links other docs relatively, records new decisions in a "Decisions" section and ends with "Future extensions". Never documents environment variable defaults. |
+| `docs/guide/*.md` | user guides (authoring per language, templates, manifest, scripts, errors and retries, CLI reference generated by `just docs`, MCP and agents, remote nodes). Embedded into the binary and the orchestrator image and served over MCP; code snippets are included from `tasks/` (a fenced block with the file's exact content between `<!-- scantor:include <path> -->` and `<!-- scantor:include:end -->`) and refreshed by `just docs`; the drift test checks referenced tools and commands. There is one `authoring-<language>.md` per row of `schemas/languages.json` (including `authoring-javascript.md`, which may point to the TypeScript guide). `mcp.md` contains the section between `<!-- scantor:mcp-instructions:start -->` and `<!-- scantor:mcp-instructions:end -->` (≤ 8 KiB) that becomes the MCP server instructions ([mcp](mcp.md) §6). |
 | `.env.example` | the only documentation of environment variables: every variable with its default and a short description, grouped in sections (including "Remote node", "CLI" and "Tests"), with instructions for obtaining secrets and tokens. |
 | `tests/FEATURES.md`, `tests/TESTS.md` | behaviour inventory and generated test index ([testing](testing.md) §10). |
 | `skills/` | thin agent skills that point to MCP guide tools and `docs/guide/`; checked by the drift test. |
@@ -708,6 +721,10 @@ restarting `scantor node` with the new image tag within the compatibility window
 9. **Compose and `.env.example` checks are static scripts** (`lint-compose.mjs`, `lint-env.mjs`) run by
    `just lint`: they need no stack and fail in the fastest CI job (the security specs only wrap them,
    [testing](testing.md) §8.6).
+10. **Scripts span three orchestrator service areas** (`scripts`, `script-runs`, `script-runtime`) registered by
+    one domain plugin (`35.scripts.ts`), and the commit scope `scripts` covers the feature across layers, because
+    the user-facing resource, the run lifecycle and the container API change at different rates but ship
+    together.
 
 ## 16. Future extensions
 

@@ -28,12 +28,12 @@ the system context is in [architecture](architecture.md).
 
 | Extension | Type | Required | Meaning |
 |---|---|---|---|
-| `x-scantor-scope` | `owner`\|`admin`\|`public`\|`node`\|`worker`\|`setup`\|`tools` | yes | which principal the operation accepts (§1.2) |
+| `x-scantor-scope` | `owner`\|`admin`\|`public`\|`node`\|`worker`\|`scriptRun`\|`setup`\|`tools` | yes | which principal the operation accepts (§1.2) |
 | `x-mcp` | boolean | yes | `true` = exposed as an MCP tool named `snake_case(operationId)` |
 | `x-admin-only` | boolean | when true | `true` iff `x-scantor-scope` is `admin`; hides the tool from non-admin MCP sessions and requires OAuth scope `scantor:admin` |
-| `x-read-only` | boolean | when true | a non-GET operation without side effects (`queryAnalyses`, `aggregateAnalyses`, `estimateTemplate`); MCP marks it read-only and allows it with scope `scantor:read` |
+| `x-read-only` | boolean | when true | a non-GET operation without side effects (`queryAnalyses`, `aggregateAnalyses`, `estimateTemplate`, `scriptRuntimeStreamAnalyses`, `scriptRuntimeAggregate`); MCP marks it read-only and allows it with scope `scantor:read` |
 | `x-session-only` | boolean | when true | only a browser session may call the operation; API keys (both configurations) and MCP get 403 `sessionRequired`. Enforced centrally by the auth middleware's operation registry ([auth](auth.md) §5.4). Set on `setAccountPassword`, `removeAccountPassword`, `createApiKey`, `createToolsSession` |
-| `x-destructive` | boolean | when true | a non-`DELETE` operation that discards work or data or revokes access; MCP sets `destructiveHint` from it ([mcp](mcp.md) §4.2). Set on `cancelScan`, `cancelTestRun`, `banUser`, `rotateNodeToken` (`revokeNodeToken` is a `DELETE` and destructive by method) |
+| `x-destructive` | boolean | when true | a non-`DELETE` operation that discards work or data or revokes access; MCP sets `destructiveHint` from it ([mcp](mcp.md) §4.2). Set on `cancelScan`, `cancelTestRun`, `cancelScriptRun`, `banUser`, `rotateNodeToken` (`revokeNodeToken` is a `DELETE` and destructive by method) |
 
 - `operationId`: camelCase, verb first (`list…`, `get…`, `create…`, `update…`, `delete…`, `start…`,
   `pause…`, …), unique across the document.
@@ -55,6 +55,7 @@ the system context is in [architecture](architecture.md).
 | `admin` | user principal with effective admin power: `role: "admin"`, and not via an `editor` API key, and not via MCP without `scantor:admin` ([auth](auth.md) §5.6) | others get 403 `adminRequired` (also admins using their `editor` key or a non-admin MCP grant) |
 | `node` | `Authorization: Bearer snt_…`; on `/api/registry/token` Basic `node:snt_…` or the orchestrator registry credential | |
 | `worker` | `Authorization: Bearer swt_<workerId>.<mac>` of a worker in an active state ([data model](data-model.md) §6.6) | scheduler routes also require `role: scheduler` and the current epoch |
+| `scriptRun` | `Authorization: Bearer ssr_<scriptRunId>.<mac>` of a script run in state `running` whose owner is not banned, from a socket peer in the Docker network `scantor-scripts` ([scripts](scripts.md) §9) | the run's scans only (`loadRunScan`) |
 | `setup` | header `X-Scantor-Setup-Token` while no user exists | constant-time compare |
 | `tools` | cookie `scantor_tools` | forwardAuth only |
 
@@ -65,6 +66,7 @@ yields 401 `unauthorized`:
 |---|---|
 | `/api/node/*` | node |
 | `/api/runtime/*` | worker |
+| `/api/script-runtime/*` | script run (and only from a peer in `scantor-scripts`, else 403 `forbidden` before any credential check) |
 | `/api/registry/token` | node or orchestrator registry credential (Basic) |
 | `/api/setup/*` | setup token (`GET /api/setup/status` is public) |
 | `/api/tools/forward-auth` | tools cookie (without a valid cookie: 302 for browser requests, otherwise 401, §4.18) |
@@ -101,9 +103,11 @@ Further rules of the global middleware ([auth](auth.md) §5):
 - Admins pass ownership checks on every addressed resource (read and write), except the editor routes,
   which always act on the caller's own editor.
 - Resources created under an addressed parent inherit the parent's owner: revisions, test runs and files
-  of a task; restart clones and exports of a scan.
-- Top-level creates (`createTask`, `importGitTask`, `uploadTask`, `startScan`, `createUpload`,
-  `createCredential`, `createApiKey`) are owned by the caller and may reference only the caller's own
+  of a task; restart clones and exports of a scan; runs of a script. A script run reads only scans of the
+  script's owner: an admin starting another user's script can bind only that user's scans, never their own
+  or a third user's (404).
+- Top-level creates (`createTask`, `importGitTask`, `uploadTask`, `createScript`, `uploadScript`, `startScan`,
+  `createUpload`, `createCredential`, `createApiKey`) are owned by the caller and may reference only the caller's own
   resources (revision, uploads, credential); anything else is 404.
 - List operations return the caller's resources; admins get everything and may filter with `userId`. The
   exceptions are `listCredentials` and `listUploads`, which return only the caller's own items, also to
@@ -117,6 +121,7 @@ Further rules of the global middleware ([auth](auth.md) §5):
 | Parameter | Accepted forms |
 |---|---|
 | `{task}` | task id (uuid) or task name (slug, looked up among the **caller's** tasks; admins use ids for other users' tasks). Reserved names that can never be task names: `upload`, `import-git`, `new`, `latest`. |
+| `{script}` | script id (uuid) or script name (task-name rules, looked up among the **caller's** scripts; admins use ids for other users' scripts). Tasks and scripts may share a name. |
 | `{revision}` | revision number (`3`), `latest` (highest-numbered `ready` revision) or revision id (uuid) |
 | revision reference (body field `revision`, CLI, MCP) | `<task>@<N>`, `<task>@latest`, `<task>` (= `@latest`) or a revision id; a bare uuid is tried as a revision id first, then as a task id (`@latest`) |
 | `{analysisId}` | `<scanId>-<seq>` |
@@ -124,7 +129,7 @@ Further rules of the global middleware ([auth](auth.md) §5):
 
 ### 1.5 Requests
 
-- Bodies are `application/json` (UTF-8) unless the route says otherwise (task upload `application/gzip`,
+- Bodies are `application/json` (UTF-8) unless the route says otherwise (task and script upload `application/gzip`,
   list upload `text/plain`/`application/octet-stream`, registry token POST form).
 - Every body, query and path parameter is parsed with a strict zod schema (unknown keys rejected, ids with
   `z.uuid()`, strings length-bounded); failures are 400 `validationFailed` with
@@ -136,8 +141,9 @@ Further rules of the global middleware ([auth](auth.md) §5):
   form is under `/api`, `/mcp` or `/.well-known`. Path parameters that contain `/` are sent as `%2F`.
 - Query parameters: booleans `true`/`false`, integers in decimal, lists comma-separated.
 - Body caps: `SCANTOR_MAX_REQUEST_BYTES` for every JSON body (413 `payloadTooLarge`); streaming routes have
-  their own cap (task upload `SCANTOR_TASK_MAX_PACK_BYTES`, list upload `SCANTOR_MAX_UPLOAD_BYTES`); machine
-  routes: `/api/runtime/*` 1 MiB, `/api/node/status` and `/api/node/workers/*/logs` 2 MiB; protocol routes, most of
+  their own cap (task and script upload `SCANTOR_TASK_MAX_PACK_BYTES`, list upload `SCANTOR_MAX_UPLOAD_BYTES`); machine
+  routes: `/api/runtime/*` 1 MiB, `/api/script-runtime/*` 1 MiB except `finish` and `checkpoint`
+  (`max(1 MiB, SCANTOR_MAX_RESULT_BYTES) + 128 KiB`), `/api/node/status` and `/api/node/workers/*/logs` 2 MiB; protocol routes, most of
   them reachable without a credential: `/api/auth/*`, `/api/registry/token`, `/mcp` and the root `/.well-known/*`
   documents 1 MiB. The caps apply before any credential is checked. A declared `Content-Length` above the cap is
   rejected (`details {limit, actual}`) before the body is read; a body without one (chunked) is counted while it
@@ -184,17 +190,17 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
 | `passkeysDisabled` | 400 | passkey flow requested while passkeys are disabled |
 | `unauthorized` | 401 | missing or invalid credential, or a credential of the wrong kind for the prefix |
 | `setupTokenInvalid` | 401 | setup token missing or wrong |
-| `forbidden` | 403 | untrusted `Origin`, insufficient MCP level, worker role not allowed on the route, `editor` API key on `createEditorSession` |
+| `forbidden` | 403 | untrusted `Origin`, insufficient MCP level, worker role not allowed on the route, `editor` API key on `createEditorSession`, a script runtime API request from outside `scantor-scripts` |
 | `adminRequired` | 403 | admin-only operation |
 | `sessionRequired` | 403 | operation needs a browser session |
 | `banned` | 403 | the user is banned |
 | `privilegedNotAllowed` | 403 | privileged revision without `canRunPrivileged` |
-| `quotaExceeded` | 403 | per-user storage quota reached (files of scans and test runs) |
+| `quotaExceeded` | 403 | per-user storage quota reached (files of scans and test runs, script-run outputs) |
 | `notFound` | 404 | missing, deleted or not owned; an `/api/*` path that matches no operation |
 | `methodNotAllowed` | 405 | the path matches an operation, the method does not |
 | `invalidState` | 409 | transition not allowed; `details: {state, allowed}` |
-| `alreadyExists` | 409 | unique name taken |
-| `workspaceDirty` | 409 | workspace has unpublished changes; retry with `force=true` |
+| `alreadyExists` | 409 | unique name taken (also an output name of a script run) |
+| `workspaceDirty` | 409 | workspace has unpublished changes (a script folder: changes never uploaded); retry with `force=true` |
 | `gitDiverged` | 409 | local changes since the last import/pull, or remote is not a fast-forward |
 | `taskInUse` | 409 | a non-terminal scan uses the task |
 | `uploadInUse` | 409 | a scan references the upload |
@@ -210,13 +216,13 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
 | `payloadTooLarge` | 413 | body cap exceeded, or a workspace helper cap (files, bytes, workspace size); `details: {limit, actual?}` |
 | `unsupportedMediaType` | 415 | |
 | `configInvalid` | 422 | task/scan/analysis config rejected by the revision schema; `details.issues: [{path, message}]` (JSON pointers) |
-| `confirmationRequired` | 422 | estimated analyses above `SCANTOR_SCAN_CONFIRM_THRESHOLD`; `details: {expectedTotal, threshold}`; retry with `confirm: true` |
+| `confirmationRequired` | 422 | estimated analyses above `SCANTOR_SCAN_CONFIRM_THRESHOLD` (`details: {expectedTotal, threshold}`), or an MCP script run over all analyses without `settings.limit` (`details: {scans: [{id, name, analyses}], packSha256}`); retry with `confirm: true` |
 | `scanTooLarge` | 422 | estimate above `SCANTOR_MAX_ANALYSES_PER_SCAN`; `details: {expectedTotal, max}` |
-| `manifestInvalid` | 422 | uploaded or imported folder has no valid `scantor.yaml`; `details.errors: BuildError[]` |
+| `manifestInvalid` | 422 | uploaded or imported folder has no valid `scantor.yaml` (a script upload: `scantor-script.yaml`); `details.errors: BuildError[]` |
 | `invalidPath` | 422 | upload/write path rule violated; `details.path` |
 | `gitFailed` | 422 | clone or fetch failed; `details.message` (credentials redacted) |
 | `incompatibleVersion` | 426 | node daemon/runtime version outside the supported window; `details: {serverVersion, minVersion}` |
-| `tooManyRequests` | 429 | concurrency caps (`SCANTOR_MAX_CONCURRENT_WAITS`, `SCANTOR_USER_MAX_CONCURRENT_QUERIES`, `SCANTOR_EDITOR_MAX_RUNNING`, `SCANTOR_HELPER_CONCURRENCY_PER_USER`; `details.limit`) or auth rate limit |
+| `tooManyRequests` | 429 | concurrency caps (`SCANTOR_MAX_CONCURRENT_WAITS`, `SCANTOR_USER_MAX_CONCURRENT_QUERIES`, `SCANTOR_EDITOR_MAX_RUNNING`, `SCANTOR_HELPER_CONCURRENCY_PER_USER`, 4 open reads per script run; `details.limit`) or auth rate limit |
 | `internal` | 500 | unexpected error |
 | `brokerAlarm` | 503 | RabbitMQ memory/disk alarm active; new scans refused |
 | `unavailable` | 503 | the orchestrator is still booting ([architecture](architecture.md) §4.1), a dependency (MongoDB, RabbitMQ, S3, Docker) is unreachable, or no workspace helper slot became free within 30 s |
@@ -243,8 +249,8 @@ settles or `wait` elapses, then returns the current representation with the norm
 response header `Scantor-Wait: settled|timeout` tells which. A client disconnect aborts the wait. When the
 orchestrator begins to stop, every wait returns the current representation at once with `timeout`, so the
 shutdown does not wait for it ([architecture](architecture.md) §4.1). Each user may hold at most
-`SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests`). `publishRevision`, `uploadTask` and `testTask`
-take that slot before they create anything, so their 429 means nothing was created and a retry is safe.
+`SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests`). `publishRevision`, `uploadTask`, `testTask`,
+`startScriptRun` and `restartScriptRun` take that slot before they create anything, so their 429 means nothing was created and a retry is safe.
 An open `streamTestRun` holds one of these slots too, until it ends. Changes wake a wait at once: each
 orchestrator process keeps one change stream per waited-on collection, shared by all of its waits and closed
 once the collection had no waits for 10 s, so the number of change streams (and of MongoDB connections they
@@ -256,6 +262,7 @@ the waits on its collection poll every second.
 | `publishRevision`, `getRevision`, `uploadTask` (revision part) | revision `ready` or `failed` |
 | `testTask`, `getTestRun` | test run `completed`, `failed` or `cancelled` |
 | `getScan` | scan not in `creating` or `running` |
+| `startScriptRun`, `restartScriptRun`, `getScriptRun` | script run `completed`, `failed` or `cancelled`; a cancelled run whose container is still stopping (reported `cancelled` already) only once it stopped, so the run can be resumed |
 | `exportScan`, `getExport` | export `ready` or `failed` |
 | `getJob` | job `succeeded`, `failed` or `cancelled` |
 | `getWorkerLogs` (max 30) | a log tail newer than the request arrived |
@@ -298,6 +305,9 @@ additions and omissions are listed for brevity; the JSON examples are normative 
 | `User` | better-auth `user` | `{id, email, name, role, banned, banReason, canRunPrivileged, maxWorkers, createdAt, updatedAt, usage {activeWorkers, tasks, scans}}` |
 | `ApiKey` | better-auth `apikey` | `{id, name, start, configId, enabled, createdAt, expiresAt, lastRequest}` |
 | `NotificationSettings` | `notificationSettings` | `{available, ntfy: {server, enabled, topic, tokenSet, triggers, lastDelivery}}`: `available` and `server` come from `SCANTOR_NTFY_URL` (null = off); − `tokenEnc`, + `tokenSet`; a user without a document gets the defaults (disabled, no topic, triggers `scanFinished`, `scanPaused`, `scanProblem`) |
+| `Script` | `scripts` | − `deletingAt`, `workspace.lastSyncSha256`; + `recentRuns: ScriptRunSummary[]` (≤ 10, `getScript` and `createScript` only) |
+| `ScriptRunSummary` | `scriptRuns` | `{id, state, createdAt, finishedAt, progress}` |
+| `ScriptRun` | `scriptRuns` | `scanIds` → `scans: [{id, name}]` (`name` null for an unnamed or deleted scan); `secrets` → the names only; − `source.key`, `image.id`, `entry`, `container`, `jobId`, `checkpoint.state`, `log.bytes`, `log.nextChunk`, `log.cursor`; `outputs` only `stored` ones as `{id, name, size, sha256, contentType, createdAt}`; + `logTail: ScriptRunLogLine[]` on single-run responses |
 | `FileDownload` | – | `{url, expiresAt, name, size, sha256, contentType, inline}` |
 | `FileContent` | – | `{name, contentType, size, sha256, offset, length, encoding: "utf8"\|"base64", content, truncated, nextOffset}`: one byte range of a stored file (§4.15); `size` and `sha256` describe the whole file, `length` the bytes returned, `truncated` = `offset + length < size`, `nextOffset` = `offset + length` when truncated, else `null` |
 | `ScanSettings`, `ScantorError`, `FileRef`, `BuildError`, `Description` | [data model](data-model.md) §4 | identical |
@@ -430,6 +440,253 @@ else null; `etaSeconds` = (total − terminal) / `ratePerMin` × 60, null when u
 `Analysis`: the document of [data model](data-model.md) §4.6 with `id`, ISO timestamps and `files[]`
 without `key`.
 
+`Script`:
+
+```json
+{
+  "id": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+  "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+  "name": "csp-report",
+  "language": "python",
+  "description": "Count the sites that send a Content-Security-Policy header",
+  "source": { "kind": "scaffold" },
+  "workspace": { "packSha256": "d41c…7e", "fileCount": 8, "bytes": 9216, "checkedAt": "2026-10-22T08:10:00.000Z" },
+  "describe": {
+    "packSha256": "d41c…7e",
+    "configSchema": { "type": "object", "properties": { "minBytes": { "type": "integer", "minimum": 0, "default": 0 } }, "additionalProperties": false },
+    "resultSchema": { "type": "object", "properties": { "analyses": { "type": "integer" }, "withCsp": { "type": "integer" } }, "required": ["analyses", "withCsp"] },
+    "at": "2026-10-22T08:12:31.000Z"
+  },
+  "latestRun": {
+    "id": "4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8",
+    "state": "completed",
+    "createdAt": "2026-10-22T09:00:00.000Z",
+    "finishedAt": "2026-10-22T11:42:05.000Z"
+  },
+  "recentRuns": [
+    { "id": "4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8", "state": "completed", "createdAt": "2026-10-22T09:00:00.000Z", "finishedAt": "2026-10-22T11:42:05.000Z", "progress": { "done": 1000000, "total": 1000000, "message": null, "updatedAt": "2026-10-22T11:42:04.000Z" } },
+    { "id": "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a", "state": "cancelled", "createdAt": "2026-10-22T08:20:00.000Z", "finishedAt": "2026-10-22T08:55:12.000Z", "progress": { "done": 310000, "total": 1000000, "message": "reading report files", "updatedAt": "2026-10-22T08:55:10.000Z" } },
+    { "id": "6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c", "state": "completed", "createdAt": "2026-10-22T08:12:00.000Z", "finishedAt": "2026-10-22T08:12:48.000Z", "progress": { "done": 100, "total": 1000000, "message": null, "updatedAt": "2026-10-22T08:12:47.000Z" } }
+  ],
+  "createdAt": "2026-10-22T08:00:00.000Z",
+  "updatedAt": "2026-10-22T11:42:05.000Z"
+}
+```
+
+`recentRuns` (the 10 newest runs as `ScriptRunSummary`) appears only on `getScript` and `createScript`. `workspace.packSha256` is the content a new run would build; `describe` is the config and result JSON Schemas the newest run of `describe.packSha256` reported, so clients build the run config from `configSchema` only while the two hashes match. `uploadScript` answers `UploadScriptResult` (always 201):
+
+```json
+{
+  "script": {
+    "id": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+    "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+    "name": "csp-report",
+    "language": "python",
+    "description": "Count the sites that send a Content-Security-Policy header",
+    "source": { "kind": "upload" },
+    "workspace": { "packSha256": "d41c…7e", "fileCount": 8, "bytes": 9216, "checkedAt": "2026-10-22T08:10:00.000Z" },
+    "describe": null,
+    "latestRun": null,
+    "createdAt": "2026-10-22T08:00:00.000Z",
+    "updatedAt": "2026-10-22T08:00:00.000Z"
+  },
+  "created": true
+}
+```
+
+`writeScriptFiles` and `deleteScriptFile` answer like the task routes, without `dirty` (scripts have no revisions):
+
+```json
+{
+  "written": ["main.py", "models.py"],
+  "workspace": { "packSha256": "e52d…80" }
+}
+```
+
+`ScriptRun` (a resumed restart that completed):
+
+```json
+{
+  "id": "4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8",
+  "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+  "scriptId": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+  "scriptName": "csp-report",
+  "scans": [{ "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f", "name": "tranco top 1M" }],
+  "state": "completed",
+  "input": {
+    "config": { "minBytes": 0 },
+    "settings": { "timeoutMs": 259200000, "resources": { "cpus": 4, "memoryMiB": 4096 }, "limit": null }
+  },
+  "secrets": ["REPORT_API_TOKEN"],
+  "source": { "packSha256": "d41c…7e", "packBytes": 2911, "fileCount": 8 },
+  "restartedFrom": { "id": "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a", "resume": true },
+  "image": { "ref": "scripts/9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f:d41c…7e", "cached": true },
+  "errors": [],
+  "error": null,
+  "exitCode": 0,
+  "progress": { "done": 1000000, "total": 1000000, "message": null, "updatedAt": "2026-10-22T11:42:04.000Z" },
+  "checkpoint": { "savedAt": "2026-10-22T11:41:58.000Z", "bytes": 64 },
+  "result": { "analyses": 1000000, "withCsp": 233918 },
+  "outputs": [
+    { "id": "8a9b0c1d-2e3f-4a5b-8c6d-7e8f9a0b1c2d", "name": "csp-sites.csv", "size": 9646823, "sha256": "5f0e…a1", "contentType": "text/csv", "createdAt": "2026-10-22T11:42:01.000Z" }
+  ],
+  "log": { "lines": 214, "firstLine": 1, "droppedLines": 0 },
+  "logTail": [
+    { "line": 212, "at": "2026-10-22T11:42:01.512Z", "stream": "stdout", "text": "wrote csp-sites.csv (233918 rows)" },
+    { "line": 213, "at": "2026-10-22T11:42:04.020Z", "stream": "stdout", "text": "1000000 analyses, 233918 with a CSP header" },
+    { "line": 214, "at": "2026-10-22T11:42:05.004Z", "stream": "system", "text": "the script exited with code 0" }
+  ],
+  "createdAt": "2026-10-22T09:00:00.000Z",
+  "startedAt": "2026-10-22T09:00:21.000Z",
+  "finishedAt": "2026-10-22T11:42:05.000Z",
+  "updatedAt": "2026-10-22T11:42:05.000Z",
+  "expiresAt": "2026-11-21T11:42:05.000Z"
+}
+```
+
+A failed sample run (`settings.limit` 100) whose script raised; the output open at the failure was stored as `.partial`:
+
+```json
+{
+  "id": "6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c",
+  "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+  "scriptId": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+  "scriptName": "csp-report",
+  "scans": [{ "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f", "name": "tranco top 1M" }],
+  "state": "failed",
+  "input": {
+    "config": { "minBytes": 1024 },
+    "settings": { "timeoutMs": 259200000, "resources": { "cpus": 1, "memoryMiB": 1024 }, "limit": 100 }
+  },
+  "secrets": [],
+  "source": { "packSha256": "b8a2…13", "packBytes": 2874, "fileCount": 8 },
+  "restartedFrom": null,
+  "image": { "ref": "scripts/9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f:b8a2…13", "cached": false },
+  "errors": [],
+  "error": {
+    "type": "scriptError",
+    "message": "KeyError: 'headers'",
+    "stack": "Traceback (most recent call last):\n  File \"/task/main.py\", line 18, in check\n    headers = analysis.read_json(analysis.result.report)[\"headers\"]\nKeyError: 'headers'\n"
+  },
+  "exitCode": 1,
+  "progress": { "done": 37, "total": 100, "message": null, "updatedAt": "2026-10-22T08:05:14.000Z" },
+  "checkpoint": null,
+  "result": null,
+  "outputs": [
+    { "id": "1b2c3d4e-5f6a-4b7c-9d8e-9f0a1b2c3d4e", "name": "csp-sites.csv.partial", "size": 1873, "sha256": "0c4f…9b", "contentType": "text/csv", "createdAt": "2026-10-22T08:05:15.000Z" }
+  ],
+  "log": { "lines": 57, "firstLine": 1, "droppedLines": 0 },
+  "logTail": [
+    { "line": 55, "at": "2026-10-22T08:05:14.881Z", "stream": "stderr", "text": "    headers = analysis.read_json(analysis.result.report)[\"headers\"]" },
+    { "line": 56, "at": "2026-10-22T08:05:14.881Z", "stream": "stderr", "text": "KeyError: 'headers'" },
+    { "line": 57, "at": "2026-10-22T08:05:15.302Z", "stream": "system", "text": "the script exited with code 1" }
+  ],
+  "createdAt": "2026-10-22T08:04:30.000Z",
+  "startedAt": "2026-10-22T08:05:02.000Z",
+  "finishedAt": "2026-10-22T08:05:15.000Z",
+  "updatedAt": "2026-10-22T08:05:15.000Z",
+  "expiresAt": "2026-11-21T08:05:15.000Z"
+}
+```
+
+A queued run: `settings` still hold only the explicit request (null = not given) until the build merges the manifest defaults ([scripts](scripts.md) §6.3):
+
+```json
+{
+  "id": "7a8b9c0d-1e2f-4a3b-9c4d-5e6f7a8b9c0d",
+  "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+  "scriptId": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+  "scriptName": "csp-report",
+  "scans": [{ "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f", "name": "tranco top 1M" }],
+  "state": "queued",
+  "input": {
+    "config": { "minBytes": 0 },
+    "settings": { "timeoutMs": null, "resources": { "cpus": 4, "memoryMiB": null }, "limit": null }
+  },
+  "secrets": ["REPORT_API_TOKEN"],
+  "source": { "packSha256": "d41c…7e", "packBytes": 2911, "fileCount": 8 },
+  "restartedFrom": null,
+  "image": null,
+  "errors": [],
+  "error": null,
+  "exitCode": null,
+  "progress": null,
+  "checkpoint": null,
+  "result": null,
+  "outputs": [],
+  "log": { "lines": 0, "firstLine": 1, "droppedLines": 0 },
+  "logTail": [],
+  "createdAt": "2026-10-22T12:00:00.000Z",
+  "startedAt": null,
+  "finishedAt": null,
+  "updatedAt": "2026-10-22T12:00:00.000Z",
+  "expiresAt": null
+}
+```
+
+`StartScriptRun` body (`startScriptRun`):
+
+```json
+{
+  "scans": ["5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f"],
+  "config": { "minBytes": 1024 },
+  "secrets": { "REPORT_API_TOKEN": "rpt_4f1c…" },
+  "settings": { "timeoutMs": 86400000, "resources": { "cpus": 4, "memoryMiB": 4096 }, "limit": 100 }
+}
+```
+
+`RestartScriptRun` body (`restartScriptRun`; `settings.limit: null` removes the original's limit):
+
+```json
+{
+  "resume": true,
+  "settings": { "limit": null }
+}
+```
+
+`ScriptRunLogsPage` (`getScriptRunLogs`):
+
+```json
+{
+  "lines": [
+    { "line": 1, "at": "2026-10-22T09:00:01.902Z", "stream": "system", "text": "scan tranco top 1M is running: the run reads the analyses stored so far" },
+    { "line": 2, "at": "2026-10-22T09:00:02.114Z", "stream": "build", "text": "#6 [3/4] RUN pip install --no-cache-dir -r requirements.txt" },
+    { "line": 3, "at": "2026-10-22T09:00:22.907Z", "stream": "stdout", "text": "resuming after seq 309999 (310000 analyses done)" },
+    { "line": 4, "at": "2026-10-22T09:03:40.215Z", "stream": "stderr", "text": "scantor: skipped analysis 5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f-311207: the report file is not JSON" }
+  ],
+  "firstLine": 1,
+  "nextLine": 4,
+  "complete": false
+}
+```
+
+`details` of 422 `confirmationRequired` from `startScriptRun` / `restartScriptRun` through MCP:
+
+```json
+{
+  "scans": [{ "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f", "name": "tranco top 1M", "analyses": 1000000 }],
+  "packSha256": "d41c…7e"
+}
+```
+
+`FileContent` (`readAnalysisFile`, `readTestRunFile`, `readScriptRunOutput`; here a page of a script-run output):
+
+```json
+{
+  "name": "csp-sites.csv",
+  "contentType": "text/csv",
+  "size": 9646823,
+  "sha256": "5f0e…a1",
+  "offset": 0,
+  "length": 98304,
+  "encoding": "utf8",
+  "content": "domain,policy\ngoogle.com,\"script-src 'report-sample' 'nonce-…' 'unsafe-inline'\"\n…",
+  "truncated": true,
+  "nextOffset": 98304
+}
+```
+
+
 ## 3. Better-auth endpoints (not in OpenAPI)
 
 better-auth is mounted at `/api/auth/*` (catch-all handler) with discovery at the origin root. Only these
@@ -513,13 +770,15 @@ Triggers name event families of [data model](data-model.md) §4.11:
 | `scanPaused` | `scan.stateChanged` to `paused` with a reason other than `user` | the scan's owner |
 | `scanProblem` | `scan.conditionRaised` with level `error`, except `schedulingFailed` and `breakerTripped`, which `scanFinished` and `scanPaused` report | the scan's owner |
 | `revisionBuilt` | `revision.ready`, `revision.failed` | the task's owner |
+| `scriptRunCompleted` | `scriptRun.completed` | the script's owner |
+| `scriptRunFailed` | `scriptRun.failed` (build, script, timeout, crash or platform failure; never a cancel) | the script's owner |
 | `nodeAvailability` | `node.offline`, `node.online` (no owner) | subscribed admins only |
 
 A message is one ntfy JSON publish to `<SCANTOR_NTFY_URL>/` with `{topic, title, message, priority, tags, click}`:
-the title names the subject (`Scan "<name>" completed`, `Revision ready`, `Node offline`), the message is the
+the title names the subject (`Scan "<name>" completed`, `Revision ready`, `Script run of "<name>" failed`, `Node offline`), the message is the
 event's message (a completed scan: `<n> succeeded, <n> failed.`), the priority follows the level (info 3, warning
-4, error 5), the tags carry an emoji and `scantor`, and `click` opens the scan, revision or node page under
-`SCANTOR_PUBLIC_URL`. A stored access token is sent as `Authorization: Bearer`.
+4, error 5), the tags carry an emoji and `scantor`, and `click` opens the scan, revision, script run or node page
+under `SCANTOR_PUBLIC_URL`. The script-run triggers are not among the defaults of a user without saved settings. A stored access token is sent as `Authorization: Bearer`.
 
 ### 4.4 `users` (admin)
 
@@ -617,13 +876,13 @@ With `revision`, the S3 snapshot is streamed into a `list --archive` / `read --a
 
 | Operation | operationId | Scope | MCP | Request | Response |
 |---|---|---|---|---|---|
-| `GET /api/languages` | `listLanguages` | owner | no | – | `{items: [{language, title, base, baseImage, entry, extensions}]}` (from `schemas/languages.json`) |
+| `GET /api/languages` | `listLanguages` | owner | no | – | `{items: [{language, title, base, baseImage, entry, extensions}]}` (from `schemas/languages.json`; the `script` object of a row is not listed) |
 | `GET /api/templates` | `listTemplates` | owner | **yes** | – | `{items: [{name, title, description, scanConfigSchema, analysisConfigSchema, example: {scanConfig, analysisConfig}, resolves: boolean}]}` (from `schemas/templates/*.json`) |
 | `GET /api/templates/{template}` | `getTemplate` | owner | no | – | one template |
 | `POST /api/templates/{template}/estimate` | `estimateTemplate` | owner | no (`x-read-only`) | `{scanConfig}` | `{expectedTotal: int\|null, exact: boolean, confirmationRequired: boolean, tooLarge: boolean}`; 422 `configInvalid` with `details.issues` when the template schema or its semantic validation rejects the scan config (§5.1 step 9) |
 | `GET /api/scaffolds` | `listScaffolds` | owner | no | – | `{items: [{language, templates: string[]}]}` (`templates` includes `"custom"`) |
-| `GET /api/guides/authoring/{language}` | `getAuthoringGuide` | owner | **yes** | – | `text/markdown` (embedded `docs/guide/authoring-<language>.md`) |
-| `GET /api/guides/{guide}` | `getGuide` | owner | no | – | `text/markdown` (`templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes`) |
+| `GET /api/guides/authoring/{language}` | `getAuthoringGuide` | owner | **yes** | `?kind=task\|script` (default `task`) | `text/markdown`: `task` the embedded `docs/guide/authoring-<language>.md`; `script` the scripts guide of a language with script support (`script.guide` of its row in `schemas/languages.json`: `docs/guide/scripts.md` for Python), else 404 `notFound` |
+| `GET /api/guides/{guide}` | `getGuide` | owner | no | – | `text/markdown` (`templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes`, `scripts`) |
 
 ### 4.13 `scans`
 
@@ -639,7 +898,7 @@ With `revision`, the S3 snapshot is streamed into a `list --archive` / `read --a
 
 | Operation | operationId | Scope | MCP | Request | Response |
 |---|---|---|---|---|---|
-| `GET /api/scans` | `listScans` | owner | **yes** | `?state (list), task, cursor, limit, userId` (excludes `deleting`/`deleted` unless `state` names them) | `Page<ScanSummary>` |
+| `GET /api/scans` | `listScans` | owner | **yes** | `?state (list), task, q (case-insensitive substring of the scan name, regex-escaped, ≤ 64), cursor, limit, userId` (excludes `deleting`/`deleted` unless `state` names them) | `Page<ScanSummary>` |
 | `POST /api/scans` | `startScan` | owner | **yes** | `StartScan` | 201 `Scan` (`creating`); 404 revision; 409 `revisionNotReady`; 403 `privilegedNotAllowed`; 422 `configInvalid`, `confirmationRequired`, `scanTooLarge`; 503 `brokerAlarm` |
 | `GET /api/scans/{scanId}` | `getScan` | owner | **yes** | `?wait` | `Scan` (tombstones are returned with `state: "deleted"` until purged) |
 | `POST /api/scans/{scanId}/pause` | `pauseScan` | owner | **yes** | – | `Scan`; 409 `invalidState` |
@@ -648,7 +907,7 @@ With `revision`, the S3 snapshot is streamed into a `list --archive` / `read --a
 | `POST /api/scans/{scanId}/cancel` | `cancelScan` (`x-destructive`) | owner | **yes** | – | `Scan` (`cancelled`); 409 `invalidState` |
 | `POST /api/scans/{scanId}/retry-failed` | `retryFailedAnalyses` | owner | **yes** | – | 202 `{scan: Scan, job: JobRef}`: re-runs every `failed` or `lost` analysis that has a stored config in round R+1 (never `cancelled` ones; allowed in `running`, `completed`, `failed`, `cancelled` once `scheduling.state` is `done` or `failed` and no retry job is active, [architecture](architecture.md) §11.3); 403 `privilegedNotAllowed`; 409 `invalidState`, `nothingToRetry`, `revisionUnavailable` |
 | `POST /api/scans/{scanId}/restart` | `restartScan` | owner | **yes** | `{name?, settings?: {workers?, processes?}}` | 201 `Scan` (the new clone); 403 `privilegedNotAllowed`; 409 `revisionUnavailable`, `invalidState` (`deleting`/`deleted`) |
-| `DELETE /api/scans/{scanId}` | `deleteScan` | owner | **yes** | – | 202 `{scan: Scan, job: JobRef}`; 409 `invalidState` (not terminal) |
+| `DELETE /api/scans/{scanId}` | `deleteScan` | owner | **yes** | – | 202 `{scan: Scan, job: JobRef}` (the job first cancels the active script runs that read the scan); 409 `invalidState` (not terminal) |
 | `GET /api/scans/{scanId}/inflight` | `listInflightAnalyses` | owner | no | – | `{items: [{analysisId, seq, round, attempt, startedAt, workerId, nodeId, progress}], updatedAt}` (in-memory from state polls) |
 | `GET /api/scans/{scanId}/conditions` | `listScanConditions` | owner | no | – | `{items: Condition[]}` |
 | `GET /api/scans/{scanId}/events` | `listScanEvents` | owner | no | `?type, cursor, limit` | `Page<Event>` |
@@ -739,11 +998,79 @@ strings in [nodes](nodes.md) §4).
 | Operation | operationId | Scope | MCP | Request | Response |
 |---|---|---|---|---|---|
 | `GET /api/metrics` | `getMetrics` | admin | no | – | `text/plain; version=0.0.4` (Prometheus) |
-| `POST /api/editor/session` | `createEditorSession` | owner (session or `default` API key) | no | `{open?: string}`: a task name (validated slug of a task owned by the caller) that selects the folder to open; absent = the workspace root | 201 `{url: "<SCANTOR_EDITOR_URL>/_auth?code=sec_…", expiresAt (60 s), editor: {state: "starting"\|"running", startedAt, lastActivityAt}}`; starts the editor in the background if needed (the response does not wait for readiness); 403 `forbidden` for the `editor` API key; 404 unknown task; 409 `invalidState` when the editor is still `stopping` after the request waited up to 15 s; 429 `tooManyRequests` (`details.limit`) when `SCANTOR_EDITOR_MAX_RUNNING` editors are starting or running |
+| `POST /api/editor/session` | `createEditorSession` | owner (session or `default` API key) | no | `{open?: string, openScript?: string}`: a task name or a script name (validated slugs, looked up by name among the caller's own tasks or scripts only, never across users) that selects the folder to open (`<task>` or `.scripts/<script>`); both together is 400; absent = the workspace root | 201 `{url: "<SCANTOR_EDITOR_URL>/_auth?code=sec_…", expiresAt (60 s), editor: {state: "starting"\|"running", startedAt, lastActivityAt}}`; starts the editor in the background if needed (the response does not wait for readiness); 403 `forbidden` for the `editor` API key; 404 unknown task or script; 409 `invalidState` when the editor is still `stopping` after the request waited up to 15 s; 429 `tooManyRequests` (`details.limit`) when `SCANTOR_EDITOR_MAX_RUNNING` editors are starting or running |
 | `GET /api/editor` | `getEditor` | owner | no | – | `{state, startedAt, lastActivityAt, idleTimeoutMs, error: string \| null}`; `error` is `editors.error`, the message of the last failed start (cleared when a new start begins, [data model](data-model.md) §4.15) |
 | `DELETE /api/editor` | `stopEditor` | owner | no | – | 204 (container removed, editor API key deleted) |
 | `GET /api/tools/session` | `createToolsSession` | admin (`x-session-only`) | no | `?target=rabbitmq\|mongo-express\|rustfs\|traefik` | 302 to the tool URL with `Set-Cookie: scantor_tools=…; Domain=<SCANTOR_DOMAIN>; Path=/; Secure; HttpOnly; SameSite=Lax` (8 h); 404 `notFound` when `SCANTOR_DOMAIN` is empty (no Traefik) |
 | `GET /api/tools/forward-auth` | `toolsForwardAuth` | tools | no | Traefik forwardAuth headers (`X-Forwarded-Host`, `X-Forwarded-Uri`, `X-Forwarded-Method`) and the client's `Accept` | 200 with `X-Scantor-User: <userId>`. When `X-Forwarded-Host` is not one of the tool hosts `traefik.`, `rabbitmq.`, `mongo-express.`, `rustfs.<SCANTOR_DOMAIN>`: always 401 with a short `text/plain` body. When the cookie is missing, invalid, expired or not an admin's: a browser request (`Accept` contains `text/html`) gets 302 to `<SCANTOR_PUBLIC_URL>/api/tools/session?target=<target of X-Forwarded-Host>`, which mints a fresh cookie for admins; any other request gets 401 with a short `text/plain` body ([auth](auth.md) §11); this route never uses the §1.7 envelope |
+
+### 4.19 `scripts`
+
+`{script}` is a script id (uuid) or a script name, looked up among the **caller's** scripts (admins use ids for
+other users' scripts); a script being deleted is 404. Script names follow the task-name rules, including the
+reserved names. Scripts are described in [scripts](scripts.md).
+
+| Operation | operationId | Scope | MCP | Request | Response |
+|---|---|---|---|---|---|
+| `GET /api/scripts` | `listScripts` | owner | **yes** | `?q (substring of name or description, ≤ 64), cursor, limit, userId` | `Page<Script>` without `recentRuns` |
+| `POST /api/scripts` | `createScript` | owner | **yes** | `{name, description? (≤ 1024)}` — scaffolds `.scripts/<name>/` from the language's script scaffold (the first `languages.json` row with a `script` object); the document is removed again when the helper fails | 201 `Script`; 409 `alreadyExists`; 400 `validationFailed` (reserved name) |
+| `POST /api/scripts/upload` | `uploadScript` | owner | no | body `application/gzip` (tar.gz of a script folder, streamed, cap `SCANTOR_TASK_MAX_PACK_BYTES`); `?force (false)` | 201 `UploadScriptResult` `{script, created}`: helper `extract --kind script` validates `scantor-script.yaml`, the manifest name finds or creates the script (`source.kind: upload`), the manifest sets `language` and `description`; 409 `workspaceDirty` (§5.3); 409 `alreadyExists` while the caller's script of that name is being deleted; 413; 415 for another content type; 422 `manifestInvalid`, `invalidPath` |
+| `GET /api/scripts/{script}` | `getScript` | owner | **yes** | – | `Script` with `recentRuns` |
+| `DELETE /api/scripts/{script}` | `deleteScript` | owner | no | – | 202 `{job: JobRef}` (`scriptDelete`: cancels the active runs, then deletes the runs' data, the script's images, the folder and the document, [scripts](scripts.md) §6.9). From the 202 on, the script is invisible (lookups, starts, restarts, the editor) |
+| `GET /api/scripts/{script}/workspace/archive` | `downloadScriptWorkspace` | owner | no | – | `application/gzip` (deterministic pack of the folder) |
+
+### 4.20 `script-files`
+
+Paths follow the rules of §4.7, relative to the script folder.
+
+| Operation | operationId | Scope | MCP | Request | Response |
+|---|---|---|---|---|---|
+| `GET /api/scripts/{script}/files` | `listScriptFiles` | owner | **yes** | `?path ("" = root), recursive (true)` | `{entries: [{path, type, size, mode}], truncated}` |
+| `GET /api/scripts/{script}/files/content` | `readScriptFile` | owner | **yes** | `?path` | `{path, size, sha256, encoding, content, truncated}` (content ≤ 1 MiB) |
+| `PUT /api/scripts/{script}/files` | `writeScriptFiles` | owner | **yes** | `{files: {"<path>": "<utf-8 text>" \| {"base64": "<data>"}}}` (≤ 200 files) | `{written: string[], workspace: {packSha256}}` |
+| `DELETE /api/scripts/{script}/files` | `deleteScriptFile` | owner | **yes** | `?path, recursive (false)` | `{deleted: string[], workspace: {packSha256}}` |
+
+### 4.21 `script-runs`
+
+Script runs belong to the script's owner (§1.3). The start checks are in [scripts](scripts.md) §5; the
+`ScriptRun` representation is in §2. Single-run responses carry `logTail` (the last ≤ 50 lines and ≤ 16 KiB);
+list items do not.
+
+| Operation | operationId | Scope | MCP | Request | Response |
+|---|---|---|---|---|---|
+| `POST /api/scripts/{script}/runs` | `startScriptRun` | owner | **yes** | `StartScriptRun` (§2): `{scans: uuid[1..20], config? ({}), secrets?: {NAME: value} (≤ 32, names `^[A-Z][A-Z0-9_]{0,63}$`, values ≤ 8 KiB), settings?: {timeoutMs? (≥ 1000), resources?: {cpus?, memoryMiB? (≥ 256)}, limit? (≥ 1)}, confirm?}`; `?wait` | 201 `ScriptRun` (`queued`); 400 `validationFailed` (body, or settings above `SCANTOR_SCRIPT_RUN_TIMEOUT`, `SCANTOR_SCRIPT_RUN_MAX_CPUS`, `SCANTOR_SCRIPT_RUN_MAX_MEMORY`); 404 (script, or a scan that is not a live scan of the script's owner); 413 `payloadTooLarge` (config above `SCANTOR_MAX_SCAN_CONFIG_BYTES`); 422 `configInvalid` (against `describe.configSchema` when it matches the snapshot), `confirmationRequired` (MCP without `settings.limit` and `confirm`); 429 (waits) |
+| `GET /api/scripts/{script}/runs` | `listScriptRuns` | owner | no | `?cursor, limit` | `Page<ScriptRun>` newest first, without `logTail` |
+| `GET /api/script-runs/{scriptRunId}` | `getScriptRun` | owner | **yes** | `?wait` | `ScriptRun` |
+| `POST /api/script-runs/{scriptRunId}/cancel` | `cancelScriptRun` (`x-destructive`) | owner | **yes** | – | `ScriptRun` (`cancelled`; a cancelled run is returned unchanged); 409 `invalidState` for `completed` or `failed`. The run's job stops the container (`docker stop -t 60`) and removes it; stored outputs stay. A running run is reported `cancelled` at once while its container still stops (the script stores open outputs as `.partial` and its checkpoint), and `exitCode` follows once it stopped; `getScriptRun?wait` settles then ([scripts](scripts.md) §6.7) |
+| `POST /api/script-runs/{scriptRunId}/restart` | `restartScriptRun` | owner | **yes** | `RestartScriptRun` (§2): `{resume? (false), config?, settings? (overrides; limit may be null), confirm?}`; `?wait` | 201 `ScriptRun`: a new run of the script's **current** folder with the original's scans, config, secrets and settings; `resume: true` hands the original's checkpoint and stored outputs to the new run; 409 `invalidState` (`resume` on an active run, or on a cancelled run whose container is still stopping after the request waited up to 30 s for it); 404 (script deleted or being deleted); the start errors above |
+| `GET /api/script-runs/{scriptRunId}/logs` | `getScriptRunLogs` | owner | **yes** | `?afterLine (default: from the first retained line), limit (200, max 1000)` | `ScriptRunLogsPage` `{lines: [{line, at, stream: "build"\|"stdout"\|"stderr"\|"system", text}], firstLine, nextLine, complete}`; lines are numbered from 1; `complete` = the run is terminal, its job has ended (a cancelled run's job may still store the lines of the container's stop) and every line was returned, so clients poll until `complete`; a gap in the numbers is the retention ([scripts](scripts.md) §7) |
+| `GET /api/script-runs/{scriptRunId}/outputs/{outputId}` | `getScriptRunOutputDownload` | owner | no | `?redirect (false)` | `FileDownload` (presigned public GET, 10 minutes, DL-1 rules) or 302; stored outputs only (404 otherwise) |
+| `GET /api/script-runs/{scriptRunId}/outputs/{outputId}/content` | `readScriptRunOutput` | owner | **yes** | `?offset (0), length (98304, max 98304)` | `FileContent` (§4.15); 400 (offset beyond the size); 404 |
+| `GET /api/script-runs/{scriptRunId}/source` | `getScriptRunSourceDownload` | owner | no | `?redirect (false)` | `{url, expiresAt}` (presigned public GET of `source.tar.gz`, `application/gzip` attachment, 10 minutes) or 302 |
+
+### 4.22 `script-runtime` (scope `scriptRun`, MCP no)
+
+The API of script-run containers, specified in [scripts](scripts.md) §9. Every request carries
+`Authorization: Bearer ssr_<scriptRunId>.<mac>` and must come from a socket peer in the Docker network
+`scantor-scripts` that is not a trusted proxy (403 `forbidden` otherwise, checked before the token). The run must
+be `running` and its owner not banned (401 `unauthorized` otherwise); there is no version check. Every scan and
+analysis is checked against the run's `scanIds` and the owner (`loadRunScan`, 404). Body caps: 1 MiB, `finish` and
+`checkpoint` `max(1 MiB, SCANTOR_MAX_RESULT_BYTES) + 128 KiB`.
+
+| Operation | operationId | Request | Response |
+|---|---|---|---|
+| `GET /api/script-runtime/bootstrap` | `scriptRuntimeBootstrap` | – | `{scriptRun: {id, scriptId, scriptName, config, secrets (decrypted here only), settings, cpus, startedAt, deadline}, scans: [{id, name, state, task, revision, createdAt, completedAt, maxSeq, counts, schemas, fileRefPaths, secretPaths}], resume, limits, s3Origin}` ([scripts](scripts.md) §9.7); 404 when a scan of the run was deleted |
+| `POST /api/script-runtime/scans/{scanId}/analyses` | `scriptRuntimeStreamAnalyses` (`x-read-only`) | `{status?, filter?, fields?: string[] \| "all", afterSeq? (≥ −1), untilSeq?, fileUrls? (true)}` | `application/x-ndjson`: `{analysis, urls?}` lines, `{checkpoint: {afterSeq}}` after every seq window and every 10 s, then one `{end: {afterSeq, count, limited}}` or `{error: {code, message, retryable}}` ([scripts](scripts.md) §9.8); 400; 404; 429 (more than 4 open reads of the run) |
+| `POST /api/script-runtime/scans/{scanId}/aggregate` | `scriptRuntimeAggregate` (`x-read-only`) | the `aggregateAnalyses` body | `{items, truncated}` (§5.2 rules, on the run's read slots); 429; 504 |
+| `GET /api/script-runtime/analyses/{analysisId}/files/{fileId}` | `scriptRuntimeFileUrl` | – | `{url, expiresAt, name, size, sha256, contentType}` (presigned internal GET, 1 h) |
+| `POST /api/script-runtime/progress` | `scriptRuntimeProgress` | `{done, total?, message? (≤ 256)}` | `{state: "running"}` (written at most once per second) |
+| `PUT /api/script-runtime/checkpoint` | `scriptRuntimeCheckpoint` | `{state}` | `{savedAt}` (written at most once per 10 s); 413 above 1 MiB of JSON |
+| `POST /api/script-runtime/describe` | `scriptRuntimeDescribe` | `{configSchema, resultSchema}` (objects or null, ≤ 256 KiB each) | `{packSha256, at}` (stored as `scripts.describe`) |
+| `POST /api/script-runtime/outputs` | `scriptRuntimeCreateOutput` | `{name, contentType?}` | 201 (new) / 200 (pending output of that name) `{output: {id, name, contentType}, partBytes}`; 400 (too many outputs); 409 `alreadyExists` |
+| `POST /api/script-runtime/outputs/{outputId}/parts` | `scriptRuntimeCreateOutputPart` | `{partNumber (1–10000), size (1 B–5 GiB)}` | `{url, method: "PUT", headers, expiresAt}` (presigned internal UploadPart, Content-Length signed, `SCANTOR_UPLOAD_TIMEOUT`); 403 `quotaExceeded`; 409 `invalidState` (stored); 413 (above `SCANTOR_SCRIPT_RUN_MAX_OUTPUT_BYTES`) |
+| `POST /api/script-runtime/outputs/{outputId}/complete` | `scriptRuntimeCompleteOutput` | `{parts: [{partNumber, etag}], sha256, name?}` | `{output: {id, name, size, sha256, contentType, createdAt}}` (idempotent; `name` renames, 409 when taken); 400 (S3 rejected the parts); 409 `invalidState` (upload gone) |
+| `GET /api/script-runtime/outputs/{outputId}` | `scriptRuntimeOutputUrl` | – | `{url, expiresAt, name, size, sha256, contentType}` for a stored output of the run or of the run it resumes |
+| `POST /api/script-runtime/finish` | `scriptRuntimeFinish` | exactly one of `{result}` or `{error: {type: "scriptError"\|"validation", message (≤ 16 KiB), stack? (≤ 64 KiB)}}` | `{received: "result"\|"error"}` (the last call wins; the job decides the final state from the exit code); 413 above `SCANTOR_MAX_RESULT_BYTES` |
 
 ## 5. Behaviour of selected user routes
 
@@ -793,11 +1120,13 @@ The current workspace pack hash is computed by a helper before the decision ([ta
 | Operation | No conflict when | Otherwise |
 |---|---|---|
 | `uploadTask` | the task or its workspace folder does not exist; or the workspace hash equals the uploaded hash (nothing changes), `latestRevision.packSha256` (any revision state: the content is published and its snapshot stored) or `tasks.workspace.lastSyncSha256` (unchanged since the last upload, git import or pull) | 409 `workspaceDirty` unless `force=true` |
+| `uploadScript` | the script or its folder does not exist; or the folder hash equals the uploaded hash or `scripts.workspace.lastSyncSha256` (unchanged since the last upload). An untouched scaffold conflicts: its hash was never uploaded | 409 `workspaceDirty` unless `force=true` |
 | `pullGitTask` | the workspace hash equals `source.git.packSha256` and the remote is a fast-forward of `source.git.commit` | 409 `gitDiverged` unless `force=true` |
 
 After a successful upload the folder is replaced atomically by helper `commit`, which re-checks the
 expected current hash so a concurrent edit still fails, and `workspace.lastSyncSha256` becomes the uploaded
-hash. Git import and pull set it too; editor and file-route writes never do. Repeated `scantor push
+hash (for scripts `scripts.workspace.lastSyncSha256`). Git import and pull set it too; editor and file-route writes
+never do. Repeated `scantor push
 --no-publish` / `scantor dev run --remote` cycles from the same folder therefore never conflict.
 
 ## 6. Registry token (`/api/registry/token`)
@@ -1475,8 +1804,8 @@ preserves it); `X-Forwarded-Host` is never trusted for this.
 | `/.well-known/*` | dashboard | OAuth/MCP discovery, forwarded to better-auth |
 | `/mcp` | dashboard | MCP Streamable HTTP (POST; GET/DELETE 405), OAuth bearer or API key ([mcp](mcp.md)) |
 | `GET /_icons/*` | dashboard | Nuxt Icon local icon endpoint (`icon.localApiEndpoint`), public static data; outside `/api`, so the principal middleware never guards it ([ui](ui.md) §12) |
-| SPA routes (`/`, `/login`, `/setup`, `/oauth/consent`, `/tasks/…`, `/scans/…`, `/editor`, …) | dashboard | Nuxt SPA |
-| `GET /_auth?code=…` | editor | redeem the 60 s one-time code, set the host-only `scantor_editor` cookie (HttpOnly, 12 h), redirect to `/?folder=/home/coder/workspace[/<task>]` |
+| SPA routes (`/`, `/login`, `/setup`, `/oauth/consent`, `/tasks/…`, `/scripts/…`, `/scans/…`, `/editor`, …) | dashboard | Nuxt SPA |
+| `GET /_auth?code=…` | editor | redeem the 60 s one-time code, set the host-only `scantor_editor` cookie (HttpOnly, 12 h), redirect to `/?folder=/home/coder/workspace[/<task> \| /.scripts/<script>]` |
 | `/*` (HTTP and WebSocket) | editor | byte-level relay to the caller's code-server unix socket with `cookie`, `authorization`, `x-api-key`, `x-scantor-*` and forwarding headers stripped and `Set-Cookie` removed from responses; WebSocket upgrades require `Origin` = editor origin; `Content-Security-Policy: frame-ancestors 'self' <dashboard origin>` |
 
 Compose publishes `SCANTOR_PORT` → 3000 and `SCANTOR_EDITOR_PORT` → 3001; with Traefik the editor router
@@ -1484,13 +1813,13 @@ targets 3001. The dashboard's `/editor` page only embeds the editor origin in an
 
 ## 10. MCP-exposed operations
 
-31 operations have `x-mcp: true` (at most 45, [mcp](mcp.md) §10 decision 12); tool name =
+44 operations have `x-mcp: true` (at most 45, [mcp](mcp.md) §10 decision 12); tool name =
 `snake_case(operationId)`. Read tools need `scantor:read`, write tools `scantor:write`, admin tools
 `scantor:admin`. Tools returning analysis configs, results, logs or file contents wrap that content as
 `{"untrusted_data": …}`; responses are capped at 256 KiB with a truncation note ([mcp](mcp.md)). `/mcp`
 also accepts scantor API keys (`Authorization: Bearer sk_scantor_…` or `x-api-key`); their level is
 `write`, or `admin` for an admin's `default` key ([mcp](mcp.md) §3.7).
-`cancel_scan` is annotated destructive through `x-destructive`. MCP clamps `wait` to 50 s.
+`cancel_scan` and `cancel_script_run` are annotated destructive through `x-destructive`. MCP clamps `wait` to 50 s.
 
 | Area | Read | Write |
 |---|---|---|
@@ -1499,6 +1828,8 @@ also accepts scantor API keys (`Authorization: Bearer sk_scantor_…` or `x-api-
 | catalog | `list_templates`, `get_authoring_guide` | – |
 | scans | `list_scans`, `get_scan` | `start_scan`, `pause_scan`, `resume_scan`, `scale_scan`, `cancel_scan`, `retry_failed_analyses`, `restart_scan`, `delete_scan` |
 | results | `get_analysis`, `read_analysis_file`, `query_analyses`, `aggregate_analyses`, `get_export` | `export_scan` |
+| scripts and files | `list_scripts`, `get_script`, `list_script_files`, `read_script_file` | `create_script`, `write_script_files`, `delete_script_file` |
+| script runs | `get_script_run`, `get_script_run_logs`, `read_script_run_output` | `start_script_run`, `cancel_script_run`, `restart_script_run` |
 | admin | `list_nodes` | – |
 
 ## 11. Decisions made in this document
@@ -1542,6 +1873,11 @@ Item 18 records a round-1 ruling.
 18. **forwardAuth redirects browsers**: `toolsForwardAuth` answers a browser request without a valid tools
     cookie with 302 to `/api/tools/session?target=<target>` instead of 401, so an admin opening a tool URL
     directly gets a cookie without a detour through `/admin/tools`.
+19. **Scripts** get three user tags (`scripts`, `script-files`, `script-runs`) and a machine API
+    (`/api/script-runtime/*`, scope `scriptRun`) bound to a network as well as a token; the analysis stream is
+    NDJSON with checkpoint lines instead of pages, and output bytes move as presigned multipart uploads
+    ([scripts](scripts.md) §15). MCP gets 13 script tools (44 of 45); a run over all analyses needs
+    `confirm: true` through MCP, like a large scan.
 
 ## 12. Future extensions
 
@@ -1554,7 +1890,8 @@ Item 18 records a round-1 ruling.
 | Per-process multiplexing | State poll `busy[]` already carries `executionId`; no API change. |
 | Organisations / shared tasks | The scope model (`owner`) is enforced by one helper; a future `org` principal adds a membership check there. |
 | More notification channels (webhooks, email) | `NotificationSettings` holds one object per channel kind beside `ntfy`, triggers are one catalog (`shared/utils/notifications.ts`), and delivery is one job kind that can dispatch by channel. |
-| More MCP tools | Raise the curated limit deliberately; the generated test enforces the cap. |
+| More MCP tools | Raise the curated limit deliberately (44 of 45 are used); the generated test enforces the cap. |
+| Scheduled or local script runs | New routes calling the same run start service; the script runtime API needs no change ([scripts](scripts.md) §16). |
 | API versioning | A future breaking change would add `/api/v2/*` routes beside the current ones; machine APIs already negotiate versions. |
 | Scoped or read-only API keys | `apikey.permissions` exists; the operation registry already knows `x-read-only`, `x-admin-only` and `x-session-only`, so a key level maps onto the same checks as MCP levels. |
 | More admin tools (Prometheus, Grafana) | `adminTools.items` is data; a new `target` adds one forwardAuth router and one item. |

@@ -3,7 +3,8 @@
 scantor is a self-hosted platform that runs user-defined scanning tasks (Python, TypeScript, JavaScript,
 Go) at large scale on many Docker hosts, including hosts behind firewalls. Users author tasks in a
 browser editor, with the CLI or through an LLM agent over MCP, publish immutable revisions, start scans
-that fan out into millions of analyses, and query and export the typed results.
+that fan out into millions of analyses, query and export the typed results, and evaluate them with
+Python scripts that run on the master.
 
 This file is the index for agents developing this repository. `README.md` is user-facing only.
 
@@ -11,14 +12,14 @@ This file is the index for agents developing this repository. `README.md` is use
 
 | Path | Contents |
 |---|---|
-| `cmd/scantor/`, `internal/` | the single Go binary (module root `go.mod`): CLI, node daemon, runtime, task pipeline, workspace helpers, templates, conformance harness, shared packages |
+| `cmd/scantor/`, `internal/` | the single Go binary (module root `go.mod`): CLI, node daemon, runtime, task and script build pipeline, workspace helpers, templates, conformance harness, shared packages |
 | `orchestrator/` | Nuxt 4 + Nuxt UI 4 app: `app/` (UI), `server/` (`api/` routes, `routes/` `/mcp`, `middleware/`, `plugins/`, `services/`, `utils/`), `shared/` (types, zod schemas), `test/` (vitest) |
-| `connectors/` | per-language connector libraries (`python`, `js` = `@scantor/connector` for TS and JS, `go`); each Dockerfile builds a base image |
-| `scaffolds/` | task starters per language (rendered by `scantor init`; Go `go.mod`/`go.sum` stored as `*.tmpl`) |
+| `connectors/` | per-language connector libraries (`python`, `js` = `@scantor/connector` for TS and JS, `go`); each Dockerfile builds a base image; `python` also holds the script SDK `scantor.script` |
+| `scaffolds/` | task starters per language (rendered by `scantor init`; Go `go.mod`/`go.sum` stored as `*.tmpl`) and the script starter `python-script/` (`scantor scripts init`, `createScript`) |
 | `tasks/` | example tasks; together they cover every language and every template |
-| `schemas/` | canonical JSON: manifest, describe output, `languages.json`, `managed-labels.json`, protocol, AMQP messages, templates (+ fixtures) |
+| `schemas/` | canonical JSON: manifest, script manifest, describe output, `languages.json`, `managed-labels.json`, protocol, AMQP messages, templates (+ fixtures) |
 | `editor/` | `scantor-editor` image (code-server); its `toolchain` stage is also the devcontainer |
-| `tests/` | dockerized Playwright suites, shared corpora, `FEATURES.md`, generated `TESTS.md` |
+| `tests/` | dockerized Playwright suites, shared corpora, fixture tasks and scripts (`fixtures/tasks/`, `fixtures/scripts/`; `files-report` is the end-to-end script the scripts guide quotes), `FEATURES.md`, generated `TESTS.md` |
 | `docs/`, `docs/guide/` | internal specifications; user guides (embedded into the binary and the orchestrator image, served over MCP) |
 | `docs/screenshots/` | web UI screenshots (`web-ui-{light,dark}.png`, 1440×900, scan page) for the README; retake both themes together after a visible UI change |
 | `brand/` | logos, marks, favicons, README artwork and colors; used in place (never copied) by the README header and the orchestrator, which serves `favicons/` at its root and bundles the logos through the `#brand` alias |
@@ -45,10 +46,12 @@ README. The most important terms:
 | scan settings | platform knobs: `workers`, `processes`, `timeoutMs`, `maxAttempts`, `backoff`, `resources`, … |
 | worker / process | a container running a revision for one scan (scheduler or runner) / one connector process inside it |
 | runtime / connector | the Go process injected into every task container / the per-language library the task code imports |
+| script / script run | a user-owned Python folder `.scripts/<name>` (`scantor-script.yaml`, `Dockerfile`, entry) that evaluates the results and files of the owner's scans, without revisions / one execution of a snapshot of it in one container `scantor-s-<id>` on the master, ending `completed`, `failed` or `cancelled`; never "notebook", "job", "plugin" or "evaluation" |
+| script runtime API / output / checkpoint | `/api/script-runtime/*`, the only API a script-run container calls (run-scoped `ssr_…` token) / a file a script run stores (never "artifact") / JSON state a restart with resume continues from |
 
 ## Architecture in ten lines
 
-1. One static Go binary is the CLI, the node daemon, the runtime (`scantor runtime`), the task pipeline (`scantor task pack | check-static | build`) and the workspace helpers.
+1. One static Go binary is the CLI, the node daemon, the runtime (`scantor runtime`), the task pipeline (`scantor task pack | check-static | build`, and `scantor script build`) and the workspace helpers.
 2. The orchestrator is one Node process; `SCANTOR_COMPONENTS` selects `api`, `ingestor`, `reconciler`. Infra: MongoDB (rs0), RabbitMQ, RustFS (S3), registry, optional Traefik.
 3. Handlers only record intent; the level-triggered reconciler converges (topology, placement, assignments, completion); leased jobs do long work (builds, test runs, deletes, retries, exports).
 4. Nodes connect outbound only: they long-poll their desired workers and reconcile local containers; every consumer injects the runtime binary into task containers (never baked into images).
@@ -57,7 +60,9 @@ README. The most important terms:
 7. The ingestor writes analyses with guarded upserts keyed `<scanId>-<seq>`; the recount is authoritative and completion is one conditional update.
 8. The orchestrator never touches workspace content; throwaway helper containers do. Every internal key derives from `SCANTOR_SECRET` (HKDF).
 9. MCP tools are generated from the OpenAPI document (`x-mcp`) and executed through the REST routes.
-10. Details, flows and decisions: [docs/architecture.md](docs/architecture.md).
+10. A script run snapshots `.scripts/<name>`, builds a local image (never pushed) and runs one container `scantor-s-<runId>` on the master, attached only to the internal network `scantor-scripts`; the code reads the owner's scans solely through `/api/script-runtime/*`, and the run's job adopts the container after an orchestrator restart.
+
+Details, flows and decisions: [docs/architecture.md](docs/architecture.md); scripts: [docs/scripts.md](docs/scripts.md).
 
 ## Running things
 
@@ -93,7 +98,8 @@ Run the narrowest suite first (`just test-go ./internal/taskpipe/...`, `just tes
 - **camelCase JSON** everywhere (TS, Go, Python wire, Mongo); ids are uuid v4 except analysis ids.
 - **Ownership** through `server/utils/authz.ts` only: `requireUser`/`requireAdmin`, `loadOwned`,
   `loadOwnedScan`, `ownerFilter` (`callerFilter` for the caller-only credential and upload lists),
-  `resolveTask`. Order 401 → 404 → 403; another user's resource is 404 `notFound`, never 403. `userId` comes
+  `resolveTask`, `resolveScript`, `loadOwnedScriptRun` (script-run tokens: `requireScriptRun`, `loadRunScan`).
+  Order 401 → 404 → 403; another user's resource is 404 `notFound`, never 403. `userId` comes
   from the principal, never the body; request objects never go into Mongo filters.
 - **Routes**: one file per method (`server/api/scans/[scanId]/pause.post.ts`), bracket names equal
   OpenAPI parameter names. The first statement is `defineRouteMeta` with a static object of plain
@@ -103,7 +109,8 @@ Run the narrowest suite first (`just test-go ./internal/taskpipe/...`, `just tes
   handlers: validate with `validateBody/Query/Params`, throw only `apiError(code)`, long work becomes a
   job. Checklist: [docs/development.md](docs/development.md) §9.1.
 - **No language switch** anywhere: language knowledge lives in `schemas/languages.json` and the base
-  image ENV contract.
+  image ENV contract. Scripts too: a language supports scripts through the optional `script` object of
+  its row (`entry`, `scaffold`, `guide`) and the base image's `SCANTOR_SCRIPT_CMD`.
 - **Managed labels**: every container and network scantor creates gets `ManagedLabels()` (Go
   `internal/container`) / `managedLabels()` (TS `server/utils/labels.ts`), both from
   `schemas/managed-labels.json`; containers are recognised by labels and name prefix. Docker access only
@@ -144,6 +151,7 @@ model, api) wins and the other doc is fixed.
 | [docs/auth.md](docs/auth.md) | sessions, API keys, principals, scopes, ownership helpers, machine credentials |
 | [docs/security.md](docs/security.md) | anything security-relevant: threat model, mitigation ids, the authorization matrix |
 | [docs/tasks.md](docs/tasks.md) | task folders, manifest, connector APIs, schemas, Dockerfile policy, task pipeline, test runs, scaffolds |
+| [docs/scripts.md](docs/scripts.md) | scripts and script runs: folder and manifest, build, run lifecycle and adoption, the script runtime API, the Python SDK, logs, outputs, GC and delete cascades |
 | [docs/protocol.md](docs/protocol.md) | the runtime ↔ connector protocol and the conformance harness |
 | [docs/runtime.md](docs/runtime.md) | the injected runtime: modes, bootstrap, AMQP, process pool, retries, uploads, local mode |
 | [docs/templates.md](docs/templates.md) | template internals: resolve, estimate, streaming, data sources |
@@ -158,6 +166,7 @@ model, api) wins and the other doc is fixed.
 | [docs/guide/README.md](docs/guide/README.md) | index of the user guides |
 | [docs/guide/authoring-python.md](docs/guide/authoring-python.md), [-typescript](docs/guide/authoring-typescript.md), [-javascript](docs/guide/authoring-javascript.md), [-go](docs/guide/authoring-go.md) | the user-facing task API per language (one per row of `languages.json`) |
 | [docs/guide/templates.md](docs/guide/templates.md), [docs/guide/manifest.md](docs/guide/manifest.md) | user view of templates and `scantor.yaml` |
+| [docs/guide/scripts.md](docs/guide/scripts.md) | user view of scripts: `scantor-script.yaml`, the `scantor.script` API, limits, web UI, CLI and MCP |
 | [docs/guide/errors-and-retries.md](docs/guide/errors-and-retries.md) | user view of errors, retries, conditions and error codes |
 | [docs/guide/cli.md](docs/guide/cli.md) | generated CLI reference (`just docs`; never edit by hand) |
 | [docs/guide/mcp.md](docs/guide/mcp.md) | connecting agents; its marked section is the MCP server instructions (≤ 8 KiB) |
@@ -177,6 +186,10 @@ model, api) wins and the other doc is fixed.
   `skills/` (the drift test checks every tool and command they name).
 - **Example task** → its entry in `tests/e2e/examples.ts`. **Language or template** → the checklists in
   [docs/development.md](docs/development.md) §9.2 and §9.3.
+- **Script SDK, script runtime API or the `files-report` fixture** → [docs/scripts.md](docs/scripts.md),
+  `docs/guide/scripts.md` and `scaffolds/python-script/`. The guide's `<!-- scantor:excerpt -->` blocks
+  must stay lines of the fixture files, and every public `ScriptContext` member, `Analysis` file helper
+  and `ctx.map` keyword must appear in it (`connectors/python/tests/test_script_guide.py`).
 - **Event type, level or data of a notifying event** → the trigger matchers in
   `orchestrator/server/services/notifications/triggers.ts`, the trigger catalog
   `orchestrator/shared/utils/notifications.ts` and the trigger table of [docs/api.md](docs/api.md) §4.3.
@@ -193,6 +206,10 @@ model, api) wins and the other doc is fixed.
 - MCP tool calls reach the REST routes through the private loopback listener (`server/utils/loopback.ts`) with single-use capabilities; never route them to port 3000 or `localFetch`.
 - Components stop at SIGTERM, while Nitro still drains the open requests (`99.start.ts`): a request that waits (long-poll, `wait`) must also end on `shutdownSignal()` (`server/utils/boot.ts`), or it holds the drain inside the 30 s stop grace; a loop that judges silence (node offline detection) must not run once the signal aborted.
 - The task pipeline prunes the host's whole BuildKit cache to `SCANTOR_BUILD_CACHE_MAX_BYTES`; the dev compose sets 0 and a native CLI prunes only when it is set. Never set it on a shared dev machine.
+- Script-run containers join only `scantor-scripts` (`internal: true`; besides them only the orchestrator and rustfs are attached, reachable by their service names): no internet, RabbitMQ, workers or editors at run time. Script builds still reach the internet through BuildKit's build network, so `pip install` works in the `Dockerfile` but not in the running script.
+- `/api/script-runtime/*` accepts only requests whose socket peer lies in a `scantor-scripts` subnet and that did not pass a trusted proxy (403 before any token lookup). Under `nuxt dev` the socket has no peer address, so the dev stack falls back to a single-entry `X-Forwarded-For` and the check is only advisory; verify the restriction against the test stack.
+- Script images (`scripts/<scriptId>:<packSha256>`) exist only in the master's Docker and are never pushed. A script-run job detaches on SIGTERM and adopts its `scantor-s-<runId>` container on the next claim, so restarting the orchestrator does not stop runs; the scripts GC removes orphan containers and old images.
+- `docs/guide/scripts.md` quotes the fixture script with `<!-- scantor:excerpt -->` blocks checked by the Python suite, not with `scantor:include`: the drift test accepts includes only from `tasks/`.
 - The dev built-in node allows only `SCANTOR_BUILTIN_NODE_MAX_WORKERS` workers (a scheduler counts), and placement reserves `cpus × processes`; parallel scans wait with `workersPending`.
 - Hint counters only increase (progress can briefly exceed 100 % after a cancel); the recount is authoritative. Do not "fix" the hints.
 - Push notifications see only events written through `writeEvent`/`writeEvents` (`services/scans/events.ts`) or `recordEvents` (`services/nodes/events.ts`), which hand them to the event sinks (`server/utils/event-sinks.ts`); a direct `events` insert notifies nobody. A sink's `accept` runs inline in the writer, so keep it synchronous and free of I/O.

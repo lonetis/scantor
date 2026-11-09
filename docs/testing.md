@@ -42,7 +42,8 @@ tests/
 ├── global-setup.ts
 ├── fixtures.ts                  test.extend: the only `test`/`expect` export specs import
 ├── helpers/                     env, limiter, unique, api-client, openapi, users, webauthn, mcp, tasks, scans,
-│                                docker, amqp, keys, tar, ui, cli, fixtures-server (debug: with debug.spec.ts)
+│                                docker, amqp, keys, tar, ui, cli, fixtures-server (debug: with debug.spec.ts),
+│                                scripts, security-scripts
 ├── api/*.spec.ts                REST API behaviour per tag
 ├── ui/*.spec.ts                 browser tests
 ├── e2e/*.spec.ts                real scans, examples in every language, remote node, CLI, debug, scaffold matrix
@@ -62,6 +63,7 @@ tests/
 │   └── hostile-labels/Dockerfile
 ├── fixtures/tasks/<name>/       test-only Python tasks (schema-zoo, netprobe, nondeterministic, big-result,
 │                                crashy, no-hello, hostile-label, hostile-output)
+├── fixtures/scripts/<name>/     test scripts (files-report)
 ├── docker/
 │   ├── Dockerfile               runner image (+ Dockerfile.dockerignore)
 │   ├── daemon.json              inner dockerd config
@@ -132,18 +134,19 @@ project dependencies (§7.5).
 
 | Package | Covers |
 |---|---|
-| `internal/taskpipe` | Dockerfile policy over the whole `tests/corpora/dockerfile-policy` corpus; forbidden `LABEL` keys (the managed key set of `schemas/managed-labels.json`); deterministic pack (same tree → same `packSha256`, `.dockerignore` semantics, hard excludes); structured errors `{phase, file, line, message}` |
-| `internal/container` | `ManagedLabels` against `schemas/managed-labels.json` (every kind, including `network` and the helper label `scantor.op`); hardening profile |
-| `internal/workspace` | extract/write-files path rules over `tests/corpora/tar-slip` and `tests/corpora/paths`; caps; snapshot never dereferences symlinks |
+| `internal/taskpipe` | script builds (`script_test.go`: pack → static → build, the missing-manifest messages, `--expect-name`); Dockerfile policy over the whole `tests/corpora/dockerfile-policy` corpus (including the D5 `scripts/` cases); forbidden `LABEL` keys (the managed key set of `schemas/managed-labels.json`); deterministic pack (same tree → same `packSha256`, `.dockerignore` semantics, hard excludes); structured errors `{phase, file, line, message}` |
+| `internal/container` | `ManagedLabels` against `schemas/managed-labels.json` (every kind, including `network`, `scriptRun` and the helper label `scantor.op`); hardening profile |
+| `internal/workspace` | extract/write-files path rules over `tests/corpora/tar-slip` and `tests/corpora/paths`; caps; snapshot never dereferences symlinks; script folders (`script_test.go`: the `.scripts/<name>` mapping, `extract --kind script`, the script scaffold) |
 | `internal/templates/<name>` | every case of `schemas/templates/<name>.fixtures.json`; determinism (same resolved config → same stream and tail hash); estimate |
 | `internal/runtime` | retry classification and backoff (jitter uniform in [delay/2, delay]), clock-offset-corrected delivery times, resume skip/verify (hash mismatch → "schedule() is not deterministic"), size limits, process-slot resizing; with a scripted fake connector and fake AMQP: outcome classification, recycling, termination of the process group, credit accounting ([protocol](protocol.md) §12) |
 | `internal/api` | transport policy table (plaintext only to loopback, RFC 1918, CGNAT `100.64.0.0/10` and ULA `fc00::/7`, after resolving the host), `SCANTOR_CA_CERT` trust |
-| `internal/redact` | redaction of headers, token shapes and URLs ([security](security.md) MC-10) |
+| `internal/redact` | redaction of headers, token shapes (including `ssr_`) and URLs ([security](security.md) MC-10) |
+| `internal/runtime/script` | `runtime script` with a fake command: process group, signal forwarding, the 50 s kill, exit codes (128 + signal), the missing `SCANTOR_SCRIPT_CMD`, the heartbeat |
 | `internal/protocol` | codec round trips against `schemas/protocol/*.json` |
-| `internal/manifest`, `internal/languages` | strict manifest schema (fallback defaults of [data model](data-model.md) §4.5.1); languages table loading |
+| `internal/manifest`, `internal/languages` | strict manifest schema (fallback defaults of [data model](data-model.md) §4.5.1); script manifest rules S1–S6 (`script_test.go`, the schema's `default` annotations equal the Go fallbacks); languages table loading with the optional `script` object |
 | `internal/keys` | HKDF derivations against the shared vectors in `tests/corpora/keys-vectors.json`, read by relative path (the orchestrator's vitest suite checks the same file) |
 | root package (`embed.go`) | non-empty embedded scaffold for every language in `languages.json` (guards the `go.mod.tmpl` rule) |
-| `internal/cli` | output formats (`-o json`), exit codes 0/1/2/3, `localhost` → `host.docker.internal` rewrite when containerized; every command group against an `httptest` fake orchestrator (request shapes, waits, downloads) |
+| `internal/cli` | output formats (`-o json`), exit codes 0/1/2/3, `localhost` → `host.docker.internal` rewrite when containerized; every command group against an `httptest` fake orchestrator (request shapes, waits, downloads), including `scripts` (`run --follow`, Ctrl-C detach, `--cancel-on-interrupt`, `scantor push` of a script folder) and the hidden `script build` and `workspace --script` |
 | `internal/node` | assignment validation ([nodes](nodes.md) §6.10), the container spec per DinD mode, reconcile and worker recognition ([security](security.md) LBL-5), the per-pull credential (MC-8), image GC, `egress-apply` backend detection (nft/legacy) with a fake command runner, and the daemon against a fake Docker engine and an `httptest` fake orchestrator |
 
 - Integration tests (`//go:build integration`) need Docker and name what they create with the test flag
@@ -152,7 +155,7 @@ project dependencies (§7.5).
     hostile image the test builds, the worker hardening profile, and extraction of the linux runtime
     binary from a local scantor image;
   - `internal/taskpipe`: `task build` of `tasks/echo` on the Python base image (real BuildKit build and
-    check, describe and local run), inherited forbidden labels (LBL-3), ONBUILD images (BLD-7), the build
+    check, describe and local run), `script build` of a script folder (`TestIntegrationBuildScript`), inherited forbidden labels (LBL-3), ONBUILD images (BLD-7), the build
     timeout and image size cap, and the push gate against `registry:3.1.2`; the base image comes from
     `-base-image-prefix`/`-base-image-tag`, and `-runtime=auto|real|stub` selects the injected runtime;
   - `internal/conformance`: the conformance suite of every language, the examples described and run in
@@ -182,7 +185,16 @@ file Go reads too); the ingestor's document builder; the editor proxy (a fake up
 receives no cookie or authorization header) and the editor container spec; the pipeline driver's build
 timeout and image-size cap with a fake `scantor task build` subprocess; the git URL pre-check (private
 hosts are rejected unless allowed, which the test stack does allow); the CIMD metadata fetch path with an
-injected fetcher (the real SSRF-hardened fetcher refuses the test stack's private addresses).
+injected fetcher (the real SSRF-hardened fetcher refuses the test stack's private addresses); scripts
+([scripts](scripts.md)): the script-run token and the peer check (`test/utils/script-run-tokens.test.ts`,
+`script-network.test.ts`, `test/middleware/script-runtime-auth.test.ts`: `X-Forwarded-For` is ignored outside
+dev), the script services (`test/services/scripts/`: upload conflicts, delete cascade), the run lifecycle
+(`test/services/script-runs/`: start checks, container spec, log writer with chunks, cursor, rate limit and
+retention, cleanup, and the `scriptRun` job against a fake Docker daemon including adoption, detach and
+cancel), the script runtime API (`test/services/script-runtime/`: bootstrap, NDJSON stream with checkpoints and
+error lines, throttled progress and checkpoints, outputs), `presignInternalGet` byte-identical to the SDK
+presigner (`test/utils/s3.test.ts`), the runner's `refundAttemptOnStop`, and the run pages' pure helpers
+(`test/ui/script-runs.test.ts`).
 
 Integration tests are `*.integration.test.ts` files next to the unit tests. They skip themselves unless
 their gate holds, so `just test-orchestrator` (no Docker socket, non-root) runs only unit tests. `just
@@ -198,7 +210,7 @@ reach the tests; the variables matter only when vitest runs outside it:
 | connection variables | `scans/broker.integration.test.ts` (topology, broker-enforced permissions, lifecycle, retry-failed backpressure, stall detection, delete job, user purge), `ingestor/ingestor.integration.test.ts` (ingestor flow and identity, dead letters, isolation mode, queries on real MongoDB) | `SCANTOR_TEST_INTEGRATION=true` plus the usual `SCANTOR_MONGO_*`, `SCANTOR_AMQP_INTERNAL_URL`, `SCANTOR_RABBITMQ_*` and `SCANTOR_S3_*` variables pointing at throwaway MongoDB (replica set, `--noscripting`), RabbitMQ 4.4 and RustFS; each run creates and removes its own database, vhost or bucket |
 | containerised (`test/services/nodes/integration.ts`) | `nodes/node-api.integration.test.ts`, `runtime/runtime-api.integration.test.ts`, `registry/registry.integration.test.ts` | Linux, inside a container on a user-defined network with the Docker socket mounted (for example `node:26.12.1-trixie-slim` with Linux `node_modules` in a volume; the exact command is in the harness header). Containers are named after the runner container and never pulled: `mongo:9.0.4`, `rustfs/rustfs:1.0.3`, `registry:3.1.2` must exist locally (the recipe pulls missing images first). The registry runs in the Docker host's network namespace with a loopback forwarder for the token realm, because Docker Desktop sends non-loopback realm requests through its HTTP proxy |
 | real code-server | `editor/code-server.integration.test.ts` (hardened editor container, safe socket connect, `/_auth` handoff, HTTP and WebSocket relay, symlinked sockets refused, stop) | as root in a container with the Docker socket and three throwaway volumes at `/run/scantor/editor-sockets`, `/volumes/editor-home` and `/volumes/workspaces`; `codercom/code-server:4.141.0` present locally, never pulled (command in the file header) |
-| scantor image or binary | `helpers/helpers.integration.test.ts` (workspace helper operations with the production container profile), `pipeline/task-build.integration.test.ts` (a draft `scantor task build`) | `SCANTOR_TEST_SCANTOR_IMAGE=<prefix>scantor:<tag>` (a prefix ends in `/`; the recipe uses `scantor:dev`), plus `SCANTOR_TEST_SCANTOR_BINARY` (a scantor binary for the platform the tests run on; the recipe copies the image's) for the build test; they create and remove their own volumes, networks and images (the build test builds a stand-in base image when `<prefix>scantor-base-python:<tag>` is missing) |
+| scantor image or binary | `helpers/helpers.integration.test.ts` (workspace helper operations with the production container profile, including a script folder), `pipeline/task-build.integration.test.ts` (a draft `scantor task build`) | `SCANTOR_TEST_SCANTOR_IMAGE=<prefix>scantor:<tag>` (a prefix ends in `/`; the recipe uses `scantor:dev`), plus `SCANTOR_TEST_SCANTOR_BINARY` (a scantor binary for the platform the tests run on; the recipe copies the image's) for the build test; they create and remove their own volumes, networks and images (the build test builds a stand-in base image when `<prefix>scantor-base-python:<tag>` is missing) |
 
 ### 4.3 Connectors
 
@@ -215,6 +227,12 @@ The `python` and `js` test stages also copy the language's example tasks, scaffo
 from the repository: they describe and run every example and rendered scaffold entry with the installed
 connector against a schema-validating fake runtime, and check that the guide's
 `<!-- scantor:include <path> -->` blocks equal the included files.
+
+The `python` test stage also runs the script SDK's suites (`tests/test_script*.py`) against a loopback fake
+script runtime API and fake S3 (`script_fake.py`, so they work with `--network none`): streams with resume,
+`ctx.map` with `processes=2`, multipart outputs and `.partial`, reporting, the entry, the `files-report` fixture,
+the scripts guide's `<!-- scantor:excerpt -->` blocks, and the rendered script scaffold (lint, type check, run);
+`scaffolds/python-script` and `tests/fixtures/scripts` are copied into that stage for it.
 
 Typing tests are small task files that must type-check (and `// @ts-expect-error` / `# pyright: ignore`
 negative cases that must fail), proving the typed definition APIs of [tasks](tasks.md).
@@ -426,6 +444,10 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
 | `SCANTOR_BUILTIN_NODE_MAX_WORKERS` | `16` | parallel e2e scans fit on the built-in node (the prod compose file maps it onto the daemon's `SCANTOR_NODE_MAX_WORKERS`, [deployment](deployment.md) §4.2) |
 | `SCANTOR_EDITOR_IDLE_TIMEOUT` | `3m` | idle stop testable |
 | `SCANTOR_NODE_MIN_FREE_DISK` | `1GiB` | placement keeps working on a small CI disk or a nearly full laptop |
+| `SCANTOR_SCRIPT_RUN_CONCURRENCY` | `6` | room for the script runs of the suite's parallel workers on the master |
+| `SCANTOR_SCRIPT_RUN_TIMEOUT` | `10m` | a run a failed test leaves behind ends soon, and the caps on `timeoutMs` are testable |
+| `SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES` | `2MiB` | the smallest log cap: the head-and-tail retention is testable with a small run |
+| `SCANTOR_SCRIPT_RUN_MAX_OUTPUTS` | `10` | the output limit is testable with a few outputs |
 
 - The remote node is a single `docker:29.9-dind` container on its own network `scantor-remote`: the node
   daemon runs **inside** it, started by `join-remote-node.mjs` with the exact `dockerRun` command of
@@ -548,6 +570,7 @@ the test (404 counts as success).
 | `webauthn` | test (lazy) | CDP virtual authenticator on `page` (`ctap2`, resident key, user verification) | remove authenticator |
 | `docker` | worker | inner-Docker helper (`helpers/docker.ts`): `inspect`, `exec`, `kill`, `restart`, `pause`/`unpause`, `networkDisconnect/Connect`, `logs`, `containersByLabel`, `remote` (`docker` in the remote node), `mongosh` (read-only as `scantor_query`, or root), `mongoCount`, `rabbitmqQueues` | – |
 | `tasks` | test | `tasks.upload(dir, {name?, expectState?})` (packs a folder with a unique manifest name, `uploadTask?wait=120`, waits for the build, expects `ready` unless `expectState`), `tasks.fixture(name)`, `tasks.example(dir)`, `tasks.track(name)` for tasks created another way (CLI, MCP, git import) | `deleteTask` for every task it created or tracks (retrying `taskInUse` while a scan is still being deleted) |
+| `scripts` | test | `scripts.upload(dir \| files, {name?})` (uploads a script folder under a unique manifest name), `scripts.fixture(name)` (`tests/fixtures/scripts/<name>`), `scripts.create({name?, description?})` (from the scaffold), `scripts.track(script)` for scripts created another way (CLI, MCP, UI) | `deleteScript` and its job for every script it created or tracks (the job cancels the script's runs) |
 | `scans` | test | `scans.start(body)` (small settings unless the body sets them), `scans.wait(id, {state, timeoutMs})`, `scans.counts(id)`, `scans.track(id)` | `cancelScan` when not terminal, then `deleteScan` and its job, for every scan it started or tracks (depends on `tasks`, so it runs before the `tasks` teardown) |
 
 Tenants are per worker because better-auth limits sign-ins per client IP and the whole suite shares one
@@ -595,6 +618,13 @@ choose (git imports of the fixture repositories, `git-*`) repeat within a worker
   (Dockerfile with forbidden `LABEL`s, literal and ARG-expanded: the revision fails at static), `hostile-output`
   (results, logs and an error with HTML/script strings, ANSI sequences and a `javascript:` link; files
   `x.html`, `x.svg`, `x.png` and a name with CR/LF and quotes).
+- `tests/fixtures/scripts/files-report/` (Python script): reads every succeeded analysis of a scan of the `files`
+  example task with `ctx.map`, reads their files, writes `files.csv` (one row per analysis in seq order) and
+  `summary.json`, reports progress `<n> files read`, checkpoints `{after_seq, analyses, files, bytes}`, and on
+  resume copies `files.csv` or `files.csv.partial` from `ctx.resume_outputs`; the result is `{scan, analyses,
+  files, bytes, resumed}`. The authorization and security specs build their own small scripts in
+  `helpers/security-scripts.ts` (the matrix's `authz` script and the `probe` script, which looks at the platform
+  from inside its container).
 - Fixtures server (`tests/docker/fixtures/`, image `scantor-test-fixtures:dev`, a Go program on Alpine with
   git): one plain-HTTP port 8089, published on the runner (`http://fixtures.scantor.localhost:8089`) and
   routed by Traefik as `https://git.scantor.localhost` (the test CA's certificate):
@@ -652,7 +682,12 @@ window), `runtime-api` (bootstrap shape per role, runner
 forbidden on scheduler routes, stale epoch 409, token of a stopped worker 401, presign keeps path-like
 names inside the scan prefix and a larger PUT than signed fails) and `registry-token` (GET and POST flows,
 scopes intersected, a token for node N1 omits a repository assigned only to N2, catalog only for the
-orchestrator credential, revoked node 401).
+orchestrator credential, revoked node 401). Scripts have two specs ([scripts](scripts.md)): `scripts` (create from
+the scaffold, upload with the `workspaceDirty` rule, files, archive, describe, delete cascade: runs, images, folder)
+and `script-runs` (end to end with `files-report` on a scan of the `files` task: streaming, file reads, outputs,
+checkpoint, result, logs and `logTail`; a sample run with `limit`; cancel with the container removed, outputs kept
+and `.partial`; restart with `resume`; secrets returned by name and masked in the log; build failures with
+BuildErrors; manifest defaults above the caps (phase `config`); timeout and OOM; the waits; downloads).
 
 ### 8.2 UI (`ui/`)
 
@@ -677,6 +712,7 @@ orchestrator credential, revoked node 401).
 | `account.spec.ts` / `access.spec.ts` / `credentials.spec.ts` | profile, password, sessions (on `freshUser`); API key shown once with export, alias and API-key MCP snippets, OAuth MCP command, OAuth app revoke; credentials CRUD |
 | `editor.spec.ts` | on `freshUser`: editor starts, iframe loads the code-server workbench from the editor origin, new-tab session, stop |
 | `admin-tools.spec.ts` | tool links set the tools cookie and reach each GUI through forwardAuth; non-admin gets nothing |
+| `scripts.spec.ts` | the script pages of [ui](ui.md) §5.21–§5.24: list and search, create, files tab, the run form (scan picker, schema form or JSON, secrets, sample and full run), the run page (progress, log polling, outputs, cancel, run again, resume), "Run script" from the scan page, `/editor?script=` |
 | `a11y.spec.ts` | on every page: every `button` has an accessible name; canonical names of [ui](ui.md) §11 exist |
 | `headers.spec.ts` | the required headers of [ui](ui.md) §13 on every page and on `/api/*` (`Cache-Control: no-store`), `frame-ancestors 'none'` on `/login`, `/setup` and `/oauth/consent`, the editor host's headers; no CSP violation in the console on any page (this decides the inline-script option of [ui](ui.md) §13); no request leaves the dashboard, S3 and editor origins |
 
@@ -697,7 +733,7 @@ orchestrator credential, revoked node 401).
 | `remote-node.spec.ts` | `nodeSelector.pool = "remote"`: image pulled from the public registry host with a node token over TLS with the test CA (`SCANTOR_CA_CERT`), AMQPS and presigned S3 through Traefik (the public endpoint profile), results ingested, worker logs on demand |
 | `backpressure.spec.ts` | 20 000-analysis `power`-style scan with `SCANTOR_SCAN_QUEUE_MAX_READY=500` completes with exact counts |
 | `limits.spec.ts` | oversized result → non-retryable `validation`; too many files; analysis config over the limit fails scheduling; workers/processes above the instance caps → 400; test-run `limit`/`maxAttempts` bounds; concurrent waits and queries above their caps → 429. The build timeout and image-size cap are covered by vitest (pipeline driver with a fake `scantor task build`, §4.2) and `internal/taskpipe` integration tests, because a short build timeout on the shared stack would break every other build |
-| `cli.spec.ts` | CLI through the shim: `validate`, `push`, `dev run` (local) and `dev run --remote`, `scans start/watch/pause/resume/cancel`, `uploads create` with a list-template scan, `analyses query`, `export`, `files get`; `-o json` NDJSON; exit codes 0/1/2/3; `localhost` rewrite |
+| `cli.spec.ts` | CLI through the shim: `validate`, `push`, `dev run` (local) and `dev run --remote`, `scans start/watch/pause/resume/cancel`, `uploads create` with a list-template scan, `analyses query`, `export`, `files get`, `scripts init/push/run --follow/runs …` and `scantor push` of a script folder; `-o json` NDJSON; exit codes 0/1/2/3; `localhost` rewrite |
 | `debug.spec.ts` | `scantor dev debug` for every language: the debug port opens, `helpers/debug.ts` attaches and resumes, the analysis completes. For Go this proves that `dlv exec` passes fds 3/4 to the debuggee (otherwise the connector must use `SCANTOR_PROTOCOL_IN_FD`/`SCANTOR_PROTOCOL_OUT_FD`, [protocol](protocol.md) §10) |
 | `scaffold-matrix.spec.ts` | §6 |
 
@@ -705,7 +741,7 @@ orchestrator credential, revoked node 401).
 
 | Spec | Covers |
 |---|---|
-| `tools.spec.ts` | `tools/list` equals the curated table of [mcp](mcp.md) §5 and [api](api.md) §10 (names, levels, annotations, ≤ 45), names `^[a-z0-9_]{1,64}$`, descriptions present, read-only annotations follow GET/`x-read-only`, `destructiveHint` follows `DELETE`/`x-destructive`; level filtering of `tools/list` and `tools/call` (`scantor:read` sees no write tools; the admin tool only for admins with `scantor:admin`); `untrusted_data` wrapping; structured JSON errors; `wait` clamped to 50; `read_analysis_file` content paged with `offset`/`nextOffset` |
+| `tools.spec.ts` | `tools/list` equals the curated table of [mcp](mcp.md) §5 and [api](api.md) §10 (names, levels, annotations, ≤ 45), names `^[a-z0-9_]{1,64}$`, descriptions present, read-only annotations follow GET/`x-read-only`, `destructiveHint` follows `DELETE`/`x-destructive`; level filtering of `tools/list` and `tools/call` (`scantor:read` sees no write tools; the admin tool only for admins with `scantor:admin`); `untrusted_data` wrapping; structured JSON errors; `wait` clamped to 50; `read_analysis_file` content paged with `offset`/`nextOffset`; `start_script_run` without `settings.limit` answers `confirmationRequired` |
 | `oauth.spec.ts` | discovery documents; DCR with http loopback, private-use-scheme and allowed https redirects, https loopback redirects and non-loopback redirects outside `SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS` rejected at registration and at authorization; a CIMD `client_id` whose metadata host is private is refused (the positive CIMD path is a vitest unit test, §4.2); PKCE code flow; consent level selection; `scantor:admin` stripped for non-admins; refresh; `revokeOAuthApp` → next call 401; banned user → 401 |
 | `apikey.spec.ts` | `default` and `editor` API keys on `/mcp` (level `write`; `admin` only for an admin's `default` key); an admin's `editor` key has no admin tools; an invalid key gets 401 with the OAuth challenge ([mcp](mcp.md) §3.7) |
 | `agent-loop.spec.ts` | a serial loop using tools only: `create_task` (python, template `range`) → `read_task_file` (manifest, entry) → `write_task_files` (change `run`) → `test_task` (`wait=50`) → `publish_revision` (`wait`) → `start_scan` → `get_scan` (`wait`) until completed → `query_analyses` → `aggregate_analyses` → `export_scan` → `get_export`; asserts `{untrusted_data: …}` wrapping on analysis content and structured build errors after a deliberately broken edit |
@@ -730,7 +766,7 @@ fixes the mechanics:
 - The `authz-setup` project (`authz/seed.setup.ts`) seeds tenants **A** and **B** and the admin's
   credentials through the API (two sign-ins through the limiter; the admin reuses the global setup
   session), uses `remote-1` as node N1, derives
-  worker tokens with `helpers/keys.ts`, and writes every id and credential to `.auth/authz.json`; the
+  worker tokens with `helpers/keys.ts`, completes a sample script run of A's script `alpha` and keeps its token, and writes every id and credential to `.auth/authz.json`; the
   `authz-teardown` project deletes A and B. The generated tests read that file and run in parallel.
 - `authz/requests.ts` is the parameter map and the body map: values for every path parameter name and a
   factory per `operationId` that receives the seeded ids. The matrix fails for an operation whose
@@ -738,6 +774,9 @@ fixes the mechanics:
 - Reads run first; destructive operations (`DELETE`, `x-destructive`, cancel, retry, ban, rotate) run last
   against throwaway copies created per case. After B's attempts, A's resources are unchanged (hash of A's
   GET representations before and after).
+- The `scriptRun` scope is checked twice: from the runner every credential gets 403 (the peer check runs first),
+  and from a throwaway container on `scantor-scripts` (`fetchFromScriptsNetwork` in `helpers/security-scripts.ts`)
+  every credential but the token of a running run gets 401, the token of A's ended run included.
 
 ### 8.6 Security (`security/`)
 
@@ -763,6 +802,7 @@ security.md cites (`tests/security/<name>.spec.ts`); the other mitigations are c
 | `secrets-masking.spec.ts` | `schema-zoo` with `writeOnly` fields | `"***"` in scans, test runs, analyses, exports and MCP; aggregations referencing a secret path rejected; values reach the task (asserted inside the task result as a hash); `getInstanceInfo` shows no secret values |
 | `editor-isolation.spec.ts` | two users (`freshUser`) with editors | the dashboard listener answers 421 for the editor host and the editor listener 421 for any other host; the editor origin answers nothing but the proxy and `/_auth`; a session code is single-use and bound to its user (B cannot reach A's editor); the `scantor_editor` cookie is host-only and HttpOnly and stops working after the editor is stopped or restarted; a request to the editor origin carrying only the dashboard session cookie is not authenticated; a foreign-`Origin` WebSocket upgrade → 403; `Set-Cookie` from code-server never reaches the browser; a code-server socket replaced by a symlink (to `/var/run/docker.sock`, via `docker exec` in the editor) is refused; a POST to the dashboard API with `Origin: <editor origin>` and a session cookie → 403; a master worker cannot connect to the editor container |
 | `sandbox.spec.ts` | `netprobe` on the built-in node and the remote node | the worker's `HostConfig` matches the hardening profile; master workers cannot reach mongo, mongo-express, the registry or the RabbitMQ management API (which rejects the scan user) without credentials; mode `env` shows no `SCANTOR_WORKER_TOKEN`; a test run of `netprobe` (network `scantor-egress`) reaches no platform service either; `169.254.169.254` unreachable where `egressDenyApplied` is true (skipped with a warning otherwise) |
+| `script-runs.spec.ts` | the `probe` script ([security](security.md) §6.20) | the script-run container's `HostConfig` (no added capability, no mounts, the network `scantor-scripts` only, the runtime healthcheck); from inside it RabbitMQ, a public address and a worker are unreachable; its token works only on its own scans (another scan → 404), not from outside the network (403) and not after the run ended (401); an admin cannot bind another user's scan (404); its secrets are masked in the log |
 | `downloads.spec.ts` | `hostile-output` files `x.html`, `x.svg`, `x.png` and a name with CR/LF/quotes | html/svg served as attachment with `application/octet-stream`; png inline as `image/png`; the name sanitised in `Content-Disposition`; unsigned GET → 403; a foreign-origin preflight refused; revision source downloads are `application/gzip` attachments; links expire; inline file reads (`readAnalysisFile`) answer only JSON, html/svg as `utf8` strings and png as `base64` |
 
 The test-created orchestrator containers (`helpers/orchestrator.ts`) never run the reconciler
@@ -785,7 +825,7 @@ never timing. Cases run serially after all other projects.
 | Case | Injection | Expected |
 |---|---|---|
 | runner killed | `docker kill` one runner of a `sleep` scan while analyses are in flight | scan `completed`; `succeeded == total`; one document per seq |
-| orchestrator restart | `docker stop` the orchestrator during a running scan of about 60 s (longer than the drain and the boot together) and a running build, read the scan and the build job with `mongosh` while it is stopped, then `docker start` it with MongoDB paused, which holds the boot window open (API-010) | scan `completed` with exact counts (recount is authoritative); no `node.offline` event for the built-in node or `remote-1` and no lost worker, checked two detection ticks after the offline grace that follows the boot; the interrupted build is rebuilt from its stored snapshot |
+| orchestrator restart | `docker stop` the orchestrator during a running scan of about 60 s (longer than the drain and the boot together), a running build and a running script run (a ticker printing one numbered line a second for 150 s), read the scan, the build job and the run with `mongosh` and the run's container with `docker inspect` while it is stopped, then `docker start` it with MongoDB paused, which holds the boot window open (API-010) | scan `completed` with exact counts (recount is authoritative); no `node.offline` event for the built-in node or `remote-1` and no lost worker, checked two detection ticks after the offline grace that follows the boot; the interrupted build is rebuilt from its stored snapshot; the script-run container kept running, the run is adopted and ends `completed`, and its log holds every tick exactly once with contiguous line numbers (CHAOS-010) |
 | RabbitMQ restart with delayed retries | a flaky task with a fixed 30 s backoff; while every analysis is retrying, `docker stop` RabbitMQ until `/api/health` reports it down, then `docker start` it (a `docker restart` takes about 3 s, inside the 3 s health cache) | `/api/health` 200 `degraded` meanwhile; queue, retries and the scan user survive; retries delivered after the restart; exact final counts |
 | pause/resume with delayed messages | pause while retries are delayed, wait 30 s, resume | exact final counts; no analysis lost |
 | cancel with in-flight work | cancel a `sleep` scan with busy processes | `cancelled`; RabbitMQ user and queue gone; no `pending`/`retrying` documents after quiescence; counts stable over 30 s |
@@ -950,9 +990,9 @@ regenerates the index in the same commit ([development](development.md) §13).
   `fd00:ec2::254/128`, and the first-initialisation note on the database root passwords. Variables that are
   not configuration form an exact allowlist and must never appear in `.env.example` (the check fails in both
   directions): the internal contract variables of [architecture](architecture.md) §10
-  (`SCANTOR_WORKER_TOKEN`, `SCANTOR_DIND`, `SCANTOR_REGISTRY_PUSH_PASSWORD`), the base-image ENV contract
-  (`SCANTOR_LANGUAGE`, `SCANTOR_CONNECTOR_CMD`, `SCANTOR_CHECK_CMD`, `SCANTOR_DEBUG_CMD`,
-  `SCANTOR_DEBUG_PORT`) and the connector protocol variables of [protocol](protocol.md)
+  (`SCANTOR_WORKER_TOKEN`, `SCANTOR_DIND`, `SCANTOR_REGISTRY_PUSH_PASSWORD`, `SCANTOR_SCRIPT_TOKEN`), the
+  base-image ENV contract (`SCANTOR_LANGUAGE`, `SCANTOR_CONNECTOR_CMD`, `SCANTOR_CHECK_CMD`, `SCANTOR_DEBUG_CMD`,
+  `SCANTOR_DEBUG_PORT`, `SCANTOR_SCRIPT_CMD`) and the connector protocol variables of [protocol](protocol.md)
   (`SCANTOR_PROTOCOL_IN_FD`, `SCANTOR_PROTOCOL_OUT_FD`, `SCANTOR_PROTOCOL_VERSIONS`,
   `SCANTOR_PROCESS_INDEX`).
 - `tests/scripts/*.test.mjs` (part of `just lint`, `node --test`, dependency-free) unit-test the scripts'
@@ -1040,6 +1080,10 @@ job passes.
 13. **Security specs live in `tests/security/`** under the names [security](security.md) cites; behaviour
     that needs a fresh or differently configured orchestrator (setup token, startup guard, sign-in rate
     limit) runs against throwaway orchestrator containers, never against the shared stack.
+14. **Script runs are tested on the real stack with short limits** (`SCANTOR_SCRIPT_RUN_*` in
+    `tests/docker/stack.env`), and requests that must come from the scripts network are sent from a throwaway
+    container attached to `scantor-scripts` (label `scantor.test=true`), because the script runtime API answers
+    no other peer.
 
 ## 15. Future extensions
 

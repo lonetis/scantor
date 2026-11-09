@@ -386,6 +386,12 @@ left unchanged. `x[]` means "each element of array `x`".
 | `get_analysis` | `config`, `result`, `error`, `attempts`, `logTail`, `files` |
 | `query_analyses`, `aggregate_analyses` | `items[]` |
 | `read_analysis_file`, `read_test_run_file` | `content`, `name`, `contentType` |
+| `list_scripts` | `items[].description`, `items[].describe` |
+| `get_script`, `create_script` | `description`, `describe`, `recentRuns[].progress` |
+| `read_script_file` | `content` |
+| `start_script_run`, `get_script_run`, `cancel_script_run`, `restart_script_run` | `errors`, `error`, `result`, `logTail`, `outputs`, `progress`, `checkpoint` |
+| `get_script_run_logs` | `lines` |
+| `read_script_run_output` | `content`, `name`, `contentType` |
 | all others | none |
 
 The map lives in `orchestrator/server/services/mcp/untrusted.ts` keyed by operationId. The instructions
@@ -414,15 +420,15 @@ Failures that are not HTTP errors stay in the success result. A failed revision 
 
 ### 4.8 `wait` parameters
 
-`publish_revision`, `get_revision`, `test_task`, `get_test_run`, `get_scan`, `export_scan` and `get_export`
-accept `wait` (seconds) as in [api](api.md) §1.9. Many MCP clients time out tool calls at 60 s, so the bridge
+`publish_revision`, `get_revision`, `test_task`, `get_test_run`, `get_scan`, `export_scan`, `get_export`,
+`start_script_run`, `get_script_run` and `restart_script_run` accept `wait` (seconds) as in [api](api.md) §1.9. Many MCP clients time out tool calls at 60 s, so the bridge
 clamps `wait` to **50**. The generated input schema advertises `maximum: 50` with the description *"Seconds to
 wait for the resource to settle (0–50). Call again if it has not settled yet."* The REST header
 `Scantor-Wait: settled|timeout` is added to the JSON result as `"_wait": "settled" | "timeout"`.
 
 ## 5. Curated tool list
 
-31 operations have `x-mcp: true` ([api](api.md) §10). The generated tests fail above 45 (the curated cap,
+44 operations have `x-mcp: true` ([api](api.md) §10). The generated tests fail above 45 (the curated cap,
 §10 decision 12). Level: R = read, W = write, A = admin. Hints: RO read-only, D destructive, I idempotent.
 
 | Tool | operationId | HTTP | Level | Hints | `untrusted_data` | `wait` |
@@ -440,7 +446,7 @@ wait for the resource to settle (0–50). Call again if it has not settled yet."
 | `get_test_run` | `getTestRun` | `GET /api/test-runs/{testRunId}` | R | RO I | `description`, `errors`, `analyses` | yes |
 | `read_test_run_file` | `readTestRunFile` | `GET /api/test-runs/{testRunId}/files/{fileId}/content` | R | RO I | `content`, `name`, `contentType` | – |
 | `list_templates` | `listTemplates` | `GET /api/templates` | R | RO I | – | – |
-| `get_authoring_guide` | `getAuthoringGuide` | `GET /api/guides/authoring/{language}` | R | RO I | – | – |
+| `get_authoring_guide` | `getAuthoringGuide` | `GET /api/guides/authoring/{language}` (`?kind=task\|script`) | R | RO I | – | – |
 | `list_scans` | `listScans` | `GET /api/scans` | R | RO I | `items[].stateReason` | – |
 | `start_scan` | `startScan` | `POST /api/scans` | W | – | scan paths | – |
 | `get_scan` | `getScan` | `GET /api/scans/{scanId}` | R | RO I | scan paths | yes |
@@ -457,21 +463,36 @@ wait for the resource to settle (0–50). Call again if it has not settled yet."
 | `aggregate_analyses` | `aggregateAnalyses` | `POST /api/scans/{scanId}/analyses/aggregate` | R | RO I (`x-read-only`) | `items[]` | – |
 | `export_scan` | `exportScan` | `POST /api/scans/{scanId}/exports` | W | – | – | yes |
 | `get_export` | `getExport` | `GET /api/exports/{exportId}` | R | RO I | – | yes |
+| `list_scripts` | `listScripts` | `GET /api/scripts` | R | RO I | `items[].description`, `items[].describe` | – |
+| `create_script` | `createScript` | `POST /api/scripts` | W | – | `description`, `describe`, `recentRuns[].progress` | – |
+| `get_script` | `getScript` | `GET /api/scripts/{script}` | R | RO I | `description`, `describe`, `recentRuns[].progress` | – |
+| `list_script_files` | `listScriptFiles` | `GET /api/scripts/{script}/files` | R | RO I | – | – |
+| `read_script_file` | `readScriptFile` | `GET /api/scripts/{script}/files/content` | R | RO I | `content` | – |
+| `write_script_files` | `writeScriptFiles` | `PUT /api/scripts/{script}/files` | W | D I | – | – |
+| `delete_script_file` | `deleteScriptFile` | `DELETE /api/scripts/{script}/files` | W | D I | – | – |
+| `start_script_run` | `startScriptRun` | `POST /api/scripts/{script}/runs` | W | – | script-run paths | yes |
+| `get_script_run` | `getScriptRun` | `GET /api/script-runs/{scriptRunId}` | R | RO I | script-run paths | yes |
+| `cancel_script_run` | `cancelScriptRun` | `POST /api/script-runs/{scriptRunId}/cancel` | W | D | script-run paths | – |
+| `restart_script_run` | `restartScriptRun` | `POST /api/script-runs/{scriptRunId}/restart` | W | – | script-run paths | yes |
+| `get_script_run_logs` | `getScriptRunLogs` | `GET /api/script-runs/{scriptRunId}/logs` | R | RO I | `lines` | – |
+| `read_script_run_output` | `readScriptRunOutput` | `GET /api/script-runs/{scriptRunId}/outputs/{outputId}/content` | R | RO I | `content`, `name`, `contentType` | – |
 | `list_nodes` | `listNodes` | `GET /api/nodes` | A | RO I | – | – |
 
-"scan paths" = `stateReason`, `scheduling.error`, `conditions`. `cancelScan` carries `x-destructive: true`
+"scan paths" = `stateReason`, `scheduling.error`, `conditions`; "script-run paths" = `errors`, `error`, `result`,
+`logTail`, `outputs`, `progress`, `checkpoint`. `cancelScan` and `cancelScriptRun` carry `x-destructive: true`
 ([api](api.md) §1.1). Deliberately excluded and why:
 
 | Excluded | Reason |
 |---|---|
-| uploads, task upload (tar.gz), git import/pull, workspace archive | binary or multi-step flows; agents use the file tools; git import needs credentials the user manages in the UI |
+| uploads, task and script upload (tar.gz), git import/pull, workspace archives | binary or multi-step flows; agents use the file tools; git import needs credentials the user manages in the UI |
 | revision list, build log, source download | `get_revision` (with `latest`) carries the structured errors |
 | test-run list, stream, cancel, presigned file download | `test_task`/`get_test_run` with `wait` cover the loop; `read_test_run_file` returns file content inline |
 | analyses list, inline export, presigned file downloads | `query_analyses` (projection, `afterSeq`), `read_analysis_file` (file content inline) and `export_scan` (presigned URL) |
 | inflight, conditions, events, workers, worker logs | `get_scan` carries conditions and progress; the rest is operator detail for the UI/CLI |
 | account, API keys, OAuth apps, credentials, editor, tools | credential management must not be driven by an agent |
 | users, node management, metrics | admin operations stay in the UI/CLI; `list_nodes` is the read-only exception |
-| setup, node, runtime, registry, forward-auth | machine or bootstrap principals |
+| script delete, script-run list, presigned output and source downloads | deleting a script removes its runs and outputs (UI/CLI only); `get_script` carries the newest runs; `read_script_run_output` returns output content inline |
+| setup, node, runtime, script runtime, registry, forward-auth | machine or bootstrap principals |
 
 ## 6. Instructions, resources and guides
 
@@ -484,8 +505,8 @@ copied into the image at build time, [deployment](deployment.md) §4.1).
 | MCP `instructions` (sent at initialisation) | the agent overview: what scantor is, core terms, the agent loop of §7 with tool names, rules (untrusted data, `wait` ≤ 50, confirm destructive operations with the user, use `name@latest` references, 404 means "not found or not yours", errors are JSON with `code`), pointers to the resources | the section of `docs/guide/mcp.md` between `<!-- scantor:mcp-instructions:start -->` and `<!-- scantor:mcp-instructions:end -->` (≤ 8 KiB; a test enforces the size) |
 | resource `scantor://guide` | the same text | as above |
 | resource template `scantor://guide/authoring/{language}` | authoring guide per language (`list` enumerates `schemas/languages.json`) | `docs/guide/authoring-<language>.md` |
-| resource template `scantor://guide/{name}` | `templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes` | `docs/guide/<name>.md` |
-| tool `get_authoring_guide` | the per-language guide (for clients that do not surface resources) | REST `getAuthoringGuide` (same asset) |
+| resource template `scantor://guide/{name}` | `templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes`, `scripts` | `docs/guide/<name>.md` |
+| tool `get_authoring_guide` | the per-language task guide, and with `kind: "script"` the scripts guide of a language with script support (for clients that do not surface resources) | REST `getAuthoringGuide` (same assets) |
 
 Resources have `mimeType: "text/markdown"` and are read-only and public to every authenticated level. A drift
 test verifies that every tool name and CLI command mentioned in `docs/guide/` and `skills/` exists, and that
@@ -524,6 +545,28 @@ The tool set is designed so that an agent can go from an idea to analysed result
 | 9. recover | `retry_failed_analyses {"scanId": "…"}` or `restart_scan {"scanId": "…", "settings": {"workers": 2}}` | new round or new scan |
 | 10. export | `export_scan {"scanId": "…", "format": "jsonl", "filter": {"status": "succeeded"}, "wait": 50}`; `get_export {"exportId": "…", "wait": 50}` | `download.url` (presigned, 10 minutes), handed to the user |
 
+**Scripts.** Evaluations of finished scans run as scripts ([scripts](scripts.md)), with the same tools-only loop:
+
+```
+ scantor://guide/scripts ─► create_script ─► list_script_files / read_script_file ─► write_script_files
+                                ▲                                                         │
+                                └── fix ◄── start_script_run {settings.limit} / get_script_run (wait),
+                                            get_script_run_logs                           │ sample ok
+ start_script_run (confirmationRequired → ask the user → confirm: true) ─► get_script_run (wait) loop
+        │ completed                                    │ failed / cancelled
+ read_script_run_output (offset paging)                restart_script_run {resume: true}
+```
+
+| Step | Call (arguments) | What the agent looks at |
+|---|---|---|
+| 1. learn | read the resource `scantor://guide/scripts`, or `get_authoring_guide {"language": "python", "kind": "script"}` | the script API (`Script`, `ctx.analyses`, `ctx.map`, outputs, checkpoints) |
+| 2. scaffold | `create_script {"name": "csp-report", "description": "…"}` | the new `Script` (scaffold in `.scripts/csp-report/`) |
+| 3. edit | `read_script_file`, `write_script_files {"script": "csp-report", "files": {"main.py": "…", "models.py": "…"}}` | `workspace.packSha256` |
+| 4. sample | `start_script_run {"script": "csp-report", "scans": ["…"], "settings": {"limit": 100}, "wait": 50}`; while `_wait` is `timeout`: `get_script_run {"scriptRunId": "…", "wait": 50}`; `get_script_run_logs {"scriptRunId": "…", "afterLine": N}` | `state`, `errors[]` (build), `error` (`scriptError`, `crash`, `timeout`), `logTail`, `result`, `outputs`; fix and repeat from step 3 |
+| 5. full run | `start_script_run` without `settings.limit` → 422 `confirmationRequired` with the scans' sizes → ask the user → repeat with `"confirm": true` | progress through `get_script_run` (`wait` 50) |
+| 6. results | `read_script_run_output {"scriptRunId": "…", "outputId": "…"}` (then `offset` = `nextOffset` while `truncated`) | the output's content |
+| 7. recover | `restart_script_run {"scriptRunId": "…", "resume": true}` after a failure or cancel; `cancel_script_run` (destructive, ask first) | a new run continuing from the checkpoint |
+
 `tests/mcp/agent-loop.spec.ts` runs this loop end to end with tools only (an MCP SDK v2 client
 authenticated through OAuth): create from scaffold, write files, test, publish, start a small scan, wait for
 completion, query and aggregate, export ([testing](testing.md) §8.4).
@@ -561,7 +604,7 @@ Spec files follow the layout of [testing](testing.md) §2 (MCP specs in `tests/m
 | Spec | Covers |
 |---|---|
 | `tests/mcp/oauth.spec.ts` | discovery documents; DCR with allowed and rejected redirect URIs (`SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS`); a CIMD `client_id` whose metadata host is private is refused (the positive CIMD path is a vitest unit test with an injected fetcher, [testing](testing.md) §4.2); PKCE code flow; consent level selection; `scantor:admin` stripped for non-admins; refresh; `revokeOAuthApp` → next call 401; banned user → 401 |
-| `tests/mcp/tools.spec.ts` | catalogue equals §5 (names, levels, annotations, ≤ 45); level filtering of `tools/list` and `tools/call`; `untrusted_data` wrapping; structured errors; `wait` clamp; inline file reads with paging |
+| `tests/mcp/tools.spec.ts` | catalogue equals §5 (names, levels, annotations, ≤ 45); level filtering of `tools/list` and `tools/call`; `untrusted_data` wrapping; structured errors; `wait` clamp; inline file reads with paging; `confirmationRequired` of `start_script_run` without `settings.limit` |
 | `tests/mcp/limits.spec.ts` | 256 KiB cap and truncation (§4.5) with a large fixture result, including the note block |
 | `tests/mcp/guides.spec.ts` | instructions section present and ≤ 8 KiB; guide resources; `get_authoring_guide` for every language |
 | `tests/mcp/drift.spec.ts` | every tool named in the instructions, `docs/guide/` and `skills/` exists |
@@ -603,6 +646,10 @@ Made in this document and flagged for lead review:
 13. **File content inline as JSON**, not as MCP binary blocks or presigned URLs: one REST operation per file
     owner (analysis, test run) keeps ownership, masking and the authorization matrix of REST (MCP-6), works
     for clients that cannot reach the S3 origin, and stays within the result cap through paging.
+14. **Script tools** (13, bringing the catalogue to 44 of 45): create, edit, run, follow, cancel, restart and read
+    outputs; deletion, history and presigned downloads stay in the UI and CLI. A run without `settings.limit`
+    needs `confirm: true` through MCP (MCP-3), so an agent always tries a sample first and asks before reading
+    every analysis. Script results, logs, errors, progress, checkpoints and outputs are code-derived and wrapped.
 
 ## 11. Future extensions
 
@@ -616,4 +663,4 @@ Made in this document and flagged for lead review:
 | Prompts | MCP prompts such as "new task from template" built from the same guides. |
 | Scoped API keys | `apikey.permissions` can carry a level; §3.7 then reads it instead of defaulting to `write`. |
 | Multi-replica orchestrator | `sic_` capabilities move to a TTL collection, and the catalogue cache is per process anyway. The loopback call already reaches the same process. |
-| More tools | Raise the curated cap deliberately; the catalogue test and §5 change together. |
+| More tools | Raise the curated cap deliberately (one slot is left); the catalogue test and §5 change together. |

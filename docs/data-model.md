@@ -13,13 +13,13 @@ system context is in [architecture](architecture.md).
 |---|---|
 | Database | One MongoDB 9.0 replica set (`rs0`), database `SCANTOR_MONGO_DB`, one `MongoClient` shared by better-auth and scantor. Connection: `SCANTOR_MONGO_URL` (no credentials) with `SCANTOR_MONGO_USER` / `SCANTOR_MONGO_PASSWORD`. User queries run on a second client logged in as the read-only user `scantor_query` ([api](api.md) §5.2). |
 | Collection names | scantor collections: plural camelCase (`tasks`, `testRunAnalyses`). better-auth collections: the singular model names its Mongo adapter creates (`user`, `apikey`, …). No name collides. |
-| Ids | uuid v4 strings (`crypto.randomUUID()` / `uuid.NewString()`) stored as strings in `_id`. Exceptions: `analyses._id = "<scanId>-<seq>"`, `testRunAnalyses._id = "<testRunId>-<seq>"`, `editors._id` and `notificationSettings._id = <userId>`, `locks._id` and `meta._id` are fixed names. better-auth is configured with `advanced.database.generateId: () => crypto.randomUUID()`, so its ids are plain strings too. |
+| Ids | uuid v4 strings (`crypto.randomUUID()` / `uuid.NewString()`) stored as strings in `_id`. Exceptions: `analyses._id = "<scanId>-<seq>"`, `testRunAnalyses._id = "<testRunId>-<seq>"`, `scriptRunLogs._id = "<scriptRunId>-<chunk>"`, `editors._id` and `notificationSettings._id = <userId>`, `locks._id` and `meta._id` are fixed names. better-auth is configured with `advanced.database.generateId: () => crypto.randomUUID()`, so its ids are plain strings too. |
 | Field and enum casing | camelCase for field names and for enum string values (`taskError`, `workersPending`). Event types are dotted camelCase (`scan.stateChanged`). |
 | Timestamps | BSON `Date` in MongoDB, ISO 8601 UTC strings with milliseconds in the REST API. Every scantor document has `createdAt` and `updatedAt` unless stated otherwise. |
 | Units | Durations are integer milliseconds with suffix `Ms`; memory is integer MiB with suffix `MiB`; byte counts are integers with suffix `Bytes` or the field name `bytes`/`size`. |
 | Ownership | Every user-owned document has `userId` (string, the better-auth `user._id`). It is set from the principal at creation, or copied from the parent document for derived documents, and never changes. A request never supplies `userId`. |
 | Representation | The API maps `_id` → `id`, omits fields marked *internal* below, and masks secrets. |
-| Encrypted values | Format `enc:v1:<base64url(iv, 12 bytes)>:<base64url(ciphertext ‖ tag)>`, AES-256-GCM with an HKDF key ([architecture](architecture.md) §9), AAD = `<collection>:<_id>:<field or JSON pointer>`. Used for git credentials, ntfy access tokens and `writeOnly` config values. |
+| Encrypted values | Format `enc:v1:<base64url(iv, 12 bytes)>:<base64url(ciphertext ‖ tag)>`, AES-256-GCM with an HKDF key ([architecture](architecture.md) §9), AAD = `<collection>:<_id>:<field or JSON pointer>`. Used for git credentials, ntfy access tokens, `writeOnly` config values and script-run secrets. |
 | Index management | The orchestrator creates every index at boot with `createIndexes` (idempotent). TTL durations that come from env are applied with `collMod` when they differ. Boot step 3 creates the indexes better-auth declares (field `unique`/`index` attributes and table indexes of `$context.tables`; unique only for required fields) under better-auth's own index names, because the MongoDB adapter creates only the table-level ones, lazily and by name (§3, [auth](auth.md) §2.1). |
 | Schema version | `meta` document `schema` holds the data-model version (1). Migrations run at boot under the `migrations` lock. |
 | Writes to better-auth data | Only through better-auth (`auth.api.*`, `ctx.internalAdapter`, `ctx.adapter`). Scantor reads `user` and `apikey` directly only for listings. |
@@ -45,6 +45,9 @@ system context is in [architecture](architecture.md).
 | `exports` | `userId` | background export results | TTL `expiresAt` |
 | `editors` | `_id` = userId | per-user editor container state | permanent (small) |
 | `notificationSettings` | `_id` = userId | per-user push notification channels (ntfy) | until the user is purged |
+| `scripts` | `userId` | script identity, workspace cache, describe, latest run | until script delete |
+| `scriptRuns` | `userId` | one doc per script run: input, sealed secrets, source, image, container, outcome, outputs, log state | `scripts-gc` sweep after `expiresAt` |
+| `scriptRunLogs` | – (via `scriptRunId`) | log chunks of script runs | deleted with the run |
 | `meta` | – | schema version | permanent |
 
 ## 3. better-auth collections
@@ -684,7 +687,7 @@ Indexes: `{userId: 1, sha256: 1}` unique; `{userId: 1, createdAt: -1}`.
 | `type` | string | ✓ | catalog below |
 | `level` | `info`\|`warning`\|`error` | ✓ | |
 | `userId` | uuid \| null | ✓ | owner of the subject; null = admin-only (node and security events) |
-| `scanId`, `taskId`, `revisionId`, `workerId`, `nodeId` | uuid | – | subject references |
+| `scanId`, `taskId`, `revisionId`, `workerId`, `nodeId`, `scriptId`, `scriptRunId` | uuid | – | subject references |
 | `message` | string ≤ 1 KiB | ✓ | human-readable |
 | `data` | object ≤ 8 KiB | – | type-specific |
 
@@ -705,6 +708,7 @@ Indexes: `{userId: 1, sha256: 1}` unique; `{userId: 1, createdAt: -1}`.
 | `worker.error` | warning | `{error}` |
 | `worker.lost` | warning | `{reason}` |
 | `revision.ready` / `revision.failed` | info/error | `{number, errors?}` |
+| `scriptRun.completed` / `scriptRun.failed` | info/error | `{scriptName, durationMs, error?: {type, message}}` (a failed build reports `{type: "build", message}`); a cancelled run writes none |
 | `node.online` / `node.offline` / `node.revoked` / `node.tokenRotated` / `node.instanceConflict` | info/warning | `{instanceId?}` |
 | `security.ingestRejected` | warning | `{reason, routingKey, userIdProperty}` |
 
@@ -733,7 +737,7 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 | `_id` | uuid | ✓ | |
 | `kind` | JobKind | ✓ | below |
 | `userId` | uuid \| null | ✓ | owner of the subject |
-| `subject` | `{kind: "revision"\|"testRun"\|"scan"\|"export"\|"task"\|"user"\|"notification", id}` | ✓ | `notification`: a fresh delivery id per job, so deliveries never meet in the one-active-job index |
+| `subject` | `{kind: "revision"\|"testRun"\|"scan"\|"export"\|"task"\|"user"\|"notification"\|"scriptRun"\|"script", id}` | ✓ | `notification`: a fresh delivery id per job, so deliveries never meet in the one-active-job index |
 | `state` | `queued`\|`running`\|`succeeded`\|`failed`\|`cancelled` | ✓ | §6.8 |
 | `active` | boolean | ✓ | true while `queued` or `running` (partial unique index) |
 | `params` | object | ✓ | kind-specific input |
@@ -750,10 +754,12 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 |---|---|---|---|---|---|
 | `revisionBuild` | api | revision | `{revisionId}` | `{phase: "build"\|"push"\|"waitRegistry"\|"finalize"}`, set as in [tasks](tasks.md) §9.7; registry GC waits while any job has `phase: "push"` ([deployment](deployment.md) §14.1); restarts from scratch (from the stored snapshot) after a lease expiry | `SCANTOR_BUILD_CONCURRENCY` (shared with test-run builds), FIFO |
 | `testRun` | api | testRun | `{testRunId}` | `{phase}` | `SCANTOR_TEST_RUN_CONCURRENCY` |
-| `scanDelete` | reconciler | scan | `{}` | `{phase: "broker"\|"workers"\|"analyses"\|"files"\|"exports"\|"events"\|"settle"\|"sweep"\|"finish", afterSeq, settleUntil}`; `broker` sets `settleUntil` (ms) to the ingestor's settle delay after the broker objects are gone, and `settle` defers the job until then, so the wait holds no slot; after 10 s of `analyses` batches the job defers itself to now while another `scanDelete` job is due, so the waiting deletions run first and a large scan holds no slot for minutes ahead of them | 2 |
+| `scanDelete` | reconciler | scan | `{}` | `{phase: "scriptRuns"\|"broker"\|"workers"\|"analyses"\|"files"\|"exports"\|"events"\|"settle"\|"sweep"\|"finish", afterSeq, settleUntil}`; `broker` sets `settleUntil` (ms) to the ingestor's settle delay after the broker objects are gone, and `settle` defers the job until then, so the wait holds no slot; after 10 s of `analyses` batches the job defers itself to now while another `scanDelete` job is due, so the waiting deletions run first and a large scan holds no slot for minutes ahead of them | 2 |
 | `scanRetryFailed` | reconciler | scan | `{round, materialize, cancelledAt?}` (`materialize`: the scan was cancelled, so the job lets the cancelled round settle from `cancelledAt`, then inserts never-run seqs as `cancelled`, [queue](queue.md) §8) | `{phase: "materialize"\|"reset"\|"publish"\|"finish", afterSeq}` | 2 |
 | `export` | reconciler | export | `{exportId}` | `{afterSeq, part}` | `SCANTOR_USER_MAX_CONCURRENT_QUERIES` per user |
 | `taskDelete` | reconciler | task | `{}` | `{phase: "stop"\|"testRuns"\|"images"\|"storage"\|"revisions"\|"workspace"\|"task"}`; `images` sweeps the registry for untracked manifests of builds that the deletion stopped after they started (read from the revisions failed with "the task was deleted", so a restarted job and userPurge step 60 still know them); before `images` and `revisions` it defers itself (60 s) while a non-terminal or deleting scan uses the task, which only a start that resolved its revision just before `deletingAt` can create | 2 |
+| `scriptRun` | api | scriptRun | `{scriptRunId}` | none: the handler resumes from the run's state (`queued`/`building` → build, `running` → adopt the recorded container, [scripts](scripts.md) §6); `maxAttempts` 10, backoff 5 s … 30 s, `refundAttemptOnStop` (§6.8); `onFailed` fails the run (`platform`) and removes its container | `SCANTOR_SCRIPT_RUN_CONCURRENCY` per process, `SCANTOR_SCRIPT_RUN_CONCURRENCY_PER_USER` per user |
+| `scriptDelete` | reconciler | script | `{}` | `{phase: "stop"\|"runs"\|"images"\|"workspace"\|"script"}`; `stop` cancels the active runs and defers itself (20 s after cancelling, then every 5 s while a run job of the script is active); a run inserted after `stop` sends the job back to it before the document goes | 2 |
 | `userPurge` | reconciler | user | `{}` | `{phase, scanId?}` | 1 |
 | `notification` | reconciler | notification | `{trigger, event: {id, type, level, message, scanId?, taskId?, revisionId?, nodeId?, data?}}`; `userId` = the recipient; created by the notifications event sink, one per subscribed recipient ([architecture](architecture.md) §11.6) | `{}`; delivers to the recipient's current channel or succeeds as skipped (channel disabled, trigger unsubscribed, admin power lost); 408, 429, 5xx and unreachable servers retry with backoff 10 s … 10 min (5 attempts), other answers fail at once with `notificationRejected` | 4 |
 
@@ -788,7 +794,7 @@ kind and subject), `{userId: 1, createdAt: -1}`, `{expiresAt: 1}` with `expireAf
 
 | Field | Type | Meaning |
 |---|---|---|
-| `_id` | string | lock name: `reconciler`, `gc`, `bootSweep`, `migrations`, `registryGc` |
+| `_id` | string | lock name: `reconciler`, `gc`, `bootSweep`, `migrations`, `registryGc`, `scriptsGc` |
 | `owner` | string | orchestrator instance id |
 | `acquiredAt`, `expiresAt` | Date | lease (30 s, renewed every 10 s) |
 
@@ -891,7 +897,7 @@ fields with their own shape.
 | `ntfy.enabled` | boolean | ✓ | deliveries happen only while true; true needs a topic |
 | `ntfy.topic` | string \| null | ✓ | `^[A-Za-z0-9_-]{1,64}$` |
 | `ntfy.tokenEnc` | encrypted string \| null | ✓ | *internal*; the ntfy access token (HKDF label `credentials`, AAD `notificationSettings:<userId>:/ntfy/token`) |
-| `ntfy.triggers` | string[] | ✓ | subscribed triggers ([api](api.md) §4.3): `scanFinished`, `scanPaused`, `scanProblem`, `revisionBuilt`, `nodeAvailability` (admins only) |
+| `ntfy.triggers` | string[] | ✓ | subscribed triggers ([api](api.md) §4.3): `scanFinished`, `scanPaused`, `scanProblem`, `revisionBuilt`, `scriptRunCompleted`, `scriptRunFailed`, `nodeAvailability` (admins only) |
 | `ntfy.lastDelivery` | `{at, ok, status, message}` \| null | ✓ | outcome of the last delivery or test message; reset when the topic or token changes |
 | `createdAt`, `updatedAt` | Date | ✓ | `updatedAt` changes with saves, not with deliveries |
 
@@ -913,11 +919,144 @@ fields with their own shape.
 Indexes: `{"ntfy.triggers": 1}` with `partialFilterExpression: {"ntfy.enabled": true}` (the admins subscribed to
 an owner-less trigger).
 
+### 4.18 `scripts`
+
+One document per script ([scripts](scripts.md)): a folder `<userId>/.scripts/<name>/` in the workspace. Scripts have
+no revisions; `latestRun` and `describe` are written by the script-run lifecycle.
+
+| Field | Type | Req | Meaning |
+|---|---|---|---|
+| `_id` | uuid | ✓ | |
+| `userId` | uuid | ✓ | owner |
+| `name` | slug | ✓ | task-name rules; unique per owner among scripts; immutable (rule S6) |
+| `language` | string | ✓ | a `languages.json` row with a `script` object (copied from the manifest at every upload) |
+| `description` | string ≤ 1024 \| null | ✓ | from `createScript` or the uploaded manifest |
+| `source` | `{kind: "scaffold"\|"upload"}` | ✓ | how the script was created |
+| `workspace` | `{packSha256, fileCount, bytes, checkedAt, lastSyncSha256}` | ✓ | cached folder status, refreshed by every helper summary; `lastSyncSha256` (*internal*) = the hash of the last upload (the upload conflict rule, [api](api.md) §5.3) |
+| `describe` | `{packSha256, configSchema, resultSchema, at}` \| null | ✓ | the JSON Schemas the newest run of `packSha256` reported (`scriptRuntimeDescribe`); configs are validated against `configSchema` only while it matches the folder |
+| `latestRun` | `{id, state, createdAt, finishedAt}` \| null | ✓ | the newest run, updated on its state changes while it is the newest; when retention (or a failed start) deletes the run it names, it moves to the newest remaining run, or null |
+| `deletingAt` | Date \| null | – | *internal*; set by `deleteScript`: the script is invisible from then on (lookups, starts, the editor) until `scriptDelete` removes it |
+| `createdAt`, `updatedAt` | Date | ✓ | |
+
+```json
+{
+  "_id": "5b1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+  "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+  "name": "csp-stats",
+  "language": "python",
+  "description": "Share of origins that send a CSP",
+  "source": { "kind": "scaffold" },
+  "workspace": { "packSha256": "9c0d…", "fileCount": 7, "bytes": 6123, "checkedAt": { "$date": "2026-11-08T09:59:00.000Z" }, "lastSyncSha256": null },
+  "describe": { "packSha256": "9c0d…", "configSchema": { "type": "object" }, "resultSchema": { "type": "object" }, "at": { "$date": "2026-11-08T10:00:07.000Z" } },
+  "latestRun": { "id": "8d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a", "state": "running", "createdAt": { "$date": "2026-11-08T10:00:00.000Z" }, "finishedAt": null },
+  "deletingAt": null,
+  "createdAt": { "$date": "2026-11-08T09:58:00.000Z" },
+  "updatedAt": { "$date": "2026-11-08T10:00:05.000Z" }
+}
+```
+
+Indexes: `{userId: 1, name: 1}` unique, `{userId: 1, createdAt: -1, _id: -1}`.
+
+### 4.19 `scriptRuns`
+
+One document per script run. The owner is always the script's owner.
+
+| Field | Type | Req | Meaning |
+|---|---|---|---|
+| `_id` | uuid | ✓ | |
+| `userId` | uuid | ✓ | `= script.userId`, always (also when an admin started the run) |
+| `scriptId`, `scriptName` | uuid, slug | ✓ | |
+| `scanIds` | uuid[] (1–20) | ✓ | the owner's scans the run reads, in request order |
+| `state` | `queued`\|`building`\|`running`\|`completed`\|`failed`\|`cancelled` | ✓ | §6.11 |
+| `input` | `{config, settings: {timeoutMs, resources: {cpus, memoryMiB}, limit}}` | ✓ | the effective config; `settings` hold the explicit request (null = not given) until the build merges the manifest defaults (explicit > manifest > `SCANTOR_SCRIPT_RUN_TIMEOUT`, fallbacks 1 CPU and 1024 MiB); `limit` null = all analyses |
+| `secrets` | `{names: string[], enc}` \| null | ✓ | `enc` *internal*: the NAME → value map sealed (HKDF label `config-secrets`, AAD `scriptRuns:<id>:secrets`); only `names` leave the server |
+| `source` | `{key, packSha256, packBytes, fileCount}` | ✓ | the snapshot taken at start; `key` *internal* = `script-runs/<id>/source.tar.gz` |
+| `restartedFrom` | `{id, resume}` \| null | ✓ | set by `restartScriptRun`; `resume: true` hands the original's checkpoint and outputs to bootstrap |
+| `image` | `{ref, id, cached}` \| null | ✓ | `ref` = `scripts/<scriptId>:<packSha256>`; `id` *internal* |
+| `entry` | string \| null | ✓ | *internal*; the manifest entry from the build |
+| `container` | `{id, name, createdAt}` \| null | ✓ | *internal*; recorded in the same update that sets `running` |
+| `errors` | BuildError[] (≤ 200) | ✓ | phases `pack`, `static`, `build`, `config`, `platform` |
+| `error` | `{type: "scriptError"\|"validation"\|"timeout"\|"crash"\|"platform", message, stack?}` \| null | ✓ | the run's error ([scripts](scripts.md) §6.6) |
+| `exitCode` | int \| null | ✓ | the container's exit code |
+| `cancelRequest` | `{at: Date, reason: string \| null}` \| null | – | *internal*; a cancel of a `running` run whose container is still stopping: the run is represented `cancelled` (with `error` from `reason`), its job writes `cancelled` once the container stopped ([scripts](scripts.md) §6.7) |
+| `progress` | `{done, total, message, updatedAt}` \| null | ✓ | written at most once per second |
+| `checkpoint` | `{state, savedAt, bytes}` \| null | ✓ | `state` any JSON ≤ 1 MiB (*internal* except through bootstrap of a resumed run), written at most once per 10 s |
+| `result` | any JSON \| null | ✓ | ≤ `SCANTOR_MAX_RESULT_BYTES`, from `scriptRuntimeFinish` |
+| `outputs` | `[{id, name, key, contentType, state: "pending"\|"stored", uploadId, reservedBytes, size, sha256, createdAt, storedAt}]` (≤ `SCANTOR_SCRIPT_RUN_MAX_OUTPUTS`) | ✓ | `key`, `uploadId`, `reservedBytes` *internal*; pending outputs are not represented |
+| `log` | `{lines, bytes, firstLine, droppedLines, nextChunk, cursor: {ts, countAtTs} \| null}` | ✓ | log bookkeeping (§4.20); `bytes`, `nextChunk`, `cursor` *internal* |
+| `jobId` | uuid | ✓ | *internal*; the `scriptRun` job |
+| `createdAt`, `updatedAt` | Date | ✓ | |
+| `startedAt`, `finishedAt` | Date \| null | ✓ | `startedAt`: the first transition to `running` (the timeout counts from it); `finishedAt` is also set by a cancel request |
+| `expiresAt` | Date \| null | ✓ | `finishedAt + SCANTOR_SCRIPT_RUN_RETENTION_DAYS` days, set at finish or by a cancel request; null while active or when the variable is 0 |
+
+```json
+{
+  "_id": "8d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a",
+  "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+  "scriptId": "5b1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f",
+  "scriptName": "csp-stats",
+  "scanIds": ["5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f"],
+  "state": "running",
+  "input": { "config": { "minBytes": 0 }, "settings": { "timeoutMs": 86400000, "resources": { "cpus": 2, "memoryMiB": 2048 }, "limit": null } },
+  "secrets": { "names": ["API_TOKEN"], "enc": "enc:v1:…" },
+  "source": { "key": "script-runs/8d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a/source.tar.gz", "packSha256": "9c0d…", "packBytes": 2211, "fileCount": 7 },
+  "restartedFrom": null,
+  "image": { "ref": "scripts/5b1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f:9c0d…", "id": "sha256:77ab…", "cached": false },
+  "entry": "main.py",
+  "container": { "id": "f00dfeed…", "name": "scantor-s-8d2e3f4a-5b6c-4d7e-8f9a-0b1c2d3e4f5a", "createdAt": { "$date": "2026-11-08T10:00:04.000Z" } },
+  "errors": [],
+  "error": null,
+  "exitCode": null,
+  "progress": { "done": 40000, "total": 99811, "message": null, "updatedAt": { "$date": "2026-11-08T10:20:00.000Z" } },
+  "checkpoint": { "state": { "after_seq": 40211, "done": 40000 }, "savedAt": { "$date": "2026-11-08T10:19:55.000Z" }, "bytes": 31 },
+  "result": null,
+  "outputs": [],
+  "log": { "lines": 812, "bytes": 51234, "firstLine": 1, "droppedLines": 0, "nextChunk": 2, "cursor": { "ts": "2026-11-08T10:19:59.123456789Z", "countAtTs": 1 } },
+  "jobId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+  "createdAt": { "$date": "2026-11-08T10:00:00.000Z" },
+  "startedAt": { "$date": "2026-11-08T10:00:05.000Z" },
+  "finishedAt": null,
+  "updatedAt": { "$date": "2026-11-08T10:20:00.000Z" },
+  "expiresAt": null
+}
+```
+
+Indexes: `{scriptId: 1, createdAt: -1}` (history), `{userId: 1, createdAt: -1}`, `{scanIds: 1, state: 1}` (scan
+deletion cancels the runs reading a scan), `{state: 1}` (GC, active runs), `{expiresAt: 1}`. Retention is a sweep of
+the `scripts-gc` task, never a TTL index, because a run's S3 objects and log chunks must be deleted first.
+
+**Writes.** Every state transition is one conditional update on the expected state(s) ([scripts](scripts.md) §6).
+Progress and checkpoint writes are ordered by acceptance time (`progress.updatedAt`, `checkpoint.savedAt` must be
+older than the new value), so two orchestrator processes can never move them backwards. Output changes are single
+conditional updates (`$push` with a name and count guard, `$inc` of `reservedBytes` guarded by the per-run byte cap
+as an `$expr`, `$set` to `stored`, `$pull` of pending outputs).
+
+### 4.20 `scriptRunLogs`
+
+The log of a script run in chunks of at most 500 lines ([scripts](scripts.md) §7). Chunks carry no `createdAt` or
+`updatedAt`; every line has its own `at`.
+
+| Field | Type | Req | Meaning |
+|---|---|---|---|
+| `_id` | string | ✓ | `<scriptRunId>-<chunk>` |
+| `scriptRunId` | uuid | ✓ | |
+| `chunk` | int | ✓ | 0-based, increasing |
+| `firstLine` | int | ✓ | number of the chunk's first line (lines are numbered from 1) |
+| `lines` | `[{at: Date, stream: "build"\|"stdout"\|"stderr"\|"system", text}]` | ✓ | `text` ≤ 16 KiB, redacted, the run's secret values masked |
+| `bytes` | int | ✓ | UTF-8 bytes of the chunk's texts |
+| `retentionMarker` | `true` | – | set only on the chunk that holds the retention marker line ([scripts](scripts.md) §7.1) |
+
+Index: `{scriptRunId: 1, chunk: 1}` unique. Chunk writes are idempotent (`replaceOne` upsert by `_id`). The run
+keeps the head chunks (the first 1 MiB) and the newest ones up to `SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES`; chunks in
+between are deleted and counted in `scriptRuns.log.droppedLines`. Chunks are deleted with their run (retention,
+`scriptDelete`, user purge).
+
 ## 5. Ownership rules
 
 | Collection | Visible to | Mutable by |
 |---|---|---|
-| `tasks`, `revisions`, `testRuns`, `testRunAnalyses`, `scans`, `analyses`, `workers`, `uploads`, `exports`, `credentials` | owner and admins (`credentials` never expose secrets) | owner and admins through the API; system components |
+| `tasks`, `revisions`, `testRuns`, `testRunAnalyses`, `scans`, `analyses`, `workers`, `uploads`, `exports`, `credentials`, `scripts`, `scriptRuns` | owner and admins (`credentials` and `scriptRuns` never expose secrets) | owner and admins through the API; system components; a script run's own container through the script runtime API (its run only) |
+| `scriptRunLogs` | through the run (owner and admins) | the run's job |
 | `events` | owner (rows with their `userId`) and admins (all, including `userId: null`) | system only |
 | `jobs` | owner and admins (`GET /api/jobs/{id}`) | system only |
 | `nodes` | admins | admins (API), nodes (their own record through `/api/node/*`) |
@@ -927,12 +1066,13 @@ an owner-less trigger).
 
 - Not owned → 404, never 403 ([api](api.md) §ownership).
 - Derived documents copy `userId` from their parent: revisions and test runs from the task, analyses and
-  workers from the scan, a restart clone from the original scan, exports from the scan.
-- Top-level creates (`tasks`, `scans`, `uploads`, `credentials`, API keys) are owned by the caller and may
+  workers from the scan, a restart clone from the original scan, exports from the scan, script runs from the
+  script (`scriptRuns.userId = script.userId`, whoever starts the run; the run's scans must belong to that owner).
+- Top-level creates (`tasks`, `scripts`, `scans`, `uploads`, `credentials`, API keys) are owned by the caller and may
   reference only the caller's own documents (revision, uploads, credential).
-- User deletion (`userPurge` job) cancels the user's scans, then deletes in order: editors and editor API
-  key, exports, scans (scan-delete logic, including analyses and files), test runs, revisions and task
-  images, tasks, the user's workspace and editor-home directories (helper `purge`), uploads, credentials,
+- User deletion (`userPurge` job) cancels the user's scans and active script runs, then deletes in order: editors
+  and editor API key, exports, scans (scan-delete logic, including analyses and files), test runs, revisions and
+  task images, script runs (S3 `script-runs/<id>/`, log chunks), script images and scripts, tasks, the user's workspace and editor-home directories (helper `purge`), uploads, credentials,
   notification settings, events, jobs; finally the better-auth user.
 
 ## 6. State machines
@@ -1076,7 +1216,7 @@ Active states (count against node capacity and user `maxWorkers`, token valid): 
 | – | `queued` | created by an API handler (`active: true`) |
 | `queued` | `running` | claimed with a lease (`attempts += 1`) |
 | `running` | `succeeded` / `failed` | finished / non-retryable error or `attempts == maxAttempts` (`active: false`, `expiresAt` set) |
-| `running` | `queued` | the runner stopped, the lease expired or a retryable error (`notBefore` = backoff); the kind's `onRequeued` hook resets the subject |
+| `running` | `queued` | the runner stopped, the lease expired or a retryable error (`notBefore` = backoff); the kind's `onRequeued` hook resets the subject; a kind with `refundAttemptOnStop` (`scriptRun`) gets the attempt back when the runner stopped (`attempts = max(0, attempts − 1)`), so orchestrator restarts never use up its attempts |
 | `running` | `queued` | the handler deferred itself (`JobDeferredError`, for example the settle delay of `scanDelete`): `notBefore` = the time it waits for, the cursor stays, the attempt is given back (`attempts -= 1`) and `onRequeued` does not run, so a waiting job holds no concurrency slot |
 | `queued`, `running` | `cancelled` | subject deleted or cancelled |
 
@@ -1092,6 +1232,20 @@ object (lifecycle rule).
 `running` at once (429 `tooManyRequests`). Idle for `SCANTOR_EDITOR_IDLE_TIMEOUT`, `apiKeyExpiresAt` less
 than 5 minutes away, ban, user deletion or `stopEditor` trigger `stopping`; the editor API key is deleted on
 every stop, and every start mints a new one.
+
+### 6.11 Script-run state
+
+| From | To | Trigger |
+|---|---|---|
+| – | `queued` | `startScriptRun` / `restartScriptRun` after every check ([scripts](scripts.md) §5) |
+| `queued` | `building` | the `scriptRun` job claims the run |
+| `building` | `running` | one conditional update with `container` and `startedAt`, before the container starts (the token is valid from then on); `running → running` only for a recreate of a never-started container |
+| `building` | `failed` | BuildErrors (`pack`, `static`, `build`, `config`), a platform failure |
+| `running` | `completed` | the container exited with 0 |
+| `running` | `failed` | exit ≠ 0 (the reported error or `crash`), OOM kill (`crash`), timeout (`timeout`), a vanished container (`crash`), a platform failure, the job failing for good, the GC (stale run, hard limit) |
+| `queued`, `building`, `running` | `cancelled` | `cancelScriptRun`, scan or script deletion, user lockout or purge (the cascades set `error {type: platform, message: <reason>}`) |
+
+Terminal states are final; each sets `finishedAt` and `expiresAt` and updates `scripts.latestRun`.
 
 ## 7. Invariants
 
@@ -1129,6 +1283,9 @@ every stop, and every start mints a new one.
 10. `userId` on a document never changes and always equals the owner of its parent.
 11. Every container scantor creates carries managed labels; the node daemon identifies its containers only
     by labels it set plus the name prefix.
+12. A script run's `userId` equals its script's `userId`, and every id in `scanIds` was a live scan of that owner
+    when the run was created; the script runtime API re-checks both on every request. Its token is derived, never
+    stored, and valid only while `state` is `running`; its secrets are sealed with an AAD bound to the run id.
 
 ## 8. Limits
 
@@ -1147,7 +1304,7 @@ All limits are enforced at the earliest point listed. Values come from the named
 | messages per scan queue (ready and delayed) | `SCANTOR_SCAN_QUEUE_MAX_READY` | broker (`x-max-length`, reject-publish); the scheduler and the retry-failed publisher fill at most half of it, leaving the rest to retries ([runtime](runtime.md) §11.4, [queue](queue.md) §8) |
 | delivery limit | `SCANTOR_DELIVERY_LIMIT` | broker |
 | file size / files per analysis | `SCANTOR_MAX_FILE_BYTES` / `SCANTOR_MAX_FILES_PER_ANALYSIS` | runtime, presign |
-| storage per user | `SCANTOR_USER_STORAGE_QUOTA_BYTES` (0 = unlimited): files of the user's scans and stored test-run files | presign, `testRun` job (a test-run file beyond it is not stored) |
+| storage per user | `SCANTOR_USER_STORAGE_QUOTA_BYTES` (0 = unlimited): files of the user's scans, stored test-run files, and script-run outputs (stored sizes plus the `reservedBytes` of pending outputs) | presign, `testRun` job (a test-run file beyond it is not stored), script-run part presign (403 `quotaExceeded`) |
 | task/scan config size | `SCANTOR_MAX_SCAN_CONFIG_BYTES` each | API |
 | request body | `SCANTOR_MAX_REQUEST_BYTES` | API middleware |
 | task upload (compressed) | `SCANTOR_TASK_MAX_PACK_BYTES` | API (streaming), `task pack` |
@@ -1170,6 +1327,11 @@ All limits are enforced at the earliest point listed. Values come from the named
 | conditions per scan | 16 | reconciler |
 | event message / data | 1 KiB / 8 KiB | event writer |
 | node labels | 32 | API |
+| script runs | scans per run 1–20; config `SCANTOR_MAX_SCAN_CONFIG_BYTES`; secrets ≤ 32 of ≤ 8 KiB; `timeoutMs` ≤ `SCANTOR_SCRIPT_RUN_TIMEOUT`, CPUs ≤ `SCANTOR_SCRIPT_RUN_MAX_CPUS`, memory ≤ `SCANTOR_SCRIPT_RUN_MAX_MEMORY` | API, again after the build (manifest defaults) |
+| concurrent script runs | `SCANTOR_SCRIPT_RUN_CONCURRENCY` per orchestrator process, `SCANTOR_SCRIPT_RUN_CONCURRENCY_PER_USER` per user | jobs runner |
+| script-run log | `SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES` (head 1 MiB + tail); lines ≤ 16 KiB; ingestion ≤ 1 MiB/s and 2000 lines/s per 10 s window | log writer |
+| script-run outputs | `SCANTOR_SCRIPT_RUN_MAX_OUTPUTS` files, `SCANTOR_SCRIPT_RUN_MAX_OUTPUT_BYTES` in total; parts 1 B–5 GiB, ≤ 10 000 | script runtime API |
+| script-run checkpoint / result | 1 MiB of JSON / `SCANTOR_MAX_RESULT_BYTES`; nesting ≤ 64 levels | script runtime API |
 
 ## 9. S3 layout
 
@@ -1186,10 +1348,13 @@ as a sanitised last segment (`safeName`: NFC, characters outside `[A-Za-z0-9._-]
 | `test-runs/<testRunId>/build.ndjson`, `test-runs/<testRunId>/log.ndjson`, `test-runs/<testRunId>/files/<seq>/<fileId>/<safeName>` | test-run logs and files | `testRun` job | lifecycle rule after `SCANTOR_TEST_RUN_RETENTION_DAYS` |
 | `exports/<userId>/<exportId>.<jsonl\|csv>` | background exports | `export` job | lifecycle rule after `SCANTOR_EXPORT_RETENTION_DAYS`, `deleteExport`, `scanDelete` |
 | `uploads/<userId>/<sha256>` | uploaded list files (immutable) | `createUpload` | `deleteUpload`, `userPurge` |
+| `script-runs/<scriptRunId>/source.tar.gz` | the script folder's pack at run start | `startScriptRun` / `restartScriptRun` (copied from `tmp/snapshots/`) | `scripts-gc` after `expiresAt`, `scriptDelete`, `userPurge` |
+| `script-runs/<scriptRunId>/outputs/<outputId>/<safeName>` | outputs; metadata `output-id`, `name` (`encodeURIComponent` of the name) | the script through presigned UploadPart URLs (multipart) | same as the source (whole `script-runs/<id>/` prefix) |
 
 Bucket configuration (ensured at boot): private ACL, CORS allowing `GET`/`HEAD` from the dashboard origin
 only, lifecycle rules for `test-runs/`, `exports/` and `tmp/` (1 day), and `AbortIncompleteMultipartUpload`
-after 1 day.
+after 1 day (which also cleans output uploads whose abort failed). `script-runs/` has no lifecycle rule: its
+retention is the run's `expiresAt`.
 
 ## 10. RabbitMQ objects (summary)
 
@@ -1248,6 +1413,10 @@ written. Item 14 records a round-1 ruling.
 14. **Retry-failed also resets `lost` analyses that still have a `config`** (those converted from
     `pending`/`retrying` by stall detection), besides `failed` ones. Gap-filled `lost` documents have no config
     and `cancelled` analyses are never retried; restart the scan to redo them.
+15. **Script runs in three collections** (`scripts`, `scriptRuns`, `scriptRunLogs`): the run document stays
+    bounded (outputs ≤ the limit, checkpoint ≤ 1 MiB, errors ≤ 200), while the log of a days-long run lives in
+    idempotent chunks with head + tail retention. Retention is a GC sweep, not a TTL index, so S3 objects and
+    log chunks go before the document.
 
 ## 12. Future extensions
 
@@ -1263,3 +1432,5 @@ written. Item 14 records a round-1 ruling.
 | Time-series metrics history | A capped or time-series collection fed by the metrics component. |
 | Additional upload kinds (CIDR files, seeds) | `uploads.kind` enum; templates reference them through `"x-scantor": "upload"`. |
 | Editor kinds (JupyterLab, terminal) | an `editors.kind` field selecting image and flags; the cookie already binds `startedAt`. |
+| Scheduled scripts, queue reasons on runs | A schedule document calling the run start service; an optional `scriptRuns.queuedReason` ([scripts](scripts.md) §16). |
+| Idempotent output part reservations | `outputs[].parts: [{partNumber, bytes}]` replacing the single `reservedBytes` counter. |

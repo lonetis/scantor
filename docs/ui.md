@@ -111,6 +111,7 @@ Pages call their composables directly; there is no event relaying through layout
 | Schema forms | `SchemaForm`, `SchemaField` (dispatcher), `StringField`, `NumberField`, `BooleanField`, `EnumField`, `ArrayField`, `ObjectField`, `MapField`, `UnionField` (discriminated unions), `UploadField`, `JsonField`, `SchemaTable` (read-only schema viewer) |
 | Tasks | `TaskTable`, `TaskHeader`, `TaskWorkspaceCard`, `TaskFilesBrowser`, `RevisionTable`, `RevisionFacts`, `BuildLog`, `BuildErrors`, `DescribeView`, `PublishModal`, `TestRunPanel`, `TestRunAnalysisSlideover`, `WizardSourceStep`, `WizardLanguageStep`, `WizardTemplateStep`, `WizardNameStep`, `WizardGitStep`, `WizardUploadStep` |
 | Scans | `ScanTable`, `ScanHeader`, `ScanControls`, `ScanProgress`, `ScanStats`, `ScanHealth`, `ConditionItem`, `ScanSettingsCard`, `ScanResultsTable`, `ResultsFilterBar`, `AnalysisSlideover`, `AttemptsTable`, `FileChip`, `QueryConsole`, `ExportsPanel`, `ExportModal`, `ScaleModal`, `RestartModal`, `WorkersTable`, `InflightTable`, `WorkerLogsModal`, `EventTimeline`, `NewScanForm`, `RevisionPicker`, `SettingsFields`, `EstimateBadge` |
+| Scripts | `ScriptTable`, `ScriptRunsTable`, `ScriptRunForm`, `ScriptScanPicker`, `ScriptSecretsField`, `ScriptRunRestartModal`, `RunScriptModal`, `FilesBrowser` (shared with `TaskFilesBrowser`) |
 | Admin | `NodeTable`, `NodeFormModal`, `NodeJoinModal`, `UserTable`, `UserFormModal`, `BanUserModal`, `ToolCard`, `JobsTable` |
 | Account | `ProfileSection`, `PasswordSection`, `PasskeysSection`, `SessionsSection`, `EditorSection`, `ApiKeysSection`, `McpAccessSection`, `OAuthAppsSection`, `CredentialsTable`, `CredentialFormModal` |
 | Catalog | `TemplateCard` |
@@ -126,7 +127,7 @@ Pages call their composables directly; there is no event relaying through layout
 │ │ wordmark · ThemeToggle                   │ │ │ [≡ collapse] Title · badges            [Refresh] [actions…]    │ │
 │ │ [ New scan ]   [ New task ]              │ │ ├ UDashboardToolbar: page tabs (UTabs / UNavigationMenu)         │ │
 │ │ ── Workspace ──                          │ │ └────────────────────────────────────────────────────────────────┘ │
-│ │ Overview · Tasks · Scans (n) ·           │ │ #body: page content (scrolls)                                     │
+│ │ Overview · Tasks · Scripts · Scans (n) · │ │ #body: page content (scrolls)                                     │
 │ │ Templates · Editor                       │ │                                                                   │
 │ │ ── Access ──                             │ │                                                                   │
 │ │ CLI & MCP access · Git credentials       │ │                                                                   │
@@ -158,6 +159,7 @@ Defined once in `app/utils/navigation.ts` (a `.ts` file, hence the icon scan glo
 | | New task (neutral outline, block) | `/tasks/new` | `i-lucide-plus` | – | all |
 | Workspace | Overview | `/` | `i-lucide-layout-dashboard` | – | all |
 | | Tasks | `/tasks` | `i-lucide-package` | – | all |
+| | Scripts | `/scripts` | `i-lucide-file-code-2` | – | all |
 | | Scans | `/scans` | `i-lucide-radar` | count of the caller's scans in `creating`/`running`/`paused` | all |
 | | Templates | `/templates` | `i-lucide-layout-template` | – | all |
 | | Editor | `/editor` | `i-lucide-code` | – | `features.editor` |
@@ -189,10 +191,14 @@ again). Layout `auth` for the three public pages, `default` everywhere else.
 | `/tasks/new` | `pages/tasks/new.vue` | | `listLanguages`, `listScaffolds`, `listTemplates`, `createTask`, `importGitTask`, `uploadTask`, `listCredentials` |
 | `/tasks/:taskId` | `pages/tasks/[taskId]/index.vue` | | `getTask`, `getTaskWorkspace`, `listRevisions`, `listTaskFiles`, `readTaskFile`, `testTask`, `streamTestRun`, `listTestRuns`, `getTestRun`, `cancelTestRun`, `publishRevision`, `pullGitTask`, `deleteTask`, `listScans` |
 | `/tasks/:taskId/revisions/:revision` | `pages/tasks/[taskId]/revisions/[revision].vue` | | `getRevision`, `getRevisionBuildLog`, `downloadRevisionSource` |
+| `/scripts` | `pages/scripts/index.vue` | | `listScripts` |
+| `/scripts/new` | `pages/scripts/new.vue` | | `createScript` |
+| `/scripts/:scriptId` | `pages/scripts/[scriptId]/index.vue` | | `getScript`, `listScriptFiles`, `readScriptFile`, `listScriptRuns`, `startScriptRun`, `listScans`, `getScan`, `deleteScript`, `downloadScriptWorkspace` (link) |
+| `/scripts/:scriptId/runs/:runId` | `pages/scripts/[scriptId]/runs/[runId].vue` | | `getScriptRun`, `getScriptRunLogs`, `cancelScriptRun`, `restartScriptRun`, `getScriptRunOutputDownload` and `getScriptRunSourceDownload` (links with `redirect=true`), `getScript` |
 | `/editor` | `pages/editor.vue` | | `getEditor`, `createEditorSession`, `stopEditor` |
 | `/scans` | `pages/scans/index.vue` | | `listScans` |
 | `/scans/new` | `pages/scans/new.vue` | | `listTasks`, `listRevisions`, `getRevision`, `listUploads`, `createUpload`, `estimateTemplate`, `startScan` |
-| `/scans/:scanId` | `pages/scans/[scanId].vue` | | `getScan`, lifecycle operations, `listAnalyses`, `getAnalysis`, `queryAnalyses`, `aggregateAnalyses`, `listScanWorkers`, `listInflightAnalyses`, `getWorkerLogs`, `listScanEvents`, `exportScan`, `listExports`, `getExport`, `deleteExport`, `getFileDownload`, `getJob`, `getRevision` |
+| `/scans/:scanId` | `pages/scans/[scanId].vue` | | `getScan`, lifecycle operations, `listScripts` ("Run script"), `listAnalyses`, `getAnalysis`, `queryAnalyses`, `aggregateAnalyses`, `listScanWorkers`, `listInflightAnalyses`, `getWorkerLogs`, `listScanEvents`, `exportScan`, `listExports`, `getExport`, `deleteExport`, `getFileDownload`, `getJob`, `getRevision` |
 | `/templates` | `pages/templates.vue` | | `listTemplates`, `estimateTemplate` |
 | `/account` | `pages/account/index.vue` | | `getAccount`, `updateAccount`, `setAccountPassword`, `removeAccountPassword`, better-auth password/email/passkey/session endpoints, `getEditor`, `stopEditor` |
 | `/account/access` | `pages/account/access.vue` | | `listApiKeys`, `createApiKey`, `deleteApiKey`, `listOAuthApps`, `revokeOAuthApp`, `getInstanceInfo` |
@@ -202,11 +208,12 @@ again). Layout `auth` for the three public pages, `default` everywhere else.
 | `/admin/users` | `pages/admin/users.vue` | admin | `listUsers`, `createUser`, `updateUser`, `setUserPassword`, `banUser`, `unbanUser`, `deleteUser`, `getJob` |
 | `/admin/tools` | `pages/admin/tools.vue` | admin | `getInstanceInfo` (`adminTools`), `createToolsSession` (navigation), `listJobs`, `getHealth` |
 
-Route parameters always use ids (`taskId` uuid, `scanId` uuid, `revision` number), because a task
+Route parameters always use ids (`taskId`, `scanId`, `scriptId`, `runId` uuids, `revision` number), because a task
 *name* resolves only among the caller's tasks and admins open other users' tasks. A typed name in the
 address bar still works for own tasks (the API accepts it). Query parameters carry tab and drawer state:
 `?tab=<tab>` on task and scan detail, `?analysis=<seq>` opens the analysis drawer, `?revision=<ref>` pre-
-selects the revision on `/scans/new`, `?task=<name>` on `/editor`, `?redirect=<path>` on `/login`.
+selects the revision on `/scans/new`, `?task=<name>` or `?script=<name>` on `/editor`, `?created=1` and
+`?scan=<id>[,…]` on script detail, `?redirect=<path>` on `/login`.
 
 ### 4.1 Route middleware (`auth.global.ts`)
 
@@ -418,7 +425,8 @@ Tabs (`?tab=`):
 
 ### 5.10 Editor (`/editor`)
 
-- On mount `getEditor`. "Open" requests `createEditorSession {open: <task name from ?task>}`; the returned
+- On mount `getEditor`. "Open" requests `createEditorSession {open: <task name from ?task>}` or
+  `{openScript: <script name from ?script>}` (an unknown script shows the phase `scriptMissing`); the returned
   `url` (`<SCANTOR_EDITOR_URL>/_auth?code=…`, valid 60 s, single use) becomes the `src` of a full-height
   `<iframe title="Editor" allow="clipboard-read; clipboard-write">` inside the panel body. The editor
   origin is same-site with the dashboard, so its host-only cookie works inside the frame ([editor](editor.md)).
@@ -745,6 +753,59 @@ it, but required once the host differs from the stored one, since a token is bou
 - Jobs: `listJobs` (all users; filters kind and state; failed jobs first): kind, subject, state, progress,
   attempts, error, created, finished.
 
+### 5.21 Scripts list (`/scripts`)
+
+- `ScriptTable` over `useCursorList(listScripts)` with search (`q`, debounced, aria "Search scripts") and, for
+  admins, "Only mine" (`userId`); columns name (link), language, source, latest run (state badge), owner (admins),
+  updated. Empty state "Create your first script" → `/scripts/new`. Navbar: "New script".
+
+### 5.22 New script (`/scripts/new`)
+
+- A form with name (slug rules of `shared/utils/slug.ts`, the reserved names refused inline) and description →
+  "Create script" → `createScript` → `/scripts/:id?created=1` (the overview then points at the editor and the runs
+  tab). `409 alreadyExists` renders inline at the name. A `CodeBlock` shows how to upload a script with the CLI.
+
+### 5.23 Script detail (`/scripts/:scriptId`)
+
+- **Header**: name, id chip, language, owner (admins), description; navbar actions "Open in editor"
+  (`/editor?script=<name>`), "Run script" (switches to the runs tab), "Download
+  script" (`downloadScriptWorkspace`), "Delete script" (`ConfirmModal`, type the script name → `deleteScript` →
+  `/scripts` + toast; the job continues server-side).
+- Tabs (`?tab=`, aria "Script tabs"): `overview` (default), `files`, `runs`.
+- **Overview**: folder status (files, bytes, pack hash with copy), the described config and result schemas
+  (`SchemaTable`, marked stale when `describe.packSha256 ≠ workspace.packSha256`), the `recentRuns` with state and
+  progress ("Open runs").
+- **Files**: `FilesBrowser` (the generic part of `TaskFilesBrowser`, which is now a thin wrapper around it) with
+  `listScriptFiles` / `readScriptFile` and an editor link; read-only like the task files (§15 decision 10).
+- **Runs**: `ScriptRunForm` beside `ScriptRunsTable` ("Script run history", `listScriptRuns`, newest first, Load
+  more). The form: `ScriptScanPicker` (multi-select of the script owner's scans through `listScans?q=…&userId=<owner>`,
+  prefilled from `?scan=<id>[,…]`, at most 20), config through `SchemaForm` when `describe.packSha256 ===
+  workspace.packSha256`, otherwise a JSON editor; `ScriptSecretsField` (name/value rows, "Add secret", values masked
+  with "Show value of <NAME>", "Remove <NAME>"; never stored); settings timeout (s), CPUs, memory (MiB) and sample
+  limit; buttons "Try on 100 analyses" (`settings.limit: 100`) and "Run on all" → `startScriptRun` → the run page.
+  Server issues map onto the fields (§6.4); `422 configInvalid` onto the config.
+
+### 5.24 Script run (`/scripts/:scriptId/runs/:runId`)
+
+- **Header**: state badge, run id chip, scans used (links to the scans), source (pack hash, "Download source" →
+  `getScriptRunSourceDownload?redirect=true`), restarted from (link), created, started, finished, duration;
+  "Back to the script".
+- **Actions**: "Cancel script run" (active runs, `ConfirmModal` → `cancelScriptRun`), "Run again" (every state;
+  `ScriptRunRestartModal` with config and sample limit, sent only when changed; `limit` null removes it →
+  `restartScriptRun`), "Resume" (terminal runs with a checkpoint → `restartScriptRun {resume: true}`).
+- **Progress** (`data-testid="script-run-progress"`): `UProgress` of `done/total` with the message.
+- **Outcome**: `BuildErrors` for `errors[]`; an error panel (`script-run-error`) with type, message and a stack trace
+  ("Copy stack trace"); the result as `JsonView` (`script-run-result`); outputs (`script-run-outputs`) as download
+  links that navigate to `getScriptRunOutputDownload?redirect=true`.
+- **Log** (`script-run-log`): `LogView` fed by `useScriptRunLog`, which reads `getScriptRunLogs` with `afterLine`
+  and `limit=1000` every 2 s until `complete`, keeps the last 5000 lines (a longer log starts at `log.lines − 5000`),
+  labels the streams `build`, `stdout`, `stderr`, `system`, and shows `script-run-dropped-lines` when
+  `log.droppedLines > 0` or the line numbers jump.
+
+The scan detail navbar (§5.13) has "Run script" (hidden while the scan is `deleting`/`deleted`): `RunScriptModal`
+searches the scan owner's scripts (`listScripts?userId=<scan owner>`) and navigates to
+`/scripts/:id?tab=runs&scan=<scanId>`.
+
 ## 6. JSON-Schema form renderer
 
 `SchemaForm` renders a JSON Schema (draft 2020-12, the subset defined in [tasks](tasks.md)) as a form and
@@ -837,6 +898,8 @@ field, on the nearest rendered ancestor, or as a form-level alert when no field 
 | `useSidebarCounts()` | singleton poll for the Scans and Nodes badges |
 | `useScan(scanId)` / `useScanActions(scan)` | scan polling by state; action availability (`scanActions`) and calls with confirmations and toasts |
 | `useTestRunStream(testRunId)` | `EventSource` lifecycle, event reducer, polling fallback |
+| `useScripts()`, `useScript(id)`, `useScriptChoices()`, `useScriptActions()` | script lists, one script polled (§9), the searchable script select of "Run script", create and delete with toasts |
+| `useScriptRuns(scriptId)`, `useScriptRun(runId)`, `useScriptRunLog(run)`, `useScanChoices()`, `useScriptRunActions()` | run history, one run polled while active, the incremental log reader (`afterLine`, last 5000 lines), the scan picker's choices, start, cancel and restart |
 | `useBuildLog(taskId, revision)` | incremental build-log reader (`afterLine`) |
 | `useSchemaForm(schema)` | subset detection, validator cache (`@cfworker/json-schema`), error mapping |
 | `useUiPrefs()` | versioned localStorage store (§14) |
@@ -900,6 +963,11 @@ per consumer; stops on unmount.
 | Task detail (`getTask`) | 10 s; 2 s while `latestRevision.state` is `queued`/`building` | page visible |
 | Revision + build log | 1 s | `queued`/`building` until the log is `complete` |
 | Test run | SSE (`streamTestRun`); fallback 2 s polling | until settled |
+| Scripts list | 30 s | page visible |
+| Script detail (`getScript`) | 10 s; 3 s while `latestRun` is active | page visible |
+| Script run history (`listScriptRuns`) | 10 s | runs tab open |
+| Script run (`getScriptRun`) | 2 s | while `queued`/`building`/`running`, then stop |
+| Script run log (`getScriptRunLogs`) | 2 s | until the page is `complete` |
 | Editor (`getEditor`) | 2 s while `starting`/`stopping`, otherwise 30 s | editor page |
 | Nodes list, node detail | 10 s | page visible |
 | Sidebar counts | 15 s | always (signed in) |
@@ -928,6 +996,7 @@ per consumer; stops on unmount.
 | analysis | `pending` neutral · `retrying` warning · `succeeded` success · `failed` error · `lost` warning · `cancelled` neutral |
 | revision | `queued` neutral · `building` info · `ready` success · `failed` error |
 | test run | `queued` neutral · `building` info · `running` info · `completed` success · `failed` error · `cancelled` neutral |
+| script run | `queued` neutral · `building` info · `running` info · `completed` success · `failed` error · `cancelled` neutral |
 | worker | `pending` warning · `assigned`/`pulling`/`starting` info · `running` success · `backoff` error · `draining` warning · `stopped` neutral · `lost` error |
 | node | `pending` neutral · `online` success · `offline` error · `revoked` neutral; cordoned → extra warning badge |
 | export / job | `queued` neutral · `running` info · `ready`/`succeeded` success · `failed` error · `cancelled` neutral |
@@ -956,13 +1025,15 @@ of the contract:
    scan", "Retry failed analyses", "Restart scan", "Delete scan", "Export results", "Scan actions", "Run
    query", "Show worker logs", "Follow log", "Edit as JSON", "Show value", "Add item", "Copy to clipboard",
    "Add node", "Node actions", "Rotate token", "Revoke token", "Create key", "Stop editor", "Approve",
-   "Deny"; radio labels on the consent page: "Read only", "Read and write", "Admin". Where the same
+   "Deny", "Run script", "Download script", "Delete script", "Cancel script run", "Run again", "Resume",
+   "Download source", "Try on 100 analyses", "Run on all", "Add secret", "Back to the script", "Back to the scripts"; radio labels on the consent page: "Read only", "Read and write", "Admin". Where the same
    control repeats within a region, the canonical name is followed by its context ("Add item to
    <field>", "Remove item <n> from <field>", "Show value of <field>", "User actions for <email>"), so
    tests match these names by their canonical prefix.
 3. Non-interactive regions that tests assert on carry `data-testid`: `scan-progress`, `scan-stats`,
    `scan-health`, `condition-<type>`, `build-log`, `build-errors`, `test-run-log`, `analysis-slideover`,
-   `secret-reveal`, `unpublished-badge`. Table rows carry `data-row-id="<id>"` (analyses:
+   `secret-reveal`, `unpublished-badge`, `script-run-form`, `script-run-progress`, `script-run-error`,
+   `script-run-result`, `script-run-outputs`, `script-run-log`, `script-run-dropped-lines`. Table rows carry `data-row-id="<id>"` (analyses:
    `data-row-id="<seq>"`, schema tables: the property path, query results: `seq`, `id` or `_id`, pending
    reasons: the reason); `UTable` cannot set row attributes, so `useTableRowIds` writes the attribute onto
    each rendered row. Tables of resources also bind that id as `get-row-id` (`tableRowId`, which they pass to
@@ -1086,7 +1157,8 @@ presigned URLs with forced `Content-Disposition`/`Content-Type` ([architecture](
 | `testRunDrafts.<taskId>` | last test-run inputs **without** `writeOnly` fields; configs only while their schemas are known, reduced to the declared properties (§5.8) | 50 tasks, LRU |
 | `filters.scans` | last scans-list filters (state, task, "Only mine", §5.11); other lists start unfiltered | – |
 
-- Never stored: tokens, API keys, node tokens, passwords, `writeOnly` values, results. The only exception
+- Never stored: tokens, API keys, node tokens, passwords, `writeOnly` values, results, script-run inputs (the
+  secrets of a run form are never kept). The only exception
   is the setup token, which stays in `sessionStorage` during setup and is removed afterwards (§5.2).
 - Server-side state (who is signed in, scans, results) is always re-read from the API.
 
@@ -1111,7 +1183,10 @@ presigned URLs with forced `Content-Disposition`/`Content-Type` ([architecture](
    `fallbackToApi: false`: the UI makes no third-party requests at build or run time.
 9. **The editor is embedded as an iframe of the separate editor origin** on `/editor`, plus "Open in new
    tab"; every load uses a fresh one-time session URL.
-10. **The UI never edits task files itself**; editing happens in the editor, over MCP or with the CLI.
+10. **The UI never edits task or script files itself**; editing happens in the editor, over MCP or with the CLI.
+11. **Script runs have two buttons**, "Try on 100 analyses" and "Run on all", so a sample run is the default
+    gesture; the run log is polled incrementally (`afterLine`) instead of streamed, because runs last days and
+    the log is stored anyway.
 
 ## 16. Backbone dependencies
 
@@ -1139,3 +1214,4 @@ renders ([api](api.md) §4.18).
 | Per-user node-pool allowances | the node selector field becomes a select of allowed pools. |
 | In-app notifications, more channels | toasts already map event-like outcomes; an in-app notifications page would read `events` filtered by the push-notification trigger catalog, and a new channel kind adds a block to the Notifications section. |
 | Additional languages and templates | wizard cards come from `listLanguages`, `listScaffolds` and `listTemplates`; no UI change. |
+| Scheduled scripts, script-run queue reasons | a schedule section on the script runs tab reusing `ScriptRunForm`; a reason line beside the `queued` badge. |

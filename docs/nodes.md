@@ -690,7 +690,7 @@ Planned node maintenance:
 | log rotation | `local` driver per container (§6.3). |
 | image GC | Every 10 min. Candidates are images whose repository is `<config.registry.host>/tasks/*` or whose repository name ends in `/scantor-base-python`, `/scantor-base-js` or `/scantor-base-go`. For each candidate the daemon keeps an in-memory `lastUsed` (set to the daemon start time for images found at start, and refreshed whenever a desired or existing container references the image). Candidates not referenced by any existing container and unused for `SCANTOR_NODE_IMAGE_RETENTION` are removed with `DELETE /images/{id}?noprune=false` (never `force`). |
 | emergency GC | When `diskFreeBytes < config.minFreeDiskBytes`, the GC runs immediately with retention 0 for unreferenced candidates. At most once per 5 min. |
-| what is never touched | Images not matching the patterns, volumes, networks, build cache, and on the master the draft images `tasks/<taskId>:draft-*` (the orchestrator's GC handles those, [tasks](tasks.md)). |
+| what is never touched | Images not matching the patterns, volumes, networks, build cache, and on the master the draft images `tasks/<taskId>:draft-*` and the script images `scripts/<scriptId>:<packSha256>` (neither matches the patterns; the orchestrator's GC handles both, [tasks](tasks.md), [scripts](scripts.md) §6.8), and the script-run containers `scantor-s-*` (kind `scriptRun`; the daemon reconciles only kind `worker`). |
 
 On the master, task images built by the task pipeline are tagged
 `localhost:${SCANTOR_REGISTRY_PORT}/tasks/<taskId>:<revisionId>` and already exist locally, so the

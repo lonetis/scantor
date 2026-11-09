@@ -291,9 +291,12 @@ notified about, then subscribe to `<server>/<topic>` in the ntfy app. **Send tes
 | `scanPaused` | the platform paused a scan, for example the circuit breaker |
 | `scanProblem` | an error condition was raised: `crashLoop`, `imagePullFailed`, `topologyFailed`, `brokerAlarm` |
 | `revisionBuilt` | a revision is ready or its build failed |
+| `scriptRunCompleted` | a [script run](scripts.md) completed |
+| `scriptRunFailed` | a script run failed: its build, its script or the platform (not when it was cancelled) |
 | `nodeAvailability` | admins only: a node went offline or came back |
 
-Each notification links to the scan, revision or node page. The server is chosen by the instance's
+Settings that were never saved notify about `scanFinished`, `scanPaused` and `scanProblem`; select the
+other triggers yourself. Each notification links to the scan, revision, script run or node page. The server is chosen by the instance's
 operator; on the public ntfy.sh anyone who knows a topic's name can read it, so pick a hard-to-guess topic
 (**Generate** creates one) or use a protected topic with an access token. When a delivery fails, the
 section shows the ntfy server's answer.

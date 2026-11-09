@@ -29,7 +29,7 @@ request
   ├─ 11.passkey-guard   (/api/auth/passkey/* only, §6.4)
   │
   └─ route handler
-        requireUser / requireAdmin / requireNode / requireWorker / …   (typed principal, defence in depth)
+        requireUser / requireAdmin / requireNode / requireWorker / requireScriptRun / …   (typed principal, defence in depth)
         loadOwned / resolveTask / resolveRevisionRef                   404 for anything not visible
         action
 ```
@@ -41,6 +41,7 @@ request
 | `user` via `mcp` | `x-scantor-internal-auth: sic_…` (loopback listener only) | user routes | in-memory capability minted by the MCP bridge |
 | `node` | `Authorization: Bearer snt_…`; Basic `node:snt_…` on the registry token route | `/api/node/*`, `/api/registry/token` | `nodes.tokenHash` |
 | `worker` | `Authorization: Bearer swt_<workerId>.<mac>` | `/api/runtime/*` | HMAC over the `workers` document |
+| `scriptRun` | `Authorization: Bearer ssr_<scriptRunId>.<mac>`, from a socket peer in `scantor-scripts` | `/api/script-runtime/*` | HMAC over the `scriptRuns` document (§10.5) |
 | `registry` (orchestrator credential) | Basic `orchestrator:<derived>` | `/api/registry/token` | HKDF-derived, never stored |
 | `tools` | cookie `scantor_tools` | `/api/tools/forward-auth` | HS256 JWT |
 | `setup` | header `X-Scantor-Setup-Token: sst_…` | `/api/setup/*` mutations | in-memory, per boot |
@@ -336,6 +337,7 @@ key(label) = HKDF-SHA256(ikm = UTF-8(SCANTOR_SECRET), salt = UTF-8("scantor-v1")
 |---|---|---|
 | `better-auth` | better-auth `secret` (cookie signing, encryption of `jwks` private keys and OAuth secrets) | lowercase hex (64 chars) |
 | `worker-token` | worker token MAC (§10.2) | raw key for HMAC-SHA256 |
+| `script-run-token` | script-run token MAC (§10.5) | raw key for HMAC-SHA256 |
 | `amqp` | per-scan RabbitMQ password (§10.3) | raw key for HMAC-SHA256 |
 | `builtin-node` | built-in node token (§10.1) | `snt_` + base64url(key) |
 | `registry-signing` | registry token ES256 key (§10.4) | P-256 private scalar `d = (k mod (n − 1)) + 1`, `k` = the key read big-endian, `n` = the order of P-256 ([architecture](architecture.md) §9) |
@@ -343,7 +345,7 @@ key(label) = HKDF-SHA256(ikm = UTF-8(SCANTOR_SECRET), salt = UTF-8("scantor-v1")
 | `registry-http` | the registry's `REGISTRY_HTTP_SECRET`, written to `scantor-registry-auth/http-secret` at boot ([deployment](deployment.md) §8.1) | lowercase hex |
 | `tools-cookie` | HS256 key of `scantor_tools` (§11) | raw key |
 | `editor-cookie` | HMAC key of `scantor_editor` (§12) | raw key |
-| `credentials`, `config-secrets` | AES-256-GCM of git credentials and `writeOnly` config values ([data model](data-model.md) §1) | raw key |
+| `credentials`, `config-secrets` | AES-256-GCM of git credentials, ntfy tokens, `writeOnly` config values and script-run secrets ([data model](data-model.md) §1) | raw key |
 | `mongo-query` | password of the read-only MongoDB user `scantor_query` | base64url(key) |
 
 Implementations: `orchestrator/server/utils/keys.ts` (`deriveKey(label): Buffer`, `deriveKeyHex`,
@@ -351,15 +353,16 @@ Implementations: `orchestrator/server/utils/keys.ts` (`deriveKey(label): Buffer`
 `tests/corpora/keys-vectors.json` (Go reads the file by relative path, [testing](testing.md) §4.1): an
 `hkdf` array of `{secret, label, hex}` triples for every label and several secrets (including non-ASCII
 ones), one section per derived credential format (better-auth secret, registry push password and HTTP
-secret, `mongo-query` password, built-in node token and node token hash, worker token, AMQP password,
+secret, `mongo-query` password, built-in node token and node token hash, worker token, script-run token, AMQP password,
 editor cookie, tools-cookie signature, registry signing key with `d`, `x`, `y` and `kid`), and
 AES-256-GCM `enc:v1` vectors. `go test ./internal/keys -run TestVectors -update` regenerates it. Keys
 are derived once at boot and kept in memory; they are never logged.
 
 Rotation: changing `SCANTOR_SECRET` invalidates every session, every OAuth access token (the `jwks` private keys
 can no longer be decrypted, so better-auth must generate new ones and clients re-authorise), every worker
-token and AMQP password, the registry signing key and HTTP secret, the tools and editor cookies, the built-in node token, and
-every encrypted git credential and config secret. API keys and node tokens are stored as hashes and survive. It
+token, script-run token and AMQP password, the registry signing key and HTTP secret, the tools and editor cookies, the built-in node token, and
+every encrypted git credential, config secret and script-run secret (a run whose secrets no longer open fails at
+bootstrap). API keys and node tokens are stored as hashes and survive. It
 is a disaster-recovery procedure ([security](security.md) §10).
 
 ## 4. Public URL, origins and proxies
@@ -427,9 +430,10 @@ The trusted proxies are `SCANTOR_TRUSTED_PROXIES`: IP addresses, CIDR ranges and
 service name `traefik` (`server/utils/trusted-proxy.ts`). Host names are resolved when the `api` component
 starts, every 30 seconds, and at most every 5 seconds after a forwarded request from an unknown peer, because a
 restarted Traefik can get another address; a failed lookup keeps the previous addresses. Addresses inside the
-subnets of `scantor-sandbox` are never trusted, whatever the list says. The check is per connection, not a
-global switch: master workers, editor terminals and anything else that reaches `orchestrator:3000` or `:3001`
-directly (the orchestrator is on `scantor-sandbox`, and its ports are published on `SCANTOR_BIND_ADDRESS`) are
+subnets of `scantor-sandbox` and `scantor-scripts` are never trusted, whatever the list says (a network that does
+not exist contributes no range). The check is per connection, not a global switch: master workers, editor
+terminals, script runs and anything else that reaches `orchestrator:3000` or `:3001` directly (the orchestrator
+is on `scantor-sandbox` and `scantor-scripts`, and its ports are published on `SCANTOR_BIND_ADDRESS`) are
 rate-limited by their own socket address, whatever `X-Forwarded-For` they send.
 
 Set `SCANTOR_TRUST_PROXY=true` when the dashboard is served through Traefik (the `traefik` profile).
@@ -474,10 +478,11 @@ type UserPrincipal = {
 }
 type NodePrincipal = { kind: 'node'; node: { id: string; name: string; builtIn: boolean; endpointProfile: 'internal' | 'public'; pool: string } }
 type WorkerPrincipal = { kind: 'worker'; worker: { id: string; scanId: string; userId: string; role: 'scheduler' | 'runner'; nodeId: string; epoch: number } }
+type ScriptRunPrincipal = { kind: 'scriptRun'; scriptRun: { id: string; userId: string; scriptId: string; scanIds: string[]; limit: number | null } }
 type RegistryPrincipal = { kind: 'registry'; subject: 'orchestrator' }   // token route only; nodes use NodePrincipal
 type ToolsPrincipal = { kind: 'tools'; user: UserRef }
 type SetupPrincipal = { kind: 'setup' }
-type Principal = UserPrincipal | NodePrincipal | WorkerPrincipal | RegistryPrincipal | ToolsPrincipal | SetupPrincipal
+type Principal = UserPrincipal | NodePrincipal | WorkerPrincipal | ScriptRunPrincipal | RegistryPrincipal | ToolsPrincipal | SetupPrincipal
 ```
 
 The middleware stores it as `event.context.principal`; nothing else in `event.context` carries identity.
@@ -491,6 +496,7 @@ The middleware stores it as `event.context.principal`; nothing else in `event.co
 | session cookie | better-auth session cookie present | `auth.api.getSession({ headers: new Headers({ cookie }) })`: DB lookup of session and user | 401 `unauthorized` |
 | node token | `Authorization: Bearer snt_…` (or Basic `node:snt_…` on the token route) | §10.1 | 401 `unauthorized` |
 | worker token | `Authorization: Bearer swt_…` | §10.2 | 401 `unauthorized` |
+| script-run token | `Authorization: Bearer ssr_…`, after the peer check | §10.5 | 403 `forbidden` (peer outside `scantor-scripts`), 401 `unauthorized` (token) |
 | registry credential | Basic `orchestrator:<password>` on `/api/registry/token` | constant-time compare with base64url(key(`registry-push`)) | 401 (registry error format) |
 | tools cookie | cookie `scantor_tools` on `/api/tools/forward-auth` (parsed by the route) | §11 | 302 to `createToolsSession` for browsers, else 401 with a short `text/plain` body (§11) |
 | setup token | header `X-Scantor-Setup-Token` | §7.2 | 401 `setupTokenInvalid` / 409 `setupCompleted` |
@@ -523,6 +529,7 @@ parsed. Credentials of another kind are ignored, so a missing credential and a w
 |---|---|
 | `/api/node/*` | node token (Bearer) |
 | `/api/runtime/*` | worker token |
+| `/api/script-runtime/*` | script-run token, only after the socket peer passed the network check (§10.5) |
 | `/api/registry/token` | Basic `node:` / `orchestrator:` (handled by the route itself, registry error format) |
 | `/api/setup/*` | setup token (`GET /api/setup/status` is public) |
 | `/api/tools/forward-auth` | tools cookie (handled by the route itself, §11) |
@@ -564,11 +571,12 @@ they differ wins, which is the precedence of Nitro's router (rou3).
 | `admin` | `user` with `isAdmin` |
 | `node` | `node`; on `/api/registry/token` also `registry` |
 | `worker` | `worker` |
+| `scriptRun` | `scriptRun` |
 | `setup` | `setup` |
 | `tools` | `tools` |
 
 At boot, a consistency check verifies that every operation's scope agrees with its prefix (`node` ⇔
-`/api/node/*` or `/api/registry/token`, `worker` ⇔ `/api/runtime/*`, `setup` ⇔ `/api/setup/*` except the
+`/api/node/*` or `/api/registry/token`, `worker` ⇔ `/api/runtime/*`, `scriptRun` ⇔ `/api/script-runtime/*`, `setup` ⇔ `/api/setup/*` except the
 public status, `tools` ⇔ `/api/tools/forward-auth`, `owner`/`admin` elsewhere). A mismatch is logged as an
 error and the operation then always answers 403. `tests/authz/openapi-lint.spec.ts` fails on the same
 condition ([testing](testing.md) §8.5). Route handlers still call the typed helpers of §9, which assert the principal kind
@@ -590,7 +598,9 @@ while better-auth runs the passkey endpoint, past every check keyed on `/api/aut
 2. If the path is public (`/api/health`, `/api/docs`, `/api/docs/openapi.json`, `GET /api/setup/status`): set
    `principal = null` and continue.
 3. Classify the prefix (§5.3) and parse only the bound credential kind. No credential, or an invalid one,
-   gives 401 `unauthorized`. `/api/setup/*` follows §7.2 instead. On `/api/registry/token` and
+   gives 401 `unauthorized`. On `/api/script-runtime/*` the socket peer is checked first (403 `forbidden` outside
+   `scantor-scripts`, §10.5); like `/api/node/*` and `/api/runtime/*` it carries no user, so steps 5 and 6 do not
+   apply, and unlike them it has no version check (the script SDK sends no `X-Scantor-Version`). `/api/setup/*` follows §7.2 instead. On `/api/registry/token` and
    `/api/tools/forward-auth` the middleware only resolves the operation (step 4). These routes parse their
    credential themselves (Basic credentials, the `scantor_tools` cookie), enforce their scope and answer as
    §10.4 and §11 specify.
@@ -859,13 +869,17 @@ like every API key (§5.2).
 | `requireUser(event, opts?: { editorKey?: boolean })` | `UserPrincipal`. 401 if absent. `editorKey: false` gives 403 `forbidden` for `editor` keys (used only by `createEditorSession`). |
 | `requireAdmin(event)` | `UserPrincipal` with `isAdmin`, else 403 `adminRequired` |
 | `requireSession(event)` | `UserPrincipal` with `via = session`, else 403 `sessionRequired` (duplicates the central `x-session-only` check) |
-| `requireNode(event)`, `requireWorker(event, { role? })`, `requireTools(event)`, `requireSetup(event)` | typed principal; worker routes pass `role: 'scheduler'` (403 `forbidden` for runners) and check the epoch (409 `staleEpoch`) |
+| `requireNode(event)`, `requireWorker(event, { role? })`, `requireScriptRun(event)`, `requireTools(event)`, `requireSetup(event)` | typed principal; worker routes pass `role: 'scheduler'` (403 `forbidden` for runners) and check the epoch (409 `staleEpoch`) |
 | `ownerFilter(p, requestedUserId?)` | `{}` for admins (or `{userId: requestedUserId}` when given); `{userId: p.user.id}` for users; a non-admin's foreign `requestedUserId` gives 403 `adminRequired` |
 | `callerFilter(p)` | `{userId: p.user.id}`, for admins too: the filter of the caller-only lists `listCredentials` and `listUploads` ([api](api.md) §1.3) |
 | `loadOwned(coll, id, p, opts?)` | validates `id` with `z.uuid()` (malformed gives 404), runs **one** query `{_id: id}` (admin) or `{_id: id, userId: p.user.id}` (user), applies `opts.visible(doc)` (for example tasks with `deletingAt` are invisible), else 404 `notFound` |
 | `resolveTask(p, ref)` | uuid → `loadOwned(tasks)`; slug → `{userId: p.user.id, name: ref, deletingAt: null}`. A name lookup never crosses users, even for admins (admins address other users' tasks by id). |
 | `resolveRevisionRef(p, ref)` | `<task>@<N>`, `<task>@latest`, `<task>`, or a uuid tried as a revision id (via `loadOwned(revisions)`) and then as a task id (`@latest`) ([api](api.md) §1.4) |
 | `loadOwnedScan(p, scanId)`, `loadOwnedAnalysis(p, analysisId)` | an analysis id `^(<uuid>)-(\d{1,16})$` loads the owned scan first, then `analyses.findOne({_id, scanId})` |
+| `resolveScript(p, ref)` | like `resolveTask` for `scripts`: uuid → `loadOwned` (scripts with `deletingAt` invisible); slug → `{userId: p.user.id, name: ref, deletingAt: null}`, never across users |
+| `loadOwnedScriptRun(p, scriptRunId)` | `loadOwned(scriptRuns)`; a run is owned by its script's owner |
+| `loadScansForScriptRun(script, scanIds)` | the scans of a new script run: deduplicated in request order, `{_id: {$in}, userId: script.userId, state ∉ {deleting, deleted}}`, any missing one 404. Deliberately no admin bypass: an admin starting another user's script can bind only that user's scans |
+| `loadRunScan(p, scanId)`, `loadRunAnalysis(p, analysisId)` | script runtime API: the scan must be in `p.scriptRun.scanIds` and a live scan of `p.scriptRun.userId` (else 404); an analysis id is parsed with the analysis-id regex and loaded `{_id, scanId}` after that check |
 | `ownedRef(p, coll, id)` | for references inside create bodies (revision, uploads, credential): always the **caller's** documents, even for admins acting on their own behalf; anything else gives 404 |
 
 Rules:
@@ -944,6 +958,21 @@ environment variable `SCANTOR_REGISTRY_PUSH_PASSWORD` (internal contract, never 
 `SCANTOR_SECRET` or any other key material (least privilege). Node daemons
 pass the node credential per pull through the Engine API's `X-Registry-Auth` and never persist it in the
 host's Docker configuration ([nodes](nodes.md)).
+
+### 10.5 Script-run tokens
+
+The credential of one script-run container ([scripts](scripts.md) §9).
+
+| Aspect | Rule |
+|---|---|
+| format | `ssr_<scriptRunId>.<mac>`, `^ssr_([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$` (`SCRIPT_RUN_TOKEN_PREFIX`, `SCRIPT_RUN_TOKEN_PATTERN`, `parseScriptRunToken` in `server/utils/keys.ts`; Go `keys.ScriptRunToken`, `ParseScriptRunToken`) |
+| derivation | `mac = base64url(HMAC-SHA256(key("script-run-token"), scriptRunId + "\n" + scriptId + "\n" + userId))`, minted (`mintScriptRunToken`) when the container is created |
+| storage | none; recomputed from the `scriptRuns` document on every request |
+| validation | `resolveScriptRunToken` (`server/utils/script-run-tokens.ts`): parse, `scriptRuns.findOne({_id})` (no cache), `state = running`, recompute the MAC from the document's `scriptId` and `userId`, compare with `timingSafeEqual`, the owner exists and is not banned (user cache, §5.7); else 401 `unauthorized`. Handlers that reload the run require `running` again. |
+| peer restriction | before the token: the socket peer must lie in a subnet of the Docker network `scantor-scripts` (inspected at boot, fail closed while unknown) and must not be a trusted proxy (§4.3), else 403 `forbidden`; in `nuxt dev` only, a single-entry `X-Forwarded-For` stands in for the missing socket peer, so the restriction is advisory in the dev stack ([scripts](scripts.md) §9.3) |
+| principal | `{kind: 'scriptRun', scriptRun: {id, userId, scriptId, scanIds, limit}}`: it acts for the run's owner on the run's scans only; every route loads scans through `loadRunScan` and analyses through `loadRunAnalysis` (§9) |
+| revocation | the run's document leaves `running` (completed, failed, cancelled); a ban rejects the token at once, before the lockout hook cancels the run. A cancel of a running run (by the user, a scan or script deletion, a lockout or a purge) only records a `cancelRequest` while the document stays `running` ([scripts](scripts.md) §6.7), so the token stays valid, on purpose, until the job has stopped the container (60 s stop grace plus the log drain): the script can still store its `.partial` outputs and its checkpoint, although every representation already reports `cancelled`. Queued and building runs have no container and no token yet; every other end revokes the token with the state change |
+| exposure | only in the container's environment (`SCANTOR_SCRIPT_TOKEN`, internal contract); redacted as `ssr_…` in every log (MC-10) and masked out of the run's stored log; never in a representation |
 
 ## 11. Admin tools cookie and forwardAuth
 
@@ -1027,11 +1056,12 @@ Specified in [mcp](mcp.md) §3:
 | `orchestrator/server/utils/auth-policy.ts` | pure policy: the HTTP allowlist (`isAuthHttpEndpoint`, `authHttpAllowlist`), rate limits, `trustedOrigins`, `resolvePasskeyConfig`, `resolveMcpConfig`, `isAllowedMcpRedirect` |
 | `orchestrator/server/utils/principal.ts` | principal types, credential parsers, effective role |
 | `orchestrator/server/utils/operations.ts` | operation registry and matcher |
-| `orchestrator/server/utils/authz.ts` | `requireUser`, `requireAdmin`, `requireSession`, `requireNode`, `requireWorker`, `requireTools`, `requireSetup`, `ownerFilter`, `callerFilter`, `loadOwned`, `resolveTask`, `resolveRevisionRef`, `loadOwnedScan`, `loadOwnedAnalysis`, `ownedRef` |
+| `orchestrator/server/utils/authz.ts` | `requireUser`, `requireAdmin`, `requireSession`, `requireNode`, `requireWorker`, `requireScriptRun`, `requireTools`, `requireSetup`, `ownerFilter`, `callerFilter`, `loadOwned`, `resolveTask`, `resolveScript`, `resolveRevisionRef`, `loadOwnedScan`, `loadOwnedAnalysis`, `loadOwnedScriptRun`, `loadScansForScriptRun`, `loadRunScan`, `loadRunAnalysis`, `ownedRef` |
 | `orchestrator/server/utils/user-cache.ts` | 30 s user cache with in-process invalidation |
 | `orchestrator/server/utils/users.ts` | user management wrappers, ban/unban/delete side effects, OAuth app listing and revocation |
 | `orchestrator/server/utils/setup.ts` | `ensureFirstAdmin`, setup token, `spk_` tokens, `resolvePasskeySetupUser`, `completePasskeySetupUser` |
-| `orchestrator/server/utils/node-tokens.ts`, `worker-tokens.ts` | node token generation/validation; worker token mint/verify |
+| `orchestrator/server/utils/node-tokens.ts`, `worker-tokens.ts`, `script-run-tokens.ts` | node token generation/validation; worker and script-run token mint/verify |
+| `orchestrator/server/utils/script-network.ts` | the subnets of `scantor-scripts` and the peer check of `/api/script-runtime/*` (§10.5) |
 | `orchestrator/server/utils/internal-auth.ts` | `sic_` capability mint/consume |
 | `orchestrator/server/middleware/00.request.ts` | request id, client IP header, 421 for the editor host |
 | `orchestrator/server/utils/client-ip.ts`, `trusted-proxy.ts` | client IP from the socket peer or a trusted proxy's `X-Forwarded-For`; the trusted proxy addresses and their refresh (§4.3) |
@@ -1091,6 +1121,11 @@ Decisions made in this document, flagged for lead review:
 16. **A non-admin's foreign `userId` list filter** gives 403 `adminRequired`.
 17. **`scantor task build --push` receives only the derived registry password** through its environment,
     never `SCANTOR_SECRET` (lead ruling, least privilege).
+18. **Script-run tokens are bound to a network as well as to a run state.** The token is derived and dies with
+    the run's `running` state like a worker token; in addition `/api/script-runtime/*` accepts only socket peers
+    of `scantor-scripts` that are not a trusted proxy, checked before the token, so a token that leaks through a
+    log or an output is useless outside the master. The dev stack relaxes the peer source to `X-Forwarded-For`
+    because `nuxt dev` hides the socket peer.
 
 ## 16. Future extensions
 
@@ -1106,4 +1141,5 @@ Decisions made in this document, flagged for lead review:
 | Node mTLS / automatic node token rotation | The node principal is resolved in one function; a client-certificate path or a `POST /api/node/token/rotate` route can be added beside the Bearer path. |
 | Per-user node pools | `user.allowedPools` additional field (`input: false`), enforced by placement next to `maxWorkers`. |
 | Audit log | `events` with `userId: null` already carries security events; add `auth.*` event types for sign-in, key creation, ban and role changes. |
-| Secret rotation without downtime | better-auth `secrets` (versioned) for the better-auth key; dual-key verification windows for worker and editor MACs. |
+| Secret rotation without downtime | better-auth `secrets` (versioned) for the better-auth key; dual-key verification windows for worker, script-run and editor MACs. |
+| Script-run principals for other surfaces | The principal already carries `scanIds` and `limit`; a future scope for other runtime APIs (local runs over a user API key) would map onto the same `loadRunScan` binding. |

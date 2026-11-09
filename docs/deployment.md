@@ -31,7 +31,8 @@ volumes and variables. Variables are only *named* here and documented with their
 │ master workers scantor-w-* (built-in node)      editors scantor-editor-* (orchestrator)                 │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  network: scantor-egress (created by the orchestrator at boot): git helpers scantor-h-*, test runs scantor-t-*
- host Docker daemon: builds (BuildKit), helpers, editors, test runs, master workers
+ network: scantor-scripts (compose, internal: true): orchestrator, rustfs, script runs scantor-s-*
+ host Docker daemon: builds (BuildKit), helpers, editors, test runs, script runs, master workers
 ```
 
 Host ports and the address variable they bind to:
@@ -136,9 +137,9 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
 | depends_on | `mongo`, `rabbitmq` and `rustfs` with `condition: service_healthy`. Not `registry`: the registry waits for the orchestrator (§4.5). |
 | healthcheck | `wget -qO- http://127.0.0.1:3000/api/health` every 10 s, timeout 5 s, 6 retries, `start_period` 60 s (dev 180 s). `/api/health` is 503 only when MongoDB is down. |
 | other | `container_name: scantor-orchestrator`, `mem_limit: ${SCANTOR_ORCHESTRATOR_MEMORY_LIMIT}`, `stop_grace_period: 30s` (components stop at the signal and requeue their jobs, waits and long-polls answer at once, Nitro drains the open requests, then the AMQP and MongoDB clients close; [architecture](architecture.md) §4.1) |
-| networks | `scantor`, `scantor-sandbox` (the service name `orchestrator` is its DNS alias on both) |
+| networks | `scantor`, `scantor-sandbox`, `scantor-scripts` (the service name `orchestrator` is its DNS alias on all three) |
 | ports | 3000 and 3001 (§1) |
-| volumes | `/var/run/docker.sock` (builds, helpers, editors, test runs, registry GC exec); `scantor-editor-sockets:/run/scantor/editor-sockets`; `scantor-registry-auth:/run/scantor/registry-auth`. **Never `scantor-workspaces`.** |
+| volumes | `/var/run/docker.sock` (builds, helpers, editors, test runs, script runs, registry GC exec); `scantor-editor-sockets:/run/scantor/editor-sockets`; `scantor-registry-auth:/run/scantor/registry-auth`. **Never `scantor-workspaces`.** |
 | env | `env_file: .env` (dev adds `SCANTOR_IMAGE_PREFIX=`, `SCANTOR_IMAGE_TAG=dev`, `SCANTOR_BUILD_CACHE_MAX_BYTES=0` because the dev stack shares the developer's Docker daemon and its build cache with other projects, and `NODE_ENV=development`) |
 | process | runs as root inside its container (Docker socket; connects to the editors' 0600 sockets) |
 
@@ -149,7 +150,10 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
   [testing](testing.md)) therefore boots normally; its files are simply unused;
 - upserts the built-in node record;
 - ensures the Docker network `scantor-egress` and the volumes `scantor-workspaces` and
-  `scantor-editor-home` (§5).
+  `scantor-editor-home` (§5);
+- inspects the subnets of `scantor-scripts` (boot step 650, [scripts](scripts.md) §9.3). A stack whose compose file
+  lacks the network still boots, but the script runtime API refuses every request (a warning in the log), so
+  every script run fails until the orchestrator joins the network.
 
 ### 4.2 node (built-in node daemon)
 
@@ -271,7 +275,7 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
 |---|---|
 | healthcheck | `curl -fsS http://127.0.0.1:9000/health/ready`, interval 10 s, timeout 5 s, 6 retries, `start_period` 20 s |
 | other | `container_name: scantor-rustfs`. The image runs as uid 10001; a named volume works as is. |
-| networks | `scantor`, `scantor-sandbox` (master workers PUT presigned URLs to `rustfs:9000`) |
+| networks | `scantor`, `scantor-sandbox` (master workers PUT presigned URLs to `rustfs:9000`), `scantor-scripts` (script runs read and upload through presigned URLs of `rustfs:9000`) |
 | ports | S3 on `SCANTOR_BIND_ADDRESS`, console on `SCANTOR_ADMIN_BIND_ADDRESS` (§1) |
 | volumes | `${SCANTOR_RUSTFS_DATA}:/data` (default the volume `scantor-rustfs-data`, §5.1) |
 | env | `RUSTFS_ACCESS_KEY=${SCANTOR_S3_ACCESS_KEY}`, `RUSTFS_SECRET_KEY=${SCANTOR_S3_SECRET_KEY}`, `RUSTFS_OBS_LOG_DIRECTORY=` (empty: log to stdout), `RUSTFS_OBS_LOGGER_LEVEL=info`, `RUSTFS_CHECK_UPDATE=false`, `RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS=${SCANTOR_RUSTFS_CONSOLE_URL}`, `RUSTFS_BROWSER_REDIRECT_URL=${SCANTOR_RUSTFS_CONSOLE_URL}` |
@@ -329,13 +333,14 @@ attacker-influenced data, so never publish it any other way. Secrets in the URLs
 | `scantor` | compose | all master services | bridge |
 | `scantor-sandbox` | compose (used by orchestrator, rabbitmq, rustfs) | + master workers, editors | bridge, inter-container traffic on (workers must reach the three services). Never attach mongo, mongo-express, registry, traefik or the node daemon. |
 | `scantor-egress` | orchestrator boot (`NetworkCreate`, idempotent) | git workspace helpers, test-run containers | bridge, `com.docker.network.bridge.enable_icc=false`, managed labels, no services |
+| `scantor-scripts` | compose (`name: scantor-scripts`, `internal: true`; used by orchestrator and rustfs) | + script-run containers | bridge without a route off the host: script runs reach only `orchestrator:3000` (`SCANTOR_INTERNAL_URL`) and `rustfs:9000` (`SCANTOR_S3_INTERNAL_URL`). Never attach other services. The orchestrator reads its subnets at boot for the peer check of `/api/script-runtime/*` |
 | `scantor-workers` | remote node daemon | remote workers | bridge, `enable_icc=false` ([nodes](nodes.md) §6.8) |
 
 | Volume | Created by | Mounted into | Content | Back up? | Location (§5.1) |
 |---|---|---|---|---|---|
 | `scantor-mongo-data`, `scantor-mongo-config` | compose | mongo | database | **yes** (§12) | `SCANTOR_MONGO_DATA`, `SCANTOR_MONGO_CONFIG_DATA` |
 | `scantor-rabbitmq-data` | compose | rabbitmq | queues, users, definitions | optional | `SCANTOR_RABBITMQ_DATA` |
-| `scantor-rustfs-data` | compose | rustfs | bucket (snapshots, files, exports, uploads, logs) | **yes** | `SCANTOR_RUSTFS_DATA` |
+| `scantor-rustfs-data` | compose | rustfs | bucket (snapshots, files, exports, uploads, logs, script-run sources and outputs) | **yes** | `SCANTOR_RUSTFS_DATA` |
 | `scantor-registry-data` | compose | registry | task images | **yes** | `SCANTOR_REGISTRY_DATA` |
 | `scantor-registry-auth` | compose | orchestrator (rw), registry (ro) | `jwks.json`, `http-secret` (derived; regenerated at boot) | no | — |
 | `scantor-editor-sockets` | compose | orchestrator (whole), editors (subpath `<userId>`) | code-server unix sockets | no | — |
@@ -433,6 +438,7 @@ services:
     networks:
       - scantor
       - scantor-sandbox
+      - scantor-scripts
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - scantor-editor-sockets:/run/scantor/editor-sockets
@@ -592,6 +598,7 @@ services:
     networks:
       - scantor
       - scantor-sandbox
+      - scantor-scripts
     volumes:
       - ${SCANTOR_RUSTFS_DATA}:/data
     environment:
@@ -787,6 +794,9 @@ networks:
     name: scantor
   scantor-sandbox:
     name: scantor-sandbox
+  scantor-scripts:
+    name: scantor-scripts
+    internal: true
 ```
 
 Notes on the YAML:
@@ -855,6 +865,7 @@ services:
     networks:
       - scantor
       - scantor-sandbox
+      - scantor-scripts
     volumes:
       - .:/app
       - scantor-orchestrator-node-modules:/app/orchestrator/node_modules
@@ -887,6 +898,9 @@ networks:
     name: scantor
   scantor-sandbox:
     name: scantor-sandbox
+  scantor-scripts:
+    name: scantor-scripts
+    internal: true
 ```
 
 What hot reload covers:
@@ -1164,9 +1178,20 @@ restart ([auth](auth.md)).
 | workers on the master | `SCANTOR_BUILTIN_NODE_MAX_WORKERS` | at most N workers share the master with the infrastructure |
 | builds | `SCANTOR_BUILD_CONCURRENCY`, `SCANTOR_BUILD_TIMEOUT`, `SCANTOR_MAX_IMAGE_BYTES`, `SCANTOR_BUILD_CACHE_MAX_BYTES` | [tasks](tasks.md) |
 | test runs | `SCANTOR_TEST_RUN_CONCURRENCY`, `SCANTOR_TEST_RUN_TIMEOUT` | [tasks](tasks.md) |
+| script runs | `SCANTOR_SCRIPT_RUN_CONCURRENCY`, `SCANTOR_SCRIPT_RUN_CONCURRENCY_PER_USER`, `SCANTOR_SCRIPT_RUN_TIMEOUT`, `SCANTOR_SCRIPT_RUN_MAX_CPUS`, `SCANTOR_SCRIPT_RUN_MAX_MEMORY`, `SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES`, `SCANTOR_SCRIPT_RUN_MAX_OUTPUTS`, `SCANTOR_SCRIPT_RUN_MAX_OUTPUT_BYTES`, `SCANTOR_SCRIPT_RUN_RETENTION_DAYS` | [scripts](scripts.md) §13 |
 | editors | `SCANTOR_EDITOR_MAX_RUNNING`, `SCANTOR_EDITOR_MEMORY_LIMIT`, `SCANTOR_EDITOR_CPUS`, `SCANTOR_EDITOR_PIDS_LIMIT`, `SCANTOR_EDITOR_IDLE_TIMEOUT` | [editor](editor.md) |
 | workspace helpers | `SCANTOR_HELPER_CONCURRENCY`, `SCANTOR_HELPER_CONCURRENCY_PER_USER`, `SCANTOR_HELPER_MEMORY_LIMIT`, `SCANTOR_HELPER_PIDS_LIMIT`, `SCANTOR_HELPER_TIMEOUT`, `SCANTOR_WORKSPACE_MAX_BYTES` | [editor](editor.md) §9 |
 | placement on full disks | `SCANTOR_NODE_MIN_FREE_DISK` | no new workers on a node below it; emergency image GC on the node |
+
+Sizing script runs: script-run containers run on the master's Docker daemon, outside placement, so their CPUs and
+memory (each run's `resources` + 256 MiB) come on top of the built-in node's workers and the infrastructure. The
+concurrency variables count per orchestrator process (`SCANTOR_SCRIPT_RUN_CONCURRENCY` slots of the `scriptRun`
+job kind), so the worst case is `SCANTOR_SCRIPT_RUN_CONCURRENCY × SCANTOR_SCRIPT_RUN_MAX_CPUS` CPUs and the matching
+memory. Script containers have no disk quota: a run can fill the master disk through its writable layer within
+`SCANTOR_SCRIPT_RUN_TIMEOUT` ([security](security.md) R19), and its `local` log driver keeps up to 250 MiB per
+container until the run ends. Script images (`scripts/<scriptId>:<packSha256>`) stay on the master until
+`SCANTOR_DRAFT_IMAGE_RETENTION`; finished runs, their S3 sources and outputs and their log chunks are deleted
+after `SCANTOR_SCRIPT_RUN_RETENTION_DAYS` (0 keeps them forever).
 | per-user workers and storage | `user.maxWorkers` (default `SCANTOR_USER_MAX_WORKERS`), `SCANTOR_USER_STORAGE_QUOTA_BYTES` | [nodes](nodes.md) §12, [api](api.md) |
 | service logs | `x-logging` (local driver, 20 MiB × 5 per service) | bounded |
 | worker logs | `SCANTOR_NODE_WORKER_LOG_MAX_SIZE` × `SCANTOR_NODE_WORKER_LOG_MAX_FILES` | bounded per worker |
@@ -1241,9 +1266,9 @@ Plaintext is accepted automatically only for loopback, RFC 1918, CGNAT and ULA a
 |---|---|---|
 | `.env` | **critical**: without `SCANTOR_SECRET`, encrypted git credentials and config secrets cannot be recovered and every derived credential changes | keep an encrypted copy off the host |
 | MongoDB | **yes** | `(umask 077; docker exec scantor-mongo sh -c 'exec mongodump --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --oplog --archive --gzip' > mongo-$(date +%F).archive.gz)` (consistent while running; the credentials are the container's own environment, which compose sets from `SCANTOR_MONGO_USER`/`SCANTOR_MONGO_PASSWORD`: the host shell does not have them) |
-| RustFS (`scantor-rustfs-data`, or the directory of `SCANTOR_RUSTFS_DATA`, §5.1) | **yes** | stop `rustfs`, then `docker run --rm -v scantor-rustfs-data:/data:ro -v "$PWD:/backup" alpine:3.24 tar -czf /backup/rustfs.tgz -C /data .` (with a host directory, mount it instead of the volume) (the justfile's pinned `alpine_image`, [development](development.md) §3), then start it again; or mirror the bucket to external S3 with `rustfs/rc` (`rc mirror`) while it runs |
+| RustFS (`scantor-rustfs-data`, or the directory of `SCANTOR_RUSTFS_DATA`, §5.1; includes script-run sources and outputs) | **yes** | stop `rustfs`, then `docker run --rm -v scantor-rustfs-data:/data:ro -v "$PWD:/backup" alpine:3.24 tar -czf /backup/rustfs.tgz -C /data .` (with a host directory, mount it instead of the volume) (the justfile's pinned `alpine_image`, [development](development.md) §3), then start it again; or mirror the bucket to external S3 with `rustfs/rc` (`rc mirror`) while it runs |
 | registry (`scantor-registry-data`) | **yes**: without it, ready revisions cannot be pulled again and must be republished | volume tar while no build is pushing (stop the orchestrator briefly, or accept a crash-consistent copy) |
-| workspaces (`scantor-workspaces`), editor homes (`scantor-editor-home`) | **yes** / optional | volume tar; stop editors first for consistency (`DELETE /api/editor` per user, or stop all editor containers) |
+| workspaces (`scantor-workspaces`, including the script folders under `.scripts/`), editor homes (`scantor-editor-home`) | **yes** / optional | volume tar; stop editors first for consistency (`DELETE /api/editor` per user, or stop all editor containers) |
 | RabbitMQ | no | It holds only in-flight messages. After a restore with an empty broker, the reconciler recreates the topology. Analyses that were queued are detected by stall detection and recorded as `lost`. |
 | Traefik ACME (`scantor-traefik-acme`) | optional | certificates are reissued automatically (watch the Let's Encrypt rate limits) |
 
@@ -1413,6 +1438,7 @@ API keys and remote node tokens survive, because they are stored as hashes.
 | AMQP over :443 times out | the client connects by IP, so no SNI is sent | use the hostname |
 | large S3 uploads fail after 60 s | Traefik read timeout | raise `SCANTOR_TRAEFIK_READ_TIMEOUT` |
 | `mongo` unhealthy after a rename | replica-set member host | keep the service name `mongo`, or `rs.reconfig` |
+| every script run fails with 403 in its log; the orchestrator warned "the scripts network does not exist" | the compose file predates `scantor-scripts`, or the orchestrator or rustfs is not attached to it | update the compose file and recreate `orchestrator` and `rustfs` |
 
 ## 16. Decisions made in this document
 
@@ -1455,6 +1481,9 @@ fixed subdomains of 14, are flagged for lead review:
     `mongo-express`, `rustfs`, `traefik`) instead of per-router subdomain variables, so the admin-tool
     hosts always match [auth](auth.md) §11. A Traefik file provider on `./traefik/dynamic` carries
     optional TLS settings (default certificate, lead ruling).
+15. **`scantor-scripts` is a compose network** (`internal: true`), not one the orchestrator creates, because two
+    compose services (orchestrator, rustfs) must join it; script-run containers join it by name. Script-run
+    variables are orchestrator-only and reach it through `env_file`, so compose passes none of them.
 
 ## 17. Backbone change requests (written here as if applied)
 

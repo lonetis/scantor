@@ -136,10 +136,17 @@ permanently:
   "basedpyright.analysis.typeCheckingMode": "standard",
   "go.toolsManagement.autoUpdate": false,
   "go.toolsManagement.checkForUpdates": "off",
-  "yaml.schemas": { "/opt/scantor/schemas/task-manifest.schema.json": "scantor.yaml" },
+  "yaml.schemas": {
+    "/opt/scantor/schemas/task-manifest.schema.json": "scantor.yaml",
+    "/opt/scantor/schemas/script-manifest.schema.json": "scantor-script.yaml"
+  },
   "terminal.integrated.defaultProfile.linux": "bash"
 }
 ```
+
+`.scripts/` (the script folders) is deliberately not in `files.exclude`. The image ships both manifest schemas
+under `/opt/scantor/schemas/` and the Python connector including `scantor.script`, so script code type-checks and
+runs in the terminal like task code.
 
 Workspace trust stays **on**; the `--disable-workspace-trust` flag is never passed. Folders a user opens
 start in restricted mode until the user trusts them. Together with `task.allowAutomaticTasks: off`, this
@@ -203,7 +210,8 @@ serves only the unix socket; the orchestrator always passes its own `Cmd`.
   `scantor-editor-sockets/<userId>` directly (owned by 1000:1000, mode 0700), because the orchestrator
   mounts that volume whole at `/run/scantor/editor-sockets`.
 - Layout inside a workspace: `<userId>/<taskName>/…` (one folder per task, the task name being a slug),
-  plus the reserved `<userId>/.scantor-staging/` (§9.6).
+  `<userId>/.scripts/<scriptName>/…` (one folder per script, [scripts](scripts.md) §2.1; `.scripts` fails the
+  task-name rule, so it never collides with a task folder), plus the reserved `<userId>/.scantor-staging/` (§9.6).
 
 ## 4. The editor container
 
@@ -414,7 +422,7 @@ prefix stripping and no trailing-slash redirect, and code-server's relative URLs
 
 ```
 dashboard (session or default API key)          orchestrator                         editor origin
- POST /api/editor/session {open?: "echo"} ──►  ensure editor (starting/running)
+ POST /api/editor/session {open?|openScript?} ►  ensure editor (starting/running)
                                                code := "sec_" + base64url(32 random bytes)
                                                codes[code] = {userId, open, expiresAt: now+60s}
                           ◄── {url: "<SCANTOR_EDITOR_URL>/_auth?code=<code>", expiresAt, editor}
@@ -426,8 +434,12 @@ dashboard (session or default API key)          orchestrator                    
 
 - Codes (`sec_` + base64url of 32 random bytes, [auth](auth.md) §12) live in an in-memory map of the
   `api` component. They are single use, expire after 60 s, and are swept every minute.
-- `open` is a task name (validated slug, must exist for the user) or absent. It selects the folder:
-  `/home/coder/workspace/<task>` or `/home/coder/workspace`. Opening the task folder gives each language
+- `open` is a task name and `openScript` a script name (validated slugs, mutually exclusive, 400 when both are
+  given), looked up by name among the caller's own documents only (`resolveEditorFolder`,
+  `server/services/editor/open.ts`; never by id, never across users, not even for admins), or absent. The folder
+  is built from the name with the one (kind, name) → folder mapping, never taken from input:
+  `/home/coder/workspace/<task>`, `/home/coder/workspace/.scripts/<script>` or `/home/coder/workspace`. An unknown
+  name is 404. Opening the task folder gives each language
   server the right project root (`pyproject.toml`, `go.mod`, `tsconfig.json`).
 
 ### 8.4 The `scantor_editor` cookie
@@ -635,10 +647,13 @@ Error codes and their API mapping:
 
 ### 9.4 Operations
 
-All task-scoped operations take `--task <name>` (a slug; the folder `/workspace/<name>`). "Summary" means
-`{packSha256, fileCount, bytes}` of the task folder, computed with the same `pack` code as
-`scantor task pack` ([tasks](tasks.md)). The orchestrator copies every summary into the task's
-`workspace` cache ([data model](data-model.md) §4.1).
+All task-scoped operations take `--task <name>` (a slug; the folder `/workspace/<name>`). `list`, `read`,
+`write-files` (`--create` also creates `.scripts/` without following symlinks), `delete-files` (also `--path ""`),
+`snapshot`, `commit` and `scaffold` take `--script <name>` instead (the folder `/workspace/.scripts/<name>`;
+exactly one of the two). One function maps (kind, name) to the folder (`internal/workspace/folder.go`), checks
+every path component with `lstat` and opens it through `os.Root`. "Summary" means `{packSha256, fileCount, bytes}`
+of the folder, computed with the same `pack` code as `scantor task pack` ([tasks](tasks.md)). The orchestrator
+copies every summary into the task's or script's `workspace` cache ([data model](data-model.md) §4.1, §4.18).
 
 | Op | Flags | stdin | stdout | Effect |
 |---|---|---|---|---|
@@ -650,11 +665,11 @@ All task-scoped operations take `--task <name>` (a slug; the folder `/workspace/
 | `read --archive` | `--path`, `--max-bytes` | tar.gz | same | for `readTaskFile?revision=`; the path rules as for `list --archive` |
 | `write-files` | `--task`, `--create` (allow creating the task folder) | `{"files": {"<path>": "<utf-8>" \| {"base64": "…"}}}` (≤ 200 files; the validated API body) | `{"written": [paths], "workspace": summary}` | Path rules (§9.5). Parents are created (0755). Each file is written to a temp file in the same directory, then renamed (0644). Caps are checked before writing: `--max-files` and `--max-bytes` count what the pack of the folder after the write contains (no `.git/` or `.scantor/`, and nothing its `.dockerignore`, as written by the request, excludes, so an ignored `node_modules/` does not count); `--max-workspace-bytes` counts every byte on disk. |
 | `delete-files` | `--task`, `--path`, `--recursive` | – | `{"deleted": [paths], "workspace": summary \| null}` | Never deletes through a symlinked parent; deleting a symlink removes the link. `--path ""` with `--recursive` removes the whole task folder (task deletion; `workspace: null`); deleting a missing task folder this way succeeds with `deleted: []`, so a retried `taskDelete` job is idempotent. `deleted` lists at most 5000 paths, the deleted directory first. |
-| `scaffold` | `--task`, `--language`, `--template`, `--description` | – | `{"workspace": summary}` | Renders the embedded scaffold ([tasks](tasks.md)) into the folder, which must not exist or be empty (`exists`). |
-| `extract` | `--staging <id>`, `--max-pack-bytes` | a tar.gz (the upload stream) or a zip archive (detected by its magic bytes; buffered in memory up to `--max-pack-bytes`) | `{"staging": "<id>", "manifest": {…normalised…}, "summary": {packSha256, fileCount, bytes}}` | Extracts into `/workspace/.scantor-staging/<id>/tree` with the archive rules of §9.5, validates `scantor.yaml` (strict schema) and reports the manifest. `manifestInvalid` when it is missing or invalid. |
+| `scaffold` | `--task`, `--language`, `--template`, `--description`; or `--script`, `--language`, `--description` (no template) | – | `{"workspace": summary}` | Renders the embedded scaffold ([tasks](tasks.md); for a script the language row's `script.scaffold`, [scripts](scripts.md) §3) into the folder, which must not exist or be empty (`exists`). |
+| `extract` | `--staging <id>`, `--max-pack-bytes`, `--kind task\|script` (default `task`) | a tar.gz (the upload stream) or a zip archive (detected by its magic bytes; buffered in memory up to `--max-pack-bytes`) | `{"staging": "<id>", "manifest": {…normalised…}, "summary": {packSha256, fileCount, bytes}}` | Extracts into `/workspace/.scantor-staging/<id>/tree` with the archive rules of §9.5, validates `scantor.yaml` (strict schema) and reports the manifest; with `--kind script` it looks for `scantor-script.yaml` and checks it with rules S1–S6 ([scripts](scripts.md) §2.3). `manifestInvalid` (naming the manifest file) when it is missing or invalid. |
 | `git-clone` | `--url`, `--ref`, `--path`, `--staging <id>`, `--allow-private` | – | `{"commit": "<sha>", "candidates": [{path, name, language, valid, errors, rejection, summary}]}` | Shallow fetch into staging, then every `scantor.yaml` under `--path` is found and validated (§9.7). `errors` lists every problem as a BuildError. `rejection` is the first problem that is not about the manifest, as the error object of a failed helper (`{code, message, path?, details?}`): `invalidPath` for a symlink, a special file or a path rule (`path` inside the candidate folder), `tooManyFiles` or `tooLarge` for a cap; `null` when the candidate is valid or only its manifest is invalid. The orchestrator answers an invalid candidate with its `rejection`, mapped as in §9.3, and with `manifestInvalid` otherwise. |
 | `git-pull` | `--task`, `--url`, `--ref`, `--path`, `--base-commit`, `--staging <id>`, `--allow-private` | – | `{"commit", "previousCommit", "fastForward": bool, "changed": bool, "candidate": {path, name, language, valid, errors, rejection, summary}, "current": summary \| null}` | Fetches the ref into staging, checks ancestry and reports the current workspace summary (§9.7). The candidate is reported as for `git-clone`. |
-| `commit` | `--staging <id>`, `--from <relpath>` (default: the staging root), `--task`, `--expect <sha256\|absent\|any>` | – | `{"task", "changed": bool, "previousPackSha256": string \| null, "workspace": summary}` | Atomic replace of the task folder from staging (§9.6). Without `--from` the staging directory is then removed; with `--from` the rest of the staging tree is kept for further commits of the same checkout, and the orchestrator ends with `discard` (git import with several candidates, git pull). |
+| `commit` | `--staging <id>`, `--from <relpath>` (default: the staging root), `--task` or `--script`, `--expect <sha256\|absent\|any>` | – | `{"task"` (or `"script"`), `"changed": bool, "previousPackSha256": string \| null, "workspace": summary}` | Atomic replace of the task folder from staging (§9.6). Without `--from` the staging directory is then removed; with `--from` the rest of the staging tree is kept for further commits of the same checkout, and the orchestrator ends with `discard` (git import with several candidates, git pull). |
 | `discard` | `--staging <id>` | – | `{}` | Removes the staging directory. |
 | `snapshot` | `--task`, `--hash-only` | – | the tar.gz pack, or the summary JSON with `--hash-only` | Deterministic pack of the task folder. Symlinks are stored as symlinks and never dereferenced; `.git/` and `.scantor/` are excluded ([tasks](tasks.md)). The consumer verifies `packSha256` against its own hash of the stream. |
 
@@ -813,6 +828,12 @@ The orchestrator then decides ([api](api.md) §4.8):
 | `publishRevision` (also the publish step of `uploadTask`) | `snapshot` at request time → S3 `snapshots/<taskId>/<packSha256>.tar.gz`, before the revision is inserted; the `revisionBuild` job later streams that S3 object into `scantor task build` and never reads the live workspace ([tasks](tasks.md) §10) |
 | `testTask` (`testRun` job) | `snapshot` of the live workspace at job time → `scantor task build` ([tasks](tasks.md) §11.1) |
 | `deleteTask` (`taskDelete` job) | `delete-files --path "" --recursive` |
+| `createScript` | `init` → `scaffold --script <name> --language <first script language>` (the document is removed again when it fails) |
+| `uploadScript` | `extract --kind script` → the orchestrator finds or creates the script by `manifest.name` → `snapshot --script --hash-only` (skipped for a new script) → conflict decision ([api](api.md) §5.3) → `commit --script --expect <current hash \| absent \| any>` and `lastSyncSha256` := uploaded hash, or `discard` and 409 `workspaceDirty` |
+| `listScriptFiles`, `readScriptFile`, `writeScriptFiles`, `deleteScriptFile` | `list` / `read` / `write-files` / `delete-files` with `--script` |
+| `downloadScriptWorkspace` | `snapshot --script` (streamed as `application/gzip`) |
+| `startScriptRun`, `restartScriptRun` | `snapshot --script` at request time → S3 `script-runs/<runId>/source.tar.gz` (through `tmp/snapshots/`), before the run is inserted; the `scriptRun` job builds that object, never the live folder ([scripts](scripts.md) §5) |
+| `deleteScript` (`scriptDelete` job) | `delete-files --script <name> --path "" --recursive` |
 | `deleteUser` (`userPurge` job) | stop the editor (§6.3) → `purge` |
 | editor start | `init` |
 
@@ -888,6 +909,8 @@ Decisions 1, 3, 4, 5, 6 and 7 are approved by the lead. The rest are flagged for
   editors are running; `open` is a task name; `editor.state` may be `starting`.
 - [api](api.md) §4.7: `listTaskFiles`/`readTaskFile` with `revision` read the S3 snapshot through
   `list --archive`/`read --archive` helpers (never in-process).
+- [api](api.md) §4.18 `createEditorSession`: `openScript` beside `open`; [architecture](architecture.md) §4.2:
+  folder operations take `--task` or `--script` ([scripts](scripts.md)).
 
 ## 13. Future extensions
 
@@ -902,4 +925,5 @@ Decisions 1, 3, 4, 5, 6 and 7 are approved by the lead. The rest are flagged for
 | Browser-side debugging | Debug adapters run inside the editor; a future `testRun` debug mode could expose a debug port to the editor over `scantor-sandbox`. |
 | In-tree relative symlinks in uploads | The archive rules could accept symlinks whose lexical target stays inside the task folder; packs already store symlinks. |
 | git over SSH, submodules | Separate opt-in helper flags. The git environment is built in one place (§9.7). |
+| Git import of scripts | `extract --kind` exists; `git-clone` would look for `scantor-script.yaml` candidates the same way and commit them with `--script`. |
 | Helper execution on separate builder nodes | Helpers are stateless commands with stdin/stdout I/O; any host that mounts the volume could run them. |

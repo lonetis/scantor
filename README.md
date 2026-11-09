@@ -9,7 +9,8 @@ scantor is a self-hosted platform that runs your own scanning tasks at large sca
 including machines behind firewalls. You write a task in Python, TypeScript, JavaScript or Go, with typed
 configs and a typed result. You test it and publish it as an immutable revision, then start scans that fan
 out into millions of analyses across your nodes. Results are inspected, queried and exported through the
-web UI, the `scantor` CLI, the REST API or an LLM agent over MCP.
+web UI, the `scantor` CLI, the REST API or an LLM agent over MCP, and evaluated at any size by your own
+Python scripts.
 
 <p align="center">
   <picture>
@@ -38,9 +39,15 @@ web UI, the `scantor` CLI, the REST API or an LLM agent over MCP.
   that pauses failing scans, and conditions that explain why a scan is not progressing.
 - **Results**: typed results with file attachments, MongoDB queries and aggregations over a scan's
   analyses, JSONL and CSV exports.
+- **Scripts**: evaluate the results and files of your scans with Python scripts that run on the master,
+  edited like tasks but without revisions. A script streams typed analyses, reads their files in
+  parallel threads and processes, stores output files such as CSV reports and returns a summary. Runs
+  can last days, report progress and resume from checkpoints; sample runs try a new script on a few
+  analyses first.
 - **Push notifications**: get a [ntfy](https://ntfy.sh) push on your phone or desktop when a scan
-  finishes, the platform pauses it, an error condition appears or a revision build ends; each user picks
-  their own topic on the account page, and admins can also follow node availability.
+  finishes, the platform pauses it, an error condition appears, a revision build ends or a script run
+  completes or fails; each user picks their own topic on the account page, and admins can also follow
+  node availability.
 - **Multi-user**: accounts with passkeys, API keys, per-user isolation and an admin area for users and
   nodes.
 - **Self-hosted with Docker Compose**: prebuilt images on GHCR and optional Traefik with automatic
@@ -202,6 +209,8 @@ public ports to a reachable address.
 | **analysis** | One unit of work of a scan, identified as `<scanId>-<seq>`. It ends with a typed result or an error. |
 | **worker** | A container that runs a revision's image for one scan: one scheduler, plus as many runners as the scan's `workers` setting. Each worker runs several connector processes (`processes`), each handling one analysis at a time. |
 | **node** | A Docker host that runs workers. The master has a built-in node; remote nodes add more. |
+| **script** | A Python folder with a manifest `scantor-script.yaml`, a `Dockerfile` and an entry file that evaluates the results and files of your scans. Scripts have no revisions. |
+| **script run** | One execution of a script on up to 20 of your scans: the folder as it was at the start is built and run in one container on the master. It ends `completed` with a result and output files, `failed` or `cancelled`. |
 
 A task has three config levels, each a typed object whose fields should all have defaults:
 
@@ -217,8 +226,8 @@ override them.
 
 ## The CLI
 
-The `scantor` CLI authors, validates, publishes and runs tasks and inspects scans and results. Install it
-in one of three ways:
+The `scantor` CLI authors, validates, publishes and runs tasks, inspects scans and results, and runs
+scripts. Install it in one of three ways:
 
 | Option | Install |
 |---|---|
@@ -395,11 +404,58 @@ run code or read other data are rejected. Exports are JSONL or CSV, optionally f
 some fields; background exports appear on the scan's **Exports** tab and in `scantor exports list`. The
 REST API is described at `<your scantor URL>/api/docs`.
 
+## Evaluating results with scripts
+
+When queries are not enough, for example to read a file of every analysis of a large scan, write a
+script. It runs on the master, reads your scans through `scantor.script` and needs no download of the
+data. Paste the task's result model into `models.py`, then define `run`:
+
+```python
+from pydantic import BaseModel
+
+import scantor
+from models import Result  # the task's result model, here with a FileRef field `headers`
+from scantor.script import Analysis, Script, ScriptContext
+
+
+class Summary(BaseModel):
+    analyses: int
+    with_csp: int
+
+
+def has_csp(analysis: Analysis[Result]) -> bool:  # module level: runs in worker processes
+    assert analysis.result is not None
+    return "content-security-policy" in analysis.read_json(analysis.result.headers)
+
+
+def run(ctx: ScriptContext, config: scantor.Empty) -> Summary:
+    stream = ctx.analyses(ctx.scans[0], result=Result, status="succeeded")
+    found = sum(ctx.map(has_csp, stream, processes=ctx.cpus))
+    return Summary(analyses=stream.count, with_csp=found)
+
+
+script = Script(run=run, result=Summary)
+```
+
+```sh
+scantor scripts init csp-report                                     # scaffold the script folder
+scantor scripts run csp-report --scan <scan> --limit 100 --follow   # upload it, try it on 100 analyses
+scantor scripts run csp-report --scan <scan> --follow               # run it on every analysis
+scantor scripts runs outputs get <run> <output>                     # download an output file
+```
+
+The **Scripts** page of the web UI offers the same: create and edit scripts, start runs (also from a
+scan's page with **Run script**), follow their progress and logs, and download their outputs; agents
+do it with the MCP tools. Long runs checkpoint their position and continue with a restart with resume.
+The [scripts guide](docs/guide/scripts.md) covers the whole API.
+
 ## Using scantor with LLM agents
 
 scantor has a built-in MCP server at `<your scantor URL>/mcp`. With it an agent such as Claude Code
 writes a task, tests and publishes it, runs scans and analyses the results, including the files the
-analyses stored, with your account and permissions. Connect Claude Code with OAuth:
+analyses stored, and writes and runs scripts that evaluate them, with your account and permissions. An
+agent tries a script on a sample and asks you before it runs one on every analysis. Connect Claude Code
+with OAuth:
 
 ```sh
 claude mcp add --transport http scantor https://scantor.example.com/mcp
@@ -408,10 +464,10 @@ claude mcp add --transport http scantor https://scantor.example.com/mcp
 or with an API key (`--header "Authorization: Bearer $SCANTOR_TOKEN"`). The [MCP guide](docs/guide/mcp.md)
 covers other clients, access levels, the tools and the agent loop.
 
-This repository is also a Claude Code plugin marketplace. The `scantor` plugin adds two skills, one for
-developing tasks and one for running scans and analysing results, and connects the MCP server from the
-`SCANTOR_URL` and `SCANTOR_TOKEN` environment variables (without `SCANTOR_URL`, the dev stack at
-`http://localhost:3000`):
+This repository is also a Claude Code plugin marketplace. The `scantor` plugin adds three skills, one
+for developing tasks, one for running scans and analysing results and one for writing and running
+scripts, and connects the MCP server from the `SCANTOR_URL` and `SCANTOR_TOKEN` environment variables
+(without `SCANTOR_URL`, the dev stack at `http://localhost:3000`):
 
 ```sh
 export SCANTOR_URL=https://scantor.example.com SCANTOR_TOKEN=sk_scantor_…   # before starting Claude Code
@@ -432,6 +488,7 @@ MCP clients.
 | Authoring in [Python](docs/guide/authoring-python.md), [TypeScript](docs/guide/authoring-typescript.md), [JavaScript](docs/guide/authoring-javascript.md), [Go](docs/guide/authoring-go.md) | write a task |
 | [Templates](docs/guide/templates.md) | use and wrap the built-in schedules |
 | [Manifest](docs/guide/manifest.md) | write `scantor.yaml` and size workers |
+| [Scripts](docs/guide/scripts.md) | evaluate the results and files of your scans with Python scripts |
 | [Errors and retries](docs/guide/errors-and-retries.md) | understand failures and recover from them |
 | [CLI reference](docs/guide/cli.md) | look up every command and flag |
 | [MCP](docs/guide/mcp.md) | connect agents |

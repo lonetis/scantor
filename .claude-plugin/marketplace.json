@@ -10,7 +10,7 @@
     {
       "name": "scantor",
       "source": "./",
-      "description": "Skills for developing scantor tasks and running and analysing scans, plus the scantor MCP server (configured from SCANTOR_URL and SCANTOR_TOKEN)",
+      "description": "Skills for developing scantor tasks, running and analysing scans, and writing and running scripts, plus the scantor MCP server (configured from SCANTOR_URL and SCANTOR_TOKEN)",
       "category": "development",
       "homepage": "https://github.com/lonetis/scantor"
     }

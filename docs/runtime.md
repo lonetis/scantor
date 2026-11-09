@@ -59,9 +59,9 @@ path), `scheduler` (schedule path, checkpoints), `worker` (worker-mode wiring: t
 inner `dockerd`, AMQP, role, signals, exit code), `local`, `describe`, `check`, `pipeline` (the task-pipeline
 events of describe and check, §16), `scerr` (the error model, truncation and retry policy), `logtail`,
 `upload`, `canonical` (RFC 8785 JSON), `dind` (the inner `dockerd`, §4.4), `health` (the heartbeat file and
-the container healthcheck, §5.3); `internal/runtime/internal/`
+the container healthcheck, §5.3), `script` (script mode, §16); `internal/runtime/internal/`
 holds the test fakes (`fakeapi` orchestrator, `fakebroker`, `fakeconn` scripted connector). The hidden
-`scantor runtime worker|local|describe|check|healthcheck` commands are registered in `internal/cli/runtime.go`. Shared
+`scantor runtime worker|local|describe|check|script|healthcheck` commands are registered in `internal/cli/runtime.go`. Shared
 code: `internal/protocol` (connector messages), `internal/templates` (native templates), `internal/api`
 (wire types and the transport policy check shared with the node daemon, §4.2), `internal/languages`.
 
@@ -74,12 +74,13 @@ code: `internal/protocol` (connector messages), `internal/templates` (native tem
 | **local** | `/scantor/scantor runtime local --spec /scantor/in/spec.json` | CLI `dev run` / `dev debug`, `testRun` job | none | none | 1 (schedule) then `processes` | NDJSON events on stdout (§15), files in `/scantor/out` |
 | **describe** | `/scantor/scantor runtime describe --entry <entry>` | task pipeline (`scantor task build`) | none | none | 1 | NDJSON task-pipeline events on stdout (§16) |
 | **check** | `/scantor/scantor runtime check --entry <entry>` | task pipeline | none | none | 0 (runs `SCANTOR_CHECK_CMD`) | NDJSON task-pipeline events on stdout (§16) |
+| **script** | `/scantor/scantor runtime script --entry <entry>` | `scriptRun` job (orchestrator) | none | none itself; the script calls `/api/script-runtime/*` | 0 (runs `SCANTOR_SCRIPT_CMD` as one process group) | the script's own stdout and stderr, unframed (the job stores them as the run log) |
 
 The role of a worker is not a command-line choice: it comes from the worker token and is returned by
 bootstrap (`worker.role`). "Scheduler mode" and "runner mode" in other documents mean worker mode with that
-role. Flags exist only on `local`, `describe` and `check`, which are invoked by scantor's own code, never by
+role. Flags exist only on `local`, `describe`, `check` and `script`, which are invoked by scantor's own code, never by
 users; they carry inputs (paths, the entry), not configuration. `/scantor/scantor runtime healthcheck` is no
-mode: Docker runs it inside worker and local-mode containers as their healthcheck (§5.3).
+mode: Docker runs it inside worker, local-mode and script-run containers as their healthcheck (§5.3).
 
 ## 3. Injection and environment
 
@@ -128,6 +129,8 @@ the handshake (`hello`/`welcome`, §7.2).
 | `SCANTOR_DEBUG_CMD` | base image ENV | local (`debug: true`) | command template that starts a connector under a debugger |
 | `SCANTOR_DEBUG_PORT` | base image ENV | local (`debug: true`) | port the debugger listens on (reported in the `start` event) |
 | `SCANTOR_CHECK_CMD` | base image ENV | check | static type-check command template; empty = skipped |
+| `SCANTOR_SCRIPT_CMD` | base image ENV (only images of a language with scripts) | script | command template that starts a script (`python -m scantor.script {entry}`); missing = exit 2 |
+| `SCANTOR_URL`, `SCANTOR_SCRIPT_TOKEN` | the `scriptRun` job (container env) | script (passed through, never read) | the orchestrator's internal URL and the run's `ssr_` token, read by the script SDK ([scripts](scripts.md) §9.2) |
 | `TMPDIR` | image (optional) | all | parent of the work root; default `/tmp` |
 
 Operator-facing variables (`SCANTOR_CA_CERT`, `SCANTOR_ALLOW_INSECURE_TRANSPORT`) are documented only in
@@ -343,10 +346,11 @@ configuration; it derives the work root from the same `TMPDIR` as the runtime.
 |---|---|---|
 | worker | after every answered state poll (§5.1; not a 401), with `intervalMs` = the `nextPollMs` in use | the role runs and the orchestrator answers its polls |
 | local | at start (after the work root is prepared) and every 10 s until the run ends | the runtime is alive |
+| script | `Mode: "script"` at start and every 10 s while the script runs | the supervisor is alive |
 | describe, check | none; the container spec sets `Healthcheck: {Test: ["NONE"]}` | — (one-shot) |
 
 The container spec (Go `internal/container.RuntimeHealthcheck`, used by the node daemon for workers and by
-the CLI for `dev run`; the orchestrator's test-run spec uses the same values from `server/utils/docker.ts`):
+the CLI for `dev run`; the orchestrator's test-run and script-run specs use the same values from `server/utils/docker.ts`):
 interval 30 s, timeout 10 s, 3 retries, start period 2 min (bootstrap, an inner `dockerd` of up to 60 s,
 §4.4, the broker connect and the connector start), start interval 5 s. It always replaces a `HEALTHCHECK` of the
 task image, which the Dockerfile policy declares ignored (W1, [tasks](tasks.md) §8.2). A failed heartbeat write
@@ -1307,9 +1311,9 @@ the `start` event reports
 `debugPort = SCANTOR_DEBUG_PORT`. Publishing the port (bound to 127.0.0.1) and Go debug builds are the CLI's
 job ([development](development.md)).
 
-## 16. Describe and check modes
+## 16. Describe, check and script modes
 
-Both are run by the task pipeline in a `scantor-b-*` container with the worker hardening profile, `--network
+Describe and check are run by the task pipeline in a `scantor-b-*` container with the worker hardening profile, `--network
 none` and a container timeout ([tasks](tasks.md)). They write task-pipeline NDJSON events to stdout:
 `{"phase", "type": "log"|"error"|"result", …}` with errors as BuildError `{phase, file?, line?, column?,
 message}` ([data model](data-model.md) §4.2).
@@ -1338,6 +1342,21 @@ message}` ([data model](data-model.md) §4.2).
 line is a `log` event; lines of the form `<file>:<line>[:<column>]: <message>` additionally become `error`
 events. Result `{"phase":"check","type":"result","ok": <exit code == 0>, "exitCode", "skipped"}`; an empty
 `SCANTOR_CHECK_CMD` gives `skipped: true, ok: true`. Exit 0 when ok, 2 otherwise.
+
+**script** (`--entry <entry>`, package `internal/runtime/script`, [scripts](scripts.md) §10): the entrypoint of a
+script-run container (`scantor-s-<id>`, network `scantor-scripts`, created by the `scriptRun` job). It parses
+`SCANTOR_SCRIPT_CMD` with the command-template parser of §3.3 (`pool.ParseCommand`, `ResolveExecutable`, `{entry}`
+substituted) and starts it in `/task` as the leader of its own process group, with the container's stdio and its
+complete environment, because the script itself reads `SCANTOR_URL` and `SCANTOR_SCRIPT_TOKEN` and talks to the
+script runtime API. It frames no output, opens no connector protocol and calls no API. SIGTERM and SIGINT are
+forwarded to the group (a cancelled context counts as SIGTERM); the group is killed 50 s after the first signal,
+below the 60 s `docker stop` timeout of a cancel or timeout, so the runtime outlives the script and reports the kill;
+members of the group left after the script exited are killed too. Exit code: the script's, or 128 + signal (137
+after the forced kill). A start failure (no or an invalid `SCANTOR_SCRIPT_CMD`, a missing executable) prints
+`scantor: …` on stderr and exits 2, for example `scantor: this base image does not support scripts:
+SCANTOR_SCRIPT_CMD is not set`; besides that it prints only `received SIGTERM; stopping the script (killed after
+50s)` and `the script did not stop within 50s; killing it`.
+
 
 ## 17. Limits and timers
 
@@ -1461,4 +1480,5 @@ Made in this document (item 7 in part and items 14–16 implement lead rulings):
 | New languages | Only a base image with the ENV contract and a connector; the runtime has no language switch. |
 | Per-analysis resource accounting | Process groups and cgroup files already exist; CPU time and peak memory could be added to `timings`. |
 | Live log streaming for scans | The per-analysis capture is a ring buffer; it could be forwarded on demand like worker log tails. |
+| Script modes for more languages | Script mode is language-agnostic (`SCANTOR_SCRIPT_CMD`); a base image and an SDK are all a new language needs. |
 | DinD in test runs and `dev run` | Local mode could honour `SCANTOR_DIND=1` with the same `dockerd` start (§4.4) once consumers can run privileged local-mode containers. |
