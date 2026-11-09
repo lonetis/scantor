@@ -22,6 +22,7 @@ const document: OpenApiDocument = {
     '/api/scans/{scanId}/cancel': { post: op('cancelScan', 'owner', { 'x-destructive': true }) },
     '/api/node/hello': { post: op('nodeHello', 'node') },
     '/api/runtime/state': { post: op('runtimeState', 'worker') },
+    '/api/script-runtime/bootstrap': { get: op('scriptRuntimeBootstrap', 'scriptRun') },
     '/api/setup/status': { get: op('getSetupStatus', 'public') },
     '/api/setup/admin': { post: op('createSetupAdmin', 'setup') },
     '/api/tools/forward-auth': { get: op('toolsForwardAuth', 'tools') },
@@ -67,6 +68,8 @@ describe('buildOperationRegistry', () => {
         '/api/g': { get: op('GetG', 'owner') },
         '/api/h': { get: op('getH', 'public', { 'x-session-only': true }) },
         '/api/i': { get: { operationId: 'getI', 'x-mcp': false } },
+        '/api/script-runtime/j': { get: op('getJ', 'worker') },
+        '/api/scripts/k': { get: op('getK', 'scriptRun') },
       },
     })
     const problems = Object.fromEntries(broken.operations.map((operation) => [operation.operationId, operation.problems]))
@@ -79,6 +82,8 @@ describe('buildOperationRegistry', () => {
     expect(problems.GetG).toEqual(['operationId must be camelCase'])
     expect(problems.getH?.[0]).toMatch(/x-session-only requires scope owner or admin/)
     expect(problems.getI?.[0]).toBe('missing or invalid x-scantor-scope')
+    expect(problems.getJ?.[0]).toMatch(/does not match the route prefix \(scriptRun\)/)
+    expect(problems.getK?.[0]).toMatch(/does not match the route prefix \(owner or admin\)/)
   })
 
   it('reports duplicate operationIds and more than 45 MCP operations', () => {
@@ -144,6 +149,10 @@ describe('expectedScopeFor', () => {
     ['/api/node/status', 'POST', ['node']],
     ['/api/registry/token', 'GET', ['node']],
     ['/api/runtime/bootstrap', 'GET', ['worker']],
+    ['/api/script-runtime/bootstrap', 'GET', ['scriptRun']],
+    ['/api/script-runtime/scans/{scanId}/analyses', 'POST', ['scriptRun']],
+    ['/api/scripts/{script}/runs', 'POST', ['owner', 'admin']],
+    ['/api/script-runs/{scriptRunId}', 'GET', ['owner', 'admin']],
     ['/api/tools/forward-auth', 'GET', ['tools']],
     ['/api/tools/session', 'GET', ['owner', 'admin']],
     ['/api/scans', 'GET', ['owner', 'admin']],

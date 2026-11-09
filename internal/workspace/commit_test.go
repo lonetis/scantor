@@ -244,7 +244,7 @@ func TestExtractAndCommitRoundTrip(t *testing.T) {
 		"debug.log":     file("excluded from the pack, kept in the folder"),
 	})
 	var pack bytes.Buffer
-	sum, err := src.Snapshot(bg, "echo", &pack)
+	sum, err := src.Snapshot(bg, TaskFolder("echo"), &pack)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,7 +267,7 @@ func TestExtractAndCommitRoundTrip(t *testing.T) {
 	if cres.Workspace.PackSHA256 != sum.PackSHA256 {
 		t.Fatalf("committed hash %s, want %s", cres.Workspace.PackSHA256, sum.PackSHA256)
 	}
-	hashOnly, err := dst.Snapshot(bg, "echo", nil)
+	hashOnly, err := dst.Snapshot(bg, TaskFolder("echo"), nil)
 	if err != nil || hashOnly.PackSHA256 != sum.PackSHA256 {
 		t.Fatalf("hash-only snapshot %+v, %v", hashOnly, err)
 	}
@@ -286,26 +286,26 @@ func TestExtractAndCommitRoundTrip(t *testing.T) {
 func TestSnapshotCapsAndErrors(t *testing.T) {
 	ws := newTestWorkspace(t, Limits{MaxFiles: 2})
 	writeTree(t, filepath.Join(ws.dir, "big"), map[string]node{"a": file("1"), "b": file("2"), "c": file("3")})
-	_, err := ws.Snapshot(bg, "big", nil)
+	_, err := ws.Snapshot(bg, TaskFolder("big"), nil)
 	wantCode(t, err, CodeTooManyFiles)
 
 	ws = newTestWorkspace(t, Limits{MaxBytes: 1024})
 	writeTree(t, filepath.Join(ws.dir, "big"), map[string]node{"a": file(strings.Repeat("x", 4096))})
-	_, err = ws.Snapshot(bg, "big", nil)
+	_, err = ws.Snapshot(bg, TaskFolder("big"), nil)
 	wantCode(t, err, CodeTooLarge)
 
 	ws = newTestWorkspace(t, DefaultLimits())
 	writeTree(t, filepath.Join(ws.dir, "esc"), map[string]node{"scantor.yaml": file(testManifest), "passwd": symlink("/etc/passwd")})
-	_, err = ws.Snapshot(bg, "esc", nil)
+	_, err = ws.Snapshot(bg, TaskFolder("esc"), nil)
 	if werr := codeOf(t, err, CodeInvalidPath); werr.Path != "passwd" {
 		t.Fatalf("error path %q", werr.Path)
 	}
-	_, err = ws.Snapshot(bg, "missing", nil)
+	_, err = ws.Snapshot(bg, TaskFolder("missing"), nil)
 	wantCode(t, err, CodeNotFound)
 
 	// In-tree symlinks are packed as symlinks.
 	writeTree(t, filepath.Join(ws.dir, "ok"), map[string]node{"scantor.yaml": file(testManifest), "alias.yaml": symlink("scantor.yaml")})
-	if _, err := ws.Snapshot(bg, "ok", nil); err != nil {
+	if _, err := ws.Snapshot(bg, TaskFolder("ok"), nil); err != nil {
 		t.Fatalf("in-tree symlink: %v", err)
 	}
 }
@@ -353,7 +353,7 @@ func TestPackSpoolsOnTheWorkspaceVolume(t *testing.T) {
 	ws := openTestWorkspace(t, dir, DefaultLimits())
 	writeTree(t, filepath.Join(dir, "echo"), map[string]node{"scantor.yaml": file(testManifest), "main.py": file("print(1)\n")})
 	var pack bytes.Buffer
-	if _, err := ws.Snapshot(bg, "echo", &pack); err != nil {
+	if _, err := ws.Snapshot(bg, TaskFolder("echo"), &pack); err != nil {
 		t.Fatal(err)
 	}
 	// The scratch directory of the spool exists only while the pack does.
@@ -371,7 +371,7 @@ func TestArchiveBrowsing(t *testing.T) {
 		"alias":        symlink("src/main.py"),
 	})
 	var pack bytes.Buffer
-	if _, err := ws.Snapshot(bg, "echo", &pack); err != nil {
+	if _, err := ws.Snapshot(bg, TaskFolder("echo"), &pack); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := func() io.Reader { return bytes.NewReader(pack.Bytes()) }
@@ -380,7 +380,7 @@ func TestArchiveBrowsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	live, err := ws.List(bg, "echo", ListOptions{Recursive: true})
+	live, err := ws.List(bg, TaskFolder("echo"), ListOptions{Recursive: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +405,7 @@ func TestArchiveBrowsing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	liveRead, err := ws.Read(bg, "echo", "src/main.py", 0)
+	liveRead, err := ws.Read(bg, TaskFolder("echo"), "src/main.py", 0)
 	if err != nil || *rr != *liveRead {
 		t.Fatalf("archive read %+v, live read %+v (%v)", rr, liveRead, err)
 	}
@@ -431,7 +431,7 @@ func TestArchiveBrowsingPackPaths(t *testing.T) {
 	}
 	writeTree(t, dir, map[string]node{deep: file("deep"), ".scantor-staging/y": file("y")})
 	var pack bytes.Buffer
-	if _, err := ws.Snapshot(bg, "echo", &pack); err != nil {
+	if _, err := ws.Snapshot(bg, TaskFolder("echo"), &pack); err != nil {
 		t.Fatal(err)
 	}
 	snapshot := func() io.Reader { return bytes.NewReader(pack.Bytes()) }

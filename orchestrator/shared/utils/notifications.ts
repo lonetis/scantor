@@ -2,7 +2,7 @@
 // the tests. A trigger names a family of events (docs/data-model.md §4.11) a user can subscribe to; the server maps
 // events onto triggers in server/services/notifications/triggers.ts. New triggers are appended here and there.
 
-export const NOTIFICATION_TRIGGERS = ['scanFinished', 'scanPaused', 'scanProblem', 'revisionBuilt', 'nodeAvailability'] as const
+export const NOTIFICATION_TRIGGERS = ['scanFinished', 'scanPaused', 'scanProblem', 'revisionBuilt', 'nodeAvailability', 'scriptRunCompleted', 'scriptRunFailed'] as const
 export type NotificationTrigger = (typeof NOTIFICATION_TRIGGERS)[number]
 
 export interface NotificationTriggerInfo {
@@ -37,6 +37,16 @@ export const NOTIFICATION_TRIGGER_INFO: Record<NotificationTrigger, Notification
     title: 'Node availability',
     description: 'A node went offline or came back online (admins only).',
     adminOnly: true,
+  },
+  scriptRunCompleted: {
+    title: 'Script run completed',
+    description: 'A script run completed.',
+    adminOnly: false,
+  },
+  scriptRunFailed: {
+    title: 'Script run failed',
+    description: 'A script run failed: its build, its script or the platform.',
+    adminOnly: false,
   },
 }
 

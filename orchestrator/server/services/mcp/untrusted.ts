@@ -4,6 +4,8 @@
 
 const SCAN_PATHS = ['stateReason', 'scheduling.error', 'conditions']
 const WRAPPED_SCAN_PATHS = SCAN_PATHS.map((path) => `scan.${path}`)
+/** What a script run carries from script code and the data it read. */
+const SCRIPT_RUN_PATHS = ['errors', 'error', 'result', 'logTail', 'outputs', 'progress', 'checkpoint']
 
 export const UNTRUSTED_PATHS: Record<string, string[]> = {
   listTasks: ['items[].description'],
@@ -29,6 +31,17 @@ export const UNTRUSTED_PATHS: Record<string, string[]> = {
   queryAnalyses: ['items[]'],
   aggregateAnalyses: ['items[]'],
   readAnalysisFile: ['content', 'name', 'contentType'],
+  // `describe` holds the schemas the script code reported at run time (titles, descriptions, patterns).
+  listScripts: ['items[].description', 'items[].describe'],
+  getScript: ['description', 'describe', 'recentRuns[].progress'],
+  createScript: ['description', 'describe', 'recentRuns[].progress'],
+  readScriptFile: ['content'],
+  startScriptRun: SCRIPT_RUN_PATHS,
+  getScriptRun: SCRIPT_RUN_PATHS,
+  cancelScriptRun: SCRIPT_RUN_PATHS,
+  restartScriptRun: SCRIPT_RUN_PATHS,
+  getScriptRunLogs: ['lines'],
+  readScriptRunOutput: ['content', 'name', 'contentType'],
 }
 
 export const UNTRUSTED_NOTE =

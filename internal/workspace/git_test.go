@@ -435,7 +435,7 @@ func TestGitPull(t *testing.T) {
 	}
 
 	// The task folder is gone: current is null.
-	if _, err := ws.DeleteFiles(bg, "echo", "", true); err != nil {
+	if _, err := ws.DeleteFiles(bg, TaskFolder("echo"), "", true); err != nil {
 		t.Fatal(err)
 	}
 	if res := pull("p6", c); res.Current != nil || !res.Changed {

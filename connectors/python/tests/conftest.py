@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from tests.harness import FakeRuntime, make_ctx
+from tests.script_fake import FakePlatform
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 
@@ -57,3 +58,12 @@ def ctx_factory(tmp_path: Path) -> Callable[..., dict[str, Any]]:
         return make_ctx(tmp_path, request_id=request_id, **options)
 
     return factory
+
+
+@pytest.fixture
+def platform() -> Iterator[FakePlatform]:
+    """A fake script runtime API and file store; the test fails when the SDK broke a rule of either."""
+    fake = FakePlatform()
+    yield fake
+    fake.close()
+    assert not fake.violations, "\n".join(fake.violations)

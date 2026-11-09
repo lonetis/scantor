@@ -13,6 +13,8 @@ export interface Event {
   scanId?: string
   taskId?: string
   revisionId?: string
+  scriptId?: string
+  scriptRunId?: string
   workerId?: string
   nodeId?: string
   message: string

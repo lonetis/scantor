@@ -1,7 +1,11 @@
+import { createHash, createHmac } from 'node:crypto'
 import type { Readable } from 'node:stream'
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
   CopyObjectCommand,
   CreateBucketCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
@@ -13,6 +17,7 @@ import {
   PutObjectCommand,
   S3Client,
   S3ServiceException,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
@@ -27,13 +32,15 @@ import { type Logger, useLogger } from './logger'
 
 export const DOWNLOAD_URL_TTL_SECONDS = 600
 export const INLINE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+/** The region every client signs for (RustFS accepts any; presigned URLs must agree with the SDK's). */
+const S3_REGION = 'us-east-1'
 
 const clients = new Map<string, S3Client>()
 
 function createS3Client(endpoint: string, config: Config): S3Client {
   return new S3Client({
     endpoint,
-    region: 'us-east-1',
+    region: S3_REGION,
     forcePathStyle: true,
     credentials: { accessKeyId: config.s3AccessKey, secretAccessKey: config.s3SecretKey },
     requestChecksumCalculation: 'WHEN_REQUIRED',
@@ -150,6 +157,79 @@ export async function presignGet(options: PresignGetOptions): Promise<{ url: str
   return { url, expiresAt: new Date(Date.now() + options.expiresInSeconds * 1000) }
 }
 
+// ── fast presigned GETs for the internal endpoint ──────────────────────────
+
+/** The longest validity SigV4 allows for a presigned URL (7 days). */
+const SIGV4_MAX_EXPIRES_SECONDS = 604_800
+const SIGV4_ALGORITHM = 'AWS4-HMAC-SHA256'
+const UNSIGNED_PAYLOAD = 'UNSIGNED-PAYLOAD'
+
+/** RFC 3986 escaping as the SDK applies it to path segments and query values (`encodeURIComponent` plus `!'()*`). */
+function uriEscape(value: string): string {
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`)
+}
+
+/** `20260102T030405Z`: the ISO 8601 basic format of SigV4. */
+function amzDate(date: Date): string {
+  return date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+}
+
+let signingKeyCache: { secret: string; dateStamp: string; key: Buffer } | null = null
+let endpointCache: { url: string; origin: string; host: string } | null = null
+
+/** Origin and Host header of the internal endpoint (the URL is parsed once). */
+function internalEndpoint(url: string): { origin: string; host: string } {
+  if (endpointCache?.url !== url) {
+    const parsed = new URL(url)
+    endpointCache = { url, origin: parsed.origin, host: parsed.host }
+  }
+  return endpointCache
+}
+
+/** The SigV4 signing key of one day (HMAC chain over date, region, service), cached until the date changes. */
+function signingKey(secret: string, dateStamp: string): Buffer {
+  if (signingKeyCache?.secret === secret && signingKeyCache.dateStamp === dateStamp) return signingKeyCache.key
+  const hmac = (key: string | Buffer, data: string) => createHmac('sha256', key).update(data, 'utf8').digest()
+  const key = hmac(hmac(hmac(hmac(`AWS4${secret}`, dateStamp), S3_REGION), 's3'), 'aws4_request')
+  signingKeyCache = { secret, dateStamp, key }
+  return key
+}
+
+/**
+ * A presigned GET of an object for SCANTOR_S3_INTERNAL_URL, signed in-process without the SDK (about 3 µs instead of
+ * about 90 µs per URL; the script runtime API signs one URL per stored file it streams). The URL is byte-identical
+ * to the one the SDK presigner produces for the same key, clock and validity (test/utils/s3.test.ts): path-style
+ * `/<bucket>/<key>`, only `host` signed, an unsigned payload, `x-id=GetObject`. No response overrides. Callers pass
+ * the key of a stored FileRef or output, never one built from input (docs/scripts.md, security.md).
+ */
+export function presignInternalGet(key: string, ttlSeconds: number, now: Date = new Date()): { url: string; expiresAt: Date } {
+  if (!Number.isSafeInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > SIGV4_MAX_EXPIRES_SECONDS) {
+    throw new Error(`invalid presigned URL validity ${ttlSeconds}s`)
+  }
+  const config = useConfig()
+  const endpoint = internalEndpoint(config.s3InternalUrl)
+  const date = amzDate(now)
+  const dateStamp = date.slice(0, 8)
+  const scope = `${dateStamp}/${S3_REGION}/s3/aws4_request`
+  const path = `/${config.s3Bucket}/${key.split('/').map(uriEscape).join('/')}`
+  // Sorted by name in byte order, as SigV4 requires; X-Amz-Signature joins between X-Amz-Expires and X-Amz-SignedHeaders.
+  const head = [
+    `X-Amz-Algorithm=${SIGV4_ALGORITHM}`,
+    `X-Amz-Content-Sha256=${UNSIGNED_PAYLOAD}`,
+    `X-Amz-Credential=${uriEscape(`${config.s3AccessKey}/${scope}`)}`,
+    `X-Amz-Date=${date}`,
+    `X-Amz-Expires=${ttlSeconds}`,
+  ].join('&')
+  const tail = 'X-Amz-SignedHeaders=host&x-id=GetObject'
+  const canonicalRequest = `GET\n${path}\n${head}&${tail}\nhost:${endpoint.host}\n\nhost\n${UNSIGNED_PAYLOAD}`
+  const stringToSign = `${SIGV4_ALGORITHM}\n${date}\n${scope}\n${createHash('sha256').update(canonicalRequest, 'utf8').digest('hex')}`
+  const signature = createHmac('sha256', signingKey(config.s3SecretKey, dateStamp)).update(stringToSign, 'utf8').digest('hex')
+  return {
+    url: `${endpoint.origin}${path}?${head}&X-Amz-Signature=${signature}&${tail}`,
+    expiresAt: new Date(now.getTime() + ttlSeconds * 1000),
+  }
+}
+
 /**
  * A browser download of an object (security.md DL-1): an attachment with `application/octet-stream`, except
  * png/jpeg/gif/webp images, which are served inline with their forced image type. Valid 10 minutes, created per
@@ -208,6 +288,99 @@ export async function uploadStream(key: string, body: Readable, contentType: str
     queueSize: 2,
     partSize: 8 * 1024 * 1024,
   }).done()
+}
+
+export interface ObjectHead {
+  size: number
+  contentType: string | null
+  metadata: Record<string, string>
+}
+
+/** Size, type and metadata of an object, or null when it does not exist. */
+export async function headObject(key: string): Promise<ObjectHead | null> {
+  try {
+    const head = await useS3().send(new HeadObjectCommand({ Bucket: s3Bucket(), Key: key }))
+    return { size: head.ContentLength ?? 0, contentType: head.ContentType ?? null, metadata: head.Metadata ?? {} }
+  } catch (error) {
+    if (isS3NotFound(error)) return null
+    throw error
+  }
+}
+
+// ── multipart uploads (script-run outputs) ──────────────────────────────────
+
+/** The S3 error code (`NoSuchUpload`, `InvalidPart`, `EntityTooSmall`, …) of a failed S3 call, else null. */
+export function s3ErrorCode(error: unknown): string | null {
+  return error instanceof S3ServiceException ? error.name : null
+}
+
+/** Starts a multipart upload of `key` and returns its upload id. Metadata values must be ASCII. */
+export async function createMultipartUpload(key: string, contentType: string, metadata?: Record<string, string>): Promise<string> {
+  const response = await useS3().send(new CreateMultipartUploadCommand({ Bucket: s3Bucket(), Key: key, ContentType: contentType, Metadata: metadata }))
+  if (!response.UploadId) throw new Error(`S3 returned no upload id for ${key}`)
+  return response.UploadId
+}
+
+export interface PresignUploadPartOptions {
+  key: string
+  uploadId: string
+  /** 1–10000 */
+  partNumber: number
+  contentLength: number
+  expiresInSeconds: number
+  profile: EndpointProfile
+}
+
+/**
+ * A presigned UploadPart PUT whose `Content-Length` is a signed header: the uploader must send exactly the returned
+ * headers, so a part can never be larger than the size it was presigned (and reserved) for.
+ */
+export async function presignUploadPart(options: PresignUploadPartOptions): Promise<PresignedPut> {
+  const command = new UploadPartCommand({
+    Bucket: s3Bucket(),
+    Key: options.key,
+    UploadId: options.uploadId,
+    PartNumber: options.partNumber,
+    ContentLength: options.contentLength,
+  })
+  const url = await getSignedUrl(clientFor(s3EndpointFor(options.profile)), command, {
+    expiresIn: options.expiresInSeconds,
+    signableHeaders: new Set(['content-length']),
+  })
+  return {
+    url,
+    headers: { 'Content-Length': String(options.contentLength) },
+    expiresAt: new Date(Date.now() + options.expiresInSeconds * 1000),
+  }
+}
+
+export interface CompletedPart {
+  partNumber: number
+  /** the ETag header the part upload answered with */
+  etag: string
+}
+
+/** Completes a multipart upload from its parts (sorted by part number here). */
+export async function completeMultipartUpload(key: string, uploadId: string, parts: readonly CompletedPart[]): Promise<void> {
+  const sorted = [...parts].sort((a, b) => a.partNumber - b.partNumber)
+  await useS3().send(
+    new CompleteMultipartUploadCommand({
+      Bucket: s3Bucket(),
+      Key: key,
+      UploadId: uploadId,
+      MultipartUpload: { Parts: sorted.map((part) => ({ PartNumber: part.partNumber, ETag: part.etag })) },
+    }),
+  )
+}
+
+/** Aborts a multipart upload and frees its parts; an upload that no longer exists counts as aborted. */
+export async function abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+  try {
+    await useS3().send(new AbortMultipartUploadCommand({ Bucket: s3Bucket(), Key: key, UploadId: uploadId }))
+  } catch (error) {
+    if (s3ErrorCode(error) === 'NoSuchUpload' || isS3NotFound(error)) return
+    throw error
+  }
 }
 
 export async function getObjectStream(key: string): Promise<Readable> {

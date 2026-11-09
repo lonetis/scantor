@@ -1,6 +1,7 @@
 """scantor Python connector: define a scantor task with typed pydantic models.
 
 A task entry defines a module-level `task = scantor.Task(...)`. See docs/guide/authoring-python.md.
+Scripts, which evaluate the results of scans, use the namespaced `scantor.script` (docs/guide/scripts.md).
 """
 
 from scantor._version import __version__

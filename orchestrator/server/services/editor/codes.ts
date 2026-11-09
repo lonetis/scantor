@@ -12,7 +12,7 @@ export const EDITOR_CODE_PATTERN = /^sec_[A-Za-z0-9_-]{43}$/
 
 export interface EditorCodeEntry {
   userId: string
-  /** the task folder to open, or null for the workspace root */
+  /** the workspace-relative folder to open (`<task>` or `.scripts/<script>`), or null for the workspace root */
   open: string | null
   expiresAt: number
 }

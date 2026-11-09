@@ -49,6 +49,10 @@ func TestCheckImageRef(t *testing.T) {
 		"0x7f.0.0.1:5000/x":                       "ambiguous numeric",
 		"2130706433:5000/x":                       "ambiguous numeric",
 		"tasks/x:y":                               "tasks/",
+		"scripts/x:y":                             "repositories under scripts/ hold script images",
+		"docker.io/scripts/x:1":                   "scripts/",
+		"localhost:5000/scripts/x:y":              "loopback",
+		"quay.io/scripts/x:1":                     "scripts/",
 		"ghcr.io/TASKS/x:1":                       "must be lowercase",
 		"sha256:" + hex64:                         "image ids",
 		hex64:                                     "image ids",
@@ -57,6 +61,8 @@ func TestCheckImageRef(t *testing.T) {
 		"example.com/repo with space":             "not a valid image reference",
 		"docker.io/library/tasks-helper:1":        "",
 		"ghcr.io/example/tasks/x:1":               "",
+		"scripts-helper:1":                        "",
+		"ghcr.io/example/scripts/x:1":             "",
 		"registry.example.com:5000/library/x:1.0": "",
 	} {
 		got := CheckImageRef(ref, forbidden)

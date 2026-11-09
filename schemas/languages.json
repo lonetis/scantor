@@ -1,5 +1,5 @@
 {
-  "$comment": "The single language table of scantor (data, not a JSON Schema). Read by the scantor binary (task pipeline, scaffolds, CLI) and the orchestrator (GET /api/languages, base image refs). Base image ref = <prefix><image>:<tag>: the compiled-in internal/version pair (ImagePrefix, Version), replaced by SCANTOR_IMAGE_PREFIX/SCANTOR_IMAGE_TAG whenever SCANTOR_IMAGE_TAG is non-empty (docs/architecture.md §4.2). Language-specific commands live in the base image ENV contract (SCANTOR_CONNECTOR_CMD, SCANTOR_CHECK_CMD, SCANTOR_DEBUG_CMD, SCANTOR_DEBUG_PORT), never in code. See docs/tasks.md §4.",
+  "$comment": "The single language table of scantor (data, not a JSON Schema). Read by the scantor binary (task pipeline, scaffolds, CLI) and the orchestrator (GET /api/languages, base image refs). Base image ref = <prefix><image>:<tag>: the compiled-in internal/version pair (ImagePrefix, Version), replaced by SCANTOR_IMAGE_PREFIX/SCANTOR_IMAGE_TAG whenever SCANTOR_IMAGE_TAG is non-empty (docs/architecture.md §4.2). Language-specific commands live in the base image ENV contract (SCANTOR_CONNECTOR_CMD, SCANTOR_CHECK_CMD, SCANTOR_DEBUG_CMD, SCANTOR_DEBUG_PORT, SCANTOR_SCRIPT_CMD), never in code. The optional `script` object marks a language that can run scripts: the default entry of a script folder, its scaffold and its guide (docs/scripts.md). See docs/tasks.md §4.",
   "version": 1,
   "commonEditorExtensions": [
     "redhat.vscode-yaml"
@@ -19,7 +19,12 @@
       "editorExtensions": [
         "ms-python.python",
         "detachhead.basedpyright"
-      ]
+      ],
+      "script": {
+        "entry": "main.py",
+        "scaffold": "scaffolds/python-script",
+        "guide": "docs/guide/scripts.md"
+      }
     },
     "typescript": {
       "title": "TypeScript",

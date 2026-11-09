@@ -1,7 +1,8 @@
 // Package manifest parses and validates the task manifest scantor.yaml (docs/tasks.md §3): YAML 1.2
 // parsing without duplicate keys, the strict JSON Schema schemas/task-manifest.schema.json (M2) and the
 // semantic rules M1–M10, and normalises the result into the stored manifest and the revision's
-// settingsDefaults.
+// settingsDefaults. CheckScript does the same for the script manifest scantor-script.yaml (rules S1–S6,
+// docs/scripts.md), sharing the YAML bounds, the schema step and the entry rules.
 package manifest
 
 import (
@@ -103,47 +104,62 @@ type Result struct {
 // Issue is one manifest error; Line and Column are 1-based (0 when unknown), Path is the JSON pointer of
 // the offending value.
 type Issue struct {
-	Rule    string
+	Rule string
+	// File is the manifest the issue belongs to: ScriptFileName for the issues of CheckScript, "" for
+	// the task manifest FileName.
+	File    string
 	Path    string
 	Line    int
 	Column  int
 	Message string
 }
 
-// String renders "scantor.yaml:<line>: <message>".
+func (i Issue) file() string {
+	if i.File == "" {
+		return FileName
+	}
+	return i.File
+}
+
+// String renders "<manifest>:<line>: <message>", for example "scantor.yaml:3: …".
 func (i Issue) String() string {
 	if i.Line > 0 {
-		return fmt.Sprintf("%s:%d: %s", FileName, i.Line, i.Message)
+		return fmt.Sprintf("%s:%d: %s", i.file(), i.Line, i.Message)
 	}
-	return FileName + ": " + i.Message
+	return i.file() + ": " + i.Message
 }
 
-// BuildError converts the issue into a static-phase BuildError of scantor.yaml.
+// BuildError converts the issue into a static-phase BuildError of its manifest file.
 func (i Issue) BuildError() api.BuildError {
-	return api.BuildError{Phase: api.BuildPhaseStatic, File: FileName, Line: i.Line, Column: i.Column, Message: i.Message}
+	return api.BuildError{Phase: api.BuildPhaseStatic, File: i.file(), Line: i.Line, Column: i.Column, Message: i.Message}
 }
 
-var (
-	schemaOnce sync.Once
-	compiled   *schema.Schema
-	schemaErr  error
-)
+// embeddedSchema compiles one embedded JSON Schema once.
+type embeddedSchema struct {
+	path     string
+	once     sync.Once
+	compiled *schema.Schema
+	err      error
+}
 
-func manifestSchema() (*schema.Schema, error) {
-	schemaOnce.Do(func() {
-		data, err := scantor.Schemas.ReadFile(SchemaPath)
+func (e *embeddedSchema) get() (*schema.Schema, error) {
+	e.once.Do(func() {
+		data, err := scantor.Schemas.ReadFile(e.path)
 		if err != nil {
-			schemaErr = fmt.Errorf("read embedded %s: %w", SchemaPath, err)
+			e.err = fmt.Errorf("read embedded %s: %w", e.path, err)
 			return
 		}
-		compiled, schemaErr = schema.Compile(data)
+		e.compiled, e.err = schema.Compile(data)
 	})
-	return compiled, schemaErr
+	return e.compiled, e.err
 }
 
-// Check parses data and applies rules M1–M10. It returns the result, or nil and every issue of the
-// first failing step (M1, then M2, then the semantic rules M3–M10 together).
-func Check(data []byte, opts Options) (*Result, []Issue) {
+var taskSchema = &embeddedSchema{path: SchemaPath}
+
+// decode applies the steps every manifest shares: the size bound and the YAML parsing of M1 and the
+// strict schema of M2, then decodes the document into out. It returns the parsed document for the
+// positions of later issues, or every issue of the first failing step.
+func decode(data []byte, s *embeddedSchema, out any) (*document, []Issue) {
 	if len(data) > MaxBytes {
 		return nil, []Issue{{Rule: "M1", Message: fmt.Sprintf("the manifest is %d bytes; the limit is %d", len(data), MaxBytes)}}
 	}
@@ -151,26 +167,47 @@ func Check(data []byte, opts Options) (*Result, []Issue) {
 	if issues != nil {
 		return nil, issues
 	}
-	s, err := manifestSchema()
+	compiled, err := s.get()
 	if err != nil {
 		return nil, []Issue{{Rule: "M2", Message: err.Error()}}
 	}
-	if schemaIssues := s.Validate(doc.value); len(schemaIssues) > 0 {
+	if schemaIssues := compiled.Validate(doc.value); len(schemaIssues) > 0 {
 		return nil, doc.schemaIssues(schemaIssues)
 	}
 	raw, err := json.Marshal(doc.value)
 	if err != nil {
 		return nil, []Issue{{Rule: "M2", Message: fmt.Sprintf("encode manifest: %v", err)}}
 	}
-	var m Manifest
-	if err := json.Unmarshal(raw, &m); err != nil {
+	if err := json.Unmarshal(raw, out); err != nil {
 		return nil, []Issue{{Rule: "M2", Message: fmt.Sprintf("decode manifest: %v", err)}}
 	}
-	table := opts.Languages
-	if table == nil {
-		if table, err = languages.Load(); err != nil {
-			return nil, []Issue{{Rule: "M3", Message: err.Error()}}
-		}
+	return doc, nil
+}
+
+// languageTable returns opts.Languages, or the embedded table when it is nil.
+func languageTable(opts Options) (*languages.Table, error) {
+	if opts.Languages != nil {
+		return opts.Languages, nil
+	}
+	return languages.Load()
+}
+
+// taskEntryRules are the entry rules M4/M5 of scantor.yaml.
+func taskEntryRules(lang languages.Language) entryRules {
+	return entryRules{defaultEntry: lang.Entry, sourceRule: "M4", binaryRule: "M5", kind: "task", file: FileName}
+}
+
+// Check parses data and applies rules M1–M10. It returns the result, or nil and every issue of the
+// first failing step (M1, then M2, then the semantic rules M3–M10 together).
+func Check(data []byte, opts Options) (*Result, []Issue) {
+	var m Manifest
+	doc, issues := decode(data, taskSchema, &m)
+	if issues != nil {
+		return nil, issues
+	}
+	table, err := languageTable(opts)
+	if err != nil {
+		return nil, []Issue{{Rule: "M3", Message: err.Error()}}
 	}
 	limits := opts.Limits
 	if limits == (Limits{}) {
@@ -181,7 +218,7 @@ func Check(data []byte, opts Options) (*Result, []Issue) {
 	if !ok {
 		c.add("M3", "/language", fmt.Sprintf("unknown language %q", m.Language))
 	} else {
-		c.checkEntry(lang, opts.IsRegularFile)
+		c.checkEntry(&m.Entry, lang, taskEntryRules(lang), opts.IsRegularFile)
 	}
 	settings := c.settings(limits)
 	if opts.ExpectName != "" && m.Name != opts.ExpectName {
@@ -240,33 +277,43 @@ func (c *checker) add(rule, ptr, msg string) {
 	c.issues = append(c.issues, Issue{Rule: rule, Path: ptr, Line: pos.line, Column: pos.column, Message: msg})
 }
 
-// checkEntry applies M4 (source languages) and M5 (binary languages) and defaults the entry. A defaulted
-// source entry (main.py, main.ts, …) must exist too: only its path rules are known to hold.
-func (c *checker) checkEntry(lang languages.Language, isRegularFile func(string) bool) {
-	if c.m.Entry == "" {
-		c.m.Entry = lang.Entry
-		if lang.IsSource() && isRegularFile != nil && !isRegularFile(c.m.Entry) {
-			c.add("M4", "/entry", fmt.Sprintf("entry %q is not a regular file of the task folder (the default entry of %s tasks; set entry in scantor.yaml to use another file)", c.m.Entry, lang.Name))
+// entryRules are what the entry rules of the task manifest (M4/M5) and the script manifest (S4/S5)
+// differ in: the default entry, the rule ids, the folder kind and the manifest file named in messages.
+type entryRules struct {
+	defaultEntry string
+	sourceRule   string
+	binaryRule   string
+	kind         string
+	file         string
+}
+
+// checkEntry applies the source rule (source languages) and the binary rule (binary languages) to
+// *entry and defaults it. A defaulted source entry (main.py, main.ts, …) must exist too: only its path
+// rules are known to hold.
+func (c *checker) checkEntry(entry *string, lang languages.Language, rules entryRules, isRegularFile func(string) bool) {
+	if *entry == "" {
+		*entry = rules.defaultEntry
+		if lang.IsSource() && isRegularFile != nil && !isRegularFile(*entry) {
+			c.add(rules.sourceRule, "/entry", fmt.Sprintf("entry %q is not a regular file of the %s folder (the default entry of %s %ss; set entry in %s to use another file)", *entry, rules.kind, lang.Name, rules.kind, rules.file))
 		}
 		return
 	}
-	entry := c.m.Entry
 	if lang.IsSource() {
 		switch {
-		case path.IsAbs(entry):
-			c.add("M4", "/entry", fmt.Sprintf("entry %q must be a relative path", entry))
-		case !normalised(entry):
-			c.add("M4", "/entry", fmt.Sprintf("entry %q must be a normalised path without ./ or .. segments", entry))
-		case !lang.HasExtension(entry):
-			c.add("M4", "/entry", fmt.Sprintf("entry %q must end in %s", entry, joinOr(lang.Extensions)))
-		case isRegularFile != nil && !isRegularFile(entry):
-			c.add("M4", "/entry", fmt.Sprintf("entry %q is not a regular file of the task folder", entry))
+		case path.IsAbs(*entry):
+			c.add(rules.sourceRule, "/entry", fmt.Sprintf("entry %q must be a relative path", *entry))
+		case !normalised(*entry):
+			c.add(rules.sourceRule, "/entry", fmt.Sprintf("entry %q must be a normalised path without ./ or .. segments", *entry))
+		case !lang.HasExtension(*entry):
+			c.add(rules.sourceRule, "/entry", fmt.Sprintf("entry %q must end in %s", *entry, joinOr(lang.Extensions)))
+		case isRegularFile != nil && !isRegularFile(*entry):
+			c.add(rules.sourceRule, "/entry", fmt.Sprintf("entry %q is not a regular file of the %s folder", *entry, rules.kind))
 		}
 		return
 	}
-	trimmed := strings.TrimPrefix(entry, "/")
+	trimmed := strings.TrimPrefix(*entry, "/")
 	if trimmed == "" || !normalised(trimmed) {
-		c.add("M5", "/entry", fmt.Sprintf("entry %q must be a normalised path without ./ or .. segments", entry))
+		c.add(rules.binaryRule, "/entry", fmt.Sprintf("entry %q must be a normalised path without ./ or .. segments", *entry))
 	}
 }
 

@@ -5,6 +5,7 @@ import { apiError } from '../../utils/errors'
 import { useLogger } from '../../utils/logger'
 import { copyObject, deleteObject, objectExists, uploadStream } from '../../utils/s3'
 import { snapshotStream } from '../helpers/ops'
+import type { FolderRef } from '../helpers/types'
 
 // Workspace snapshots into S3 (docs/architecture.md §11.1 step 6, docs/tasks.md §10): the `snapshot` helper streams
 // the deterministic pack of a task folder into a temporary object `tmp/snapshots/<uuid>.tar.gz` while the
@@ -57,10 +58,10 @@ class TeeSink extends Writable {
 }
 
 /**
- * Streams a task folder's pack into a temporary S3 object and verifies its hash. `signal` (a test run's job) stops
- * the helper and the upload when it aborts.
+ * Streams a task or script folder's pack into a temporary S3 object and verifies its hash. `folder` is a task name or
+ * `{script: name}`. `signal` (a test run's job) stops the helper and the upload when it aborts.
  */
-export async function snapshotToTmp(userId: string, taskName: string, signal?: AbortSignal): Promise<StoredSnapshot> {
+export async function snapshotToTmp(userId: string, folder: FolderRef, signal?: AbortSignal): Promise<StoredSnapshot> {
   const log = useLogger('snapshots')
   const tmpKey = `tmp/snapshots/${randomUUID()}.tar.gz`
   const uploadBody = new PassThrough()
@@ -77,13 +78,13 @@ export async function snapshotToTmp(userId: string, taskName: string, signal?: A
   const uploaded = uploadStream(tmpKey, uploadBody, SNAPSHOT_CONTENT_TYPE)
   uploaded.catch(() => undefined)
   try {
-    const summary = await snapshotStream(userId, taskName, sink, signal)
+    const summary = await snapshotStream(userId, folder, sink, signal)
     await uploaded
     const packSha256 = await hashed.catch((error: unknown) => {
       throw apiError('internal', `the workspace snapshot is not a valid gzip stream: ${(error as Error).message}`)
     })
     if (packSha256 !== summary.packSha256) {
-      log.error('workspace snapshot hash mismatch', { userId, task: taskName, expected: summary.packSha256, actual: packSha256 })
+      log.error('workspace snapshot hash mismatch', { userId, folder, expected: summary.packSha256, actual: packSha256 })
       throw apiError('internal', 'the workspace snapshot does not match its reported pack hash')
     }
     return { tmpKey, packSha256, packBytes: sink.bytes, fileCount: summary.fileCount, bytes: summary.bytes }

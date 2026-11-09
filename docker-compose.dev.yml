@@ -43,6 +43,7 @@ services:
     networks:
       - scantor
       - scantor-sandbox
+      - scantor-scripts
     volumes:
       - .:/app
       - scantor-orchestrator-node-modules:/app/orchestrator/node_modules
@@ -209,6 +210,7 @@ services:
     networks:
       - scantor
       - scantor-sandbox
+      - scantor-scripts
     volumes:
       - ${SCANTOR_RUSTFS_DATA}:/data
     environment:
@@ -406,3 +408,6 @@ networks:
     name: scantor
   scantor-sandbox:
     name: scantor-sandbox
+  scantor-scripts:
+    name: scantor-scripts
+    internal: true

@@ -1,5 +1,5 @@
 {
-  "$comment": "Shared key-derivation test vectors (docs/architecture.md §9, docs/auth.md §3). key(label) = HKDF-SHA256(ikm = UTF-8(secret), salt = UTF-8(salt), info = UTF-8(label), L = 32). Read by internal/keys (Go) and orchestrator/server/utils/keys.ts (vitest). Base64url values are unpadded. registrySigningKey: d = (int(key('registry-signing')) mod (n-1)) + 1 on P-256, d/x/y as JWK base64url, kid = 'scantor-' + hex(sha256(0x04||X||Y))[:16]. encryption: enc:v1:<base64url(iv)>:<base64url(ciphertext||tag)>, AES-256-GCM with key(label) and AAD. Regenerate with: go test ./internal/keys -run TestVectors -update",
+  "$comment": "Shared key-derivation test vectors (docs/architecture.md §9, docs/auth.md §3). key(label) = HKDF-SHA256(ikm = UTF-8(secret), salt = UTF-8(salt), info = UTF-8(label), L = 32). Read by internal/keys (Go) and orchestrator/server/utils/keys.ts (vitest). Base64url values are unpadded. registrySigningKey: d = (int(key('registry-signing')) mod (n-1)) + 1 on P-256, d/x/y as JWK base64url, kid = 'scantor-' + hex(sha256(0x04||X||Y))[:16]. encryption: enc:v1:<base64url(iv)>:<base64url(ciphertext||tag)>, AES-256-GCM with key(label) and AAD. scriptRunToken: 'ssr_' + scriptRunId + '.' + base64url(HMAC-SHA256(key('script-run-token'), scriptRunId + '\\n' + scriptId + '\\n' + userId)). Regenerate with: go test ./internal/keys -run TestVectors -update",
   "version": 1,
   "salt": "scantor-v1",
   "hkdf": [
@@ -64,6 +64,11 @@
       "hex": "6b173a9a4ba4214f198a02b4d03119b7ce988c7e049f2ecb487e349b5ba2e8c1"
     },
     {
+      "secret": "correct horse battery staple",
+      "label": "script-run-token",
+      "hex": "e58cdf97e50968ff0402758f4019dcd9bc1c8116238afe7e9cf12bb328f1d6a0"
+    },
+    {
       "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
       "label": "better-auth",
       "hex": "3085ee07fbaf9f627f1e8826d8b6ca9c032520a22c6fd27ab4cf6e686c2776bf"
@@ -124,6 +129,11 @@
       "hex": "274f87b961bf141986feb5a858bc3b57763756124fbd7fa42eb1ab56e56ef5b9"
     },
     {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "label": "script-run-token",
+      "hex": "981058b5ae32ce82580990b375f86adf190e4c27c20d55b27acb3e89cf25fd23"
+    },
+    {
       "secret": "ünïcødé sëcret 🔑 with spaces",
       "label": "better-auth",
       "hex": "66933684ee26b4676150cba218377986313e6a3d4bbb24ecef6010fdea7630d4"
@@ -182,6 +192,11 @@
       "secret": "ünïcødé sëcret 🔑 with spaces",
       "label": "mongo-query",
       "hex": "af45e692fba9d57e88cc66eb7df306db5e79c077412bfb5b1054d64dc409618e"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "label": "script-run-token",
+      "hex": "20ae6f8988a3cae1a2bf9d727c704218be0beb92d4263aa3dd44c9518dad1085"
     }
   ],
   "betterAuthSecret": [
@@ -311,6 +326,29 @@
       "role": "runner",
       "nodeId": "2d9e4f1a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
       "value": "swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d.6MXsZ9l0ET9eIJQCYI-jnvlTiFdlQYQQhCxvv81cIjM"
+    }
+  ],
+  "scriptRunToken": [
+    {
+      "secret": "correct horse battery staple",
+      "scriptRunId": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+      "scriptId": "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d",
+      "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+      "value": "ssr_3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f.iF39TTKmcRoq_Jf38h2ZNt8DZlb8M0APyIpdcIYEjBM"
+    },
+    {
+      "secret": "3f9c1e0b7a2d4c6e8f0a1b2c3d4e5f60718293a4b5c6d7e8",
+      "scriptRunId": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+      "scriptId": "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d",
+      "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+      "value": "ssr_3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f.o1OBZ9MqHk-Ez8sfL9-rVuIVPBE6V8Lkj_Tof1jtIyY"
+    },
+    {
+      "secret": "ünïcødé sëcret 🔑 with spaces",
+      "scriptRunId": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
+      "scriptId": "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d",
+      "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+      "value": "ssr_3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f.i5tg9Yy6jeiqwy5rJHDdUsyasKxuECnkh7E5lwD4ICk"
     }
   ],
   "amqpPassword": [

@@ -114,6 +114,25 @@ func wsRequire(flags ...wsFlag) error {
 	return nil
 }
 
+// wsFolder returns the folder named by --task or --script; exactly one must be set.
+func wsFolder(task, script string) (workspace.Folder, error) {
+	switch {
+	case task != "" && script != "":
+		return workspace.Folder{}, &workspace.Error{Code: workspace.CodeInvalidArgument, Message: "--task and --script are mutually exclusive"}
+	case script != "":
+		return workspace.ScriptFolder(script), nil
+	case task != "":
+		return workspace.TaskFolder(task), nil
+	}
+	return workspace.Folder{}, &workspace.Error{Code: workspace.CodeInvalidArgument, Message: "--task or --script is required"}
+}
+
+// wsFolderFlags adds --task and --script (mutually exclusive; wsFolder checks them).
+func wsFolderFlags(cmd *cobra.Command, task, script *string) {
+	cmd.Flags().StringVar(task, "task", "", "task name (the folder below the workspace)")
+	cmd.Flags().StringVar(script, "script", "", "script name (the folder below .scripts in the workspace)")
+}
+
 // wsRootFlag adds the hidden --root flag (the mounted workspace; tests point it elsewhere).
 func wsRootFlag(cmd *cobra.Command, root *string) {
 	cmd.Flags().StringVar(root, "root", DefaultWorkspaceRoot, "workspace directory")
@@ -218,28 +237,29 @@ func newWorkspacePurgeCommand(app *App) *cobra.Command {
 }
 
 func newWorkspaceListCommand(app *App) *cobra.Command {
-	var root, task string
+	var root, task, script string
 	var archive bool
 	opts := workspace.ListOptions{Recursive: true, MaxEntries: workspace.DefaultMaxEntries}
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List a task folder, or a snapshot on stdin with --archive",
+		Short: "List a task or script folder, or a snapshot on stdin with --archive",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return wsRun(app, cmd, args, func(ctx context.Context, events *workspace.Events) (any, error) {
 				if archive {
 					return workspace.ListArchive(ctx, app.Stdin, opts)
 				}
-				if err := wsRequire(wsFlag{"task", task}); err != nil {
+				folder, err := wsFolder(task, script)
+				if err != nil {
 					return nil, err
 				}
 				return wsWith(root, workspace.Limits{}, events, func(ws *workspace.Workspace) (any, error) {
-					return ws.List(ctx, task, opts)
+					return ws.List(ctx, folder, opts)
 				})
 			})
 		},
 	}
-	cmd.Flags().StringVar(&task, "task", "", "task name (the folder below the workspace)")
-	cmd.Flags().StringVar(&opts.Path, "path", "", `folder or file to list ("" = the task root)`)
+	wsFolderFlags(cmd, &task, &script)
+	cmd.Flags().StringVar(&opts.Path, "path", "", `folder or file to list ("" = the folder root)`)
 	cmd.Flags().BoolVar(&opts.Recursive, "recursive", true, "list the whole subtree")
 	cmd.Flags().IntVar(&opts.MaxEntries, "max-entries", opts.MaxEntries, "maximum entries returned")
 	cmd.Flags().BoolVar(&archive, "archive", false, "list the tar.gz snapshot on stdin instead of the workspace")
@@ -248,12 +268,12 @@ func newWorkspaceListCommand(app *App) *cobra.Command {
 }
 
 func newWorkspaceReadCommand(app *App) *cobra.Command {
-	var root, task, path string
+	var root, task, script, path string
 	var archive bool
 	maxBytes := wsByteSize(workspace.DefaultMaxReadBytes)
 	cmd := &cobra.Command{
 		Use:   "read",
-		Short: "Read a file of a task folder, or of a snapshot on stdin with --archive",
+		Short: "Read a file of a task or script folder, or of a snapshot on stdin with --archive",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return wsRun(app, cmd, args, func(ctx context.Context, events *workspace.Events) (any, error) {
 				if err := wsRequire(wsFlag{"path", path}); err != nil {
@@ -262,16 +282,17 @@ func newWorkspaceReadCommand(app *App) *cobra.Command {
 				if archive {
 					return workspace.ReadArchive(ctx, app.Stdin, path, int64(maxBytes))
 				}
-				if err := wsRequire(wsFlag{"task", task}); err != nil {
+				folder, err := wsFolder(task, script)
+				if err != nil {
 					return nil, err
 				}
 				return wsWith(root, workspace.Limits{}, events, func(ws *workspace.Workspace) (any, error) {
-					return ws.Read(ctx, task, path, int64(maxBytes))
+					return ws.Read(ctx, folder, path, int64(maxBytes))
 				})
 			})
 		},
 	}
-	cmd.Flags().StringVar(&task, "task", "", "task name")
+	wsFolderFlags(cmd, &task, &script)
 	cmd.Flags().StringVar(&path, "path", "", "file to read")
 	cmd.Flags().Var(&maxBytes, "max-bytes", "content returned at most (the hash covers the whole file)")
 	cmd.Flags().BoolVar(&archive, "archive", false, "read from the tar.gz snapshot on stdin instead of the workspace")
@@ -280,25 +301,26 @@ func newWorkspaceReadCommand(app *App) *cobra.Command {
 }
 
 func newWorkspaceWriteFilesCommand(app *App) *cobra.Command {
-	var root, task string
+	var root, task, script string
 	var create bool
 	limits := newWSLimitFlags()
 	cmd := &cobra.Command{
 		Use:   "write-files",
-		Short: `Write the files of {"files": {...}} on stdin into a task folder`,
+		Short: `Write the files of {"files": {...}} on stdin into a task or script folder`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return wsRun(app, cmd, args, func(ctx context.Context, events *workspace.Events) (any, error) {
-				if err := wsRequire(wsFlag{"task", task}); err != nil {
+				folder, err := wsFolder(task, script)
+				if err != nil {
 					return nil, err
 				}
 				return wsWith(root, limits.limits(), events, func(ws *workspace.Workspace) (any, error) {
-					return ws.WriteFiles(ctx, task, create, app.Stdin)
+					return ws.WriteFiles(ctx, folder, create, app.Stdin)
 				})
 			})
 		},
 	}
-	cmd.Flags().StringVar(&task, "task", "", "task name")
-	cmd.Flags().BoolVar(&create, "create", false, "create the task folder when it does not exist")
+	wsFolderFlags(cmd, &task, &script)
+	cmd.Flags().BoolVar(&create, "create", false, "create the folder (and .scripts) when it does not exist")
 	limits.addFiles(cmd)
 	limits.addBytes(cmd)
 	limits.addWorkspace(cmd)
@@ -307,56 +329,69 @@ func newWorkspaceWriteFilesCommand(app *App) *cobra.Command {
 }
 
 func newWorkspaceDeleteFilesCommand(app *App) *cobra.Command {
-	var root, task, path string
+	var root, task, script, path string
 	var recursive bool
 	cmd := &cobra.Command{
 		Use:   "delete-files",
-		Short: "Delete a file or folder of a task folder (--path \"\" --recursive: the whole folder)",
+		Short: "Delete a file or folder of a task or script folder (--path \"\" --recursive: the whole folder)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return wsRun(app, cmd, args, func(ctx context.Context, events *workspace.Events) (any, error) {
-				if err := wsRequire(wsFlag{"task", task}); err != nil {
+				folder, err := wsFolder(task, script)
+				if err != nil {
 					return nil, err
 				}
 				return wsWith(root, workspace.Limits{}, events, func(ws *workspace.Workspace) (any, error) {
-					return ws.DeleteFiles(ctx, task, path, recursive)
+					return ws.DeleteFiles(ctx, folder, path, recursive)
 				})
 			})
 		},
 	}
-	cmd.Flags().StringVar(&task, "task", "", "task name")
-	cmd.Flags().StringVar(&path, "path", "", `path to delete ("" = the task folder itself)`)
+	wsFolderFlags(cmd, &task, &script)
+	cmd.Flags().StringVar(&path, "path", "", `path to delete ("" = the folder itself)`)
 	cmd.Flags().BoolVar(&recursive, "recursive", false, "delete a non-empty folder")
 	wsRootFlag(cmd, &root)
 	return wsCommand(app, cmd)
 }
 
 func newWorkspaceScaffoldCommand(app *App) *cobra.Command {
-	var root string
+	var root, script string
 	var req workspace.ScaffoldRequest
 	limits := newWSLimitFlags()
 	cmd := &cobra.Command{
 		Use:   "scaffold",
-		Short: "Render the embedded scaffold into a new task folder",
+		Short: "Render the embedded scaffold into a new task folder, or the script scaffold into a new script folder",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return wsRun(app, cmd, args, func(ctx context.Context, events *workspace.Events) (any, error) {
-				if err := wsRequire(wsFlag{"task", req.Name}, wsFlag{"language", req.Language}); err != nil {
+				folder, err := wsFolder(req.Name, script)
+				if err != nil {
 					return nil, err
+				}
+				if err := wsRequire(wsFlag{"language", req.Language}); err != nil {
+					return nil, err
+				}
+				if folder.Kind == workspace.KindScript && cmd.Flags().Changed("template") {
+					return nil, &workspace.Error{Code: workspace.CodeInvalidArgument, Message: "--template does not apply to scripts"}
 				}
 				cfg, err := workspace.LoadConfig(app.Getenv)
 				if err != nil {
 					return nil, err
 				}
-				req.Images = cfg.Images
 				return wsWith(root, limits.limits(), events, func(ws *workspace.Workspace) (any, error) {
+					if folder.Kind == workspace.KindScript {
+						return ws.ScaffoldScript(ctx, workspace.ScriptScaffoldRequest{
+							Name: script, Description: req.Description, Language: req.Language, Images: cfg.Images,
+						})
+					}
+					req.Images = cfg.Images
 					return ws.Scaffold(ctx, req)
 				})
 			})
 		},
 	}
-	cmd.Flags().StringVar(&req.Name, "task", "", "task name")
+	wsFolderFlags(cmd, &req.Name, &script)
 	cmd.Flags().StringVar(&req.Language, "language", "", "language of schemas/languages.json")
-	cmd.Flags().StringVar(&req.Template, "template", workspace.DefaultTemplate, `template name or "custom"`)
-	cmd.Flags().StringVar(&req.Description, "description", "", "task description")
+	cmd.Flags().StringVar(&req.Template, "template", workspace.DefaultTemplate, `template name or "custom" (tasks only)`)
+	cmd.Flags().StringVar(&req.Description, "description", "", "task or script description")
 	limits.addFiles(cmd)
 	limits.addBytes(cmd)
 	limits.addWorkspace(cmd)
@@ -365,7 +400,7 @@ func newWorkspaceScaffoldCommand(app *App) *cobra.Command {
 }
 
 func newWorkspaceExtractCommand(app *App) *cobra.Command {
-	var root, staging string
+	var root, staging, kind string
 	limits := newWSLimitFlags()
 	cmd := &cobra.Command{
 		Use:   "extract",
@@ -375,13 +410,22 @@ func newWorkspaceExtractCommand(app *App) *cobra.Command {
 				if err := wsRequire(wsFlag{"staging", staging}); err != nil {
 					return nil, err
 				}
+				folderKind, err := workspace.ParseFolderKind(kind)
+				if err != nil {
+					return nil, err
+				}
 				return wsWith(root, limits.limits(), events, func(ws *workspace.Workspace) (any, error) {
-					return ws.Extract(ctx, staging, bufio.NewReaderSize(app.Stdin, 64<<10))
+					in := bufio.NewReaderSize(app.Stdin, 64<<10)
+					if folderKind == workspace.KindScript {
+						return ws.ExtractScript(ctx, staging, in)
+					}
+					return ws.Extract(ctx, staging, in)
 				})
 			})
 		},
 	}
 	cmd.Flags().StringVar(&staging, "staging", "", "staging id")
+	cmd.Flags().StringVar(&kind, "kind", string(workspace.KindTask), `folder kind of the archive: "task" (scantor.yaml) or "script" (scantor-script.yaml)`)
 	limits.addPack(cmd)
 	limits.addFiles(cmd)
 	limits.addBytes(cmd)
@@ -470,10 +514,13 @@ func newWorkspaceCommitCommand(app *App) *cobra.Command {
 	limits := newWSLimitFlags()
 	cmd := &cobra.Command{
 		Use:   "commit",
-		Short: "Replace a task folder atomically with a staged tree",
+		Short: "Replace a task or script folder atomically with a staged tree",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return wsRun(app, cmd, args, func(ctx context.Context, events *workspace.Events) (any, error) {
-				if err := wsRequire(wsFlag{"staging", opts.Staging}, wsFlag{"task", opts.Task}, wsFlag{"expect", opts.Expect}); err != nil {
+				if err := wsRequire(wsFlag{"staging", opts.Staging}, wsFlag{"expect", opts.Expect}); err != nil {
+					return nil, err
+				}
+				if _, err := wsFolder(opts.Task, opts.Script); err != nil {
 					return nil, err
 				}
 				return wsWith(root, limits.limits(), events, func(ws *workspace.Workspace) (any, error) {
@@ -484,7 +531,7 @@ func newWorkspaceCommitCommand(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&opts.Staging, "staging", "", "staging id")
 	cmd.Flags().StringVar(&opts.From, "from", "", "folder below the staging tree to commit (default: the whole tree)")
-	cmd.Flags().StringVar(&opts.Task, "task", "", "task name")
+	wsFolderFlags(cmd, &opts.Task, &opts.Script)
 	cmd.Flags().StringVar(&opts.Expect, "expect", "", `current workspace hash the decision was based on, "absent" or "any"`)
 	limits.addFiles(cmd)
 	limits.addBytes(cmd)
@@ -515,24 +562,25 @@ func newWorkspaceDiscardCommand(app *App) *cobra.Command {
 }
 
 func newWorkspaceSnapshotCommand(app *App) *cobra.Command {
-	var root, task string
+	var root, task, script string
 	var hashOnly bool
 	limits := newWSLimitFlags()
 	cmd := &cobra.Command{
 		Use:   "snapshot",
-		Short: "Write the deterministic pack of a task folder to stdout (or its summary with --hash-only)",
+		Short: "Write the deterministic pack of a task or script folder to stdout (or its summary with --hash-only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return wsRun(app, cmd, args, func(ctx context.Context, events *workspace.Events) (any, error) {
-				if err := wsRequire(wsFlag{"task", task}); err != nil {
+				folder, err := wsFolder(task, script)
+				if err != nil {
 					return nil, err
 				}
 				return wsWith(root, limits.limits(), events, func(ws *workspace.Workspace) (any, error) {
 					if hashOnly {
-						sum, err := ws.Snapshot(ctx, task, nil)
+						sum, err := ws.Snapshot(ctx, folder, nil)
 						return sum.Summary(), err
 					}
 					out := bufio.NewWriterSize(app.Stdout, 64<<10)
-					sum, err := ws.Snapshot(ctx, task, out)
+					sum, err := ws.Snapshot(ctx, folder, out)
 					if err != nil {
 						return nil, err
 					}
@@ -545,7 +593,7 @@ func newWorkspaceSnapshotCommand(app *App) *cobra.Command {
 			})
 		},
 	}
-	cmd.Flags().StringVar(&task, "task", "", "task name")
+	wsFolderFlags(cmd, &task, &script)
 	cmd.Flags().BoolVar(&hashOnly, "hash-only", false, "print the summary JSON instead of the pack")
 	limits.addFiles(cmd)
 	limits.addBytes(cmd)

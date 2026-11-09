@@ -17,6 +17,8 @@ export interface NotificationEvent {
   scanId?: string
   taskId?: string
   revisionId?: string
+  scriptId?: string
+  scriptRunId?: string
   nodeId?: string
   data?: Record<string, unknown>
 }
@@ -95,6 +97,19 @@ export function buildNotificationMessage(trigger: NotificationTrigger, event: No
         message: event.message,
         tags: [ready ? 'package' : 'x', TAG],
         click: event.taskId && typeof number === 'number' ? `${taskUrl}/revisions/${number}` : taskUrl,
+      }
+      break
+    }
+    case 'scriptRunCompleted':
+    case 'scriptRunFailed': {
+      const completed = trigger === 'scriptRunCompleted'
+      const scriptName = typeof event.data?.scriptName === 'string' ? event.data.scriptName : 'script'
+      const scriptUrl = event.scriptId ? `${base}/scripts/${event.scriptId}` : `${base}/scripts`
+      message = {
+        title: `Script run of "${scriptName}" ${completed ? 'completed' : 'failed'}`,
+        message: event.message,
+        tags: [completed ? 'white_check_mark' : 'x', TAG],
+        click: event.scriptId && event.scriptRunId ? `${scriptUrl}/runs/${event.scriptRunId}` : scriptUrl,
       }
       break
     }

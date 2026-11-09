@@ -372,7 +372,56 @@ describe('JobsRunner', () => {
     instance.start()
     await vi.waitFor(() => expect(job(created._id).state).toBe('running'))
     await instance.stop(100)
-    expect(job(created._id)).toMatchObject({ state: 'queued', lease: null, active: true })
+    expect(job(created._id)).toMatchObject({ state: 'queued', lease: null, active: true, attempts: 1 })
+  })
+
+  it('gives the attempt back on stop for kinds with refundAttemptOnStop, and only then', async () => {
+    const waitForAbort: JobKindDefinition['handler'] = (_claimed, ctx) => new Promise<void>((resolve) => ctx.signal.addEventListener('abort', () => resolve()))
+    const instance = runner([
+      ['scriptRun', { component: 'reconciler', concurrency: 1, refundAttemptOnStop: true, handler: waitForAbort }],
+      ['scanDelete', { component: 'reconciler', concurrency: 1, handler: waitForAbort }],
+    ])
+    const refunded = await create('scriptRun', 'r1', 'u1', 10)
+    const counted = await create('scanDelete', 's1')
+    instance.start()
+    await vi.waitFor(() => expect([job(refunded._id).state, job(counted._id).state]).toEqual(['running', 'running']))
+    expect(job(refunded._id).attempts).toBe(1)
+    await instance.stop(100)
+    expect(job(refunded._id)).toMatchObject({ state: 'queued', lease: null, active: true, attempts: 0 })
+    expect(job(counted._id)).toMatchObject({ state: 'queued', attempts: 1 })
+
+    // Many restarts never exhaust the attempts: the job is claimed again with attempt 1.
+    for (let restart = 0; restart < 3; restart++) {
+      const next = runner([['scriptRun', { component: 'reconciler', concurrency: 1, refundAttemptOnStop: true, handler: waitForAbort }]], `runner-${restart + 2}`)
+      next.start()
+      await vi.waitFor(() => expect(job(refunded._id)).toMatchObject({ state: 'running', attempts: 1 }))
+      await next.stop(100)
+      expect(job(refunded._id)).toMatchObject({ state: 'queued', attempts: 0 })
+    }
+  })
+
+  it('still counts attempts of refundAttemptOnStop kinds that fail or lose their lease', async () => {
+    let calls = 0
+    const instance = runner([
+      [
+        'scriptRun',
+        {
+          component: 'reconciler',
+          concurrency: 1,
+          refundAttemptOnStop: true,
+          backoff: { initialMs: 1, maxMs: 1 },
+          handler: async () => {
+            calls++
+            throw new Error('boom')
+          },
+        },
+      ],
+    ])
+    const created = await create('scriptRun', 'r1', 'u1', 2)
+    instance.start()
+    await vi.waitFor(() => expect(job(created._id).state).toBe('failed'))
+    expect(calls).toBe(2)
+    expect(job(created._id).attempts).toBe(2)
   })
 
   it('calls onRequeued whenever a running job goes back to queued: stop, lease expiry and a retry', async () => {

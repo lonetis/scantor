@@ -32,7 +32,7 @@ defineRouteMeta({
                   tokenSet: { type: 'boolean', description: 'whether an access token is stored; the token is never returned' },
                   triggers: {
                     type: 'array',
-                    items: { type: 'string', enum: ['scanFinished', 'scanPaused', 'scanProblem', 'revisionBuilt', 'nodeAvailability'] },
+                    items: { type: 'string', enum: ['scanFinished', 'scanPaused', 'scanProblem', 'revisionBuilt', 'nodeAvailability', 'scriptRunCompleted', 'scriptRunFailed'] },
                   },
                   lastDelivery: {
                     type: ['object', 'null'],

@@ -18,6 +18,7 @@ import { useCollections } from './mongo'
  *     concurrency: 2,                    // or (config) => config.buildConcurrency
  *     perUserConcurrency: undefined,     // optional cap per job owner (exports)
  *     maxAttempts: 5,                    // default for jobs created without maxAttempts
+ *     refundAttemptOnStop: undefined,    // optional: a requeue at runner stop does not count the attempt
  *     async handler(job, ctx) {
  *       // resume from job.cursor; persist progress after every batch:
  *       await ctx.saveCursor({ phase: 'analyses', afterSeq }, { done, total })
@@ -63,6 +64,11 @@ export interface JobKindDefinition {
   maxAttempts?: number
   /** backoff between attempts: min(maxMs, initialMs × 2^(attempts − 1)) */
   backoff?: { initialMs: number; maxMs: number }
+  /**
+   * When the runner stops (orchestrator shutdown), the requeue gives the claim's attempt back, so restarts and updates
+   * never exhaust the attempts of long jobs that detach from their work (script runs keep their container running).
+   */
+  refundAttemptOnStop?: boolean
   handler(job: JobDoc, ctx: JobContext): Promise<void>
   /** called once when the job ends `failed` */
   onFailed?(job: JobDoc, error: { code: string; message: string }, ctx: { log: Logger; config: Config }): Promise<void>

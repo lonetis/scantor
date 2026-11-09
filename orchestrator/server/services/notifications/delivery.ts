@@ -33,6 +33,8 @@ function eventSnapshot(event: EventDoc): NotificationEvent {
   if (event.scanId) snapshot.scanId = event.scanId
   if (event.taskId) snapshot.taskId = event.taskId
   if (event.revisionId) snapshot.revisionId = event.revisionId
+  if (event.scriptId) snapshot.scriptId = event.scriptId
+  if (event.scriptRunId) snapshot.scriptRunId = event.scriptRunId
   if (event.nodeId) snapshot.nodeId = event.nodeId
   if (event.data) snapshot.data = event.data
   return snapshot

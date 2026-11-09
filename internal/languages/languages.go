@@ -38,7 +38,21 @@ type Language struct {
 	Scaffold         string   `json:"scaffold"`
 	Guide            string   `json:"guide"`
 	EditorExtensions []string `json:"editorExtensions"`
+	// Script is the language's script support; nil when the language cannot run scripts.
+	Script *Script `json:"script,omitempty"`
 }
+
+// Script is the optional script support of a language (docs/scripts.md): the default entry of a script
+// folder, the scaffold directory `scantor scripts init` and createScript render, and the user guide.
+// When the object is present, all three fields are required.
+type Script struct {
+	Entry    string `json:"entry"`
+	Scaffold string `json:"scaffold"`
+	Guide    string `json:"guide"`
+}
+
+// SupportsScripts reports whether scripts can be written in the language.
+func (l Language) SupportsScripts() bool { return l.Script != nil }
 
 // IsSource reports whether the entry is a source file in the task folder (as opposed to a binary built
 // by the Dockerfile).
@@ -100,6 +114,19 @@ func (l Language) validate() error {
 	case l.IsSource() && !l.HasExtension(l.Entry):
 		return fmt.Errorf("default entry %q has none of the extensions %s", l.Entry, strings.Join(l.Extensions, ", "))
 	}
+	if l.Script != nil {
+		return l.Script.validate(l)
+	}
+	return nil
+}
+
+func (s *Script) validate(l Language) error {
+	switch {
+	case s.Entry == "" || s.Scaffold == "" || s.Guide == "":
+		return fmt.Errorf("script: entry, scaffold and guide are required")
+	case l.IsSource() && !l.HasExtension(s.Entry):
+		return fmt.Errorf("script: default entry %q has none of the extensions %s", s.Entry, strings.Join(l.Extensions, ", "))
+	}
 	return nil
 }
 
@@ -124,6 +151,17 @@ func (t *Table) All() []Language {
 	out := make([]Language, 0, len(t.byName))
 	for _, n := range t.Names() {
 		out = append(out, t.byName[n])
+	}
+	return out
+}
+
+// WithScripts returns the languages that support scripts, sorted by name.
+func (t *Table) WithScripts() []Language {
+	var out []Language
+	for _, l := range t.All() {
+		if l.SupportsScripts() {
+			out = append(out, l)
+		}
 	}
 	return out
 }

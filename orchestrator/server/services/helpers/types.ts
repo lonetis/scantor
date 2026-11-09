@@ -57,7 +57,20 @@ export interface HelperStreamOptions {
   stdout: Writable
 }
 
-/** `{packSha256, fileCount, bytes}` of a task folder, computed by the same pack code as `scantor task pack`. */
+/**
+ * The kinds of workspace folders (docs/editor.md §9.4): a task folder is `<name>`, a script folder `.scripts/<name>`.
+ * The Go helpers map (kind, name) to the folder; the orchestrator only names it.
+ */
+export const FOLDER_KINDS = ['task', 'script'] as const
+export type FolderKind = (typeof FOLDER_KINDS)[number]
+
+/** A workspace folder named like the helper flags `--task <name>` and `--script <name>`. */
+export type WorkspaceFolder = { task: string; script?: never } | { script: string; task?: never }
+
+/** A task name (the original argument of every folder operation) or a WorkspaceFolder. */
+export type FolderRef = string | WorkspaceFolder
+
+/** `{packSha256, fileCount, bytes}` of a task or script folder, computed by the same pack code as `scantor task pack`. */
 export interface WorkspaceSummary {
   packSha256: string
   fileCount: number
@@ -147,8 +160,10 @@ export interface GitPullOutput {
   current: WorkspaceSummary | null
 }
 
+/** `commit` names the folder it wrote like its flag: `task` for `--task`, `script` for `--script`. */
 export interface CommitOutput {
-  task: string
+  task?: string
+  script?: string
   changed: boolean
   previousPackSha256: string | null
   workspace: WorkspaceSummary

@@ -40,19 +40,21 @@ const (
 	LabelEditorCookie    = "editor-cookie"
 	LabelBuiltinNode     = "builtin-node"
 	LabelMongoQuery      = "mongo-query"
+	LabelScriptRunToken  = "script-run-token"
 )
 
 // Labels lists every HKDF label in the order of docs/architecture.md §9.
 var Labels = []string{
 	LabelBetterAuth, LabelRegistrySigning, LabelRegistryPush, LabelRegistryHTTP, LabelWorkerToken,
 	LabelAMQP, LabelCredentials, LabelConfigSecrets, LabelToolsCookie, LabelEditorCookie,
-	LabelBuiltinNode, LabelMongoQuery,
+	LabelBuiltinNode, LabelMongoQuery, LabelScriptRunToken,
 }
 
 // Token prefixes.
 const (
-	NodeTokenPrefix   = "snt_"
-	WorkerTokenPrefix = "swt_"
+	NodeTokenPrefix      = "snt_"
+	WorkerTokenPrefix    = "swt_"
+	ScriptRunTokenPrefix = "ssr_"
 )
 
 // ErrEmptySecret is returned when SCANTOR_SECRET is empty: deriving from an empty secret would produce
@@ -154,6 +156,37 @@ var workerTokenPattern = regexp.MustCompile(`^swt_([0-9a-f-]{36})\.([A-Za-z0-9_-
 // have the format of docs/auth.md §10.2.
 func ParseWorkerToken(token string) (workerID, mac string, ok bool) {
 	m := workerTokenPattern.FindStringSubmatch(token)
+	if m == nil {
+		return "", "", false
+	}
+	return m[1], m[2], true
+}
+
+// ScriptRunTokenMAC returns base64url(HMAC-SHA256(key("script-run-token"), scriptRunId "\n" scriptId "\n" userId)).
+func ScriptRunTokenMAC(secret, scriptRunID, scriptID, userID string) (string, error) {
+	k, err := Derive(secret, LabelScriptRunToken)
+	if err != nil {
+		return "", err
+	}
+	return b64url(hmacSHA256(k, scriptRunID+"\n"+scriptID+"\n"+userID)), nil
+}
+
+// ScriptRunToken returns "ssr_<scriptRunId>.<mac>", the credential of one script-run container. The
+// orchestrator mints and checks it; the Go side implements it for the shared vectors.
+func ScriptRunToken(secret, scriptRunID, scriptID, userID string) (string, error) {
+	mac, err := ScriptRunTokenMAC(secret, scriptRunID, scriptID, userID)
+	if err != nil {
+		return "", err
+	}
+	return ScriptRunTokenPrefix + scriptRunID + "." + mac, nil
+}
+
+var scriptRunTokenPattern = regexp.MustCompile(`^ssr_([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$`)
+
+// ParseScriptRunToken splits a script-run token into its run id and MAC. ok is false when token does
+// not have the script-run token format.
+func ParseScriptRunToken(token string) (scriptRunID, mac string, ok bool) {
+	m := scriptRunTokenPattern.FindStringSubmatch(token)
 	if m == nil {
 		return "", "", false
 	}

@@ -1,6 +1,6 @@
 import { createPublicKey, createSign, createVerify } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
-import { createKeyring, KEY_LABELS, nodeTokenHash, parseWorkerToken, safeEqual } from '../../server/utils/keys'
+import { createKeyring, KEY_LABELS, nodeTokenHash, parseScriptRunToken, parseWorkerToken, safeEqual } from '../../server/utils/keys'
 import { decryptSecret, encryptSecret } from '../../server/utils/secrets'
 import { readRepoFile, repoFileExists } from '../helpers/repo'
 
@@ -20,6 +20,7 @@ interface Vectors {
   builtinNodeToken: { secret: string; value: string; tokenHash: string }[]
   nodeTokenHash: { token: string; hash: string }[]
   workerToken: { secret: string; workerId: string; scanId: string; role: string; nodeId: string; value: string }[]
+  scriptRunToken: { secret: string; scriptRunId: string; scriptId: string; userId: string; value: string }[]
   amqpPassword: { secret: string; scanId: string; value: string }[]
   editorCookie: { secret: string; userId: string; editorStartedAtMs: number; expiresAtMs: number; value: string }[]
   toolsCookieSignature: { secret: string; signingInput: string; signature: string }[]
@@ -68,6 +69,15 @@ describe.skipIf(!hasVectors)('keys against tests/corpora/keys-vectors.json', () 
       const token = createKeyring(vector.secret).workerToken(vector.workerId, vector.scanId, vector.role, vector.nodeId)
       expect(token).toBe(vector.value)
       expect(parseWorkerToken(token)).toEqual({ workerId: vector.workerId, mac: token.split('.')[1] })
+    }
+  })
+
+  it('mints script-run tokens', () => {
+    expect(v.scriptRunToken.length).toBeGreaterThan(0)
+    for (const vector of v.scriptRunToken) {
+      const token = createKeyring(vector.secret).scriptRunToken(vector.scriptRunId, vector.scriptId, vector.userId)
+      expect(token).toBe(vector.value)
+      expect(parseScriptRunToken(token)).toEqual({ scriptRunId: vector.scriptRunId, mac: token.split('.')[1] })
     }
   })
 
@@ -120,6 +130,25 @@ describe('keyring', () => {
     expect(keys.builtinNodeToken()).toMatch(/^snt_[A-Za-z0-9_-]{43}$/)
     expect(keys.workerToken('9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d', 's', 'runner', 'n')).toMatch(/^swt_[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}$/)
     expect(keys.amqpPassword('scan')).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  })
+
+  it('formats script-run tokens and binds their MAC to the script and the user', () => {
+    const runId = '3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f'
+    const token = keys.scriptRunToken(runId, 'script', 'user')
+    expect(token).toMatch(/^ssr_[0-9a-f-]{36}\.[A-Za-z0-9_-]{43}$/)
+    expect(token).toBe(`ssr_${runId}.${keys.scriptRunTokenMac(runId, 'script', 'user')}`)
+    const base = keys.scriptRunTokenMac(runId, 'script', 'user')
+    expect(keys.scriptRunTokenMac(runId, 'other', 'user')).not.toBe(base)
+    expect(keys.scriptRunTokenMac(runId, 'script', 'other')).not.toBe(base)
+    expect(keys.scriptRunTokenMac('4c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f', 'script', 'user')).not.toBe(base)
+    // The label separates it from the worker token even for colliding inputs.
+    expect(base).not.toBe(keys.workerTokenMac(runId, 'script', 'user', ''))
+  })
+
+  it('rejects malformed script-run tokens', () => {
+    expect(parseScriptRunToken('ssr_not-a-uuid.mac')).toBeNull()
+    expect(parseScriptRunToken(keys.workerToken('9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d', 's', 'runner', 'n'))).toBeNull()
+    expect(parseScriptRunToken(`ssr_3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f.${'a'.repeat(44)}`)).toBeNull()
   })
 
   it('binds the worker token MAC to scan, role and node', () => {

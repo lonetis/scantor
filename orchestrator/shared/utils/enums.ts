@@ -44,14 +44,25 @@ export type EndpointProfile = (typeof ENDPOINT_PROFILES)[number]
 export const DIND_MODES = ['disabled', 'sysbox', 'privileged'] as const
 export type DindMode = (typeof DIND_MODES)[number]
 
-export const JOB_KINDS = ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge', 'notification'] as const
+export const JOB_KINDS = [
+  'revisionBuild',
+  'testRun',
+  'scanDelete',
+  'scanRetryFailed',
+  'export',
+  'taskDelete',
+  'userPurge',
+  'notification',
+  'scriptRun',
+  'scriptDelete',
+] as const
 export type JobKind = (typeof JOB_KINDS)[number]
 
 export const JOB_STATES = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const
 export type JobState = (typeof JOB_STATES)[number]
 export const TERMINAL_JOB_STATES = ['succeeded', 'failed', 'cancelled'] as const satisfies readonly JobState[]
 
-export const JOB_SUBJECT_KINDS = ['revision', 'testRun', 'scan', 'export', 'task', 'user', 'notification'] as const
+export const JOB_SUBJECT_KINDS = ['revision', 'testRun', 'scan', 'export', 'task', 'user', 'notification', 'scriptRun', 'script'] as const
 export type JobSubjectKind = (typeof JOB_SUBJECT_KINDS)[number]
 
 export const EXPORT_STATES = ['queued', 'running', 'ready', 'failed'] as const
@@ -109,6 +120,27 @@ export type BuildErrorPhase = (typeof BUILD_ERROR_PHASES)[number]
 export const TASK_SOURCE_KINDS = ['scaffold', 'upload', 'git'] as const
 export type TaskSourceKind = (typeof TASK_SOURCE_KINDS)[number]
 
+export const SCRIPT_SOURCE_KINDS = ['scaffold', 'upload'] as const
+export type ScriptSourceKind = (typeof SCRIPT_SOURCE_KINDS)[number]
+
+export const SCRIPT_RUN_STATES = ['queued', 'building', 'running', 'completed', 'failed', 'cancelled'] as const
+export type ScriptRunState = (typeof SCRIPT_RUN_STATES)[number]
+/** Active script runs hold a job; the script-run token is valid only while the run is `running`. */
+export const ACTIVE_SCRIPT_RUN_STATES = ['queued', 'building', 'running'] as const satisfies readonly ScriptRunState[]
+export const TERMINAL_SCRIPT_RUN_STATES = ['completed', 'failed', 'cancelled'] as const satisfies readonly ScriptRunState[]
+
+/** Streams of a script run's log: build events, the container's stdout and stderr, and platform notices. */
+export const SCRIPT_RUN_LOG_STREAMS = ['build', 'stdout', 'stderr', 'system'] as const
+export type ScriptRunLogStream = (typeof SCRIPT_RUN_LOG_STREAMS)[number]
+
+export const SCRIPT_RUN_ERROR_TYPES = ['scriptError', 'validation', 'timeout', 'crash', 'platform'] as const
+export type ScriptRunErrorType = (typeof SCRIPT_RUN_ERROR_TYPES)[number]
+/** The error types a script reports itself through `finish`; the others are decided by the platform. */
+export const SCRIPT_REPORTED_ERROR_TYPES = ['scriptError', 'validation'] as const satisfies readonly ScriptRunErrorType[]
+
+export const SCRIPT_OUTPUT_STATES = ['pending', 'stored'] as const
+export type ScriptOutputState = (typeof SCRIPT_OUTPUT_STATES)[number]
+
 export const REVISION_SOURCE_KINDS = ['workspace', 'upload', 'git'] as const
 export type RevisionSourceKind = (typeof REVISION_SOURCE_KINDS)[number]
 
@@ -125,7 +157,7 @@ export const API_KEY_CONFIG_IDS = ['default', 'editor'] as const
 export type ApiKeyConfigId = (typeof API_KEY_CONFIG_IDS)[number]
 
 /** `x-scantor-scope` values (docs/api.md §1.2). */
-export const OPERATION_SCOPES = ['owner', 'admin', 'public', 'node', 'worker', 'setup', 'tools'] as const
+export const OPERATION_SCOPES = ['owner', 'admin', 'public', 'node', 'worker', 'setup', 'tools', 'scriptRun'] as const
 export type OperationScope = (typeof OPERATION_SCOPES)[number]
 
 /** MCP access levels, ordered from least to most privileged (docs/mcp.md §3.2). */

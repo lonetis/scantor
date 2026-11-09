@@ -30,8 +30,9 @@ const (
 	MaxSegmentBytes = 255
 )
 
-// forcedIncludes are part of every pack even when .dockerignore matches them.
-var forcedIncludes = map[string]bool{manifest.FileName: true, DockerfileName: true, DockerignoreName: true}
+// forcedIncludes are part of every pack even when .dockerignore matches them: the task and script
+// manifests, the Dockerfile and the .dockerignore.
+var forcedIncludes = map[string]bool{manifest.FileName: true, manifest.ScriptFileName: true, DockerfileName: true, DockerignoreName: true}
 
 // hardExcluded reports whether a path is never part of a task: any path segment named .git or
 // .scantor (git metadata and the CLI's scratch directory).

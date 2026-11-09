@@ -48,7 +48,10 @@ interface CachedState {
   expiresAt: number
 }
 
-/** The folder code-server opens after the handoff: the task folder, or the workspace root. */
+/**
+ * The folder code-server opens after the handoff: a workspace-relative task or script folder (services/editor/open.ts
+ * builds it), or the workspace root.
+ */
 export function editorLandingPath(open: string | null): string {
   return `/?folder=${WORKSPACE_ROOT}${open ? `/${open}` : ''}`
 }

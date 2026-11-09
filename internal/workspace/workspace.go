@@ -10,6 +10,7 @@
 // Layout of a workspace (docs/editor.md §9.6):
 //
 //	/workspace/<task>/                       one folder per task (the task name is a slug)
+//	/workspace/.scripts/<script>/            one folder per script (Folder.Rel maps kind and name)
 //	/workspace/.scantor-staging/<id>/tree/   output of extract, git-clone and git-pull
 //	/workspace/.scantor-staging/<id>/old/    the previous task folder while commit swaps it
 //	/workspace/.scantor-staging/.tmp-<id>/   scratch space of one pack (its spool)
@@ -116,40 +117,6 @@ func (w *Workspace) collectStaging() {
 		}
 		w.events.Infof("removed stale staging %s", e.Name())
 	}
-}
-
-// taskInfo returns the lstat information of the task folder, or nil when it does not exist. A task
-// folder that is not a real directory (for example a symlink planted in the editor) is invalidPath.
-func (w *Workspace) taskInfo(task string) (fs.FileInfo, error) {
-	if err := ValidateTaskName(task); err != nil {
-		return nil, err
-	}
-	info, err := w.root.Lstat(task)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return nil, nil
-	case err != nil:
-		return nil, internalError(err, "stat task folder %s", task)
-	case !info.IsDir():
-		return nil, pathError(task, "the task folder %q is not a directory", task)
-	}
-	return info, nil
-}
-
-// openTask opens the existing task folder as a root; notFound when it does not exist.
-func (w *Workspace) openTask(task string) (*os.Root, error) {
-	info, err := w.taskInfo(task)
-	if err != nil {
-		return nil, err
-	}
-	if info == nil {
-		return nil, notFound("", "the task folder %q does not exist", task)
-	}
-	root, err := w.root.OpenRoot(task)
-	if err != nil {
-		return nil, internalError(err, "open task folder %s", task)
-	}
-	return root, nil
 }
 
 // stagingArea ensures the staging area exists. A staging entry that is not a real
@@ -396,22 +363,22 @@ func checkTaskCaps(limits Limits, u treeUsage) error {
 	return nil
 }
 
-// taskSummary returns the pack summary of an existing task folder.
-func (w *Workspace) taskSummary(ctx context.Context, task string) (Summary, error) {
-	s, err := w.snapshot(ctx, task, nil, Limits{})
+// folderSummary returns the pack summary of an existing task or script folder.
+func (w *Workspace) folderSummary(ctx context.Context, f Folder) (Summary, error) {
+	s, err := w.snapshot(ctx, f, nil, Limits{})
 	return s.Summary(), err
 }
 
-// snapshot packs the existing task folder (a real directory, never a symlink) into out (nil: hash only).
-func (w *Workspace) snapshot(ctx context.Context, task string, out io.Writer, limits Limits) (PackSummary, error) {
-	info, err := w.taskInfo(task)
+// snapshot packs the existing folder (a real directory, never a symlink) into out (nil: hash only).
+func (w *Workspace) snapshot(ctx context.Context, f Folder, out io.Writer, limits Limits) (PackSummary, error) {
+	info, err := w.folderInfo(f)
 	if err != nil {
 		return PackSummary{}, err
 	}
 	if info == nil {
-		return PackSummary{}, notFound("", "the task folder %q does not exist", task)
+		return PackSummary{}, notFound("", "the %s does not exist", f.describe())
 	}
-	return w.packDir(ctx, w.abs(task), out, limits)
+	return w.packDir(ctx, w.abs(f.Rel()), out, limits)
 }
 
 // abs returns the absolute path of a workspace-relative path (for code that works on paths: the pack

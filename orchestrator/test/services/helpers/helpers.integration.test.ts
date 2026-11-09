@@ -180,6 +180,35 @@ describe.skipIf(!enabled)('workspace helpers (Docker)', () => {
     await expect(ops.extract(USER, '21111111-2222-4333-8444-555555555555', Readable.from([gzipSync(Buffer.concat(chunks))]))).rejects.toMatchObject({ code: 'invalidPath' })
   }, 120_000)
 
+  it('addresses script folders below .scripts with --script and --kind script', async () => {
+    const script = { script: 'csp' } as const
+    const { workspace } = await ops.scaffold(USER, { script: 'csp', language: 'python', description: 'Counts CSP headers' })
+    expect(workspace.packSha256).toMatch(/^[0-9a-f]{64}$/)
+    const listing = await ops.listFiles(USER, script, { path: '', recursive: true })
+    expect(listing.entries.map((entry) => entry.path)).toEqual(expect.arrayContaining(['scantor-script.yaml', 'Dockerfile', 'main.py', 'models.py']))
+    expect((await ops.readFile(USER, script, 'scantor-script.yaml')).content).toContain('name: csp')
+    // A task of the same name is another folder.
+    expect((await ops.readFile(USER, 'echo', 'scantor.yaml')).content).toContain('name: echo')
+    await ops.writeFiles(USER, script, { 'extra.txt': 'x' })
+    const summary = await ops.snapshotHash(USER, script)
+    const sink = new Collect()
+    const streamed = await ops.snapshotStream(USER, script, sink)
+    expect(streamed.packSha256).toBe(summary!.packSha256)
+    const scriptPack = sink.value()
+
+    const staging = '31111111-2222-4333-8444-555555555555'
+    const extracted = await ops.extract(USER, staging, Readable.from([scriptPack]), { kind: 'script' })
+    expect(extracted.manifest).toMatchObject({ name: 'csp', language: 'python', entry: 'main.py' })
+    const committed = await ops.commit(USER, { stagingId: staging, script: 'uploaded', expect: 'absent' })
+    expect(committed).toMatchObject({ script: 'uploaded', changed: true, workspace: { packSha256: streamed.packSha256 } })
+    await expect(ops.extract(USER, '41111111-2222-4333-8444-555555555555', Readable.from([pack]), { kind: 'script' })).rejects.toMatchObject({
+      code: 'manifestInvalid',
+    })
+    await ops.deleteFolder(USER, { script: 'uploaded' })
+    expect(await ops.snapshotHash(USER, { script: 'uploaded' })).toBeNull()
+    await ops.deleteFolder(USER, { script: 'uploaded' })
+  }, 180_000)
+
   it('purges the user directories', async () => {
     const { removed } = await ops.purgeUserDirs(USER)
     expect(removed.length).toBeGreaterThan(0)

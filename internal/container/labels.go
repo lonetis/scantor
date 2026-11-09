@@ -28,6 +28,7 @@ const (
 	KindHelper       Kind = "helper"
 	KindBuild        Kind = "build"
 	KindTestRun      Kind = "testRun"
+	KindScriptRun    Kind = "scriptRun"
 	KindEditor       Kind = "editor"
 	KindEgressHelper Kind = "egressHelper"
 	KindNetwork      Kind = "network"
@@ -35,31 +36,34 @@ const (
 
 // Identity label keys.
 const (
-	LabelManaged  = "scantor.managed"
-	LabelKind     = "scantor.kind"
-	LabelWorker   = "scantor.worker"
-	LabelScan     = "scantor.scan"
-	LabelUser     = "scantor.user"
-	LabelNode     = "scantor.node"
-	LabelSpecHash = "scantor.spec-hash"
-	LabelOp       = "scantor.op"
+	LabelManaged   = "scantor.managed"
+	LabelKind      = "scantor.kind"
+	LabelWorker    = "scantor.worker"
+	LabelScan      = "scantor.scan"
+	LabelUser      = "scantor.user"
+	LabelNode      = "scantor.node"
+	LabelSpecHash  = "scantor.spec-hash"
+	LabelOp        = "scantor.op"
+	LabelScriptRun = "scantor.script-run"
 )
 
 // Identity holds the identity label values of one object; only the keys of its kind may be set, and
 // all of them must be.
 type Identity struct {
-	Worker   string
-	Scan     string
-	User     string
-	Node     string
-	SpecHash string
-	Op       string
+	Worker    string
+	Scan      string
+	User      string
+	Node      string
+	SpecHash  string
+	Op        string
+	ScriptRun string
 }
 
 func (id Identity) values() map[string]string {
 	return map[string]string{
 		LabelWorker: id.Worker, LabelScan: id.Scan, LabelUser: id.User,
 		LabelNode: id.Node, LabelSpecHash: id.SpecHash, LabelOp: id.Op,
+		LabelScriptRun: id.ScriptRun,
 	}
 }
 

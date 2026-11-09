@@ -14,6 +14,7 @@ func TestString(t *testing.T) {
 	const editorKey = "sk_scantor_editor_AbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKlMnOpQrStUvWxYzAbCdEfGhIjKl"
 	const nodeToken = "snt_3q8ZkP2mW9xV7bN1cR4tY6uA0sD5fG8hJ2kL4zX7cV9"
 	const workerToken = "swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d.yJk2Xh0n4mQ8sV1bR7cT3wZ5aP9dL6fG2hK8jN0uE4o"
+	const scriptRunToken = "ssr_3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a.Qm7Xk2Pz9Wv4Ns1Lr8Tc5Yh3Ja6Fd0Gb2Ke7Ui4Oq9Ex"
 	cases := []struct {
 		name, in       string
 		mustNotContain []string
@@ -23,6 +24,8 @@ func TestString(t *testing.T) {
 		{"editor key", editorKey, []string{editorKey[18:]}, []string{"sk_scantor_editor_" + Mask}},
 		{"node token", "token=" + nodeToken, []string{nodeToken[4:]}, []string{"snt_" + Mask}},
 		{"worker token keeps the id", workerToken, []string{"yJk2Xh0n4mQ8"}, []string{"swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d." + Mask}},
+		{"script-run token keeps the id", "SCANTOR_SCRIPT_TOKEN=" + scriptRunToken, []string{"Qm7Xk2Pz9Wv4"}, []string{"SCANTOR_SCRIPT_TOKEN=ssr_3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a." + Mask}},
+		{"script-run mac without id", "ssr_Qm7Xk2Pz9Wv4Ns1Lr8Tc5Yh3Ja6Fd0Gb2Ke7Ui4Oq9Ex", []string{"Qm7Xk2Pz9Wv4"}, []string{"ssr_" + Mask}},
 		{"setup token", "sst_q9w8e7r6t5y4u3i2o1p0a9s8d7f6g5h4j3k2l1z0x9c", []string{"q9w8e7r6t5y4"}, []string{"sst_" + Mask}},
 		{"passkey token", "spk_q9w8e7r6t5y4u3i2o1p0a9s8d7f6g5h4j3k2l1z0x9c", []string{"q9w8e7r6"}, []string{"spk_" + Mask}},
 		{"internal capability", "sic_q9w8e7r6t5y4u3i2o1p0a9s8d7f6g5h4j3k2l1z0x9c", []string{"q9w8e7r6"}, []string{"sic_" + Mask}},
@@ -82,9 +85,9 @@ func TestHeaders(t *testing.T) {
 func TestSlog(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&buf, HandlerOptions(nil)))
-	logger.Info("request", "url", "amqp://u:topsecret@h", "authorization", "Bearer x", "err", errors.New("token snt_3q8ZkP2mW9xV7bN1cR4tY6uA0sD5fG8hJ2kL4zX7cV9 rejected"), "token", "plain")
+	logger.Info("request", "url", "amqp://u:topsecret@h", "authorization", "Bearer x", "err", errors.New("token snt_3q8ZkP2mW9xV7bN1cR4tY6uA0sD5fG8hJ2kL4zX7cV9 rejected"), "token", "plain", "scriptToken", "opaque-value")
 	out := buf.String()
-	for _, s := range []string{"topsecret", "Bearer x", "3q8ZkP2mW9xV", `"plain"`} {
+	for _, s := range []string{"topsecret", "Bearer x", "3q8ZkP2mW9xV", `"plain"`, "opaque-value"} {
 		if strings.Contains(out, s) {
 			t.Errorf("log output contains %q: %s", s, out)
 		}

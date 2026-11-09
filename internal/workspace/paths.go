@@ -129,14 +129,21 @@ var reservedTaskNames = []string{"upload", "import-git", "new", "latest"}
 
 // ValidateTaskName checks a task name (the folder name below the workspace root) against the manifest
 // rules: a slug of at most 64 characters, not a uuid and not a reserved word.
-func ValidateTaskName(name string) error {
+func ValidateTaskName(name string) error { return validateName("task", name) }
+
+// ValidateScriptName checks a script name (the folder name below .scripts); script names follow the task
+// name rules.
+func ValidateScriptName(name string) error { return validateName("script", name) }
+
+// validateName applies the task name rules; noun names the kind in the message.
+func validateName(noun, name string) error {
 	switch {
 	case !taskNamePattern.MatchString(name):
-		return invalidArgument("invalid task name %q: use 1–64 lowercase letters, digits and inner hyphens", printable(name))
+		return invalidArgument("invalid %s name %q: use 1–64 lowercase letters, digits and inner hyphens", noun, printable(name))
 	case uuidPattern.MatchString(name):
-		return invalidArgument("invalid task name %q: a task name cannot be a uuid", name)
+		return invalidArgument("invalid %s name %q: a %s name cannot be a uuid", noun, name, noun)
 	case slices.Contains(reservedTaskNames, name):
-		return invalidArgument("invalid task name %q: the name is reserved", name)
+		return invalidArgument("invalid %s name %q: the name is reserved", noun, name)
 	}
 	return nil
 }

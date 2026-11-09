@@ -276,6 +276,9 @@ export const estimateTemplateBody = z.strictObject({ scanConfig: configObject().
 
 export const languageParams = z.strictObject({ language: z.string().min(1).max(32) })
 
+/** getAuthoringGuide: the task API guide (default) or the script API guide of the language. */
+export const authoringGuideQuery = z.strictObject({ kind: z.enum(['task', 'script']).default('task') })
+
 export const guideParams = z.strictObject({ guide: z.string().regex(/^[a-z][a-z-]{0,31}$/) })
 
 // ── helpers shared with the UI ──────────────────────────────────────────────

@@ -14,9 +14,9 @@ import (
 	"github.com/lonetis/scantor/internal/container"
 )
 
-// Input is the task a command works on: a folder or a tar.gz pack, exactly one of them.
+// Input is the task or script a command works on: a folder or a tar.gz pack, exactly one of them.
 type Input struct {
-	// Dir is a task folder.
+	// Dir is a task or script folder.
 	Dir string
 	// Archive is a tar.gz pack (stdin, a file or an S3 snapshot).
 	Archive io.Reader
@@ -63,7 +63,18 @@ type BuildOptions struct {
 	PushGate io.Reader
 }
 
-// run is the state of one command.
+// ScriptBuildOptions are the flags of `scantor script build` (docs/scripts.md).
+type ScriptBuildOptions struct {
+	ScriptStaticOptions
+	// Tag is the reference of the built image (--tag); script images stay local and are never pushed.
+	Tag string
+	// ReuseExisting skips the image build when an image tagged Tag already exists locally and was built on
+	// the current base image.
+	ReuseExisting bool
+}
+
+// run is the state of one command. res collects the outcome of every command; a script build turns it
+// into a ScriptResult at the end.
 type run struct {
 	p      *Pipeline
 	res    *Result
@@ -103,9 +114,31 @@ func (r *run) phase(name api.BuildPhase, fn func() bool) bool {
 	return ok && len(r.res.Errors) == before
 }
 
-// finish emits the result event and returns the result. Errors without an explicit phase are
-// impossible by construction; the result is ok exactly when no error was recorded.
+// finish emits the result event and returns the result.
 func (r *run) finish() *Result {
+	r.settle()
+	r.p.events.Result(r.last, r.res)
+	return r.res
+}
+
+// finishScript emits the result event of a script build and returns it.
+func (r *run) finishScript() *ScriptResult {
+	r.settle()
+	res := &ScriptResult{
+		OK: r.res.OK, Pack: r.res.Pack, BaseImage: r.res.BaseImage, Image: r.res.Image,
+		Errors: r.res.Errors, Warnings: r.res.Warnings, DurationsMs: r.res.DurationsMs,
+	}
+	if r.static != nil && r.static.Script != nil {
+		m, defaults := r.static.Script.Manifest, r.static.Script.Defaults
+		res.Manifest, res.Entry, res.Defaults = &m, &m.Entry, &defaults
+	}
+	r.p.events.ScriptResult(r.last, res)
+	return res
+}
+
+// settle removes the temporary pack and decides the outcome. Errors without an explicit phase are
+// impossible by construction; the result is ok exactly when no error was recorded.
+func (r *run) settle() {
 	if r.pack != nil {
 		if err := r.pack.Close(); err != nil {
 			r.warn(r.last, fmt.Sprintf("remove the temporary pack: %v", err))
@@ -118,8 +151,6 @@ func (r *run) finish() *Result {
 	if r.last == "" {
 		r.last = api.BuildPhasePack
 	}
-	r.p.events.Result(r.last, r.res)
-	return r.res
 }
 
 // interrupted reports a cancelled context as a platform error.
@@ -174,8 +205,27 @@ func (r *run) packError(ctx context.Context, err error) {
 
 // staticPhase runs check-static and records the normalised manifest.
 func (r *run) staticPhase(opts StaticOptions) bool {
+	ok := r.checkPhase(func() *StaticResult { return CheckStatic(r.pack, opts, r.p.cfg) })
+	if st := r.static.Manifest; st != nil {
+		m := st.Manifest
+		settings := st.SettingsDefaults
+		lang := st.Language.Name
+		privileged := st.Privileged
+		r.res.Manifest, r.res.SettingsDefaults = &m, &settings
+		r.res.Language, r.res.Privileged = &lang, &privileged
+	}
+	return ok
+}
+
+// scriptStaticPhase runs the static checks of a script folder; finishScript reports the manifest.
+func (r *run) scriptStaticPhase(opts ScriptStaticOptions) bool {
+	return r.checkPhase(func() *StaticResult { return CheckScriptStatic(r.pack, opts, r.p.cfg) })
+}
+
+// checkPhase runs check as the static phase and reports its warnings and errors.
+func (r *run) checkPhase(check func() *StaticResult) bool {
 	return r.phase(api.BuildPhaseStatic, func() bool {
-		st := CheckStatic(r.pack, opts, r.p.cfg)
+		st := check()
 		r.static = st
 		for _, w := range st.Warnings {
 			r.warn(api.BuildPhaseStatic, w)
@@ -183,14 +233,6 @@ func (r *run) staticPhase(opts StaticOptions) bool {
 		r.res.Warnings = append(r.res.Warnings, st.Warnings...)
 		for _, be := range st.Errors {
 			r.fail(be)
-		}
-		if st.Manifest != nil {
-			m := st.Manifest.Manifest
-			settings := st.Manifest.SettingsDefaults
-			lang := st.Manifest.Language.Name
-			privileged := st.Manifest.Privileged
-			r.res.Manifest, r.res.SettingsDefaults = &m, &settings
-			r.res.Language, r.res.Privileged = &lang, &privileged
 		}
 		return st.OK()
 	})
@@ -244,7 +286,7 @@ func (p *Pipeline) Build(ctx context.Context, in Input, opts BuildOptions) *Resu
 		r.failf(api.BuildPhasePlatform, "build needs an image tag")
 		return r.finish()
 	}
-	b := &builder{run: r, opts: opts, tag: tag}
+	b := &builder{run: r, opts: opts, tag: tag, noun: taskFolder.noun, baseRef: r.static.Manifest.Language.BaseImageRef(p.cfg.Images)}
 	if !r.phase(api.BuildPhaseBuild, func() bool { return b.build(ctx) }) || r.interrupted(ctx) {
 		return r.finish()
 	}
@@ -260,6 +302,36 @@ func (p *Pipeline) Build(ctx context.Context, in Input, opts BuildOptions) *Resu
 		r.phase(api.BuildPhasePush, func() bool { return b.push(ctx) })
 	}
 	return r.finish()
+}
+
+// BuildScript runs `scantor script build` (docs/scripts.md): pack → static checks of the script folder
+// → build on the base image of the script's language. There is no describe, check or push: script
+// images stay on the local daemon and need no runtime binary. A failing phase stops the pipeline; the
+// last event is always the result.
+func (p *Pipeline) BuildScript(ctx context.Context, in Input, opts ScriptBuildOptions) *ScriptResult {
+	r := p.newRun()
+	switch {
+	case p.docker == nil:
+		r.last = api.BuildPhasePlatform
+		r.failf(api.BuildPhasePlatform, "build needs a Docker daemon")
+		return r.finishScript()
+	case opts.Tag == "":
+		r.last = api.BuildPhasePlatform
+		r.failf(api.BuildPhasePlatform, "build needs an image tag")
+		return r.finishScript()
+	}
+	if !r.packPhase(ctx, in) || !r.scriptStaticPhase(opts.ScriptStaticOptions) {
+		return r.finishScript()
+	}
+	b := &builder{
+		run:     r,
+		opts:    BuildOptions{Tag: opts.Tag, ReuseExisting: opts.ReuseExisting},
+		tag:     opts.Tag,
+		noun:    scriptFolder.noun,
+		baseRef: r.static.Script.Language.BaseImageRef(p.cfg.Images),
+	}
+	r.phase(api.BuildPhaseBuild, func() bool { return b.build(ctx) })
+	return r.finishScript()
 }
 
 // formatDuration renders a duration compactly ("30m", "1h30m", "45s").

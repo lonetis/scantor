@@ -12,7 +12,7 @@ defineRouteMeta({
         name: 'kind',
         in: 'query',
         required: false,
-        schema: { type: 'string', enum: ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge', 'notification'] },
+        schema: { type: 'string', enum: ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge', 'notification', 'scriptRun', 'scriptDelete'] },
       },
       { name: 'state', in: 'query', required: false, schema: { type: 'string', enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled'] } },
       { name: 'userId', in: 'query', required: false, description: 'Admins only: jobs of this user', schema: { type: 'string', format: 'uuid' } },
@@ -47,13 +47,13 @@ defineRouteMeta({
               id: { type: 'string', format: 'uuid' },
               kind: {
                 type: 'string',
-                enum: ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge', 'notification'],
+                enum: ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge', 'notification', 'scriptRun', 'scriptDelete'],
               },
               subject: {
                 type: 'object',
                 required: ['kind', 'id'],
                 properties: {
-                  kind: { type: 'string', enum: ['revision', 'testRun', 'scan', 'export', 'task', 'user', 'notification'] },
+                  kind: { type: 'string', enum: ['revision', 'testRun', 'scan', 'export', 'task', 'user', 'notification', 'scriptRun', 'script'] },
                   id: { type: 'string' },
                 },
               },

@@ -5,7 +5,8 @@ import { useConfig } from '../utils/config'
 import { applyOpenCors, handleOpenCorsPreflight, isOpenCorsPath } from '../utils/cors'
 import { lookupSession } from '../utils/credential-lookup'
 import { apiError } from '../utils/errors'
-import { capabilityRequestOf, consumeInternalCapability, INTERNAL_AUTH_HEADER } from '../utils/internal-auth'
+import { capabilityRequestOf, consumeInternalCapability, INTERNAL_AUTH_HEADER, stripIpv4Mapped } from '../utils/internal-auth'
+import { SCRIPT_RUN_TOKEN_PREFIX } from '../utils/keys'
 import { useLogger } from '../utils/logger'
 import { resolveNodeToken } from '../utils/node-tokens'
 import { matchOperation, type Operation, useOperationRegistry } from '../utils/operations'
@@ -20,15 +21,19 @@ import {
   type UserPrincipal,
 } from '../utils/principal'
 import { rawPathOf, routedPathname } from '../utils/request-path'
+import { isScriptNetworkPeer } from '../utils/script-network'
+import { resolveScriptRunToken } from '../utils/script-run-tokens'
 import { checkSetupToken } from '../utils/setup'
+import { proxyTrust } from '../utils/trusted-proxy'
 import { getCachedUser, isUserBanned, toCachedUser } from '../utils/user-cache'
 import { checkClientVersion, scantorVersion } from '../utils/version'
 import { resolveWorkerToken } from '../utils/worker-tokens'
 
 // The global auth middleware (docs/auth.md §5.5, docs/api.md §1.2) for `/api/*` on the dashboard listener:
-// route prefix → credential → operation registry (deny by default) → scope, session-only and MCP level → ban →
-// CSRF. It stores `event.context.principal` and `event.context.operation`. `/mcp` authenticates itself. API keys
-// are rejected wherever better-auth would answer, judged on the raw path and on the path better-auth routes.
+// route prefix (the script runtime API also checks the socket peer) → credential → operation registry (deny by
+// default) → scope, session-only and MCP level → ban → CSRF. It stores `event.context.principal` and
+// `event.context.operation`. `/mcp` authenticates itself. API keys are rejected wherever better-auth would answer,
+// judged on the raw path and on the path better-auth routes.
 
 const log = useLogger('auth')
 
@@ -61,6 +66,28 @@ function assertVersion(event: H3Event): void {
       minVersion: check.minVersion,
     })
   }
+}
+
+/**
+ * The peer restriction of the script runtime API (docs/scripts.md): the socket peer must lie in a subnet of
+ * `scantor-scripts` and must not be a trusted reverse proxy, so the request did not come through one. Checked before
+ * the token, so outside callers learn nothing about tokens and cause no database read.
+ */
+function isScriptRunPeer(event: H3Event): boolean {
+  const peer = event.node.req.socket.remoteAddress ?? devProxyPeer(event)
+  if (!peer || !isScriptNetworkPeer(peer)) return false
+  return !proxyTrust()(stripIpv4Mapped(peer))
+}
+
+/**
+ * `nuxt dev` only: Nitro's dev server proxies every request to its worker thread over a unix socket, which has no peer
+ * address, and passes the client's address on in X-Forwarded-For unless the client sent that header itself. The check
+ * uses that single entry there, so in the dev stack the restriction is advisory; production builds never get here.
+ */
+function devProxyPeer(event: H3Event): string | undefined {
+  if (!import.meta.dev) return undefined
+  const forwarded = getRequestHeader(event, 'x-forwarded-for')?.split(',') ?? []
+  return forwarded.length === 1 ? forwarded[0]!.trim() : undefined
 }
 
 async function forwardSessionCookies(event: H3Event, headers: Headers | undefined): Promise<void> {
@@ -165,6 +192,9 @@ function enforceScope(operation: Operation, principal: Principal | null, pathnam
     case 'setup':
       if (principal?.kind !== 'setup') throw apiError('setupTokenInvalid', 'setup token required')
       return
+    case 'scriptRun':
+      if (principal?.kind !== 'scriptRun') throw apiError('unauthorized', 'script-run token required')
+      return
     case 'tools':
       // The forward-auth route parses the tools cookie itself.
       return
@@ -223,6 +253,12 @@ export default defineEventHandler(async (event) => {
     principal = token?.startsWith('swt_') ? await resolveWorkerToken(token) : null
     if (!principal) throw apiError('unauthorized', 'invalid worker token')
     assertVersion(event)
+  } else if (pathname.startsWith('/api/script-runtime/')) {
+    // No version check: the script SDK sends no X-Scantor-Version header (docs/scripts.md).
+    if (!isScriptRunPeer(event)) throw apiError('forbidden', 'the script runtime API accepts requests from script-run containers only')
+    const token = bearerValue(getRequestHeader(event, 'authorization'))
+    principal = token?.startsWith(SCRIPT_RUN_TOKEN_PREFIX) ? await resolveScriptRunToken(token) : null
+    if (!principal) throw apiError('unauthorized', 'invalid or expired script-run token')
   } else if (pathname === '/api/registry/token' || pathname === FORWARD_AUTH_PATH) {
     principal = null
   } else if (pathname.startsWith('/api/setup/')) {

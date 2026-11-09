@@ -81,6 +81,29 @@ describe('buildNotificationMessage', () => {
     expect(offline).toMatchObject({ title: 'Node offline', priority: 4, tags: ['red_circle', 'scantor'], click: `${publicUrl}/admin/nodes/n1` })
   })
 
+  it('links script runs to their page', () => {
+    const scriptId = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d'
+    const scriptRunId = '3f1c2b4a-5d6e-4f70-8a9b-0c1d2e3f4a5b'
+    const failed = buildNotificationMessage(
+      'scriptRunFailed',
+      { id: 'e5', type: 'scriptRun.failed', level: 'error', message: 'Script run of csp failed: boom', scriptId, scriptRunId, data: { scriptName: 'csp' } },
+      { publicUrl, scan: null },
+    )
+    expect(failed).toEqual({
+      title: 'Script run of "csp" failed',
+      message: 'Script run of csp failed: boom',
+      priority: 5,
+      tags: ['x', 'scantor'],
+      click: `${publicUrl}/scripts/${scriptId}/runs/${scriptRunId}`,
+    })
+    const completed = buildNotificationMessage(
+      'scriptRunCompleted',
+      { id: 'e6', type: 'scriptRun.completed', level: 'info', message: 'Script run of csp completed', scriptId, scriptRunId, data: { scriptName: 'csp' } },
+      { publicUrl, scan: null },
+    )
+    expect(completed).toMatchObject({ title: 'Script run of "csp" completed', priority: 3, tags: ['white_check_mark', 'scantor'] })
+  })
+
   it('bounds long titles', () => {
     const message = buildNotificationMessage('scanPaused', event({ data: { to: 'paused' } }), { publicUrl, scan: { name: 'n'.repeat(500), stats } })
     expect(message.title.length).toBe(200)

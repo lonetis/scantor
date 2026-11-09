@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'listScans',
     summary: 'List scans',
     description:
-      'Lists your scans, newest first, with progress, live statistics and the number of active conditions. Deleting and deleted scans are hidden unless the state filter names them. Filter by state (comma-separated, for example running,paused) and by task (id or name). Admins see every user\'s scans and may filter with userId. Page with cursor and limit. Use getScan for the full scan with configs, settings, scheduling and conditions.',
+      'Lists your scans, newest first, with progress, live statistics and the number of active conditions. Deleting and deleted scans are hidden unless the state filter names them. Filter by state (comma-separated, for example running,paused), by task (id or name) and by q (case-insensitive substring of the scan name). Admins see every user\'s scans and may filter with userId. Page with cursor and limit. Use getScan for the full scan with configs, settings, scheduling and conditions.',
     'x-scantor-scope': 'owner',
     'x-mcp': true,
     parameters: [
@@ -16,6 +16,7 @@ defineRouteMeta({
         schema: { type: 'string', maxLength: 200 },
       },
       { name: 'task', in: 'query', required: false, description: 'A task id or one of your task names.', schema: { type: 'string', maxLength: 64 } },
+      { name: 'q', in: 'query', required: false, description: 'Case-insensitive substring of the scan name.', schema: { type: 'string', maxLength: 64 } },
       { name: 'cursor', in: 'query', required: false, schema: { type: 'string' } },
       { name: 'limit', in: 'query', required: false, schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
       { name: 'userId', in: 'query', required: false, description: 'Admins only: the owner to list.', schema: { type: 'string', format: 'uuid' } },

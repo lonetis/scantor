@@ -1,0 +1,11 @@
+"""The result model of the task whose scans [[.Name]] reads.
+
+Replace `Result` with the task's own result model: copy the model classes from the task's entry file
+(and the classes they use) unchanged, so `ctx.analyses(scan, result=Result)` validates every result.
+"""
+
+from pydantic import BaseModel
+
+
+class Result(BaseModel):
+    """Placeholder: paste the task's result model here."""

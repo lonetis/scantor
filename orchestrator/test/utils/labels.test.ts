@@ -37,6 +37,19 @@ describe('managedLabels', () => {
     expect(isManagedContainer('editor', 'scantor-editor-u', undefined)).toBe(false)
   })
 
+  it('labels and recognises script-run containers by their run id', () => {
+    const labels = managedLabels('scriptRun', { 'scantor.user': 'u', 'scantor.script-run': 'r1' })
+    expect(labels).toMatchObject({ 'scantor.kind': 'scriptRun', 'scantor.user': 'u', 'scantor.script-run': 'r1' })
+    expect(managedNamePrefix('scriptRun')).toBe('scantor-s-')
+    expect(() => managedLabels('testRun', { 'scantor.script-run': 'r1' })).toThrow()
+    expect(isManagedContainer('scriptRun', '/scantor-s-r1', labels)).toBe(true)
+    expect(isManagedContainer('scriptRun', '/scantor-s-r1', labels, { 'scantor.script-run': 'r1' })).toBe(true)
+    expect(isManagedContainer('scriptRun', '/scantor-s-r1', labels, { 'scantor.script-run': 'r2' })).toBe(false)
+    expect(isManagedContainer('scriptRun', '/scantor-s-r1', { ...labels, 'scantor.script-run': '' }, { 'scantor.script-run': 'r1' })).toBe(false)
+    expect(isManagedContainer('testRun', '/scantor-s-r1', labels)).toBe(false)
+    expect(isManagedContainer('scriptRun', '/scantor-t-r1', labels)).toBe(false)
+  })
+
   it('rejects forbidden image label keys (Dockerfile rule D9)', () => {
     for (const key of ['traefik.http.routers.x.rule', 'Traefik.enable', 'com.docker.compose.project', 'scantor.kind', 'my$key']) {
       expect(isForbiddenImageLabelKey(key), key).toBe(true)

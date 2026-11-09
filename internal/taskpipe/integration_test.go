@@ -445,3 +445,57 @@ func waitForLog(t *testing.T, c client.APIClient, id, text string) {
 		time.Sleep(200 * time.Millisecond)
 	}
 }
+
+// TestIntegrationBuildScript builds a script folder on a plain base image: pack, the static checks of
+// scantor-script.yaml and the BuildKit build, without describe, check, push or a runtime binary. A
+// second build of the unchanged folder with --reuse-existing reuses the local image.
+func TestIntegrationBuildScript(t *testing.T) {
+	c := dockerClient(t)
+	images := plainBase(t, c, "")
+	dir := t.TempDir()
+	for name, content := range map[string]string{
+		"scantor-script.yaml": "scantor: 1\nname: fixture\nlanguage: python\ndefaults:\n  resources:\n    cpus: 2\n",
+		"Dockerfile":          plainDockerfile,
+		"main.py":             "print('hi')\n",
+		".dockerignore":       ".git/\n",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tag := *namePrefix + "script:" + uuid.NewString()[:8]
+	removeImage(t, c, tag)
+	buildScript := func() (*taskpipe.ScriptResult, string) {
+		t.Helper()
+		var events bytes.Buffer
+		opts := taskpipe.ScriptBuildOptions{ScriptStaticOptions: taskpipe.ScriptStaticOptions{ExpectName: "fixture"}, Tag: tag, ReuseExisting: true}
+		res := taskpipe.New(pipelineConfig(images), taskpipe.NewEmitter(&events, taskpipe.EventsText), c, nil).BuildScript(context.Background(), taskpipe.Input{Dir: dir}, opts)
+		if !res.OK {
+			t.Fatalf("errors %+v\n%s", res.Errors, events.String())
+		}
+		return res, events.String()
+	}
+
+	res, text := buildScript()
+	inspect, err := c.ImageInspect(context.Background(), tag)
+	if err != nil || inspect.ID != res.Image.ID {
+		t.Fatalf("image %+v: %v", res.Image, err)
+	}
+	if res.BaseImage.Ref != version.ImageRef("scantor-base-python", images) || *res.Entry != "main.py" ||
+		res.Defaults.Resources != (api.Resources{CPUs: 2, MemoryMiB: manifest.ScriptDefaultMemoryMiB}) || res.Defaults.TimeoutMs != nil {
+		t.Fatalf("base %+v entry %v defaults %+v", res.BaseImage, res.Entry, res.Defaults)
+	}
+	for _, unwanted := range []string{"[describe]", "[check]", "[push]"} {
+		if strings.Contains(text, unwanted) {
+			t.Errorf("a script build has no %s phase:\n%s", unwanted, text)
+		}
+	}
+	if !strings.Contains(text, "[result] ok: image "+tag) {
+		t.Errorf("events:\n%s", text)
+	}
+
+	again, text := buildScript()
+	if again.Image.ID != res.Image.ID || !strings.Contains(text, "reusing the existing image "+tag) {
+		t.Fatalf("the unchanged script must reuse %s: %+v\n%s", res.Image.ID, again.Image, text)
+	}
+}

@@ -1,0 +1,4 @@
+# Python packages this script needs, one requirement per line; installed by `pip` in the image build.
+# Example: tldextract>=5.1,<6
+# pydantic and the scantor connector are part of the base image: do not list them here. The base image
+# pins them through PIP_CONSTRAINT, so a requirement that needs another pydantic fails the build.

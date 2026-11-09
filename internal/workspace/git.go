@@ -190,12 +190,12 @@ func (g *Git) Pull(ctx context.Context, opts PullOptions) (res *PullResult, err 
 	defer tree.Close()
 	res = &PullResult{Commit: commit, PreviousCommit: opts.BaseCommit, FastForward: fastForward}
 	res.Candidate = g.candidate(ctx, tree, opts.Staging, sub, opts.Task)
-	info, err := g.ws.taskInfo(opts.Task)
+	info, err := g.ws.folderInfo(TaskFolder(opts.Task))
 	if err != nil {
 		return nil, err
 	}
 	if info != nil {
-		current, err := g.ws.taskSummary(ctx, opts.Task)
+		current, err := g.ws.folderSummary(ctx, TaskFolder(opts.Task))
 		if err != nil {
 			return nil, err
 		}
@@ -208,7 +208,7 @@ func (g *Git) Pull(ctx context.Context, opts PullOptions) (res *PullResult, err 
 		if err != nil {
 			return nil, internalError(err, "open the candidate %s", res.Candidate.Path)
 		}
-		held, err := g.ws.taskHoldsTree(ctx, opts.Task, candidate)
+		held, err := g.ws.folderHoldsTree(ctx, TaskFolder(opts.Task), candidate)
 		_ = candidate.Close()
 		if err != nil {
 			return nil, err
@@ -805,7 +805,7 @@ func (g *Git) candidate(ctx context.Context, tree *os.Root, id, dir, expectName 
 		return c
 	}
 	defer root.Close()
-	if data, err := readManifest(root); err == nil {
+	if data, err := readManifest(root, manifest.FileName, "task"); err == nil {
 		c.Name, c.Language = manifestIdentity(data)
 	}
 	if _, err := checkTreeManifest(root, expectName); err != nil {

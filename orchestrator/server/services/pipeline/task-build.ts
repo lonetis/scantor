@@ -70,8 +70,21 @@ export function taskBuildArgs(options: Pick<TaskBuildOptions, 'tag' | 'expectNam
 
 /** Runs `scantor task build -` to completion and returns its outcome. Never rejects for pipeline failures. */
 export function runTaskBuild(options: TaskBuildOptions): Promise<TaskBuildOutcome> {
+  return runPipelineCommand<BuildResult>(taskBuildArgs(options), options)
+}
+
+/** The options runPipelineCommand needs: TaskBuildOptions without the task-build flags. */
+export type PipelineCommandOptions = Pick<TaskBuildOptions, 'input' | 'push' | 'env' | 'onEvent' | 'pushGate' | 'timeoutMs' | 'signal' | 'log' | 'binary'>
+
+/** The outcome of a pipeline subprocess whose final `result` event carries an R. */
+export type PipelineCommandOutcome<R> = Omit<TaskBuildOutcome, 'result'> & { result: R | null }
+
+/**
+ * Runs a `scantor` pipeline subprocess (`task build -`, `script build -`) with `args` to completion and returns its
+ * outcome; the final `result` event's value is returned as R. Never rejects for pipeline failures.
+ */
+export function runPipelineCommand<R>(args: string[], options: PipelineCommandOptions): Promise<PipelineCommandOutcome<R>> {
   const { log } = options
-  const args = taskBuildArgs(options)
   const child = spawn(options.binary ?? scantorBinary(), args, {
     env: options.env,
     stdio: ['pipe', 'pipe', 'pipe', options.push ? 'pipe' : 'ignore'],
@@ -82,7 +95,7 @@ export function runTaskBuild(options: TaskBuildOptions): Promise<TaskBuildOutcom
   const stderr = child.stderr!
   const gate = options.push ? (child.stdio[3] as Writable | null) : null
   const gateAbort = new AbortController()
-  let result: BuildResult | null = null
+  let result: R | null = null
   let timedOut = false
   let aborted = false
   let stderrTail = ''
@@ -141,7 +154,7 @@ export function runTaskBuild(options: TaskBuildOptions): Promise<TaskBuildOutcom
       log.debug('ignored a non-event line of the task pipeline', { line: line.slice(0, 200) })
       return
     }
-    if (event.type === 'result' && event.result) result = event.result
+    if (event.type === 'result' && event.result) result = event.result as unknown as R
     chain = chain.then(async () => {
       try {
         await options.onEvent(event)
@@ -155,7 +168,7 @@ export function runTaskBuild(options: TaskBuildOptions): Promise<TaskBuildOutcom
     })
   })
 
-  return new Promise<TaskBuildOutcome>((resolve) => {
+  return new Promise<PipelineCommandOutcome<R>>((resolve) => {
     let settled = false
     const finish = (exitCode: number | null) => {
       if (settled) return

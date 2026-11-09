@@ -1,13 +1,11 @@
-import { createReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
-import { Readable, type Writable } from 'node:stream'
+import type { Readable, Writable } from 'node:stream'
 import type Docker from 'dockerode'
 import type { ContainerCreateOptions } from 'dockerode'
-import { pack as tarPack } from 'tar-stream'
 import type { Config } from '../../utils/config'
 import { EGRESS_NETWORK, RUNTIME_HEALTHCHECK } from '../../utils/docker'
 import { managedLabels, managedNamePrefix } from '../../utils/labels'
 import type { Logger } from '../../utils/logger'
+import { runtimeInjectionArchive } from '../pipeline/injection'
 
 // The test-run container (docs/tasks.md §11.1, §11.2, §11.3; docs/runtime.md §3.1, §15): `scantor-t-<testRunId>` on
 // scantor-egress with the worker hardening profile (never privileged, no DinD), memory = per-process memory +
@@ -128,40 +126,21 @@ export interface InjectionUpload {
 }
 
 /**
- * The injection tar extracted at `/` (docs/runtime.md §3.1): `scantor/` (0755), `scantor/scantor` (0755, the runtime
- * binary), `scantor/in/` (0755), `scantor/in/spec.json` (0644), `scantor/in/uploads/<id>` (0644) and
- * `scantor/out/` (01777), all owned by 0:0. Entries stream; nothing is buffered whole. Destroying the returned stream
- * (an aborted CopyToContainer) also closes the file or upload stream being copied.
+ * The injection tar extracted at `/` (docs/runtime.md §3.1, pipeline/injection.ts): `scantor/` (0755),
+ * `scantor/scantor` (0755, the runtime binary), `scantor/in/` (0755), `scantor/in/spec.json` (0644),
+ * `scantor/in/uploads/<id>` (0644) and `scantor/out/` (01777), all owned by 0:0. Entries stream; nothing is buffered
+ * whole. Destroying the returned stream (an aborted CopyToContainer) also closes the file or upload stream being copied.
  */
 export function injectionArchive(binaryPath: string, spec: unknown, uploads: InjectionUpload[]): Readable {
-  const pack = tarPack()
-  const owner = { uid: 0, gid: 0, uname: '', gname: '', mtime: new Date(0) }
-  const copy = async (source: Readable, header: { name: string; mode: number; size: number }) => {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const entry = pack.entry({ ...header, type: 'file', ...owner }, (error) => (error ? reject(error) : resolve()))
-        source.on('error', reject).pipe(entry)
-      })
-    } finally {
-      // A destroyed pack only unpipes the source; an open S3 response would otherwise stay paused.
-      source.destroy()
-    }
-  }
-  const run = async () => {
-    const binary = await stat(binaryPath)
-    pack.entry({ name: 'scantor/', type: 'directory', mode: 0o755, ...owner })
-    await copy(createReadStream(binaryPath), { name: 'scantor/scantor', mode: 0o755, size: binary.size })
-    pack.entry({ name: 'scantor/in/', type: 'directory', mode: 0o755, ...owner })
-    pack.entry({ name: 'scantor/in/spec.json', type: 'file', mode: 0o644, ...owner }, JSON.stringify(spec))
-    if (uploads.length > 0) pack.entry({ name: 'scantor/in/uploads/', type: 'directory', mode: 0o755, ...owner })
+  return runtimeInjectionArchive(binaryPath, async (entries) => {
+    entries.directory('scantor/in/', 0o755)
+    entries.file('scantor/in/spec.json', 0o644, JSON.stringify(spec))
+    if (uploads.length > 0) entries.directory('scantor/in/uploads/', 0o755)
     for (const upload of uploads) {
-      await copy(await upload.open(), { name: `scantor/in/uploads/${upload.id}`, mode: 0o644, size: upload.bytes })
+      await entries.copy(await upload.open(), { name: `scantor/in/uploads/${upload.id}`, mode: 0o644, size: upload.bytes })
     }
-    pack.entry({ name: 'scantor/out/', type: 'directory', mode: 0o1777, ...owner })
-    pack.finalize()
-  }
-  run().catch((error: unknown) => pack.destroy(error as Error))
-  return Readable.from(pack)
+    entries.directory('scantor/out/', 0o1777)
+  })
 }
 
 /** Force-removes a container by name or id; one that is already gone is no error. */

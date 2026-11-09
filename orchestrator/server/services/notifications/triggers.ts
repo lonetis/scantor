@@ -34,6 +34,8 @@ const MATCHERS: Record<NotificationTrigger, (event: TriggerEvent) => boolean> = 
   revisionBuilt: (event) => event.type === 'revision.ready' || event.type === 'revision.failed',
   // Node events have no owner (userId null): they go to the admins who subscribed.
   nodeAvailability: (event) => event.userId === null && (event.type === 'node.offline' || event.type === 'node.online'),
+  scriptRunCompleted: (event) => event.type === 'scriptRun.completed',
+  scriptRunFailed: (event) => event.type === 'scriptRun.failed',
 }
 
 /** The trigger an event belongs to, or null when it notifies nobody. */

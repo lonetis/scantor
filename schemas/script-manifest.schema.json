@@ -1,0 +1,128 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/script-manifest.schema.json",
+  "title": "scantor script manifest (scantor-script.yaml)",
+  "description": "The manifest at the root of every script folder. Strict: unknown keys are rejected. Bind it in editors with the modeline `# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/v<version>/schemas/script-manifest.schema.json`. Semantic rules that JSON Schema cannot express (a language with script support, entry path rules, the expected name) are enforced when a script run builds; see docs/scripts.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "scantor",
+    "name",
+    "language"
+  ],
+  "properties": {
+    "scantor": {
+      "description": "Manifest format version. Always 1 for this schema.",
+      "const": 1
+    },
+    "name": {
+      "description": "Script name: a slug unique per owner among scripts, equal to the script folder name and immutable once the script exists. Not a uuid and not a reserved word.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$",
+      "not": {
+        "anyOf": [
+          {
+            "enum": [
+              "upload",
+              "import-git",
+              "new",
+              "latest"
+            ]
+          },
+          {
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        ]
+      },
+      "examples": [
+        "csp-stats",
+        "title-report"
+      ]
+    },
+    "language": {
+      "description": "Script language: a key of schemas/languages.json whose row has a `script` object. It selects the base image (SCANTOR_BASE) and the default entry.",
+      "type": "string",
+      "minLength": 1,
+      "examples": [
+        "python"
+      ]
+    },
+    "description": {
+      "description": "One-paragraph human description shown in the UI, CLI and MCP.",
+      "type": "string",
+      "maxLength": 1024
+    },
+    "entry": {
+      "description": "The source file that defines the script, relative to the image working directory (/task) and present in the script folder. Defaults to the `script.entry` of the language in languages.json (main.py).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[^\\\\\\x00]+$",
+      "examples": [
+        "main.py",
+        "src/main.py"
+      ]
+    },
+    "defaults": {
+      "$ref": "#/$defs/defaults"
+    }
+  },
+  "$defs": {
+    "defaults": {
+      "description": "Default run settings. Every value can be overridden per run (settings of POST /api/scripts/{script}/runs) and is capped by the instance limits SCANTOR_SCRIPT_RUN_TIMEOUT, SCANTOR_SCRIPT_RUN_MAX_CPUS and SCANTOR_SCRIPT_RUN_MAX_MEMORY.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "timeoutMs": {
+          "description": "Total duration of a script run in milliseconds (≥ 1000), counted from its start. Fallback and upper bound: SCANTOR_SCRIPT_RUN_TIMEOUT of the instance.",
+          "type": "integer",
+          "minimum": 1000
+        },
+        "resources": {
+          "description": "Resources of the script-run container. It gets memoryMiB + 256 MiB of memory.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "cpus": {
+              "description": "CPUs of the script-run container (0.1 … 64). Fallback 1. Upper bound: SCANTOR_SCRIPT_RUN_MAX_CPUS of the instance.",
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 64,
+              "default": 1
+            },
+            "memoryMiB": {
+              "description": "Memory of the script in MiB (256 … 65536). Fallback 1024. Upper bound: SCANTOR_SCRIPT_RUN_MAX_MEMORY of the instance.",
+              "type": "integer",
+              "minimum": 256,
+              "maximum": 65536,
+              "default": 1024
+            }
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "scantor": 1,
+      "name": "csp-stats",
+      "language": "python"
+    },
+    {
+      "scantor": 1,
+      "name": "title-report",
+      "language": "python",
+      "description": "Count the pages with a title and write a CSV report.",
+      "entry": "main.py",
+      "defaults": {
+        "timeoutMs": 7200000,
+        "resources": {
+          "cpus": 2,
+          "memoryMiB": 2048
+        }
+      }
+    }
+  ]
+}

@@ -14,6 +14,9 @@ import type {
   NotificationSettingsDoc,
   RevisionDoc,
   ScanDoc,
+  ScriptDoc,
+  ScriptRunDoc,
+  ScriptRunLogChunkDoc,
   TaskDoc,
   TestRunAnalysisDoc,
   TestRunDoc,
@@ -50,6 +53,9 @@ export interface ScantorCollections {
   exports: Collection<ExportDoc>
   editors: Collection<EditorDoc>
   notificationSettings: Collection<NotificationSettingsDoc>
+  scripts: Collection<ScriptDoc>
+  scriptRuns: Collection<ScriptRunDoc>
+  scriptRunLogs: Collection<ScriptRunLogChunkDoc>
   meta: Collection<MetaDoc>
   /** better-auth `user`, read directly for listings only */
   authUsers: Collection<AuthUserDoc>
@@ -75,6 +81,9 @@ export const COLLECTION_NAMES = {
   exports: 'exports',
   editors: 'editors',
   notificationSettings: 'notificationSettings',
+  scripts: 'scripts',
+  scriptRuns: 'scriptRuns',
+  scriptRunLogs: 'scriptRunLogs',
   meta: 'meta',
   authUsers: 'user',
   authApiKeys: 'apikey',
@@ -98,6 +107,9 @@ export function collectionsOf(db: Db): ScantorCollections {
     exports: db.collection<ExportDoc>(COLLECTION_NAMES.exports),
     editors: db.collection<EditorDoc>(COLLECTION_NAMES.editors),
     notificationSettings: db.collection<NotificationSettingsDoc>(COLLECTION_NAMES.notificationSettings),
+    scripts: db.collection<ScriptDoc>(COLLECTION_NAMES.scripts),
+    scriptRuns: db.collection<ScriptRunDoc>(COLLECTION_NAMES.scriptRuns),
+    scriptRunLogs: db.collection<ScriptRunLogChunkDoc>(COLLECTION_NAMES.scriptRunLogs),
     meta: db.collection<MetaDoc>(COLLECTION_NAMES.meta),
     authUsers: db.collection<AuthUserDoc>(COLLECTION_NAMES.authUsers),
     authApiKeys: db.collection<AuthApiKeyDoc>(COLLECTION_NAMES.authApiKeys),
@@ -183,6 +195,18 @@ export function indexDefinitions(config: Pick<Config, 'eventsTtlDays'>): IndexDe
 
     // admins subscribed to a trigger (node events have no owner)
     { collection: 'notificationSettings', key: { 'ntfy.triggers': 1 }, options: { partialFilterExpression: { 'ntfy.enabled': true } } },
+
+    { collection: 'scripts', key: { userId: 1, name: 1 }, options: { unique: true } },
+    { collection: 'scripts', key: { userId: 1, createdAt: -1, _id: -1 } },
+
+    { collection: 'scriptRuns', key: { scriptId: 1, createdAt: -1 } },
+    { collection: 'scriptRuns', key: { userId: 1, createdAt: -1 } },
+    { collection: 'scriptRuns', key: { scanIds: 1, state: 1 } },
+    { collection: 'scriptRuns', key: { state: 1 } },
+    // A plain index, not a TTL: the retention GC deletes a run's S3 objects and log chunks before its document.
+    { collection: 'scriptRuns', key: { expiresAt: 1 } },
+
+    { collection: 'scriptRunLogs', key: { scriptRunId: 1, chunk: 1 }, options: { unique: true } },
   ]
 }
 

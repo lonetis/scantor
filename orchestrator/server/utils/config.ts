@@ -1,5 +1,6 @@
 import { isIP } from 'node:net'
 import { z } from 'zod'
+import { SCRIPT_RUN_MAX_TIMEOUT_MS } from '#shared/schemas/scripts'
 import { ORCHESTRATOR_COMPONENTS, type OrchestratorComponent } from '#shared/utils/enums'
 import { parseBoolean, parseByteSize, parseDuration, parseInteger, parseList } from './env-values'
 import { evaluateStartupGuard, type StartupGuardResult } from './startup-guard'
@@ -124,6 +125,17 @@ export interface Config {
   testRunConcurrency: number
   testRunRetentionDays: number
   draftImageRetentionMs: number
+  // script runs
+  scriptRunConcurrency: number
+  scriptRunConcurrencyPerUser: number
+  scriptRunTimeoutMs: number
+  scriptRunMaxCpus: number
+  scriptRunMaxMemoryBytes: number
+  scriptRunMaxLogBytes: number
+  scriptRunMaxOutputs: number
+  scriptRunMaxOutputBytes: number
+  /** 0 keeps finished script runs forever */
+  scriptRunRetentionDays: number
   // scans and queue
   deliveryLimit: number
   scanQueueMaxReady: number
@@ -468,6 +480,19 @@ const VARIABLES = {
   testRunConcurrency: v('SCANTOR_TEST_RUN_CONCURRENCY', '2', integer(1, 1000)),
   testRunRetentionDays: v('SCANTOR_TEST_RUN_RETENTION_DAYS', '7', integer(1, 3650)),
   draftImageRetentionMs: v('SCANTOR_DRAFT_IMAGE_RETENTION', '24h', duration()),
+
+  scriptRunConcurrency: v('SCANTOR_SCRIPT_RUN_CONCURRENCY', '2', integer(1, 1000)),
+  scriptRunConcurrencyPerUser: v('SCANTOR_SCRIPT_RUN_CONCURRENCY_PER_USER', '2', integer(1, 1000)),
+  // At most the static bound of a script run's settings.timeoutMs.
+  scriptRunTimeoutMs: v('SCANTOR_SCRIPT_RUN_TIMEOUT', '72h', duration(1000).pipe(z.number().max(SCRIPT_RUN_MAX_TIMEOUT_MS, 'must be at most 365 days'))),
+  scriptRunMaxCpus: v('SCANTOR_SCRIPT_RUN_MAX_CPUS', '4', decimal(0.1, 1024)),
+  // Not below the 256 MiB minimum a script manifest can ask for.
+  scriptRunMaxMemoryBytes: v('SCANTOR_SCRIPT_RUN_MAX_MEMORY', '8GiB', byteSize(256 * 1024 ** 2)),
+  // The retention keeps the first 1 MiB plus a tail, which gets at least another 1 MiB.
+  scriptRunMaxLogBytes: v('SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES', '32MiB', byteSize(2 * 1024 ** 2)),
+  scriptRunMaxOutputs: v('SCANTOR_SCRIPT_RUN_MAX_OUTPUTS', '100', integer(1, 10_000)),
+  scriptRunMaxOutputBytes: v('SCANTOR_SCRIPT_RUN_MAX_OUTPUT_BYTES', '20GiB', byteSize(1)),
+  scriptRunRetentionDays: v('SCANTOR_SCRIPT_RUN_RETENTION_DAYS', '30', integer(0, 3650)),
 
   deliveryLimit: v('SCANTOR_DELIVERY_LIMIT', '10', integer(1, 1000)),
   scanQueueMaxReady: v('SCANTOR_SCAN_QUEUE_MAX_READY', '100000', integer(1)),

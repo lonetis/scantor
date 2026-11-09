@@ -43,11 +43,11 @@ export function assertTaskUploadContentType(header: string | undefined): void {
   }
 }
 
-function tooLarge(cap: ByteCap): ApiError {
+export function tooLarge(cap: ByteCap): ApiError {
   return apiError('payloadTooLarge', `the upload exceeds ${cap.maxBytes} bytes`, { limit: cap.maxBytes })
 }
 
-function stalledError(idleMs: number): ApiError {
+export function stalledError(idleMs: number): ApiError {
   return apiError('badRequest', `the upload sent no data for ${Math.round(idleMs / 1000)} s`, { idleMs })
 }
 
@@ -56,7 +56,7 @@ function stalledError(idleMs: number): ApiError {
  * client, not the helper, is slow. Data buffered behind a helper that has not started yet (waiting for a slot) keeps
  * the guard quiet. Ending (not destroying) the input lets the helper fail at once on the truncated archive.
  */
-class StallGuard {
+export class StallGuard {
   stalled = false
   private timer: NodeJS.Timeout | null = null
 

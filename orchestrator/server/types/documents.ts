@@ -20,6 +20,11 @@ import type {
   ScantorErrorType,
   ScheduleKind,
   SchedulingState,
+  ScriptOutputState,
+  ScriptRunErrorType,
+  ScriptRunLogStream,
+  ScriptRunState,
+  ScriptSourceKind,
   Severity,
   TaskSourceKind,
   TestRunAnalysisStatus,
@@ -520,6 +525,8 @@ export interface EventDoc {
   revisionId?: string
   workerId?: string
   nodeId?: string
+  scriptId?: string
+  scriptRunId?: string
   message: string
   data?: Record<string, unknown>
 }
@@ -551,7 +558,7 @@ export interface JobDoc {
 
 // ── locks (§4.13) ───────────────────────────────────────────────────────────
 
-export type LockName = 'reconciler' | 'gc' | 'bootSweep' | 'migrations' | 'registryGc'
+export type LockName = 'reconciler' | 'gc' | 'bootSweep' | 'migrations' | 'registryGc' | 'scriptsGc'
 
 export interface LockDoc {
   _id: LockName | (string & {})
@@ -601,6 +608,157 @@ export interface EditorDoc {
   stoppedAt: Date | null
   updatedAt: Date
   error: string | null
+}
+
+// ── scripts, scriptRuns, scriptRunLogs (docs/scripts.md) ───────────────────
+
+/** The JSON Schemas a script run reported for the script's code of one pack (`scriptRuntimeDescribe`). */
+export interface ScriptDescribeDoc {
+  packSha256: string
+  configSchema: Record<string, unknown> | null
+  resultSchema: Record<string, unknown> | null
+  at: Date
+}
+
+export interface ScriptRunPointerDoc {
+  id: string
+  state: ScriptRunState
+  createdAt: Date
+  finishedAt: Date | null
+}
+
+export interface ScriptDoc {
+  _id: string
+  userId: string
+  name: string
+  language: string
+  description: string | null
+  source: { kind: ScriptSourceKind }
+  workspace: {
+    packSha256: string | null
+    fileCount: number
+    bytes: number
+    checkedAt: Date | null
+    lastSyncSha256: string | null
+  }
+  describe: ScriptDescribeDoc | null
+  latestRun: ScriptRunPointerDoc | null
+  deletingAt?: Date | null
+  createdAt: Date
+  updatedAt: Date
+}
+
+/**
+ * Settings of a script run. Until the build merged them (explicit > manifest defaults > SCANTOR_SCRIPT_RUN_TIMEOUT),
+ * `timeoutMs` and the resources hold the explicit request only; null = not given.
+ */
+export interface ScriptRunSettingsDoc {
+  timeoutMs: number | null
+  resources: { cpus: number | null; memoryMiB: number | null }
+  /** at most this many analyses per stream (a sample run); null = all */
+  limit: number | null
+}
+
+export interface ScriptRunErrorDoc {
+  type: ScriptRunErrorType
+  message: string
+  stack?: string
+}
+
+export interface ScriptRunOutputDoc {
+  id: string
+  name: string
+  /** internal: `script-runs/<runId>/outputs/<outputId>/<safeName>` */
+  key: string
+  contentType: string
+  state: ScriptOutputState
+  /** internal: the S3 multipart upload while `pending` */
+  uploadId: string | null
+  /** internal: bytes reserved by part presigns while `pending` (storage quota) */
+  reservedBytes: number
+  size: number | null
+  sha256: string | null
+  createdAt: Date
+  storedAt: Date | null
+}
+
+export interface ScriptRunLogStateDoc {
+  /** stored lines, including those later dropped by the retention */
+  lines: number
+  bytes: number
+  /** the first retained line number (the retention keeps the head chunks and the tail; docs/scripts.md) */
+  firstLine: number
+  /** lines dropped by the retention or the ingestion rate limit */
+  droppedLines: number
+  /** the chunk the next line goes into (the open chunk: stored with fewer than 500 lines, rewritten while it fills) */
+  nextChunk: number
+  /** resume position of the log follower after an adoption: the last stored line's timestamp */
+  cursor: { ts: string; countAtTs: number } | null
+}
+
+export interface ScriptRunDoc {
+  _id: string
+  /** always the script's owner */
+  userId: string
+  scriptId: string
+  scriptName: string
+  /** 1–20 scans of the owner, in request order */
+  scanIds: string[]
+  state: ScriptRunState
+  input: { config: Record<string, unknown>; settings: ScriptRunSettingsDoc }
+  /** internal: the secret values, sealed (HKDF label `config-secrets`, AAD `scriptRuns:<id>:secrets`) */
+  secrets: { names: string[]; enc: string } | null
+  source: {
+    /** internal: `script-runs/<id>/source.tar.gz` */
+    key: string
+    packSha256: string
+    packBytes: number
+    fileCount: number
+  }
+  restartedFrom: { id: string; resume: boolean } | null
+  image: { ref: string; id: string; cached: boolean } | null
+  entry: string | null
+  container: { id: string; name: string; createdAt: Date } | null
+  /**
+   * A cancel of a `running` run, until its job stopped the container (60 s SIGTERM grace, the run token still works)
+   * and wrote `cancelled`; the representation already reports `cancelled` and the request's `error`.
+   */
+  cancelRequest?: { at: Date; reason: string | null } | null
+  errors: BuildErrorDoc[]
+  error: ScriptRunErrorDoc | null
+  exitCode: number | null
+  progress: { done: number; total: number | null; message: string | null; updatedAt: Date } | null
+  /** `bytes`: the serialized size of `state` (at most 1 MiB) */
+  checkpoint: { state: unknown; savedAt: Date; bytes: number } | null
+  result: unknown
+  outputs: ScriptRunOutputDoc[]
+  log: ScriptRunLogStateDoc
+  jobId: string
+  createdAt: Date
+  startedAt: Date | null
+  finishedAt: Date | null
+  updatedAt: Date
+  /** finishedAt + SCANTOR_SCRIPT_RUN_RETENTION_DAYS; null while active or when runs are kept forever */
+  expiresAt: Date | null
+}
+
+export interface ScriptRunLogLineDoc {
+  at: Date
+  stream: ScriptRunLogStream
+  /** at most 16 KiB, redacted */
+  text: string
+}
+
+export interface ScriptRunLogChunkDoc {
+  /** `<scriptRunId>-<chunk>` */
+  _id: string
+  scriptRunId: string
+  chunk: number
+  firstLine: number
+  lines: ScriptRunLogLineDoc[]
+  bytes: number
+  /** the chunk holds the retention marker line (set only then) */
+  retentionMarker?: true
 }
 
 // ── notificationSettings (§4.17) ───────────────────────────────────────────

@@ -14,7 +14,8 @@
     "scantor.user": "owner user id",
     "scantor.node": "node id",
     "scantor.spec-hash": "specHash of the worker's assignment",
-    "scantor.op": "workspace helper operation (init, purge, list, read, write-files, delete-files, scaffold, extract, git-clone, git-pull, commit, discard, snapshot)"
+    "scantor.op": "workspace helper operation (init, purge, list, read, write-files, delete-files, scaffold, extract, git-clone, git-pull, commit, discard, snapshot)",
+    "scantor.script-run": "script run id"
   },
   "kinds": {
     "worker": {
@@ -50,6 +51,15 @@
       "createdBy": "orchestrator (testRun job)",
       "identity": [
         "scantor.user"
+      ]
+    },
+    "scriptRun": {
+      "object": "container",
+      "namePrefix": "scantor-s-",
+      "createdBy": "orchestrator (scriptRun job)",
+      "identity": [
+        "scantor.user",
+        "scantor.script-run"
       ]
     },
     "editor": {

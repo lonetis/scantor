@@ -8,6 +8,13 @@ import { templateNames } from './templates'
 // language table of the platform. `baseImage` is the reference this deployment builds on: `<prefix><image>:<tag>`
 // with the orchestrator's own SCANTOR_IMAGE_PREFIX/SCANTOR_IMAGE_TAG pair, which it passes to every subprocess.
 
+/** The optional script support of a language (docs/scripts.md); all three fields are set when present. */
+interface ScriptLanguageRow {
+  entry: string
+  scaffold: string
+  guide: string
+}
+
 interface LanguageRow {
   title: string
   base: string
@@ -15,12 +22,18 @@ interface LanguageRow {
   entry: string
   entryKind: 'source' | 'binary'
   extensions: string[]
+  script?: ScriptLanguageRow
 }
 
 const table = languagesTable as { languages: Record<string, LanguageRow> }
 
 export function languageRow(language: string): LanguageRow | null {
   return Object.hasOwn(table.languages, language) ? table.languages[language]! : null
+}
+
+/** The languages scripts can be written in: the rows with a `script` object, in table order. */
+export function scriptLanguageNames(): string[] {
+  return Object.entries(table.languages).flatMap(([language, row]) => (row.script ? [language] : []))
 }
 
 export function isKnownLanguage(language: string): boolean {

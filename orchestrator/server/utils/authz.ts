@@ -1,14 +1,16 @@
 import type { H3Event } from 'h3'
 import type { Collection, Document, Filter } from 'mongodb'
+import { SCRIPT_RUN_MAX_SCANS } from '#shared/schemas/scripts'
 import { isUuid, isValidTaskName } from '#shared/utils/slug'
-import type { WorkerRole } from '#shared/utils/enums'
-import type { AnalysisDoc, RevisionDoc, ScanDoc, TaskDoc } from '../types/documents'
+import type { ScanState, WorkerRole } from '#shared/utils/enums'
+import type { AnalysisDoc, RevisionDoc, ScanDoc, ScriptDoc, ScriptRunDoc, TaskDoc } from '../types/documents'
 import { apiError } from './errors'
 import { useCollections } from './mongo'
 import type {
   NodePrincipal,
   Principal,
   RegistryPrincipal,
+  ScriptRunPrincipal,
   SetupPrincipal,
   ToolsPrincipal,
   UserPrincipal,
@@ -76,6 +78,12 @@ export function requireTools(event: H3Event): ToolsPrincipal {
 export function requireSetup(event: H3Event): SetupPrincipal {
   const principal = principalOf(event)
   if (!principal || principal.kind !== 'setup') throw apiError('setupTokenInvalid', 'setup token required')
+  return principal
+}
+
+export function requireScriptRun(event: H3Event): ScriptRunPrincipal {
+  const principal = principalOf(event)
+  if (!principal || principal.kind !== 'scriptRun') throw apiError('unauthorized', 'script-run token required')
   return principal
 }
 
@@ -209,16 +217,83 @@ export async function loadOwnedScan(principal: UserPrincipal, scanId: string): P
   return loadOwned(useCollections().scans, scanId.toLowerCase(), principal, { what: 'scan' })
 }
 
+// ── scripts and script runs (docs/scripts.md) ──────────────────────────────
+
+const scriptVisible = (script: ScriptDoc) => !script.deletingAt
+
+/**
+ * `{script}`: a script id, or a script name looked up among the caller's scripts only (admins address other users'
+ * scripts by id). Scripts being deleted are invisible. Names follow the task name rules.
+ */
+export async function resolveScript(principal: UserPrincipal, ref: string): Promise<ScriptDoc> {
+  const { scripts } = useCollections()
+  if (isUuid(ref)) return loadOwned(scripts, ref.toLowerCase(), principal, { visible: scriptVisible, what: 'script' })
+  if (!isValidTaskName(ref)) throw apiError('notFound', 'script not found')
+  const script = await scripts.findOne({ userId: principal.user.id, name: ref, deletingAt: null })
+  if (!script) throw apiError('notFound', 'script not found')
+  return script
+}
+
+/** `{scriptRunId}`: a run belongs to its script's owner (`userId` is always the script's); admins see every run. */
+export async function loadOwnedScriptRun(principal: UserPrincipal, scriptRunId: string): Promise<ScriptRunDoc> {
+  return loadOwned(useCollections().scriptRuns, scriptRunId.toLowerCase(), principal, { what: 'script run' })
+}
+
+const LIVE_SCAN_STATES: { $nin: ScanState[] } = { $nin: ['deleting', 'deleted'] }
+
+/**
+ * The scans a script run of `script` may read (start and restart): the ids deduplicated in request order, each one a
+ * scan of the script's owner that is not being deleted, else 404. Admins never bind another user's scan: the owner is
+ * the script's, never the caller's admin power (so this is not loadOwnedScan).
+ */
+export async function loadScansForScriptRun(script: Pick<ScriptDoc, 'userId'>, scanIds: readonly string[]): Promise<ScanDoc[]> {
+  const ids = [...new Set(scanIds.map((id) => id.toLowerCase()))]
+  if (ids.length === 0 || ids.length > SCRIPT_RUN_MAX_SCANS || !ids.every(isUuid)) throw apiError('notFound', 'scan not found')
+  const found = await useCollections().scans.find({ _id: { $in: ids }, userId: script.userId, state: LIVE_SCAN_STATES }).toArray()
+  const byId = new Map(found.map((scan) => [scan._id, scan]))
+  const missing = ids.find((id) => !byId.has(id))
+  if (missing) throw apiError('notFound', `scan ${missing} not found`)
+  return ids.map((id) => byId.get(id)!)
+}
+
+/**
+ * A scan read by a script-run container: one of the run's scans, still its owner's and not being deleted, else 404.
+ * Every script runtime route that touches a scan goes through this check.
+ */
+export async function loadRunScan(principal: ScriptRunPrincipal, scanId: string): Promise<ScanDoc> {
+  const id = scanId.toLowerCase()
+  if (!isUuid(id) || !principal.scriptRun.scanIds.includes(id)) throw apiError('notFound', 'scan not found')
+  const scan = await useCollections().scans.findOne({ _id: id, userId: principal.scriptRun.userId, state: LIVE_SCAN_STATES })
+  if (!scan) throw apiError('notFound', 'scan not found')
+  return scan
+}
+
 const ANALYSIS_ID = /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})-(\d{1,16})$/
+
+/** `<scanId>-<seq>` split into the scan id and the seq, or 404. */
+function parseAnalysisId(analysisId: string): { scanId: string; seq: number } {
+  const match = ANALYSIS_ID.exec(analysisId)
+  const seq = Number(match?.[2])
+  if (!match || !Number.isSafeInteger(seq)) throw apiError('notFound', 'analysis not found')
+  return { scanId: match[1]!, seq }
+}
+
+async function analysisOf(scan: ScanDoc, seq: number): Promise<AnalysisDoc> {
+  const analysis = await useCollections().analyses.findOne({ _id: `${scan._id}-${seq}`, scanId: scan._id })
+  if (!analysis) throw apiError('notFound', 'analysis not found')
+  return analysis
+}
 
 /** `<scanId>-<seq>`: loads the owned scan first, then the analysis of that scan. */
 export async function loadOwnedAnalysis(principal: UserPrincipal, analysisId: string): Promise<{ scan: ScanDoc; analysis: AnalysisDoc }> {
-  const match = ANALYSIS_ID.exec(analysisId)
-  if (!match) throw apiError('notFound', 'analysis not found')
-  const scan = await loadOwnedScan(principal, match[1]!)
-  const seq = Number(match[2])
-  if (!Number.isSafeInteger(seq)) throw apiError('notFound', 'analysis not found')
-  const analysis = await useCollections().analyses.findOne({ _id: `${scan._id}-${seq}`, scanId: scan._id })
-  if (!analysis) throw apiError('notFound', 'analysis not found')
-  return { scan, analysis }
+  const { scanId, seq } = parseAnalysisId(analysisId)
+  const scan = await loadOwnedScan(principal, scanId)
+  return { scan, analysis: await analysisOf(scan, seq) }
+}
+
+/** `<scanId>-<seq>` read by a script-run container: the scan passes loadRunScan first, then the analysis of that scan. */
+export async function loadRunAnalysis(principal: ScriptRunPrincipal, analysisId: string): Promise<{ scan: ScanDoc; analysis: AnalysisDoc }> {
+  const { scanId, seq } = parseAnalysisId(analysisId)
+  const scan = await loadRunScan(principal, scanId)
+  return { scan, analysis: await analysisOf(scan, seq) }
 }

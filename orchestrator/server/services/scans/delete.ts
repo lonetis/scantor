@@ -7,12 +7,14 @@ import { useCollections } from '../../utils/mongo'
 import { RABBITMQ_VHOST, useRabbitmqManagement } from '../../utils/rabbitmq-management'
 import { deleteObject, deletePrefix, isS3NotFound } from '../../utils/s3'
 import { notifyAssignmentsChanged } from '../nodes/assignments'
+import { cancelActiveScriptRuns } from '../script-runs/cleanup'
 
 /*
  * Scan deletion (docs/architecture.md §11.3 "delete", docs/queue.md §6.3, §8): the `scanDelete` job (reconciler
  * component, concurrency 2) with the resumable cursor `{phase, afterSeq, settleUntil}`. Two slots bound the load that
  * mass deletions put on MongoDB and S3; a job holds its slot only while it works, so small deletions pass quickly:
  *
+ *   scriptRuns cancel the active script runs that read the scan (their jobs stop their containers)
  *   broker    delete the RabbitMQ user scan-<id>, then the queue (404 counts as done)
  *   workers   delete the worker documents (their nodes drop the containers)
  *   analyses  delete analyses in 10 000-document batches by seq; after DELETE_SLICE_MS of batches the job defers
@@ -30,9 +32,11 @@ import { notifyAssignmentsChanged } from '../nodes/assignments'
  */
 
 export const ANALYSES_DELETE_BATCH = 10_000
+/** The platform error of a script run cancelled because a scan it reads is deleted. */
+export const SCAN_DELETED = 'a scan of the run was deleted'
 /** How long a scanDelete job deletes analyses before it gives its slot to waiting deletions. */
 export const DELETE_SLICE_MS = 10_000
-export const DELETE_PHASES = ['broker', 'workers', 'analyses', 'files', 'exports', 'events', 'settle', 'sweep', 'finish'] as const
+export const DELETE_PHASES = ['scriptRuns', 'broker', 'workers', 'analyses', 'files', 'exports', 'events', 'settle', 'sweep', 'finish'] as const
 export type DeletePhase = (typeof DELETE_PHASES)[number]
 
 export function settleDelayMs(config: Pick<Config, 'ingestFlushIntervalMs'>): number {
@@ -126,7 +130,7 @@ interface DeleteCursor {
 }
 
 function readCursor(job: JobDoc): DeleteCursor {
-  const phase = (DELETE_PHASES as readonly string[]).includes(job.cursor.phase as string) ? (job.cursor.phase as DeletePhase) : 'broker'
+  const phase = (DELETE_PHASES as readonly string[]).includes(job.cursor.phase as string) ? (job.cursor.phase as DeletePhase) : 'scriptRuns'
   return {
     phase,
     afterSeq: typeof job.cursor.afterSeq === 'number' ? job.cursor.afterSeq : -1,
@@ -150,6 +154,9 @@ export async function yieldToWaitingDeletes(job: JobDoc, startedAt: number, now 
 async function runPhase(phase: DeletePhase, scan: ScanDoc, cursor: DeleteCursor, ctx: JobContext, startedAt: number): Promise<void> {
   const { scans, analyses, events } = useCollections()
   switch (phase) {
+    case 'scriptRuns':
+      await cancelActiveScriptRuns({ scanId: scan._id }, SCAN_DELETED)
+      return
     case 'broker':
       await deleteScanBrokerObjects(scan._id)
       cursor.settleUntil = Date.now() + settleDelayMs(ctx.config)

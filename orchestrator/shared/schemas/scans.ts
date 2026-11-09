@@ -88,9 +88,13 @@ export type RestartScanBody = z.infer<typeof restartScanBody>
 /** `?task`: a task id or the name of one of the caller's tasks. */
 const taskFilter = z.string().trim().min(1).max(64).regex(/^[A-Za-z0-9-]+$/, 'must be a task id or name')
 
+/** `?q` of listScans: a case-insensitive substring of the scan name (the scan picker of the script run form). */
+export const SCAN_NAME_QUERY_MAX_LENGTH = 64
+
 export const listScansQuery = z.strictObject({
   state: qList(z.enum(SCAN_STATES), SCAN_STATES.length).optional(),
   task: taskFilter.optional(),
+  q: text(SCAN_NAME_QUERY_MAX_LENGTH).optional(),
   limit: qInt(1, MAX_PAGE_LIMIT).optional(),
   cursor: cursorQuery.optional(),
   ...userIdFilterShape,

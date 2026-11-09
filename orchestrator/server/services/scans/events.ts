@@ -23,6 +23,8 @@ export interface EventInput {
   nodeId?: string
   taskId?: string
   revisionId?: string
+  scriptId?: string
+  scriptRunId?: string
   message: string
   data?: Record<string, unknown>
   at?: Date
@@ -57,6 +59,8 @@ export function buildEvent(input: EventInput): EventDoc {
   if (input.nodeId) doc.nodeId = input.nodeId
   if (input.taskId) doc.taskId = input.taskId
   if (input.revisionId) doc.revisionId = input.revisionId
+  if (input.scriptId) doc.scriptId = input.scriptId
+  if (input.scriptRunId) doc.scriptRunId = input.scriptRunId
   const data = boundedData(input.data)
   if (data) doc.data = data
   return doc

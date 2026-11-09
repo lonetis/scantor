@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { analysisFileKey, type PresignInput, presignProblems } from '../../../server/services/runtime/uploads'
+import { analysisFileKey, outputUsageBytes, type PresignInput, presignProblems } from '../../../server/services/runtime/uploads'
 import { SCAN_ID } from '../nodes/helpers'
 
 // POST /api/runtime/uploads/presign (docs/api.md §8.3, security.md ING-5, RES-5): server-generated keys inside the
@@ -48,5 +48,18 @@ describe('presignProblems', () => {
     expect(presignProblems(input([file(FILE_1, 'a'), file(FILE_2, 'b'), file('c1d2e3f4-5a6b-4c7d-8e9f-0a1b2c3d4e5f', 'c')]), scan, limits)[0]!.path).toBe('files')
     expect(presignProblems(input([], { seq: 1_000_000 }), scan, limits)[0]!.path).toBe('seq')
     expect(presignProblems(input([], { round: 2 }), scan, limits)[0]!.path).toBe('round')
+  })
+})
+
+describe('outputUsageBytes', () => {
+  it('counts the size of stored script-run outputs and the reservation of pending ones', () => {
+    expect(
+      outputUsageBytes([
+        { state: 'stored', size: 1000, reservedBytes: 0 },
+        { state: 'pending', size: null, reservedBytes: 250 },
+        { state: 'stored', size: null, reservedBytes: 9 },
+      ]),
+    ).toBe(1250)
+    expect(outputUsageBytes([])).toBe(0)
   })
 })

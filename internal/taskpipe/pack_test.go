@@ -183,9 +183,11 @@ func TestPackDockerignore(t *testing.T) {
 		"secrets",
 		"Dockerfile",
 		"scantor.yaml",
+		"scantor-script.yaml",
 		".dockerignore",
 		"**/__pycache__",
 	}, "\n")
+	files["scantor-script.yaml"] = "scantor: 1\nname: echo\nlanguage: python\n"
 	files["app.log"] = "log"
 	files["sub/app.log"] = "nested logs are not matched by *.log"
 	files["build/out.bin"] = "out"
@@ -198,7 +200,7 @@ func TestPackDockerignore(t *testing.T) {
 	files[".scantor/out/x"] = "out"
 	p := mustPackDir(t, writeTree(t, files))
 	entries, _ := readTarGz(t, gzipOf(t, p))
-	want := []string{".dockerignore", "Dockerfile", "build/", "build/keep.txt", "main.py", "pkg/", "pkg/m.py", "requirements.txt", "scantor.yaml", "sub/", "sub/app.log"}
+	want := []string{".dockerignore", "Dockerfile", "build/", "build/keep.txt", "main.py", "pkg/", "pkg/m.py", "requirements.txt", "scantor-script.yaml", "scantor.yaml", "sub/", "sub/app.log"}
 	if got := names(entries); !slices.Equal(got, want) {
 		t.Fatalf("entries:\n got  %v\n want %v", got, want)
 	}
@@ -206,7 +208,7 @@ func TestPackDockerignore(t *testing.T) {
 
 // FileSet is the pack's decision exported for the workspace's cap checks.
 func TestFileSetClassify(t *testing.T) {
-	set, err := NewFileSet([]byte("build/\n!build/keep.txt\nnode_modules\nDockerfile\n"))
+	set, err := NewFileSet([]byte("build/\n!build/keep.txt\nnode_modules\nDockerfile\n**/*.yaml\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,6 +219,10 @@ func TestFileSetClassify(t *testing.T) {
 	}{
 		{"main.py", false, Included},
 		{"Dockerfile", false, Included},
+		{"scantor.yaml", false, Included},
+		{"scantor-script.yaml", false, Included},
+		{"other.yaml", false, Excluded},
+		{"sub/scantor-script.yaml", false, Excluded},
 		{".git", true, Excluded},
 		{"sub/.scantor/x", false, Excluded},
 		{"node_modules", true, Excluded},

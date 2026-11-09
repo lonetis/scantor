@@ -105,6 +105,39 @@ describe('parseConfig', () => {
     expect(warnings.map((warning) => warning.variable)).toEqual([variable])
   })
 
+  it('parses the script-run limits; a retention of 0 keeps finished runs forever', () => {
+    expect(parseConfig({}).config).toMatchObject({
+      scriptRunConcurrency: 2,
+      scriptRunConcurrencyPerUser: 2,
+      scriptRunTimeoutMs: 72 * 3_600_000,
+      scriptRunMaxCpus: 4,
+      scriptRunMaxMemoryBytes: 8 * 1024 ** 3,
+      scriptRunMaxLogBytes: 32 * 1024 ** 2,
+      scriptRunMaxOutputs: 100,
+      scriptRunMaxOutputBytes: 20 * 1024 ** 3,
+      scriptRunRetentionDays: 30,
+    })
+    const { config, warnings } = parseConfig({
+      SCANTOR_SCRIPT_RUN_TIMEOUT: '90s',
+      SCANTOR_SCRIPT_RUN_MAX_CPUS: '0.5',
+      SCANTOR_SCRIPT_RUN_MAX_MEMORY: '512MiB',
+      SCANTOR_SCRIPT_RUN_RETENTION_DAYS: '0',
+    })
+    expect(warnings).toEqual([])
+    expect(config).toMatchObject({ scriptRunTimeoutMs: 90_000, scriptRunMaxCpus: 0.5, scriptRunMaxMemoryBytes: 512 * 1024 ** 2, scriptRunRetentionDays: 0 })
+  })
+
+  it.each([
+    ['SCANTOR_SCRIPT_RUN_TIMEOUT', '9000h', 'scriptRunTimeoutMs', 72 * 3_600_000],
+    ['SCANTOR_SCRIPT_RUN_MAX_MEMORY', '128MiB', 'scriptRunMaxMemoryBytes', 8 * 1024 ** 3],
+    ['SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES', '1MiB', 'scriptRunMaxLogBytes', 32 * 1024 ** 2],
+    ['SCANTOR_SCRIPT_RUN_CONCURRENCY', '0', 'scriptRunConcurrency', 2],
+  ] as const)('falls back to the script-run default for %s=%j', (variable, value, key, expected) => {
+    const { config, warnings } = parseConfig({ [variable]: value })
+    expect(config[key]).toBe(expected)
+    expect(warnings.map((warning) => warning.variable)).toEqual([variable])
+  })
+
   it('binds the orchestrator-created volumes to host directories only when a path is given', () => {
     expect(parseConfig({}).config).toMatchObject({ workspacesPath: null, editorHomePath: null })
     const { config } = parseConfig({ SCANTOR_WORKSPACES_DATA: ' /mnt/disk1/workspaces/ ', SCANTOR_EDITOR_HOME_DATA: 'scantor-editor-home' })

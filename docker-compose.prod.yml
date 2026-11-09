@@ -41,6 +41,7 @@ services:
     networks:
       - scantor
       - scantor-sandbox
+      - scantor-scripts
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - scantor-editor-sockets:/run/scantor/editor-sockets
@@ -200,6 +201,7 @@ services:
     networks:
       - scantor
       - scantor-sandbox
+      - scantor-scripts
     volumes:
       - ${SCANTOR_RUSTFS_DATA}:/data
     environment:
@@ -395,3 +397,6 @@ networks:
     name: scantor
   scantor-sandbox:
     name: scantor-sandbox
+  scantor-scripts:
+    name: scantor-scripts
+    internal: true

@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'updateNotificationSettings',
     summary: 'Update your notification settings',
     description:
-      'Changes your ntfy push notifications. Omitted fields keep their value: topic is the ntfy topic on the instance server (1-64 letters, digits, - or _; null clears it), token an optional ntfy access token (stored encrypted and never returned; null removes it), enabled turns the channel on (needs a topic) and triggers lists the events you want (scanFinished, scanPaused, scanProblem, revisionBuilt and, for admins only, nodeAvailability). Topics on a public ntfy server are readable by anyone who knows their name, so choose a hard-to-guess one or use a token. Returns the settings.',
+      'Changes your ntfy push notifications. Omitted fields keep their value: topic is the ntfy topic on the instance server (1-64 letters, digits, - or _; null clears it), token an optional ntfy access token (stored encrypted and never returned; null removes it), enabled turns the channel on (needs a topic) and triggers lists the events you want (scanFinished, scanPaused, scanProblem, revisionBuilt, scriptRunCompleted, scriptRunFailed and, for admins only, nodeAvailability). Topics on a public ntfy server are readable by anyone who knows their name, so choose a hard-to-guess one or use a token. Returns the settings.',
     'x-scantor-scope': 'owner',
     'x-mcp': false,
     requestBody: {
@@ -25,7 +25,7 @@ defineRouteMeta({
                   triggers: {
                     type: 'array',
                     uniqueItems: true,
-                    items: { type: 'string', enum: ['scanFinished', 'scanPaused', 'scanProblem', 'revisionBuilt', 'nodeAvailability'] },
+                    items: { type: 'string', enum: ['scanFinished', 'scanPaused', 'scanProblem', 'revisionBuilt', 'nodeAvailability', 'scriptRunCompleted', 'scriptRunFailed'] },
                   },
                 },
               },

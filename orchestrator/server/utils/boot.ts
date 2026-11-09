@@ -29,6 +29,7 @@ import type { Logger } from './logger'
  *                      625 plaintext public endpoint warning  (domain: nodes)
  *                      630 scantor-egress, scantor-workspaces, scantor-editor-home (foundation)
  *                      640 background pull of the editor image (foundation)
+ *                      650 subnets of scantor-scripts for the script runtime API (domain: scripts)
  *                      690 operation registry from the OpenAPI document (foundation)
  *   700–899  further domain preparation that must finish before components start:
  *                      700 editor boot sweep                  (domain: editor)

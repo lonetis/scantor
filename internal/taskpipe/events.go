@@ -12,7 +12,8 @@ import (
 	"github.com/lonetis/scantor/internal/api"
 )
 
-// EventVersion is the version of the task-pipeline event format (docs/tasks.md §9.8).
+// EventVersion is the version of the task-pipeline event format (docs/tasks.md §9.8), which script
+// builds share.
 const EventVersion = 1
 
 // Event types.
@@ -48,8 +49,9 @@ const (
 	MaxErrorMessage = 4 << 10
 )
 
-// Event is one task-pipeline event.
-type Event struct {
+// EventOf is one pipeline event whose result payload has type R. Log and error events are the same for
+// every command; only the result differs.
+type EventOf[R any] struct {
 	V      int             `json:"v"`
 	Seq    int64           `json:"seq"`
 	At     api.Time        `json:"at"`
@@ -59,8 +61,14 @@ type Event struct {
 	Level  string          `json:"level,omitempty"`
 	Text   *string         `json:"text,omitempty"`
 	Error  *api.BuildError `json:"error,omitempty"`
-	Result *Result         `json:"result,omitempty"`
+	Result R               `json:"result,omitempty"`
 }
+
+// Event is one task-pipeline event (pack, check-static, build).
+type Event = EventOf[*Result]
+
+// ScriptEvent is one event of `scantor script build`; its result is a ScriptResult.
+type ScriptEvent = EventOf[*ScriptResult]
 
 // EventFormat selects how an Emitter writes events.
 type EventFormat string
@@ -139,24 +147,43 @@ func (e *Emitter) Error(be api.BuildError) {
 	e.emit(Event{Phase: be.Phase, Type: EventError, Error: &be})
 }
 
-// Result emits the final result event.
+// Result emits the final result event of a task command.
 func (e *Emitter) Result(phase api.BuildPhase, r *Result) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.emit(Event{Phase: phase, Type: EventResult, Result: r})
 }
 
+// ScriptResult emits the final result event of a script build.
+func (e *Emitter) ScriptResult(phase api.BuildPhase, r *ScriptResult) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	ev := ScriptEvent{Phase: phase, Type: EventResult, Result: r}
+	stamp(e, &ev)
+	e.write(ev, func() string { return renderScriptResult(r) })
+}
+
 func (e *Emitter) emit(ev Event) {
+	stamp(e, &ev)
+	e.write(ev, func() string { return renderText(ev) })
+}
+
+// stamp fills the frame of e's next event: the format version, the sequence number and the time.
+func stamp[R any](e *Emitter, ev *EventOf[R]) {
 	ev.V = EventVersion
 	ev.Seq = e.seq
 	ev.At = api.NewTime(e.now())
 	e.seq++
+}
+
+// write writes a stamped event: ev as one JSON line, or the text rendering for humans.
+func (e *Emitter) write(ev any, text func() string) {
 	if e.err != nil {
 		return
 	}
 	var err error
 	if e.format == EventsText {
-		_, err = io.WriteString(e.w, renderText(ev))
+		_, err = io.WriteString(e.w, text())
 	} else {
 		var b []byte
 		if b, err = marshalEvent(ev); err == nil {
@@ -168,7 +195,7 @@ func (e *Emitter) emit(ev Event) {
 	}
 }
 
-func marshalEvent(ev Event) ([]byte, error) {
+func marshalEvent(ev any) ([]byte, error) {
 	var sb strings.Builder
 	enc := json.NewEncoder(&sb)
 	enc.SetEscapeHTML(false)
@@ -250,19 +277,31 @@ func renderResult(r *Result) string {
 	if r == nil {
 		return ""
 	}
+	return renderOutcome(r.OK, r.Image, r.Pack, r.Errors)
+}
+
+func renderScriptResult(r *ScriptResult) string {
+	if r == nil {
+		return ""
+	}
+	return renderOutcome(r.OK, r.Image, r.Pack, r.Errors)
+}
+
+// renderOutcome renders the summary of a result: the image or pack of a success, or every error.
+func renderOutcome(ok bool, image *Image, pack *Summary, errs []api.BuildError) string {
 	var b strings.Builder
-	if r.OK {
+	if ok {
 		b.WriteString("[result] ok")
-		if r.Image != nil {
-			fmt.Fprintf(&b, ": image %s (%s)", r.Image.Ref, formatBytes(r.Image.Bytes))
-		} else if r.Pack != nil {
-			fmt.Fprintf(&b, ": %d files, sha256 %s", r.Pack.FileCount, r.Pack.PackSHA256)
+		if image != nil {
+			fmt.Fprintf(&b, ": image %s (%s)", image.Ref, formatBytes(image.Bytes))
+		} else if pack != nil {
+			fmt.Fprintf(&b, ": %d files, sha256 %s", pack.FileCount, pack.PackSHA256)
 		}
 		b.WriteString("\n")
 		return b.String()
 	}
-	fmt.Fprintf(&b, "[result] failed with %d error(s)\n", len(r.Errors))
-	for _, be := range r.Errors {
+	fmt.Fprintf(&b, "[result] failed with %d error(s)\n", len(errs))
+	for _, be := range errs {
 		fmt.Fprintf(&b, "  [%s] %s\n", be.Phase, FormatBuildError(be))
 	}
 	return b.String()

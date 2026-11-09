@@ -457,13 +457,13 @@ func TestPathsCorpus(t *testing.T) {
 			var res any
 			switch c.Op {
 			case "list":
-				res, err = ws.List(bg, "echo", ListOptions{Path: c.Path, Recursive: true})
+				res, err = ws.List(bg, TaskFolder("echo"), ListOptions{Path: c.Path, Recursive: true})
 			case "read":
-				res, err = ws.Read(bg, "echo", c.Path, 0)
+				res, err = ws.Read(bg, TaskFolder("echo"), c.Path, 0)
 			case "write":
-				res, err = ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{c.Path: "evil"}))
+				res, err = ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{c.Path: "evil"}))
 			case "delete":
-				res, err = ws.DeleteFiles(bg, "echo", c.Path, false)
+				res, err = ws.DeleteFiles(bg, TaskFolder("echo"), c.Path, false)
 			default:
 				t.Fatalf("unknown op %q", c.Op)
 			}

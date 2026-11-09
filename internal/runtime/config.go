@@ -12,7 +12,7 @@ import (
 
 // Environment contract of the runtime (docs/runtime.md §3.2). The node daemon sets SCANTOR_URL,
 // SCANTOR_WORKER_TOKEN, SCANTOR_DIND and passes SCANTOR_CA_CERT and SCANTOR_ALLOW_INSECURE_TRANSPORT
-// through; the base image sets the SCANTOR_LANGUAGE … SCANTOR_CHECK_CMD contract (docs/tasks.md §4.2).
+// through; the base image sets the SCANTOR_LANGUAGE … SCANTOR_SCRIPT_CMD contract (docs/tasks.md §4.2).
 // Everything else comes from bootstrap (worker mode) or the local spec (local mode).
 const (
 	EnvURL           = "SCANTOR_URL"
@@ -25,10 +25,12 @@ const (
 	EnvDebugCmd      = "SCANTOR_DEBUG_CMD"
 	EnvDebugPort     = "SCANTOR_DEBUG_PORT"
 	EnvCheckCmd      = "SCANTOR_CHECK_CMD"
+	EnvScriptCmd     = "SCANTOR_SCRIPT_CMD"
 	EnvTmpDir        = "TMPDIR"
 )
 
-// TaskDir is the working directory of every connector and check process (the base image WORKDIR).
+// TaskDir is the working directory of every connector, check and script process (the base image
+// WORKDIR).
 const TaskDir = "/task"
 
 const defaultTmpParent = "/tmp"
@@ -47,6 +49,9 @@ type Config struct {
 	DebugCmd      string
 	DebugPort     string
 	CheckCmd      string
+	// ScriptCmd is the command template of script mode; empty when the base image does not support
+	// scripts.
+	ScriptCmd string
 	// WorkRoot is <TMPDIR or /tmp>/scantor (docs/runtime.md §7.1).
 	WorkRoot string
 	Environ  []string
@@ -68,6 +73,7 @@ func LoadConfig(getenv envconf.Getenv, environ []string) (Config, error) {
 		DebugCmd:      r.String(EnvDebugCmd, ""),
 		DebugPort:     strings.TrimSpace(r.String(EnvDebugPort, "")),
 		CheckCmd:      r.String(EnvCheckCmd, ""),
+		ScriptCmd:     r.String(EnvScriptCmd, ""),
 		WorkRoot:      WorkRoot(getenv),
 		Environ:       environ,
 	}

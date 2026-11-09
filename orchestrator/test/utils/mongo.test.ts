@@ -24,6 +24,20 @@ describe('indexDefinitions', () => {
     expect(keys('nodes')).toContainEqual({ key: { builtIn: 1 }, options: { unique: true, partialFilterExpression: { builtIn: true } } })
     expect(keys('uploads')).toContainEqual({ key: { userId: 1, sha256: 1 }, options: { unique: true } })
     expect(keys('credentials')).toContainEqual({ key: { userId: 1, name: 1 }, options: { unique: true } })
+    expect(keys('scripts')).toContainEqual({ key: { userId: 1, name: 1 }, options: { unique: true } })
+    expect(keys('scriptRunLogs')).toContainEqual({ key: { scriptRunId: 1, chunk: 1 }, options: { unique: true } })
+  })
+
+  it('indexes script runs for their lists, scan deletion, the GC and the retention sweep, without a TTL', () => {
+    expect(keys('scripts')).toContainEqual({ key: { userId: 1, createdAt: -1, _id: -1 }, options: {} })
+    expect(keys('scriptRuns')).toEqual([
+      { key: { scriptId: 1, createdAt: -1 }, options: {} },
+      { key: { userId: 1, createdAt: -1 }, options: {} },
+      { key: { scanIds: 1, state: 1 }, options: {} },
+      { key: { state: 1 }, options: {} },
+      // the retention GC deletes S3 objects and log chunks first, so expiresAt must not be a TTL index
+      { key: { expiresAt: 1 }, options: {} },
+    ])
   })
 
   it('has no standalone userId index on analyses (data-model decision 2)', () => {
@@ -35,7 +49,26 @@ describe('indexDefinitions', () => {
 
   it('indexes every scantor collection except locks and meta', () => {
     const indexed = new Set(definitions.map((d) => d.collection))
-    for (const name of ['tasks', 'revisions', 'testRuns', 'testRunAnalyses', 'scans', 'analyses', 'workers', 'nodes', 'credentials', 'uploads', 'events', 'jobs', 'exports', 'editors', 'notificationSettings']) {
+    for (const name of [
+      'tasks',
+      'revisions',
+      'testRuns',
+      'testRunAnalyses',
+      'scans',
+      'analyses',
+      'workers',
+      'nodes',
+      'credentials',
+      'uploads',
+      'events',
+      'jobs',
+      'exports',
+      'editors',
+      'notificationSettings',
+      'scripts',
+      'scriptRuns',
+      'scriptRunLogs',
+    ]) {
       expect(indexed.has(name as never), name).toBe(true)
     }
   })
@@ -85,7 +118,15 @@ describe('ensureIndexes', () => {
     const names = Object.fromEntries(
       Object.entries(collectionsOf({ collection: (name: string) => ({ name }) } as unknown as Db)).map(([key, value]) => [key, (value as unknown as { name: string }).name]),
     )
-    expect(names).toMatchObject({ testRunAnalyses: 'testRunAnalyses', authUsers: 'user', authApiKeys: 'apikey', meta: 'meta' })
+    expect(names).toMatchObject({
+      testRunAnalyses: 'testRunAnalyses',
+      scripts: 'scripts',
+      scriptRuns: 'scriptRuns',
+      scriptRunLogs: 'scriptRunLogs',
+      authUsers: 'user',
+      authApiKeys: 'apikey',
+      meta: 'meta',
+    })
   })
 })
 

@@ -29,10 +29,10 @@ func TestManagedLabelsEveryKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := set.KindNames(); !slices.Equal(got, []string{"build", "editor", "egressHelper", "helper", "network", "testRun", "worker"}) {
+	if got := set.KindNames(); !slices.Equal(got, []string{"build", "editor", "egressHelper", "helper", "network", "scriptRun", "testRun", "worker"}) {
 		t.Fatalf("kinds = %v", got)
 	}
-	full := Identity{Worker: "w", Scan: "s", User: "u", Node: "n", SpecHash: "sha256:x", Op: "commit"}
+	full := Identity{Worker: "w", Scan: "s", User: "u", Node: "n", SpecHash: "sha256:x", Op: "commit", ScriptRun: "r"}
 	fixed := map[string]string{
 		"traefik.enable": "false", "com.docker.compose.project": "scantor-managed",
 		"com.docker.compose.service": "", "scantor.managed": "true",
@@ -42,6 +42,7 @@ func TestManagedLabelsEveryKind(t *testing.T) {
 		KindHelper:       {User: "u", Op: "commit"},
 		KindBuild:        {},
 		KindTestRun:      {User: "u"},
+		KindScriptRun:    {User: "u", ScriptRun: "r"},
 		KindEditor:       {User: "u"},
 		KindEgressHelper: {Node: "n"},
 		KindNetwork:      {},
@@ -62,12 +63,35 @@ func TestManagedLabelsEveryKind(t *testing.T) {
 		if len(labels) != len(fixed)+1+len(set.IdentityKeysOf(kind)) {
 			t.Errorf("%s: unexpected labels %v", kind, labels)
 		}
-		if _, err := ManagedLabels(kind, full); err == nil && kind != KindWorker {
+		if _, err := ManagedLabels(kind, full); err == nil {
 			t.Errorf("%s: accepted identity labels of other kinds", kind)
 		}
 	}
 	if _, err := ManagedLabels(KindWorker, Identity{Worker: "w"}); err == nil {
 		t.Error("worker labels without scan, user, node and spec hash accepted")
+	}
+	if _, err := ManagedLabels(KindScriptRun, Identity{User: "u"}); err == nil {
+		t.Error("script-run labels without the script run id accepted")
+	}
+	labels, err := ManagedLabels(KindScriptRun, Identity{User: "u", ScriptRun: "r"})
+	if err != nil || labels[LabelUser] != "u" || labels[LabelScriptRun] != "r" || labels[LabelKind] != "scriptRun" {
+		t.Errorf("script-run labels = %v, %v", labels, err)
+	}
+	// Every identity key of the shared file has a field in Identity, or ManagedLabels could never set it.
+	known := Identity{}.values()
+	for key := range set.IdentityKeys {
+		if _, ok := known[key]; !ok {
+			t.Errorf("identity key %s has no Identity field", key)
+		}
+	}
+	// No container name prefix is a prefix of another, so a name identifies its kind.
+	for _, a := range set.KindNames() {
+		for _, b := range set.KindNames() {
+			pa, pb := set.Kinds[a].NamePrefix, set.Kinds[b].NamePrefix
+			if a != b && pa != "" && pb != "" && strings.HasPrefix(pb, pa) {
+				t.Errorf("name prefix %s of %s is a prefix of %s of %s", pa, a, pb, b)
+			}
+		}
 	}
 	if _, err := ManagedLabels("pod", Identity{}); err == nil {
 		t.Error("unknown kind accepted")
@@ -98,8 +122,12 @@ func TestIsManaged(t *testing.T) {
 	if !IsManaged(KindNetwork, "scantor-workers", netLabels) || IsManaged(KindNetwork, "other", netLabels) {
 		t.Fatal("network recognition")
 	}
-	if Name(KindWorker, "abc") != "scantor-w-abc" || Name(KindEditor, "u") != "scantor-editor-u" || Name(KindEgressHelper, "n") != "scantor-netpol-n" {
+	if Name(KindWorker, "abc") != "scantor-w-abc" || Name(KindEditor, "u") != "scantor-editor-u" || Name(KindEgressHelper, "n") != "scantor-netpol-n" || Name(KindScriptRun, "r") != "scantor-s-r" {
 		t.Fatal("names")
+	}
+	runLabels, _ := ManagedLabels(KindScriptRun, Identity{User: "u", ScriptRun: "r"})
+	if !IsManaged(KindScriptRun, "/scantor-s-r", runLabels) || IsManaged(KindScriptRun, "/scantor-t-r", runLabels) || IsManaged(KindTestRun, "/scantor-s-r", runLabels) {
+		t.Fatal("script-run recognition")
 	}
 }
 

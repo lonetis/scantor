@@ -44,7 +44,7 @@ type DeleteResult struct {
 // created (0755), and each file is written to a temporary file in its directory and renamed into place
 // (0644). Caps and every path are checked before the first write. Without create the task folder must
 // exist.
-func (w *Workspace) WriteFiles(ctx context.Context, task string, create bool, input io.Reader) (*WriteResult, error) {
+func (w *Workspace) WriteFiles(ctx context.Context, f Folder, create bool, input io.Reader) (*WriteResult, error) {
 	files, err := readWriteRequest(input, w.limits.MaxBytes)
 	if err != nil {
 		return nil, err
@@ -58,22 +58,25 @@ func (w *Workspace) WriteFiles(ctx context.Context, task string, create bool, in
 	if err := checkPathConflicts(paths); err != nil {
 		return nil, err
 	}
-	info, err := w.taskInfo(task)
+	info, err := w.folderInfo(f)
 	if err != nil {
 		return nil, err
 	}
 	if info == nil && !create {
-		return nil, notFound("", "the task folder %q does not exist", task)
+		return nil, notFound("", "the %s does not exist", f.describe())
 	}
-	if err := w.checkWriteCaps(ctx, task, info != nil, files); err != nil {
+	if err := w.checkWriteCaps(ctx, f, info != nil, files); err != nil {
 		return nil, err
 	}
 	if info == nil {
-		if err := w.root.Mkdir(task, dirMode); err != nil && !errors.Is(err, fs.ErrExist) {
-			return nil, internalError(err, "create task folder %s", task)
+		if err := w.folderParent(f); err != nil {
+			return nil, err
+		}
+		if err := w.root.Mkdir(f.Rel(), dirMode); err != nil && !errors.Is(err, fs.ErrExist) {
+			return nil, internalError(err, "create %s", f.describe())
 		}
 	}
-	root, err := w.openTask(task)
+	root, err := w.openFolder(f)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +89,7 @@ func (w *Workspace) WriteFiles(ctx context.Context, task string, create bool, in
 			return nil, err
 		}
 	}
-	summary, err := w.taskSummary(ctx, task)
+	summary, err := w.folderSummary(ctx, f)
 	if err != nil {
 		werr := AsError(err)
 		werr.Message = "the files were written, but " + werr.Message
@@ -177,11 +180,11 @@ func checkPathConflicts(sorted []string) error {
 // contains (taskpipe.FileSet: no .git/ or .scantor/, and nothing .dockerignore excludes, such as an
 // installed node_modules/), so a folder that packs within the caps can always be edited. The workspace
 // cap counts every byte on disk.
-func (w *Workspace) checkWriteCaps(ctx context.Context, task string, exists bool, files map[string][]byte) error {
+func (w *Workspace) checkWriteCaps(ctx context.Context, f Folder, exists bool, files map[string][]byte) error {
 	var root *os.Root
 	if exists {
 		var err error
-		if root, err = w.openTask(task); err != nil {
+		if root, err = w.openFolder(f); err != nil {
 			return err
 		}
 		defer root.Close()
@@ -439,14 +442,14 @@ const maxDeletedReported = DefaultMaxEntries
 // recursive unless it is empty; a symlink is removed itself, never followed, and no component of p may
 // be a symlink. p == "" with recursive removes the whole task folder; deleting a task folder that does
 // not exist succeeds with nothing deleted, so a retried task deletion is idempotent.
-func (w *Workspace) DeleteFiles(ctx context.Context, task, p string, recursive bool) (*DeleteResult, error) {
+func (w *Workspace) DeleteFiles(ctx context.Context, f Folder, p string, recursive bool) (*DeleteResult, error) {
 	if p == "" {
-		return w.deleteTask(ctx, task, recursive)
+		return w.deleteFolder(ctx, f, recursive)
 	}
 	if err := ValidatePath(p); err != nil {
 		return nil, err
 	}
-	root, err := w.openTask(task)
+	root, err := w.openFolder(f)
 	if err != nil {
 		return nil, err
 	}
@@ -478,28 +481,28 @@ func (w *Workspace) DeleteFiles(ctx context.Context, task, p string, recursive b
 		return nil, internalError(err, "remove %s", p)
 	}
 	res := &DeleteResult{Deleted: deleted}
-	summary, err := w.taskSummary(ctx, task)
+	summary, err := w.folderSummary(ctx, f)
 	if err != nil {
 		var werr *Error
 		if !errors.As(err, &werr) || werr.Code == CodeInternal {
 			return nil, err
 		}
-		w.events.Warnf("the task folder cannot be packed after the deletion: %v", werr)
+		w.events.Warnf("the %s folder cannot be packed after the deletion: %v", f.Kind, werr)
 		return res, nil
 	}
 	res.Workspace = &summary
 	return res, nil
 }
 
-// deleteTask removes the whole task folder (task deletion); workspace is null.
-func (w *Workspace) deleteTask(ctx context.Context, task string, recursive bool) (*DeleteResult, error) {
+// deleteFolder removes the whole task or script folder (task and script deletion); workspace is null.
+func (w *Workspace) deleteFolder(ctx context.Context, f Folder, recursive bool) (*DeleteResult, error) {
 	if !recursive {
-		return nil, invalidArgument("deleting the whole task folder needs recursive")
+		return nil, invalidArgument("deleting the whole %s folder needs recursive", f.Kind)
 	}
-	root, err := w.openTask(task)
+	root, err := w.openFolder(f)
 	if err != nil {
 		if werr := AsError(err); werr.Code == CodeNotFound {
-			w.events.Infof("the task folder %q does not exist", task)
+			w.events.Infof("the %s does not exist", f.describe())
 			return &DeleteResult{Deleted: []string{}}, nil
 		}
 		return nil, err
@@ -510,10 +513,10 @@ func (w *Workspace) deleteTask(ctx context.Context, task string, recursive bool)
 		return nil, err
 	}
 	if closeErr != nil {
-		return nil, internalError(closeErr, "close task folder %s", task)
+		return nil, internalError(closeErr, "close %s", f.describe())
 	}
-	if err := w.root.RemoveAll(task); err != nil {
-		return nil, internalError(err, "remove task folder %s", task)
+	if err := w.root.RemoveAll(f.Rel()); err != nil {
+		return nil, internalError(err, "remove %s", f.describe())
 	}
 	return &DeleteResult{Deleted: deleted}, nil
 }

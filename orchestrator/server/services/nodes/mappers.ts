@@ -102,6 +102,8 @@ export function toApiEvent(doc: EventDoc): Event {
   if (doc.scanId) event.scanId = doc.scanId
   if (doc.taskId) event.taskId = doc.taskId
   if (doc.revisionId) event.revisionId = doc.revisionId
+  if (doc.scriptId) event.scriptId = doc.scriptId
+  if (doc.scriptRunId) event.scriptRunId = doc.scriptRunId
   if (doc.workerId) event.workerId = doc.workerId
   if (doc.nodeId) event.nodeId = doc.nodeId
   if (doc.data) event.data = doc.data

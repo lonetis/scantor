@@ -1,0 +1,12 @@
+{
+  "description": "COPY --from another user's local script image (docs/security.md BLD-2)",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 3,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

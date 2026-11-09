@@ -21,7 +21,9 @@ type CommitOptions struct {
 	Staging string
 	// From is the folder below the staging tree to commit ("" or "." = the tree itself).
 	From string
-	Task string
+	// Task or Script names the folder to replace (exactly one).
+	Task   string
+	Script string
 	// Expect is the workspace hash the orchestrator based its conflict decision on: a pack hash,
 	// "absent" (no task folder) or "any" (force).
 	Expect string
@@ -29,7 +31,8 @@ type CommitOptions struct {
 
 // CommitResult is the output of commit.
 type CommitResult struct {
-	Task               string  `json:"task"`
+	Task               string  `json:"task,omitempty"`
+	Script             string  `json:"script,omitempty"`
 	Changed            bool    `json:"changed"`
 	PreviousPackSHA256 *string `json:"previousPackSha256"`
 	Workspace          Summary `json:"workspace"`
@@ -47,7 +50,11 @@ type CommitResult struct {
 // commit several candidates of one checkout) the rest of the staging tree is kept for further commits;
 // the orchestrator ends with discard.
 func (w *Workspace) Commit(ctx context.Context, opts CommitOptions) (*CommitResult, error) {
-	if err := ValidateTaskName(opts.Task); err != nil {
+	f, err := opts.folder()
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Validate(); err != nil {
 		return nil, err
 	}
 	if err := validateExpect(opts.Expect); err != nil {
@@ -70,30 +77,30 @@ func (w *Workspace) Commit(ctx context.Context, opts CommitOptions) (*CommitResu
 	if err != nil {
 		return nil, err
 	}
-	current, curBytes, err := w.currentState(ctx, opts.Task, opts.Expect)
+	current, curBytes, err := w.currentState(ctx, f, opts.Expect)
 	if err != nil {
 		return nil, err
 	}
 	if opts.Expect != ExpectAny && opts.Expect != current && current != next.PackSHA256 {
-		e := newError(CodeWorkspaceDirty, "the task folder %q changed since the decision (current %s, expected %s)", opts.Task, current, opts.Expect)
+		e := newError(CodeWorkspaceDirty, "the %s changed since the decision (current %s, expected %s)", f.describe(), current, opts.Expect)
 		e.Details = map[string]any{"current": current, "expected": opts.Expect}
 		return nil, e
 	}
-	res := &CommitResult{Task: opts.Task, Workspace: next}
+	res := &CommitResult{Task: opts.Task, Script: opts.Script, Workspace: next}
 	if current != ExpectAbsent && current != "" {
 		prev := current
 		res.PreviousPackSHA256 = &prev
 	}
 	if current == next.PackSHA256 {
-		held, err := w.taskHoldsTree(ctx, opts.Task, src)
+		held, err := w.folderHoldsTree(ctx, f, src)
 		if err != nil {
 			return nil, err
 		}
 		if held {
-			w.events.Infof("the task folder %q already has this content", opts.Task)
+			w.events.Infof("the %s already has this content", f.describe())
 			return res, w.finishStaging(opts.Staging, opts.From)
 		}
-		w.events.Infof("the task folder %q has the same pack but other files .dockerignore excludes", opts.Task)
+		w.events.Infof("the %s has the same pack but other files .dockerignore excludes", f.describe())
 	}
 	wsBytes, err := w.workspaceBytes(ctx)
 	if err != nil {
@@ -102,17 +109,28 @@ func (w *Workspace) Commit(ctx context.Context, opts CommitOptions) (*CommitResu
 	if err := w.checkWorkspaceCap(wsBytes - curBytes + staged.Bytes); err != nil {
 		return nil, err
 	}
-	if err := w.swap(opts.Staging, srcRel, opts.Task, current != ExpectAbsent); err != nil {
+	if err := w.swap(opts.Staging, srcRel, f, current != ExpectAbsent); err != nil {
 		return nil, err
 	}
 	res.Changed = true
-	w.events.Infof("committed %d files and directories (%d bytes) to %q", staged.Entries, staged.Bytes, opts.Task)
+	w.events.Infof("committed %d files and directories (%d bytes) to %q", staged.Entries, staged.Bytes, f.Rel())
 	return res, w.finishStaging(opts.Staging, opts.From)
 }
 
-// taskHoldsTree reports whether the existing task folder holds every entry of the tree src (holdsTree).
-func (w *Workspace) taskHoldsTree(ctx context.Context, task string, src *os.Root) (bool, error) {
-	dst, err := w.openTask(task)
+// folder returns the folder named by Task or Script; exactly one must be set.
+func (opts CommitOptions) folder() (Folder, error) {
+	switch {
+	case opts.Task != "" && opts.Script != "":
+		return Folder{}, invalidArgument("--task and --script are mutually exclusive")
+	case opts.Script != "":
+		return ScriptFolder(opts.Script), nil
+	}
+	return TaskFolder(opts.Task), nil
+}
+
+// folderHoldsTree reports whether the existing folder holds every entry of the tree src (holdsTree).
+func (w *Workspace) folderHoldsTree(ctx context.Context, f Folder, src *os.Root) (bool, error) {
+	dst, err := w.openFolder(f)
 	if err != nil {
 		return false, err
 	}
@@ -130,8 +148,8 @@ func validateExpect(expect string) error {
 // currentState returns the pack hash of the task folder ("absent" when it does not exist) and the bytes
 // it occupies. With expect "any" a folder that cannot be packed does not block the commit (its hash is
 // "").
-func (w *Workspace) currentState(ctx context.Context, task, expect string) (string, int64, error) {
-	root, err := w.openTask(task)
+func (w *Workspace) currentState(ctx context.Context, f Folder, expect string) (string, int64, error) {
+	root, err := w.openFolder(f)
 	if err != nil {
 		if werr := AsError(err); werr.Code == CodeNotFound {
 			return ExpectAbsent, 0, nil
@@ -143,11 +161,11 @@ func (w *Workspace) currentState(ctx context.Context, task, expect string) (stri
 	if err != nil {
 		return "", 0, err
 	}
-	sum, err := w.summarizeDir(ctx, w.abs(task))
+	sum, err := w.summarizeDir(ctx, w.abs(f.Rel()))
 	if err != nil {
 		var werr *Error
 		if expect == ExpectAny && errors.As(err, &werr) && werr.Code != CodeInternal {
-			w.events.Warnf("the current task folder cannot be packed (%v); replacing it", werr)
+			w.events.Warnf("the current %s folder cannot be packed (%v); replacing it", f.Kind, werr)
 			return "", u.Bytes, nil
 		}
 		return "", 0, err
@@ -157,29 +175,32 @@ func (w *Workspace) currentState(ctx context.Context, task, expect string) (stri
 
 // swap moves the task folder out of the way and the source into its place, restoring the old folder when
 // the second rename fails.
-func (w *Workspace) swap(id, srcRel, task string, exists bool) error {
+func (w *Workspace) swap(id, srcRel string, f Folder, exists bool) error {
+	rel := f.Rel()
 	old := stagingPath(id, "old")
 	if err := w.root.RemoveAll(old); err != nil {
 		return internalError(err, "clear %s", old)
 	}
 	if exists {
-		if err := w.root.Rename(task, old); err != nil {
-			return internalError(err, "move the task folder %s aside", task)
+		if err := w.root.Rename(rel, old); err != nil {
+			return internalError(err, "move the %s aside", f.describe())
 		}
+	} else if err := w.folderParent(f); err != nil {
+		return err
 	}
-	if err := w.root.Rename(srcRel, task); err != nil {
+	if err := w.root.Rename(srcRel, rel); err != nil {
 		if exists {
-			if rerr := w.root.Rename(old, task); rerr != nil {
-				w.events.Warnf("restore the task folder %s: %v", task, rerr)
+			if rerr := w.root.Rename(old, rel); rerr != nil {
+				w.events.Warnf("restore the %s: %v", f.describe(), rerr)
 			}
 		}
 		if errors.Is(err, fs.ErrExist) {
-			return newError(CodeWorkspaceDirty, "the task folder %q was created concurrently", task)
+			return newError(CodeWorkspaceDirty, "the %s was created concurrently", f.describe())
 		}
-		return internalError(err, "move the staged tree into %s", task)
+		return internalError(err, "move the staged tree into %s", rel)
 	}
 	if err := w.root.RemoveAll(old); err != nil {
-		w.events.Warnf("remove the previous task folder: %v", err)
+		w.events.Warnf("remove the previous %s folder: %v", f.Kind, err)
 	}
 	return nil
 }
@@ -276,8 +297,8 @@ func (w *Workspace) Discard(id string) error {
 
 // Snapshot writes the deterministic pack of the task folder to out, or only computes its summary when
 // out is nil (docs/editor.md §9.4 snapshot). The caps are MaxFiles, MaxBytes and MaxPackBytes.
-func (w *Workspace) Snapshot(ctx context.Context, task string, out io.Writer) (PackSummary, error) {
-	return w.snapshot(ctx, task, out, w.limits)
+func (w *Workspace) Snapshot(ctx context.Context, f Folder, out io.Writer) (PackSummary, error) {
+	return w.snapshot(ctx, f, out, w.limits)
 }
 
 // randomID returns a random staging id.

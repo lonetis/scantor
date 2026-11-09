@@ -59,7 +59,7 @@ export default defineEventHandler((event) => {
         durationMs: Math.round(performance.now() - started),
         clientIp,
         principal: principal?.kind,
-        userId: principal?.kind === 'user' ? principal.user.id : undefined,
+        userId: principal?.kind === 'user' ? principal.user.id : principal?.kind === 'scriptRun' ? principal.scriptRun.userId : undefined,
         operationId: (event.context.operation as { operationId?: string } | undefined)?.operationId,
         code: typeof event.context.errorCode === 'string' ? event.context.errorCode : undefined,
       })

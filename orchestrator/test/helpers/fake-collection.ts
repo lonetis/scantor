@@ -161,12 +161,20 @@ function sortDocs(docs: Doc[], sort?: Record<string, 1 | -1>): Doc[] {
   })
 }
 
-function project(doc: Doc, projection?: Record<string, 0 | 1>): Doc {
+/** A projection: 1 includes a path; `{$size: '$<path>'}` computes the length of an array field. */
+type Projection = Record<string, 0 | 1 | { $size: string }>
+
+function project(doc: Doc, projection?: Projection): Doc {
   if (!projection) return structuredClone(doc)
-  const included = Object.entries(projection).filter(([, flag]) => flag === 1)
+  const included = Object.entries(projection).filter(([, flag]) => flag !== 0)
   if (included.length === 0) return structuredClone(doc)
   const result: Doc = {}
-  for (const [path] of included) {
+  for (const [path, flag] of included) {
+    if (typeof flag === 'object') {
+      const array = getPath(doc, flag.$size.slice(1))
+      setPath(result, path, Array.isArray(array) ? array.length : 0)
+      continue
+    }
     const value = getPath(doc, path)
     if (value !== undefined) setPath(result, path, structuredClone(value))
   }
@@ -175,13 +183,14 @@ function project(doc: Doc, projection?: Record<string, 0 | 1>): Doc {
 
 interface FindOptions {
   sort?: Record<string, 1 | -1>
-  projection?: Record<string, 0 | 1>
+  projection?: Projection
 }
 
 class FakeCursor<T> {
   private sortSpec?: Record<string, 1 | -1>
   private limitCount?: number
-  private projection?: Record<string, 0 | 1>
+  private projection?: Projection
+  private buffered: T[] | null = null
 
   constructor(private readonly source: () => Doc[]) {}
 
@@ -195,7 +204,7 @@ class FakeCursor<T> {
     return this
   }
 
-  project<P = T>(projection: Record<string, 0 | 1>): FakeCursor<P> {
+  project<P = T>(projection: Projection): FakeCursor<P> {
     this.projection = projection
     return this as unknown as FakeCursor<P>
   }
@@ -204,6 +213,19 @@ class FakeCursor<T> {
     const sorted = sortDocs(this.source(), this.sortSpec)
     const limited = this.limitCount === undefined ? sorted : sorted.slice(0, this.limitCount)
     return limited.map((doc) => project(doc, this.projection)) as T[]
+  }
+
+  async next(): Promise<T | null> {
+    this.buffered ??= await this.toArray()
+    return this.buffered.shift() ?? null
+  }
+
+  async *[Symbol.asyncIterator](): AsyncGenerator<T> {
+    for (const doc of await this.toArray()) yield doc
+  }
+
+  async close(): Promise<void> {
+    this.buffered = []
   }
 }
 
@@ -306,6 +328,20 @@ export class FakeCollection<T extends Document = Document> {
       replaceContents(target, applyUpdate(target, update, false))
     }
     return { matchedCount: targets.length, modifiedCount: targets.length }
+  }
+
+  async replaceOne(filter: Doc, replacement: T, options: { upsert?: boolean } = {}) {
+    const index = this.docs.findIndex((doc) => matches(doc, filter))
+    const copy = structuredClone(replacement) as Doc
+    if (index < 0) {
+      if (!options.upsert) return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 }
+      this.checkUnique(copy)
+      this.docs.push(copy)
+      return { matchedCount: 0, modifiedCount: 0, upsertedCount: 1 }
+    }
+    this.checkUnique(copy, this.docs[index])
+    this.docs[index] = copy
+    return { matchedCount: 1, modifiedCount: 1, upsertedCount: 0 }
   }
 
   async deleteOne(filter: Doc) {

@@ -37,6 +37,35 @@ func TestLoad(t *testing.T) {
 	}
 }
 
+// Python is the only script language (docs/scripts.md); the other rows have no script object.
+func TestScriptSupport(t *testing.T) {
+	table := MustLoad()
+	py, _ := table.Get("python")
+	want := Script{Entry: "main.py", Scaffold: "scaffolds/python-script", Guide: "docs/guide/scripts.md"}
+	if !py.SupportsScripts() || *py.Script != want {
+		t.Fatalf("python script = %+v", py.Script)
+	}
+	var names []string
+	for _, l := range table.WithScripts() {
+		names = append(names, l.Name)
+	}
+	if !slices.Equal(names, []string{"python"}) {
+		t.Fatalf("WithScripts = %v", names)
+	}
+	for _, name := range []string{"go", "javascript", "typescript"} {
+		if l, _ := table.Get(name); l.SupportsScripts() {
+			t.Errorf("%s supports scripts", name)
+		}
+	}
+	table, err := Parse([]byte(`{"version": 1, "languages": {"x": {"title": "X", "base": "x", "image": "i", "entry": "main.x", "entryKind": "source", "extensions": [".x"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if x, _ := table.Get("x"); x.SupportsScripts() || len(table.WithScripts()) != 0 {
+		t.Fatal("a row without a script object supports scripts")
+	}
+}
+
 func TestBaseImageRef(t *testing.T) {
 	origPrefix, origVersion := version.ImagePrefix, version.Version
 	t.Cleanup(func() { version.ImagePrefix, version.Version = origPrefix, origVersion })
@@ -77,6 +106,10 @@ func TestParseRejectsInvalidTables(t *testing.T) {
 		"missing fields": `{"version": 1, "languages": {"x": {"title": "X"}}}`,
 		"bad entry kind": `{"version": 1, "languages": {"x": {"title": "X", "base": "x", "image": "i", "entry": "main.x", "entryKind": "script", "extensions": [".x"]}}}`,
 		"entry ext":      `{"version": 1, "languages": {"x": {"title": "X", "base": "x", "image": "i", "entry": "main.y", "entryKind": "source", "extensions": [".x"]}}}`,
+		"script empty":   `{"version": 1, "languages": {"x": {"title": "X", "base": "x", "image": "i", "entry": "main.x", "entryKind": "source", "extensions": [".x"], "script": {}}}}`,
+		"script entry":   `{"version": 1, "languages": {"x": {"title": "X", "base": "x", "image": "i", "entry": "main.x", "entryKind": "source", "extensions": [".x"], "script": {"scaffold": "s", "guide": "g"}}}}`,
+		"script guide":   `{"version": 1, "languages": {"x": {"title": "X", "base": "x", "image": "i", "entry": "main.x", "entryKind": "source", "extensions": [".x"], "script": {"entry": "main.x", "scaffold": "s"}}}}`,
+		"script ext":     `{"version": 1, "languages": {"x": {"title": "X", "base": "x", "image": "i", "entry": "main.x", "entryKind": "source", "extensions": [".x"], "script": {"entry": "main.y", "scaffold": "s", "guide": "g"}}}}`,
 	} {
 		if _, err := Parse([]byte(data)); err == nil {
 			t.Errorf("%s: Parse accepted an invalid table", name)

@@ -44,23 +44,28 @@ ENV SCANTOR_LANGUAGE=python \
     SCANTOR_CONNECTOR_CMD="python -m scantor.serve {entry}" \
     SCANTOR_CHECK_CMD="python -m scantor.check {entry}" \
     SCANTOR_DEBUG_CMD="python -m debugpy --listen 0.0.0.0:5678 --wait-for-client -m scantor.serve {entry}" \
-    SCANTOR_DEBUG_PORT=5678
+    SCANTOR_DEBUG_PORT=5678 \
+    SCANTOR_SCRIPT_CMD="python -m scantor.script {entry}"
 WORKDIR /task
 
 # Connector tests: ruff, basedpyright and pytest against the installed connector, the Python examples,
-# the Python scaffold and the Python guide. `just test-connectors python` runs it with --network none.
+# the Python scaffolds, the Python guides and the fixture scripts. `just test-connectors python` runs it
+# with --network none.
 FROM base AS test
 RUN --mount=from=uv,source=/uv,target=/usr/local/bin/uv \
     uv pip install --system --no-cache \
       "pytest>=9.1" "pytest-asyncio>=1.4" "ruff==0.17.1" "jsonschema>=4.25" "pyyaml>=6.0.3" "httpx>=0.28.1,<1"
 COPY schemas /src/schemas
 COPY scaffolds/python /src/scaffolds/python
+COPY scaffolds/python-script /src/scaffolds/python-script
 COPY tasks/echo /src/tasks/echo
 COPY tasks/sleep /src/tasks/sleep
 COPY tasks/throws /src/tasks/throws
 COPY tasks/files /src/tasks/files
 COPY tasks/origins /src/tasks/origins
 COPY docs/guide/authoring-python.md /src/docs/guide/authoring-python.md
+COPY docs/guide/scripts.md /src/docs/guide/scripts.md
+COPY tests/fixtures/scripts /src/tests/fixtures/scripts
 COPY connectors/python /src/connectors/python
 WORKDIR /src/connectors/python
 CMD ["sh", "-c", "ruff check . && ruff format --check . && /opt/scantor/tools/bin/basedpyright --pythonpath /usr/local/bin/python && pytest -q"]

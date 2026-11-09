@@ -1,0 +1,21 @@
+# [[.Name]] — a scantor script ([[.Language]])
+
+This folder is a scantor script: it evaluates the results and files of your scans on the platform. The
+definition lives in `main.py`; `scantor-script.yaml` is the manifest; `models.py` holds the result model
+of the task whose scans the script reads.
+
+Commands:
+- `scantor scripts push .` — upload the folder
+- `scantor scripts run . --scan <scanId> --limit 100 --follow` — try it on 100 analyses
+- `scantor scripts run . --scan <scanId> --follow` — run it on every analysis
+- `scantor scripts runs logs <runId> --follow` — follow a run's log
+
+Rules: keep `name` in scantor-script.yaml unchanged; paste the task's result model into `models.py`;
+functions passed to `ctx.map` with `processes > 1` must be module-level and return picklable values;
+use `ctx.checkpoint` and `ctx.resume_state` so a restarted run can resume; secrets come from
+`ctx.secrets`, never from the config.
+
+Python: the config derives from `scantor.Config` and gives every field a default; the result is any
+pydantic model; list extra packages in `requirements.txt` (never pydantic).
+
+Guide: [[.GuideURL]]

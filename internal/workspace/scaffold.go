@@ -295,24 +295,50 @@ func writeScaffold(root *os.Root, files []ScaffoldFile) error {
 }
 
 // Scaffold renders the scaffold into the task folder req.Name, which must not exist or be empty
-// (docs/editor.md §9.4 scaffold). The files are written to a staging tree first and renamed into
-// place, so a crash never leaves a half-written folder.
+// (docs/editor.md §9.4 scaffold).
 func (w *Workspace) Scaffold(ctx context.Context, req ScaffoldRequest) (*ScaffoldResult, error) {
 	files, err := RenderScaffold(req)
 	if err != nil {
 		return nil, err
 	}
-	info, err := w.taskInfo(req.Name)
+	res, err := w.scaffoldFolder(ctx, TaskFolder(req.Name), files)
 	if err != nil {
 		return nil, err
 	}
+	w.events.Infof("scaffolded %s (%s, template %s): %d files", req.Name, req.Language, req.Template, len(files))
+	return res, nil
+}
+
+// ScaffoldScript renders the script scaffold of req.Language into the script folder req.Name, which must
+// not exist or be empty (`scaffold --script`).
+func (w *Workspace) ScaffoldScript(ctx context.Context, req ScriptScaffoldRequest) (*ScaffoldResult, error) {
+	files, err := RenderScriptScaffold(req)
+	if err != nil {
+		return nil, err
+	}
+	res, err := w.scaffoldFolder(ctx, ScriptFolder(req.Name), files)
+	if err != nil {
+		return nil, err
+	}
+	w.events.Infof("scaffolded script %s (%s): %d files", req.Name, req.Language, len(files))
+	return res, nil
+}
+
+// scaffoldFolder writes rendered files into the folder f, which must not exist or be empty. The files are
+// written to a staging tree first and renamed into place, so a crash never leaves a half-written folder.
+func (w *Workspace) scaffoldFolder(ctx context.Context, f Folder, files []ScaffoldFile) (*ScaffoldResult, error) {
+	info, err := w.folderInfo(f)
+	if err != nil {
+		return nil, err
+	}
+	rel := f.Rel()
 	if info != nil {
-		entries, err := fs.ReadDir(w.root.FS(), req.Name)
+		entries, err := fs.ReadDir(w.root.FS(), rel)
 		if err != nil {
-			return nil, internalError(err, "read task folder %s", req.Name)
+			return nil, internalError(err, "read %s", f.describe())
 		}
 		if len(entries) > 0 {
-			return nil, newError(CodeExists, "the task folder %q already exists and is not empty", req.Name)
+			return nil, newError(CodeExists, "the %s already exists and is not empty", f.describe())
 		}
 	}
 	u := scaffoldUsage(files)
@@ -349,21 +375,22 @@ func (w *Workspace) Scaffold(ctx context.Context, req ScaffoldRequest) (*Scaffol
 		return nil, internalError(err, "chmod staging tree")
 	}
 	if info != nil {
-		if err := w.root.Remove(req.Name); err != nil {
-			return nil, newError(CodeExists, "the task folder %q is no longer empty", req.Name)
+		if err := w.root.Remove(rel); err != nil {
+			return nil, newError(CodeExists, "the %s is no longer empty", f.describe())
 		}
+	} else if err := w.folderParent(f); err != nil {
+		return nil, err
 	}
-	if err := w.root.Rename(stagingPath(id, "tree"), req.Name); err != nil {
+	if err := w.root.Rename(stagingPath(id, "tree"), rel); err != nil {
 		if errors.Is(err, fs.ErrExist) {
-			return nil, newError(CodeExists, "the task folder %q was created concurrently", req.Name)
+			return nil, newError(CodeExists, "the %s was created concurrently", f.describe())
 		}
-		return nil, internalError(err, "move the scaffold into %s", req.Name)
+		return nil, internalError(err, "move the scaffold into %s", rel)
 	}
-	summary, err := w.taskSummary(ctx, req.Name)
+	summary, err := w.folderSummary(ctx, f)
 	if err != nil {
 		return nil, err
 	}
-	w.events.Infof("scaffolded %s (%s, template %s): %d files", req.Name, req.Language, req.Template, len(files))
 	return &ScaffoldResult{Workspace: summary}, nil
 }
 
@@ -374,31 +401,7 @@ func RenderInto(dir string, req ScaffoldRequest) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Lstat(dir)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		if err := os.MkdirAll(dir, dirMode); err != nil {
-			return nil, internalError(err, "create %s", dir)
-		}
-	case err != nil:
-		return nil, internalError(err, "stat %s", dir)
-	case !info.IsDir():
-		return nil, newError(CodeExists, "%s exists and is not a directory", dir)
-	default:
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return nil, internalError(err, "read %s", dir)
-		}
-		if len(entries) > 0 {
-			return nil, newError(CodeExists, "%s already exists and is not empty", dir)
-		}
-	}
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return nil, internalError(err, "open %s", dir)
-	}
-	defer root.Close()
-	if err := writeScaffold(root, files); err != nil {
+	if err := writeInto(dir, files); err != nil {
 		return nil, err
 	}
 	paths := make([]string, len(files))
@@ -406,4 +409,43 @@ func RenderInto(dir string, req ScaffoldRequest) ([]string, error) {
 		paths[i] = f.Path
 	}
 	return paths, nil
+}
+
+// RenderScriptInto renders the script scaffold into the local directory dir for `scantor scripts init`:
+// dir must not exist or be empty; it is created with its parents.
+func RenderScriptInto(dir string, req ScriptScaffoldRequest) error {
+	files, err := RenderScriptScaffold(req)
+	if err != nil {
+		return err
+	}
+	return writeInto(dir, files)
+}
+
+// writeInto writes rendered files into the local directory dir, which must not exist or be empty.
+func writeInto(dir string, files []ScaffoldFile) error {
+	info, err := os.Lstat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if err := os.MkdirAll(dir, dirMode); err != nil {
+			return internalError(err, "create %s", dir)
+		}
+	case err != nil:
+		return internalError(err, "stat %s", dir)
+	case !info.IsDir():
+		return newError(CodeExists, "%s exists and is not a directory", dir)
+	default:
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return internalError(err, "read %s", dir)
+		}
+		if len(entries) > 0 {
+			return newError(CodeExists, "%s already exists and is not empty", dir)
+		}
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return internalError(err, "open %s", dir)
+	}
+	defer root.Close()
+	return writeScaffold(root, files)
 }

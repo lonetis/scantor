@@ -17,6 +17,9 @@
   "basedpyright.analysis.typeCheckingMode": "standard",
   "go.toolsManagement.autoUpdate": false,
   "go.toolsManagement.checkForUpdates": "off",
-  "yaml.schemas": { "/opt/scantor/schemas/task-manifest.schema.json": "scantor.yaml" },
+  "yaml.schemas": {
+    "/opt/scantor/schemas/task-manifest.schema.json": "scantor.yaml",
+    "/opt/scantor/schemas/script-manifest.schema.json": "scantor-script.yaml"
+  },
   "terminal.integrated.defaultProfile.linux": "bash"
 }

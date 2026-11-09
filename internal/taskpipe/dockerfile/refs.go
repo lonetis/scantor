@@ -38,10 +38,21 @@ func CheckImageRef(ref string, forbiddenHosts []string) string {
 	if reason := forbiddenHost(host, forbiddenHosts); reason != "" {
 		return reason
 	}
-	if strings.HasPrefix(strings.ToLower(reference.Path(named)), "tasks/") {
-		return "repositories under tasks/ hold task images and can never be used in a Dockerfile"
+	repoPath := strings.ToLower(reference.Path(named))
+	for _, prefix := range reservedRepositoryPrefixes {
+		if strings.HasPrefix(repoPath, prefix.path) {
+			return fmt.Sprintf("repositories under %s hold %s images and can never be used in a Dockerfile", prefix.path, prefix.holds)
+		}
 	}
 	return ""
+}
+
+// reservedRepositoryPrefixes are the repository paths of the images scantor builds on the build daemon:
+// task images (also on the registry) and script images (local only). BuildKit prefers local images, so
+// a matching reference on any host could read another user's image (docs/security.md BLD-2).
+var reservedRepositoryPrefixes = []struct{ path, holds string }{
+	{"tasks/", "task"},
+	{"scripts/", "script"},
 }
 
 // hostOf strips the port from a registry domain ("localhost:5000", "[::1]:5000").

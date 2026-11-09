@@ -1,7 +1,7 @@
 import type { ErrorCode } from '#shared/utils/error-codes'
 import { ApiError } from '../../utils/errors'
 import { redactText } from '../../utils/redact'
-import type { HelperErrorPayload, HelperOp, HelperResult, SnapshotSummary } from './types'
+import type { FolderKind, HelperErrorPayload, HelperOp, HelperResult, SnapshotSummary } from './types'
 
 // The helper I/O protocol (docs/editor.md §9.3): stdout carries exactly one JSON document (the tar.gz for
 // `snapshot`), stderr carries NDJSON events — `log` lines, the final `summary` of `snapshot`, and on failure a final
@@ -85,11 +85,21 @@ export function scrubMessage(message: string, secrets: readonly string[] = []): 
   return redactText(result)
 }
 
+/** The manifest file of each folder kind (docs/tasks.md, docs/scripts.md). */
+export const MANIFEST_FILES: Readonly<Record<FolderKind, string>> = { task: 'scantor.yaml', script: 'scantor-script.yaml' }
+
+/** What the caller knows about a helper run that the error payload may not say. */
+export interface HelperErrorContext {
+  /** the kind of folder the operation validated (`extract --kind script`); names the manifest of a bare manifestInvalid */
+  kind?: FolderKind
+}
+
 /** Maps the error payload of a helper (exit 1) onto the API error of the table in docs/editor.md §9.3. */
 export function mapHelperError(
   op: HelperOp,
   error: HelperErrorPayload,
   secrets: readonly string[] = [],
+  context: HelperErrorContext = {},
 ): { code: ErrorCode; message: string; details?: Record<string, unknown> } {
   const message = scrubMessage(error.message, secrets)
   const details = error.details ?? {}
@@ -117,7 +127,7 @@ export function mapHelperError(
       return {
         code: 'manifestInvalid',
         message,
-        details: { errors: Array.isArray(details.errors) ? details.errors : [{ phase: 'static', file: 'scantor.yaml', message }] },
+        details: { errors: Array.isArray(details.errors) ? details.errors : [{ phase: 'static', file: MANIFEST_FILES[context.kind ?? 'task'], message }] },
       }
     case 'workspaceDirty':
       return { code: 'workspaceDirty', message, details }
@@ -134,11 +144,11 @@ export function mapHelperError(
  * Checks the outcome of a helper run. Exit 0 passes; exit 1 with an error line becomes the mapped API error;
  * anything else (exit 2, signals, OOM 137, an unparseable failure) is a 500 `internal`.
  */
-export function checkHelperResult(op: HelperOp, result: HelperResult, secrets: readonly string[] = []): HelperStderr {
+export function checkHelperResult(op: HelperOp, result: HelperResult, secrets: readonly string[] = [], context: HelperErrorContext = {}): HelperStderr {
   const stderr = parseHelperStderr(result.stderr)
   if (result.exitCode === 0) return stderr
   if (result.exitCode === 1 && stderr.error) {
-    throw new HelperError(op, mapHelperError(op, stderr.error, secrets), stderr.error.code, result.stderr)
+    throw new HelperError(op, mapHelperError(op, stderr.error, secrets, context), stderr.error.code, result.stderr)
   }
   throw new HelperError(op, { code: 'internal', message: `workspace ${op} failed` }, stderr.error?.code ?? null, result.stderr)
 }

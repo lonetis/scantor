@@ -47,6 +47,12 @@ func TestExitCode(t *testing.T) {
 	}{
 		{nil, 0},
 		{SilentExit(1), 1},
+		{SilentExit(143), 3},
+		{ProcessExit(143), 143},
+		{ProcessExit(137), 137},
+		{runtimeExit(3), 3},
+		{runtimeExit(143), 143},
+		{ProcessExit(256), 3},
 		{WithExit(ExitAnalysisFailures, errors.New("2 analyses failed")), 1},
 		{UsageError(errors.New("bad flag")), 2},
 		{ValidationError(errors.New("bad config")), 2},

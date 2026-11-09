@@ -30,12 +30,22 @@ export function managedNamePrefix(kind: ManagedKind): string | null {
   return definition.namePrefix ?? null
 }
 
-/** True when a container carries the managed labels of `kind` and its name has that kind's prefix. */
-export function isManagedContainer(kind: ManagedKind, name: string, labels: Record<string, string> | undefined): boolean {
+/**
+ * True when a container carries the managed labels of `kind`, its name has that kind's prefix and every given identity
+ * label has the given value (for example `{ 'scantor.script-run': runId }` before a job adopts or removes a container
+ * it found by name).
+ */
+export function isManagedContainer(
+  kind: ManagedKind,
+  name: string,
+  labels: Record<string, string> | undefined,
+  identity: Partial<Record<IdentityKey, string>> = {},
+): boolean {
   const prefix = managedNamePrefix(kind)
   if (!prefix || !labels) return false
   const bare = name.startsWith('/') ? name.slice(1) : name
-  return bare.startsWith(prefix) && labels['scantor.managed'] === 'true' && labels[spec.kindKey] === kind
+  if (!bare.startsWith(prefix) || labels['scantor.managed'] !== 'true' || labels[spec.kindKey] !== kind) return false
+  return Object.entries(identity).every(([key, value]) => value === undefined || labels[key] === value)
 }
 
 /** True when an image label key is forbidden (Dockerfile rule D9, post-build label check). */

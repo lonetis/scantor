@@ -29,13 +29,13 @@ func TestWriteFiles(t *testing.T) {
 	ws := newTestWorkspace(t, DefaultLimits())
 	task := filepath.Join(ws.dir, "echo")
 
-	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"a.txt": "x"})); err == nil {
+	if _, err := ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"a.txt": "x"})); err == nil {
 		t.Fatal("writing into a missing task folder without --create succeeded")
 	} else {
 		wantCode(t, err, CodeNotFound)
 	}
 
-	res, err := ws.WriteFiles(bg, "echo", true, writeRequest(t, map[string]any{
+	res, err := ws.WriteFiles(bg, TaskFolder("echo"), true, writeRequest(t, map[string]any{
 		"scantor.yaml":   testManifest,
 		"src/lib/x.py":   "print('ü')\n",
 		"data/blob.bin":  map[string]any{"base64": base64.StdEncoding.EncodeToString([]byte{0, 1, 2, 255})},
@@ -68,7 +68,7 @@ func TestWriteFiles(t *testing.T) {
 	}
 
 	// Overwriting replaces the content and keeps the mode.
-	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"src/lib/x.py": "y"})); err != nil {
+	if _, err := ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"src/lib/x.py": "y"})); err != nil {
 		t.Fatal(err)
 	}
 	if got := readTestFile(t, filepath.Join(task, "src", "lib", "x.py")); got != "y" {
@@ -113,7 +113,7 @@ func TestWriteFilesRejections(t *testing.T) {
 			if tt.raw != "" {
 				input = strings.NewReader(tt.raw)
 			}
-			_, err := ws.WriteFiles(bg, "echo", false, input)
+			_, err := ws.WriteFiles(bg, TaskFolder("echo"), false, input)
 			wantCode(t, err, tt.code)
 			if after := listTestTree(t, task); !slices.Equal(after, before) {
 				t.Fatalf("a refused write changed the task folder:\n%v\n%v", before, after)
@@ -134,13 +134,13 @@ func TestWriteFilesEntryCapCountsNewDirectories(t *testing.T) {
 	// scantor.yaml + a + a/b + a/b/c = 4 entries.
 	ws := newTestWorkspace(t, Limits{MaxFiles: 4})
 	writeTree(t, filepath.Join(ws.dir, "echo"), map[string]node{"scantor.yaml": file(testManifest)})
-	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"a/b/c": "x"})); err != nil {
+	if _, err := ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"a/b/c": "x"})); err != nil {
 		t.Fatalf("4 entries: %v", err)
 	}
-	_, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"a/d/e": "x"}))
+	_, err := ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"a/d/e": "x"}))
 	wantCode(t, err, CodeTooManyFiles)
 	// Overwriting an existing file adds nothing.
-	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"a/b/c": "y"})); err != nil {
+	if _, err := ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"a/b/c": "y"})); err != nil {
 		t.Fatalf("overwrite: %v", err)
 	}
 }
@@ -160,28 +160,28 @@ func TestWriteFilesCapsFollowDockerignore(t *testing.T) {
 	}
 	// scantor.yaml, .dockerignore, main.ts: 3 entries of the pack.
 	ws := setup(t, Limits{MaxFiles: 6, MaxBytes: 1000}, "node_modules/\n")
-	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"main.ts": "y", "lib/a.ts": "a"})); err != nil {
+	if _, err := ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"main.ts": "y", "lib/a.ts": "a"})); err != nil {
 		t.Fatalf("write next to an ignored node_modules: %v", err)
 	}
 	// Ignored paths in the request do not count either.
-	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"node_modules/new/x.js": strings.Repeat("x", 2000)})); err != nil {
+	if _, err := ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"node_modules/new/x.js": strings.Repeat("x", 2000)})); err != nil {
 		t.Fatalf("write into node_modules: %v", err)
 	}
 	// 5 entries now (lib and lib/a.ts added): two more files exceed the cap.
-	_, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"b.ts": "b", "c.ts": "c"}))
+	_, err := ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"b.ts": "b", "c.ts": "c"}))
 	wantCode(t, err, CodeTooManyFiles)
-	_, err = ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"b.ts": strings.Repeat("x", 1000)}))
+	_, err = ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"b.ts": strings.Repeat("x", 1000)}))
 	wantCode(t, err, CodeTooLarge)
 
 	// A request that changes .dockerignore so the folder is included is counted with the new rules.
 	ws = setup(t, Limits{MaxFiles: 50}, "node_modules/\n")
-	_, err = ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{".dockerignore": "*.md\n"}))
+	_, err = ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{".dockerignore": "*.md\n"}))
 	wantCode(t, err, CodeTooManyFiles)
 
 	// An exception re-includes one package: it and the excluded directories above it are entries.
 	// scantor.yaml, .dockerignore, main.ts, node_modules, node_modules/pkg1, its index.js = 6.
 	ws = setup(t, Limits{MaxFiles: 7}, "node_modules\n!node_modules/pkg1\n")
-	if _, err := ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"a.ts": "a"})); err != nil {
+	if _, err := ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"a.ts": "a"})); err != nil {
 		t.Fatalf("7 entries: %v", err)
 	}
 	// The pack agrees: 7 entries fit a cap of 7, not one of 6.
@@ -194,12 +194,12 @@ func TestWriteFilesCapsFollowDockerignore(t *testing.T) {
 			_ = pack.Close()
 		}
 	}
-	_, err = ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"node_modules/pkg1/b.js": "b"}))
+	_, err = ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"node_modules/pkg1/b.js": "b"}))
 	wantCode(t, err, CodeTooManyFiles)
 
 	// The workspace cap counts the ignored bytes on disk.
 	ws = setup(t, Limits{MaxWorkspaceBytes: 7000}, "node_modules/\n")
-	_, err = ws.WriteFiles(bg, "echo", false, writeRequest(t, map[string]any{"node_modules/big.js": strings.Repeat("x", 2000)}))
+	_, err = ws.WriteFiles(bg, TaskFolder("echo"), false, writeRequest(t, map[string]any{"node_modules/big.js": strings.Repeat("x", 2000)}))
 	wantCode(t, err, CodeWorkspaceFull)
 }
 
@@ -214,34 +214,34 @@ func TestDeleteFiles(t *testing.T) {
 		"single.txt":   file("s"),
 	})
 
-	res, err := ws.DeleteFiles(bg, "echo", "single.txt", false)
+	res, err := ws.DeleteFiles(bg, TaskFolder("echo"), "single.txt", false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Equal(res.Deleted, []string{"single.txt"}) || res.Workspace == nil || res.Workspace.PackSHA256 != packHash(t, task) {
 		t.Fatalf("unexpected result %+v", res)
 	}
-	if _, err := ws.DeleteFiles(bg, "echo", "empty", false); err != nil {
+	if _, err := ws.DeleteFiles(bg, TaskFolder("echo"), "empty", false); err != nil {
 		t.Fatalf("delete an empty directory: %v", err)
 	}
-	_, err = ws.DeleteFiles(bg, "echo", "a", false)
+	_, err = ws.DeleteFiles(bg, TaskFolder("echo"), "a", false)
 	wantCode(t, err, CodeInvalidArgument)
-	res, err = ws.DeleteFiles(bg, "echo", "a", true)
+	res, err = ws.DeleteFiles(bg, TaskFolder("echo"), "a", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"a", "a/b", "a/b/c.txt", "a/d.txt"}; !slices.Equal(res.Deleted, want) {
 		t.Fatalf("deleted %v, want %v", res.Deleted, want)
 	}
-	_, err = ws.DeleteFiles(bg, "echo", "a", true)
+	_, err = ws.DeleteFiles(bg, TaskFolder("echo"), "a", true)
 	wantCode(t, err, CodeNotFound)
-	_, err = ws.DeleteFiles(bg, "missing", "x", false)
+	_, err = ws.DeleteFiles(bg, TaskFolder("missing"), "x", false)
 	wantCode(t, err, CodeNotFound)
 
 	// The whole task folder: workspace null; again: nothing deleted (idempotent).
-	_, err = ws.DeleteFiles(bg, "echo", "", false)
+	_, err = ws.DeleteFiles(bg, TaskFolder("echo"), "", false)
 	wantCode(t, err, CodeInvalidArgument)
-	res, err = ws.DeleteFiles(bg, "echo", "", true)
+	res, err = ws.DeleteFiles(bg, TaskFolder("echo"), "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestDeleteFiles(t *testing.T) {
 		t.Fatalf("unexpected result %+v", res)
 	}
 	mustNotExist(t, task)
-	res, err = ws.DeleteFiles(bg, "echo", "", true)
+	res, err = ws.DeleteFiles(bg, TaskFolder("echo"), "", true)
 	if err != nil || len(res.Deleted) != 0 || res.Workspace != nil {
 		t.Fatalf("second task deletion: %+v, %v", res, err)
 	}
@@ -260,7 +260,7 @@ func TestDeleteTaskFolderThatIsASymlink(t *testing.T) {
 	victim := t.TempDir()
 	writeTree(t, victim, map[string]node{"keep": file("x")})
 	writeTree(t, ws.dir, map[string]node{"echo": symlink(victim)})
-	_, err := ws.DeleteFiles(bg, "echo", "", true)
+	_, err := ws.DeleteFiles(bg, TaskFolder("echo"), "", true)
 	wantCode(t, err, CodeInvalidPath)
 	if got := readTestFile(t, filepath.Join(victim, "keep")); got != "x" {
 		t.Fatal("the symlink target was touched")
@@ -279,7 +279,7 @@ func TestListAndRead(t *testing.T) {
 		"z/deep/x":     file("x"),
 	})
 
-	res, err := ws.List(bg, "echo", ListOptions{Recursive: true})
+	res, err := ws.List(bg, TaskFolder("echo"), ListOptions{Recursive: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,24 +295,24 @@ func TestListAndRead(t *testing.T) {
 		t.Fatalf("unexpected mode or size: %+v", res.Entries)
 	}
 
-	res, err = ws.List(bg, "echo", ListOptions{Path: "z", Recursive: false})
+	res, err = ws.List(bg, TaskFolder("echo"), ListOptions{Path: "z", Recursive: false})
 	if err != nil || len(res.Entries) != 1 || res.Entries[0].Path != "z/deep" {
 		t.Fatalf("non-recursive list: %+v, %v", res, err)
 	}
-	res, err = ws.List(bg, "echo", ListOptions{Recursive: true, MaxEntries: 2})
+	res, err = ws.List(bg, TaskFolder("echo"), ListOptions{Recursive: true, MaxEntries: 2})
 	if err != nil || len(res.Entries) != 2 || !res.Truncated {
 		t.Fatalf("truncated list: %+v, %v", res, err)
 	}
-	res, err = ws.List(bg, "echo", ListOptions{Path: "src/main.py"})
+	res, err = ws.List(bg, TaskFolder("echo"), ListOptions{Path: "src/main.py"})
 	if err != nil || len(res.Entries) != 1 || res.Entries[0].Type != TypeFile {
 		t.Fatalf("list of a file: %+v, %v", res, err)
 	}
-	_, err = ws.List(bg, "echo", ListOptions{Path: "nope"})
+	_, err = ws.List(bg, TaskFolder("echo"), ListOptions{Path: "nope"})
 	wantCode(t, err, CodeNotFound)
-	_, err = ws.List(bg, "nope", ListOptions{})
+	_, err = ws.List(bg, TaskFolder("nope"), ListOptions{})
 	wantCode(t, err, CodeNotFound)
 
-	rr, err := ws.Read(bg, "echo", "src/main.py", 0)
+	rr, err := ws.Read(bg, TaskFolder("echo"), "src/main.py", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,19 +320,19 @@ func TestListAndRead(t *testing.T) {
 	if rr.Encoding != EncodingUTF8 || rr.Content != "print(1)\n" || rr.Truncated || rr.Size != 9 || rr.SHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatalf("unexpected read %+v", rr)
 	}
-	rr, err = ws.Read(bg, "echo", "bin.dat", 0)
+	rr, err = ws.Read(bg, TaskFolder("echo"), "bin.dat", 0)
 	if err != nil || rr.Encoding != EncodingBase64 || rr.Content != base64.StdEncoding.EncodeToString([]byte("\x00\x01binary")) {
 		t.Fatalf("binary read %+v, %v", rr, err)
 	}
-	rr, err = ws.Read(bg, "echo", "src/main.py", 5)
+	rr, err = ws.Read(bg, TaskFolder("echo"), "src/main.py", 5)
 	if err != nil || rr.Content != "print" || !rr.Truncated || rr.Size != 9 || rr.SHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatalf("truncated read %+v, %v", rr, err)
 	}
-	_, err = ws.Read(bg, "echo", "link", 0)
+	_, err = ws.Read(bg, TaskFolder("echo"), "link", 0)
 	wantCode(t, err, CodeInvalidPath)
-	_, err = ws.Read(bg, "echo", "src", 0)
+	_, err = ws.Read(bg, TaskFolder("echo"), "src", 0)
 	wantCode(t, err, CodeInvalidPath)
-	_, err = ws.Read(bg, "echo", "nope", 0)
+	_, err = ws.Read(bg, TaskFolder("echo"), "nope", 0)
 	wantCode(t, err, CodeNotFound)
 }
 

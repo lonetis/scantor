@@ -29,13 +29,18 @@ const (
 	DebugGCFlags = "all=-N -l"
 )
 
-// builder runs the phases after check-static.
+// builder runs the phases after check-static. The build phase is shared by task and script builds; it
+// reads the folder only through baseRef and the static result's External.
 type builder struct {
 	*run
-	opts  BuildOptions
-	tag   string
-	image *Image
-	bin   *container.Binary
+	opts BuildOptions
+	tag  string
+	// noun names the folder kind in messages ("task", "script").
+	noun string
+	// baseRef is the base image reference of the folder's language (languages.Language.BaseImageRef).
+	baseRef string
+	image   *Image
+	bin     *container.Binary
 }
 
 // build is the build phase (docs/tasks.md §9.4 row 3): resolve and pin the base image, pull and inspect
@@ -91,7 +96,7 @@ func builtOn(image, base []string) bool {
 	return len(base) > 0 && len(image) >= len(base) && slices.Equal(image[:len(base)], base)
 }
 
-// pinBase resolves the base image of the manifest language, pulls it anonymously when it is absent
+// pinBase resolves the base image b.baseRef, pulls it anonymously when it is absent
 // and returns the SCANTOR_BASE value and the base image's layers: <repository>@<digest> when the
 // registry serves that digest, else the tag reference with the local image id recorded as the digest
 // (local development images).
@@ -102,7 +107,7 @@ func builtOn(image, base []string) bool {
 // registry and namespace (docs/architecture.md §4.2) and are never looked up; for any other reference
 // the daemon checks the digest anonymously (distribution inspect) before it is pinned.
 func (b *builder) pinBase(ctx context.Context) (string, []string, bool) {
-	ref := b.static.Manifest.Language.BaseImageRef(b.p.cfg.Images)
+	ref := b.baseRef
 	named, err := reference.ParseNormalizedNamed(ref)
 	if err != nil {
 		b.failf(api.BuildPhasePlatform, "invalid base image reference %q: %v", ref, err)
@@ -197,7 +202,7 @@ func (b *builder) checkExternal(ctx context.Context) bool {
 		}
 		if inspect.Config != nil && len(inspect.Config.OnBuild) > 0 {
 			b.fail(api.BuildError{Phase: api.BuildPhaseBuild, File: DockerfileName, Line: ext.Line,
-				Message: fmt.Sprintf("the image %s has ONBUILD triggers, which are not allowed in task builds", ext.Ref)})
+				Message: fmt.Sprintf("the image %s has ONBUILD triggers, which are not allowed in %s builds", ext.Ref, b.noun)})
 			ok = false
 		}
 	}

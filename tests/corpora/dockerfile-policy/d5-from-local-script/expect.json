@@ -1,0 +1,12 @@
+{
+  "description": "a scripts/ repository on Docker Hub matches the local script image tags of the master",
+  "errors": [
+    {
+      "phase": "static",
+      "file": "Dockerfile",
+      "line": 2,
+      "rule": "D5"
+    }
+  ],
+  "warnings": []
+}

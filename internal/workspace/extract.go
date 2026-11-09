@@ -23,46 +23,81 @@ type ExtractResult struct {
 	Summary  Summary           `json:"summary"`
 }
 
+// ScriptExtractResult is the output of `extract --kind script`: the staging id, the normalised script
+// manifest and the summary of the extracted tree.
+type ScriptExtractResult struct {
+	Staging  string                  `json:"staging"`
+	Manifest manifest.ScriptManifest `json:"manifest"`
+	Summary  Summary                 `json:"summary"`
+}
+
 // Extract extracts an uploaded archive (a tar.gz, or a zip) from r into staging/<id>/tree with the
 // archive rules of docs/editor.md §9.5 and validates its scantor.yaml (docs/editor.md §9.4 extract).
 // When the manifest is not at the root but every entry is below one directory that contains it (GitHub
 // tarball style), that directory becomes the root. On any failure the staging directory is removed.
 func (w *Workspace) Extract(ctx context.Context, id string, r io.Reader) (res *ExtractResult, err error) {
-	if err := w.createStaging(id); err != nil {
+	var m *manifest.Manifest
+	summary, err := w.extract(ctx, id, r, manifest.FileName, func(tree *os.Root) error {
+		m, err = checkTreeManifest(tree, "")
+		return err
+	})
+	if err != nil {
 		return nil, err
+	}
+	return &ExtractResult{Staging: id, Manifest: *m, Summary: summary}, nil
+}
+
+// ExtractScript is Extract for a script folder: it looks for scantor-script.yaml and validates it with
+// manifest.CheckScript (rules S1–S3 and S5; the existence of the entry is checked by the script build).
+func (w *Workspace) ExtractScript(ctx context.Context, id string, r io.Reader) (res *ScriptExtractResult, err error) {
+	var m *manifest.ScriptManifest
+	summary, err := w.extract(ctx, id, r, manifest.ScriptFileName, func(tree *os.Root) error {
+		m, err = checkTreeScriptManifest(tree)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ScriptExtractResult{Staging: id, Manifest: *m, Summary: summary}, nil
+}
+
+// extract unpacks r into staging/<id>/tree, strips a single top-level directory that holds manifestName,
+// runs check on the tree and returns the tree's summary; on any failure the staging directory is removed.
+func (w *Workspace) extract(ctx context.Context, id string, r io.Reader, manifestName string, check func(tree *os.Root) error) (summary Summary, err error) {
+	if err := w.createStaging(id); err != nil {
+		return Summary{}, err
 	}
 	defer w.discardOnError(id, &err)
 	wsBytes, err := w.workspaceBytes(ctx)
 	if err != nil {
-		return nil, err
+		return Summary{}, err
 	}
 	tree, _, err := w.openStagingTree(id, "")
 	if err != nil {
-		return nil, err
+		return Summary{}, err
 	}
 	x := &extractor{root: tree, limits: w.limits, wsBytes: wsBytes, seen: map[string]seenKind{}}
 	err = closeRoot(tree, x.extract(ctx, r))
 	if err != nil {
-		return nil, err
+		return Summary{}, err
 	}
-	if err := w.stripTopLevel(id); err != nil {
-		return nil, err
+	if err := w.stripTopLevel(id, manifestName); err != nil {
+		return Summary{}, err
 	}
 	tree, _, err = w.openStagingTree(id, "")
 	if err != nil {
-		return nil, err
+		return Summary{}, err
 	}
 	defer tree.Close()
-	m, err := checkTreeManifest(tree, "")
-	if err != nil {
-		return nil, err
+	if err := check(tree); err != nil {
+		return Summary{}, err
 	}
-	summary, err := w.summarizeDir(ctx, w.abs(stagingPath(id, "tree")))
+	summary, err = w.summarizeDir(ctx, w.abs(stagingPath(id, "tree")))
 	if err != nil {
-		return nil, err
+		return Summary{}, err
 	}
 	w.events.Infof("extracted %d files and directories (%d bytes) into staging %s", x.usage.Entries, x.usage.Bytes, id)
-	return &ExtractResult{Staging: id, Manifest: *m, Summary: summary}, nil
+	return summary, nil
 }
 
 type seenKind int
@@ -251,11 +286,11 @@ func (c *capReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// stripTopLevel makes the single top-level directory the root when the manifest is not at the root but
-// inside that directory.
-func (w *Workspace) stripTopLevel(id string) error {
+// stripTopLevel makes the single top-level directory the root when the manifest manifestName is not at
+// the root but inside that directory.
+func (w *Workspace) stripTopLevel(id, manifestName string) error {
 	tree := stagingPath(id, "tree")
-	if _, err := w.root.Lstat(path.Join(tree, manifest.FileName)); err == nil {
+	if _, err := w.root.Lstat(path.Join(tree, manifestName)); err == nil {
 		return nil
 	}
 	entries, err := fs.ReadDir(w.root.FS(), tree)
@@ -266,7 +301,7 @@ func (w *Workspace) stripTopLevel(id string) error {
 		return nil
 	}
 	top := path.Join(tree, entries[0].Name())
-	if info, err := w.root.Lstat(path.Join(top, manifest.FileName)); err != nil || !info.Mode().IsRegular() {
+	if info, err := w.root.Lstat(path.Join(top, manifestName)); err != nil || !info.Mode().IsRegular() {
 		return nil
 	}
 	stripped := stagingPath(id, "stripped")
@@ -292,7 +327,7 @@ var manifestLimits = manifest.Limits{MaxWorkersPerScan: math.MaxInt32, MaxProces
 // of the entry (M4), which the task pipeline checks when the task is published. expectName applies M9.
 // Failures are manifestInvalid with details.errors (BuildError[]).
 func checkTreeManifest(root *os.Root, expectName string) (*manifest.Manifest, error) {
-	data, err := readManifest(root)
+	data, err := readManifest(root, manifest.FileName, "task")
 	if err != nil {
 		return nil, err
 	}
@@ -308,28 +343,56 @@ func checkTreeManifest(root *os.Root, expectName string) (*manifest.Manifest, er
 	return &res.Manifest, nil
 }
 
-func readManifest(root *os.Root) ([]byte, error) {
-	info, err := root.Lstat(manifest.FileName)
+// checkTreeScriptManifest reads and validates scantor-script.yaml of the folder behind root with
+// manifest.CheckScript, without the existence of the entry. Failures are manifestInvalid with
+// details.errors (BuildError[] of scantor-script.yaml).
+func checkTreeScriptManifest(root *os.Root) (*manifest.ScriptManifest, error) {
+	data, err := readManifest(root, manifest.ScriptFileName, "script")
+	if err != nil {
+		return nil, err
+	}
+	res, issues := manifest.CheckScript(data, manifest.Options{})
+	if len(issues) > 0 {
+		errs := make([]api.BuildError, len(issues))
+		msgs := make([]string, len(issues))
+		for i, is := range issues {
+			errs[i], msgs[i] = is.BuildError(), is.String()
+		}
+		return nil, manifestInvalid(errs, "the script manifest is invalid: %s", strings.Join(msgs, "; "))
+	}
+	return &res.Manifest, nil
+}
+
+// readManifest reads the manifest file name at the root of the folder behind root; noun names the folder
+// kind in messages.
+func readManifest(root *os.Root, name, noun string) ([]byte, error) {
+	info, err := root.Lstat(name)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		return nil, manifestInvalid(nil, "%s is missing at the root of the task folder", manifest.FileName)
+		return nil, manifestFileInvalid(name, "%s is missing at the root of the %s folder", name, noun)
 	case err != nil:
-		return nil, internalError(err, "stat %s", manifest.FileName)
+		return nil, internalError(err, "stat %s", name)
 	case !info.Mode().IsRegular():
-		return nil, manifestInvalid(nil, "%s must be a regular file", manifest.FileName)
+		return nil, manifestFileInvalid(name, "%s must be a regular file", name)
 	case info.Size() > manifest.MaxBytes:
-		return nil, manifestInvalid(nil, "%s is %d bytes; the limit is %d", manifest.FileName, info.Size(), manifest.MaxBytes)
+		return nil, manifestFileInvalid(name, "%s is %d bytes; the limit is %d", name, info.Size(), manifest.MaxBytes)
 	}
-	f, err := root.OpenFile(manifest.FileName, os.O_RDONLY|oNoFollow, 0)
+	f, err := root.OpenFile(name, os.O_RDONLY|oNoFollow, 0)
 	if err != nil {
-		return nil, internalError(err, "open %s", manifest.FileName)
+		return nil, internalError(err, "open %s", name)
 	}
 	defer f.Close()
 	data, err := io.ReadAll(io.LimitReader(f, manifest.MaxBytes+1))
 	if err != nil {
-		return nil, internalError(err, "read %s", manifest.FileName)
+		return nil, internalError(err, "read %s", name)
 	}
 	return data, nil
+}
+
+// manifestFileInvalid builds the manifestInvalid error whose single error is the message about file.
+func manifestFileInvalid(file, format string, args ...any) *Error {
+	msg := fmt.Sprintf(format, args...)
+	return manifestInvalid([]api.BuildError{{Phase: api.BuildPhaseStatic, File: file, Message: msg}}, "%s", msg)
 }
 
 // manifestInvalid builds the manifestInvalid error; without structured errors the message becomes the

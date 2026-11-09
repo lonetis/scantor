@@ -69,12 +69,12 @@ const (
 	EncodingBase64 = "base64"
 )
 
-// List lists the task folder task (docs/editor.md §9.4 list). Entries are sorted by path and lstat-only.
-func (w *Workspace) List(ctx context.Context, task string, opts ListOptions) (*ListResult, error) {
+// List lists the task or script folder f (docs/editor.md §9.4 list). Entries are sorted by path and lstat-only.
+func (w *Workspace) List(ctx context.Context, f Folder, opts ListOptions) (*ListResult, error) {
 	if err := optionalPath(opts.Path); err != nil {
 		return nil, err
 	}
-	root, err := w.openTask(task)
+	root, err := w.openFolder(f)
 	if err != nil {
 		return nil, err
 	}
@@ -160,13 +160,13 @@ func finishList(entries []FileEntry, maxEntries int) *ListResult {
 	return res
 }
 
-// Read returns a regular file of the task folder (docs/editor.md §9.4 read). A symlink anywhere in the
+// Read returns a regular file of the task or script folder (docs/editor.md §9.4 read). A symlink anywhere in the
 // path or a directory is invalidPath.
-func (w *Workspace) Read(ctx context.Context, task, p string, maxBytes int64) (*ReadResult, error) {
+func (w *Workspace) Read(ctx context.Context, folder Folder, p string, maxBytes int64) (*ReadResult, error) {
 	if err := ValidatePath(p); err != nil {
 		return nil, err
 	}
-	root, err := w.openTask(task)
+	root, err := w.openFolder(folder)
 	if err != nil {
 		return nil, err
 	}

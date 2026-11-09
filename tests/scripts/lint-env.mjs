@@ -19,6 +19,7 @@ const root = resolve(fileURLToPath(new URL('../..', import.meta.url)))
 export const NOT_CONFIGURATION = new Set([
   // internal contract (docs/architecture.md §10)
   'SCANTOR_WORKER_TOKEN',
+  'SCANTOR_SCRIPT_TOKEN',
   'SCANTOR_DIND',
   'SCANTOR_REGISTRY_PUSH_PASSWORD',
   // base-image ENV contract
@@ -27,6 +28,7 @@ export const NOT_CONFIGURATION = new Set([
   'SCANTOR_CHECK_CMD',
   'SCANTOR_DEBUG_CMD',
   'SCANTOR_DEBUG_PORT',
+  'SCANTOR_SCRIPT_CMD',
   // connector protocol (docs/protocol.md)
   'SCANTOR_PROTOCOL_IN_FD',
   'SCANTOR_PROTOCOL_OUT_FD',

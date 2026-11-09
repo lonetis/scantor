@@ -10,6 +10,11 @@ import { type Logger, useLogger } from './logger'
 export const EGRESS_NETWORK = 'scantor-egress'
 /** The compose network of master workers and editors (docs/nodes.md §6.8, editor.md §4): user code runs on it. */
 export const SANDBOX_NETWORK = 'scantor-sandbox'
+/**
+ * The internal compose network of script-run containers (docs/scripts.md): only the orchestrator and RustFS are on it
+ * besides them, so a script reaches the script runtime API and S3 and nothing else.
+ */
+export const SCRIPTS_NETWORK = 'scantor-scripts'
 export const WORKSPACES_VOLUME = 'scantor-workspaces'
 export const EDITOR_HOME_VOLUME = 'scantor-editor-home'
 

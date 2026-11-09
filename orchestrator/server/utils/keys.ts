@@ -24,13 +24,16 @@ export const KEY_LABELS = [
   'editor-cookie',
   'builtin-node',
   'mongo-query',
+  'script-run-token',
 ] as const
 export type KeyLabel = (typeof KEY_LABELS)[number]
 
 export const NODE_TOKEN_PREFIX = 'snt_'
 export const WORKER_TOKEN_PREFIX = 'swt_'
+export const SCRIPT_RUN_TOKEN_PREFIX = 'ssr_'
 export const NODE_TOKEN_PATTERN = /^snt_[A-Za-z0-9_-]{43}$/
 export const WORKER_TOKEN_PATTERN = /^swt_([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/
+export const SCRIPT_RUN_TOKEN_PATTERN = /^ssr_([0-9a-f-]{36})\.([A-Za-z0-9_-]{43})$/
 
 // Order of the P-256 group. BigInt() instead of `n` literals: Nitro's development build targets ES2019.
 const P256_ORDER = BigInt('0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551')
@@ -83,6 +86,10 @@ export interface Keyring {
   workerTokenMac(workerId: string, scanId: string, role: string, nodeId: string): string
   /** "swt_<workerId>.<mac>" */
   workerToken(workerId: string, scanId: string, role: string, nodeId: string): string
+  /** script-run token MAC: base64url(HMAC-SHA256(key("script-run-token"), scriptRunId "\n" scriptId "\n" userId)) */
+  scriptRunTokenMac(scriptRunId: string, scriptId: string, userId: string): string
+  /** "ssr_<scriptRunId>.<mac>" */
+  scriptRunToken(scriptRunId: string, scriptId: string, userId: string): string
   /** `scantor_editor` cookie value `v1.<userId>.<editorStartedAtMs>.<expiresAtMs>.<mac>` */
   editorCookie(userId: string, editorStartedAtMs: number, expiresAtMs: number): string
   /** HS256 signature (base64url) of a `scantor_tools` JWT signing input */
@@ -114,6 +121,8 @@ export function createKeyring(secret: string): Keyring {
   const deriveB64url = (label: KeyLabel) => b64url(derive(label))
   const workerTokenMac = (workerId: string, scanId: string, role: string, nodeId: string) =>
     b64url(hmacSha256(derive('worker-token'), `${workerId}\n${scanId}\n${role}\n${nodeId}`))
+  const scriptRunTokenMac = (scriptRunId: string, scriptId: string, userId: string) =>
+    b64url(hmacSha256(derive('script-run-token'), `${scriptRunId}\n${scriptId}\n${userId}`))
 
   return {
     derive,
@@ -128,6 +137,8 @@ export function createKeyring(secret: string): Keyring {
     workerTokenMac,
     workerToken: (workerId, scanId, role, nodeId) =>
       `${WORKER_TOKEN_PREFIX}${workerId}.${workerTokenMac(workerId, scanId, role, nodeId)}`,
+    scriptRunTokenMac,
+    scriptRunToken: (scriptRunId, scriptId, userId) => `${SCRIPT_RUN_TOKEN_PREFIX}${scriptRunId}.${scriptRunTokenMac(scriptRunId, scriptId, userId)}`,
     editorCookie: (userId, editorStartedAtMs, expiresAtMs) => {
       const payload = `v1.${userId}.${editorStartedAtMs}.${expiresAtMs}`
       return `${payload}.${b64url(hmacSha256(derive('editor-cookie'), payload))}`
@@ -163,6 +174,12 @@ export function nodeTokenHash(token: string): string {
 export function parseWorkerToken(token: string): { workerId: string; mac: string } | null {
   const match = WORKER_TOKEN_PATTERN.exec(token)
   return match ? { workerId: match[1]!, mac: match[2]! } : null
+}
+
+/** Splits a script-run token into its run id and MAC, or null when malformed. */
+export function parseScriptRunToken(token: string): { scriptRunId: string; mac: string } | null {
+  const match = SCRIPT_RUN_TOKEN_PATTERN.exec(token)
+  return match ? { scriptRunId: match[1]!, mac: match[2]! } : null
 }
 
 let keyring: Keyring | null = null

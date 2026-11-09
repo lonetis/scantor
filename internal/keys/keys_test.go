@@ -37,6 +37,7 @@ type vectors struct {
 	BuiltinNodeToken     []builtinNodeToken `json:"builtinNodeToken"`
 	NodeTokenHash        []nodeTokenHash    `json:"nodeTokenHash"`
 	WorkerToken          []workerToken      `json:"workerToken"`
+	ScriptRunToken       []scriptRunToken   `json:"scriptRunToken"`
 	AMQPPassword         []amqpPassword     `json:"amqpPassword"`
 	EditorCookie         []editorCookie     `json:"editorCookie"`
 	ToolsCookie          []toolsCookie      `json:"toolsCookieSignature"`
@@ -68,6 +69,14 @@ type workerToken struct {
 	Role     string `json:"role"`
 	NodeID   string `json:"nodeId"`
 	Value    string `json:"value"`
+}
+
+type scriptRunToken struct {
+	Secret      string `json:"secret"`
+	ScriptRunID string `json:"scriptRunId"`
+	ScriptID    string `json:"scriptId"`
+	UserID      string `json:"userId"`
+	Value       string `json:"value"`
 }
 
 type amqpPassword struct {
@@ -118,6 +127,7 @@ const comment = "Shared key-derivation test vectors (docs/architecture.md §9, d
 	"Read by internal/keys (Go) and orchestrator/server/utils/keys.ts (vitest). Base64url values are unpadded. " +
 	"registrySigningKey: d = (int(key('registry-signing')) mod (n-1)) + 1 on P-256, d/x/y as JWK base64url, kid = 'scantor-' + hex(sha256(0x04||X||Y))[:16]. " +
 	"encryption: enc:v1:<base64url(iv)>:<base64url(ciphertext||tag)>, AES-256-GCM with key(label) and AAD. " +
+	"scriptRunToken: 'ssr_' + scriptRunId + '.' + base64url(HMAC-SHA256(key('script-run-token'), scriptRunId + '\\n' + scriptId + '\\n' + userId)). " +
 	"Regenerate with: go test ./internal/keys -run TestVectors -update"
 
 func buildVectors(t *testing.T) vectors {
@@ -145,6 +155,9 @@ func buildVectors(t *testing.T) vectors {
 			w.Value = must(WorkerToken(s, w.WorkerID, w.ScanID, w.Role, w.NodeID))
 			v.WorkerToken = append(v.WorkerToken, w)
 		}
+		sr := scriptRunToken{Secret: s, ScriptRunID: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f", ScriptID: "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d", UserID: "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11"}
+		sr.Value = must(ScriptRunToken(s, sr.ScriptRunID, sr.ScriptID, sr.UserID))
+		v.ScriptRunToken = append(v.ScriptRunToken, sr)
 		a := amqpPassword{Secret: s, ScanID: "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f"}
 		a.Value = must(AMQPPassword(s, a.ScanID))
 		v.AMQPPassword = append(v.AMQPPassword, a)
@@ -307,6 +320,21 @@ func TestFormats(t *testing.T) {
 	}
 	if _, _, ok := ParseWorkerToken("swt_nope.abc"); ok {
 		t.Fatal("ParseWorkerToken accepted a malformed token")
+	}
+	st, err := ScriptRunToken(s, "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f", "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d", "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, mac, ok = ParseScriptRunToken(st)
+	if !ok || id != "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f" || len(mac) != 43 {
+		t.Fatalf("ParseScriptRunToken(%q) = %q, %q, %v", st, id, mac, ok)
+	}
+	if _, _, ok := ParseScriptRunToken(wt); ok {
+		t.Fatal("ParseScriptRunToken accepted a worker token")
+	}
+	other, _ := ScriptRunTokenMAC(s, "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f", "6a7b8c9d-0e1f-4a2b-9c3d-4e5f6a7b8c9d", "1c7a7a1f-4d1f-4b7f-8a1f-6e2a9c1b8d22")
+	if other == mac {
+		t.Fatal("the script-run token MAC does not bind the user")
 	}
 	if p, _ := AMQPPassword(s, "x"); len(p) != 43 {
 		t.Fatalf("amqp password length %d", len(p))

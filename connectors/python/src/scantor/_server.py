@@ -1,28 +1,26 @@
 """`python -m scantor.serve <entry>`: one connector process (SCANTOR_CONNECTOR_CMD)."""
 
-import contextlib
 import fcntl
-import importlib.util
 import os
 import sys
-import threading
 from collections.abc import Callable, Mapping
-from pathlib import Path
 from typing import Any
 
 from scantor._connector import Connector, is_request_id
+from scantor._entry import DefinitionKind, LoadedEntry, exit_process
+from scantor._entry import load_entry as _load_entry
 from scantor._handlers import handle_describe, handle_run, handle_schedule
-from scantor._json import MAX_ERROR_MESSAGE, describe_exception, format_stack, truncate
-from scantor.errors import DefinitionError
 from scantor.task import Task
 
 NO_FDS_MESSAGE = 'scantor: this program is a scantor task connector; run it with "scantor dev run"'
 EXIT_HANDSHAKE_FAILED = 1
 EXIT_NO_FDS = 2
-_EXIT_WATCHDOG_SECONDS = 4.0
+TASK_DEFINITION = DefinitionKind(attribute="task", expected=Task, constructor="scantor.Task", failure_type="taskError")
 
 Handler = Callable[[Connector, Task[Any, Any, Any, Any], Mapping[str, Any]], None]
 HANDLERS: dict[str, Handler] = {"describe": handle_describe, "run": handle_run, "schedule": handle_schedule}
+
+__all__ = ["HANDLERS", "exit_process", "load_entry", "main", "serve"]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -80,50 +78,8 @@ def serve(connector: Connector, task: Task[Any, Any, Any, Any]) -> int:
 
 def load_entry(entry: str) -> Task[Any, Any, Any, Any] | dict[str, Any]:
     """Import the entry and return its `task`, or the handshake error object."""
-    path = Path(entry) if os.path.isabs(entry) else Path.cwd() / entry
-    if not path.is_file():
-        return {"type": "validation", "message": f"entry {entry} does not exist or is not a file"}
-    sys.path.insert(0, str(path.parent))
-    module_name = path.stem if path.stem not in sys.modules else f"__scantor_entry_{path.stem}"
-    spec = importlib.util.spec_from_file_location(module_name, path)
-    if spec is None or spec.loader is None:
-        return {"type": "validation", "message": f"entry {entry} cannot be imported as a Python module"}
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    try:
-        spec.loader.exec_module(module)
-    except DefinitionError as exc:
-        return {
-            "type": "validation",
-            "message": truncate(f"invalid task definition: {exc}", MAX_ERROR_MESSAGE),
-            "stack": format_stack(exc),
-        }
-    except (Exception, SystemExit) as exc:
-        return {"type": "taskError", "message": describe_exception(exc), "stack": format_stack(exc)}
-    task = getattr(module, "task", None)
-    if task is None:
-        return {
-            "type": "validation",
-            "message": f"{path.name} defines no module-level `task`; assign task = scantor.Task(...)",
-        }
-    if not isinstance(task, Task):
-        return {
-            "type": "validation",
-            "message": f"`task` in {path.name} is a {type(task).__name__}, not a scantor.Task",
-        }
-    return task
-
-
-def exit_process(code: int) -> None:
-    """Exit with `code`, even when threads started by task code would keep the interpreter alive."""
-    for stream in (sys.stdout, sys.stderr):
-        # A closed or broken stdout/stderr must not keep the process from exiting.
-        with contextlib.suppress(OSError, ValueError):
-            stream.flush()
-    watchdog = threading.Timer(_EXIT_WATCHDOG_SECONDS, os._exit, (code,))
-    watchdog.daemon = True
-    watchdog.start()
-    sys.exit(code)
+    loaded = _load_entry(entry, TASK_DEFINITION)
+    return loaded.definition if isinstance(loaded, LoadedEntry) else loaded
 
 
 def _fd_from_env(name: str, default: int) -> int:

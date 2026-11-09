@@ -1,5 +1,5 @@
 import type { EndpointProfile } from '#shared/utils/enums'
-import type { ScanDoc } from '../../types/documents'
+import type { ScanDoc, ScriptRunOutputDoc } from '../../types/documents'
 import type { Config } from '../../utils/config'
 import { apiError, validationError } from '../../utils/errors'
 import { useCollections } from '../../utils/mongo'
@@ -107,14 +107,27 @@ async function measureTestRunUsage(userId: string): Promise<number> {
   return result?.bytes ?? 0
 }
 
+/** Bytes an output counts against the quota: its size once stored, the part presigns it reserved while pending. */
+export function outputUsageBytes(outputs: readonly Pick<ScriptRunOutputDoc, 'state' | 'size' | 'reservedBytes'>[]): number {
+  return outputs.reduce((sum, output) => sum + (output.state === 'stored' ? (output.size ?? 0) : (output.reservedBytes ?? 0)), 0)
+}
+
+/** Bytes of the outputs of a user's script runs, until the runs are deleted (retention, script deletion, purge). */
+async function measureScriptRunUsage(userId: string): Promise<number> {
+  const runs = await useCollections()
+    .scriptRuns.find({ userId, 'outputs.0': { $exists: true } }, { projection: { 'outputs.state': 1, 'outputs.size': 1, 'outputs.reservedBytes': 1 } })
+    .toArray()
+  return runs.reduce((sum, run) => sum + outputUsageBytes(run.outputs ?? []), 0)
+}
+
 async function measureUsage(userId: string): Promise<number> {
-  const [scanBytes, testRunBytes] = await Promise.all([measureScanUsage(userId), measureTestRunUsage(userId)])
-  return scanBytes + testRunBytes
+  const [scanBytes, testRunBytes, scriptRunBytes] = await Promise.all([measureScanUsage(userId), measureTestRunUsage(userId), measureScriptRunUsage(userId)])
+  return scanBytes + testRunBytes + scriptRunBytes
 }
 
 /**
- * Reserves `bytes` of the user's quota (scan file presigns, test-run file uploads); throws 403 quotaExceeded when it
- * would be exceeded. 0 = unlimited.
+ * Reserves `bytes` of the user's quota (scan file presigns, test-run file uploads, script-run output parts); throws
+ * 403 quotaExceeded when it would be exceeded. 0 = unlimited.
  */
 export async function reserveStorage(userId: string, bytes: number, quotaBytes: number, now = Date.now()): Promise<void> {
   if (quotaBytes <= 0) return

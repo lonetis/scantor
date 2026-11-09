@@ -11,11 +11,13 @@ import type { Logger } from './logger'
  *
  * Order of docs/data-model.md §5 (foundation steps marked *):
  *    10 cancel the user's scans          (scans)
+ *    15 cancel the user's script runs    (script runs)
  *    20 editor and editor API key        (editor)
  *    30 exports                        * (documents and S3 `exports/<userId>/`)
  *    40 scans (scan-delete logic, analyses, files)  (scans)
  *    50 test runs                        (test runs)
  *    60 revisions and task images        (revisions)
+ *    65 script runs, script images and scripts (scripts)
  *    70 tasks                            (tasks)
  *    80 workspace and editor-home directories (helper `purge`)  (workspace)
  *    90 uploads                        * (documents and S3 `uploads/<userId>/`)

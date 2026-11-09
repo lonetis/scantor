@@ -32,6 +32,8 @@ export interface ExportSelection {
   status?: AnalysisStatus[]
   /** start after this seq (-1 or null: from the beginning) */
   afterSeq: number | null
+  /** end with this seq (absent or null: with the newest analysis at the start; script analysis streams) */
+  untilSeq?: number | null
   /** normalized representation paths, or null for whole documents / default CSV columns */
   fields: string[] | null
 }
@@ -74,6 +76,7 @@ export async function* exportDocuments(
     throw mapQueryError(error, 'filter')
   }
   if (maxSeq === null) return
+  if (selection.untilSeq !== undefined && selection.untilSeq !== null) maxSeq = Math.min(maxSeq, selection.untilSeq)
   const projection = projectionFor(format, selection.fields)
   let after = selection.afterSeq ?? -1
   while (after < maxSeq) {

@@ -257,3 +257,47 @@ func TestWorkspaceGroupIsHidden(t *testing.T) {
 		t.Fatalf("the helper group is listed in --help:\n%s", out)
 	}
 }
+
+func TestWorkspaceHelperScriptFolders(t *testing.T) {
+	root := t.TempDir()
+	r := "--root=" + root
+	var scaffolded struct {
+		Workspace workspace.Summary `json:"workspace"`
+	}
+	helperOK(t, &scaffolded, nil, "scaffold", r, "--script", "report", "--language", "python", "--description", "Counts")
+	if _, err := os.Stat(filepath.Join(root, workspace.ScriptsDir, "report", "scantor-script.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	var listed workspace.ListResult
+	helperOK(t, &listed, nil, "list", r, "--script", "report")
+	if len(listed.Entries) == 0 {
+		t.Fatal("empty listing of the script folder")
+	}
+	var snap workspace.Summary
+	helperOK(t, &snap, nil, "snapshot", r, "--script", "report", "--hash-only")
+	if snap.PackSHA256 != scaffolded.Workspace.PackSHA256 {
+		t.Fatalf("snapshot %+v, scaffold %+v", snap, scaffolded.Workspace)
+	}
+
+	archive := tgzOf(t, map[string]string{"scantor-script.yaml": "scantor: 1\nname: uploaded\nlanguage: python\n", "Dockerfile": "ARG SCANTOR_BASE\nFROM ${SCANTOR_BASE}\n"})
+	var extracted map[string]any
+	helperOK(t, &extracted, archive, "extract", r, "--staging", "s1", "--kind", "script")
+	if m, _ := extracted["manifest"].(map[string]any); m["name"] != "uploaded" || m["entry"] != "main.py" {
+		t.Fatalf("extract %v", extracted)
+	}
+	var committed map[string]any
+	helperOK(t, &committed, nil, "commit", r, "--staging", "s1", "--script", "uploaded", "--expect", "absent")
+	if committed["script"] != "uploaded" || committed["task"] != nil {
+		t.Fatalf("commit %v", committed)
+	}
+	helperOK(t, nil, nil, "delete-files", r, "--script", "uploaded", "--path", "", "--recursive")
+	if _, err := os.Stat(filepath.Join(root, workspace.ScriptsDir, "uploaded")); !os.IsNotExist(err) {
+		t.Fatalf("the script folder is still there: %v", err)
+	}
+
+	helperFails(t, workspace.ExitUser, workspace.CodeInvalidArgument, nil, "list", r, "--task", "report", "--script", "report")
+	helperFails(t, workspace.ExitUser, workspace.CodeInvalidArgument, nil, "list", r)
+	helperFails(t, workspace.ExitUser, workspace.CodeInvalidArgument, nil, "scaffold", r, "--script", "x", "--language", "python", "--template", "list")
+	helperFails(t, workspace.ExitUser, workspace.CodeInvalidArgument, archive, "extract", r, "--staging", "s2", "--kind", "job")
+	helperFails(t, workspace.ExitUser, workspace.CodeManifestInvalid, archive, "extract", r, "--staging", "s3")
+}

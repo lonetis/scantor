@@ -78,7 +78,10 @@ export class JobsRunner {
     void this.renewAndSweep().then(() => this.tick())
   }
 
-  /** Aborts running handlers, waits for them (bounded) and requeues their jobs. */
+  /**
+   * Aborts running handlers, waits for them (bounded) and requeues their jobs. Kinds with `refundAttemptOnStop` get the
+   * claim's attempt back.
+   */
   async stop(graceMs = 20_000): Promise<void> {
     if (this.stopped) return
     this.stopped = true
@@ -90,9 +93,10 @@ export class JobsRunner {
     await Promise.race([Promise.allSettled(pending.map((entry) => entry.done)), new Promise((resolve) => setTimeout(resolve, graceMs))])
     for (const entry of pending) {
       try {
+        const refund = entry.definition.refundAttemptOnStop ? { attempts: Math.max(0, entry.job.attempts - 1) } : {}
         const result = await this.options.jobs.updateOne(
           { _id: entry.job._id, state: 'running', 'lease.owner': this.owner },
-          { $set: { state: 'queued', lease: null, notBefore: this.now(), updatedAt: this.now() } },
+          { $set: { state: 'queued', lease: null, notBefore: this.now(), updatedAt: this.now(), ...refund } },
         )
         if (result.modifiedCount > 0) await this.requeued(entry.job, entry.definition)
       } catch (error) {

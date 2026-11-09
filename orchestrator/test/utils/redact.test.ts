@@ -9,6 +9,8 @@ describe('redactText', () => {
     [`sk_scantor_editor_${'B'.repeat(64)}`, 'sk_scantor_editor_***'],
     ['node snt_3q8ZkP2mW9xV7bN1cR4tY6uA0sD5fG8hJ2kL4zX7cV9', 'node snt_***'],
     ['swt_9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d.ACEmTne4QDhTRflNR1PMDQLcKmqT5ax1LLY_r3I136M', 'swt_***'],
+    ['SCANTOR_SCRIPT_TOKEN=ssr_3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a.Qm7Xk2Pz9Wv4Ns1Lr8Tc5Yh3Ja6Fd0Gb2Ke7Ui4Oq9Ex', 'SCANTOR_SCRIPT_TOKEN=ssr_***'],
+    ['token "ssr_3c2b1a09-8f7e-4d6c-9b5a-4f3e2d1c0b9a.Qm7Xk2Pz9Wv4Ns1Lr8Tc5Yh3Ja6Fd0Gb2Ke7Ui4Oq9Ex" rejected', 'token "ssr_***" rejected'],
     ['setup sst_abcDEF123_-', 'setup sst_***'],
     ['spk_abc spk', 'spk_*** spk'],
     ['sic_abcdef', 'sic_***'],

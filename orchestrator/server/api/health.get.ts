@@ -37,7 +37,7 @@ defineRouteMeta({
               id: { type: 'string', format: 'uuid' },
               kind: {
                 type: 'string',
-                enum: ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge', 'notification'],
+                enum: ['revisionBuild', 'testRun', 'scanDelete', 'scanRetryFailed', 'export', 'taskDelete', 'userPurge', 'notification', 'scriptRun', 'scriptDelete'],
               },
               state: { type: 'string', enum: ['queued', 'running', 'succeeded', 'failed', 'cancelled'] },
             },
@@ -196,6 +196,8 @@ defineRouteMeta({
               scanId: { type: 'string', format: 'uuid' },
               taskId: { type: 'string', format: 'uuid' },
               revisionId: { type: 'string', format: 'uuid' },
+              scriptId: { type: 'string', format: 'uuid' },
+              scriptRunId: { type: 'string', format: 'uuid' },
               workerId: { type: 'string', format: 'uuid' },
               nodeId: { type: 'string', format: 'uuid' },
               message: { type: 'string' },

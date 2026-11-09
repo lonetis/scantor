@@ -1,7 +1,8 @@
 import { lookup } from 'node:dns/promises'
 import { BlockList, isIP } from 'node:net'
 import { useConfig } from './config'
-import { SANDBOX_NETWORK, useDocker } from './docker'
+import type Docker from 'dockerode'
+import { SANDBOX_NETWORK, SCRIPTS_NETWORK, useDocker } from './docker'
 import { stripIpv4Mapped } from './internal-auth'
 import { type Logger, useLogger } from './logger'
 
@@ -9,11 +10,12 @@ import { type Logger, useLogger } from './logger'
  * Trusted reverse proxies (docs/auth.md §4.3, security.md AUTH-6). With SCANTOR_TRUST_PROXY=true, X-Forwarded-For
  * counts only on a connection whose socket peer is one of SCANTOR_TRUSTED_PROXIES: IP addresses, CIDR ranges and
  * host names. Every other peer is the client itself, so code on `scantor-sandbox` (master workers, editor terminals)
- * that talks to orchestrator:3000 directly cannot pick its own client IP.
+ * or `scantor-scripts` (script runs) that talks to orchestrator:3000 directly cannot pick its own client IP.
  *
  * Host names (the compose service `traefik`) are resolved again every REFRESH_MS and, at most every MISS_REFRESH_MS,
  * after a forwarded request from an unknown peer, because a restarted Traefik can get another address. Addresses in
- * the subnets of scantor-sandbox are never trusted, whatever the list says. The check itself is synchronous.
+ * the subnets of scantor-sandbox and scantor-scripts (UNTRUSTED_NETWORKS) are never trusted, whatever the list says.
+ * The check itself is synchronous.
  */
 
 export const REFRESH_MS = 30_000
@@ -27,7 +29,7 @@ export const TRUST_NO_PROXY: ProxyTrust = () => false
 export interface TrustedProxySource {
   /** Every address of a host name (an empty list when it does not resolve). */
   resolve(host: string): Promise<string[]>
-  /** The CIDR ranges that are never trusted (the scantor-sandbox subnets); [] when there is no such network. */
+  /** The CIDR ranges that are never trusted (the subnets of UNTRUSTED_NETWORKS); [] when none of them exists. */
   untrustedSubnets(): Promise<string[]>
 }
 
@@ -79,7 +81,7 @@ export class TrustedProxies {
     return false
   }
 
-  /** Resolves the host names and the sandbox subnets again; concurrent calls share one refresh. Never throws. */
+  /** Resolves the host names and the untrusted subnets again; concurrent calls share one refresh. Never throws. */
   refresh(): Promise<void> {
     this.refreshing ??= this.load().finally(() => {
       this.refreshing = null
@@ -124,7 +126,26 @@ function isStatus(error: unknown, status: number): boolean {
   return (error as { statusCode?: number } | null)?.statusCode === status
 }
 
-/** DNS through the system resolver (Docker's embedded DNS in compose) and the scantor-sandbox IPAM subnets. */
+/** The networks whose containers run user code with direct access to orchestrator:3000: never trusted proxies. */
+export const UNTRUSTED_NETWORKS = [SANDBOX_NETWORK, SCRIPTS_NETWORK] as const
+
+/** The union of the IPAM subnets of `networks`; a network that does not exist (404) contributes nothing. */
+export async function networkSubnets(docker: Pick<Docker, 'getNetwork'>, networks: readonly string[]): Promise<string[]> {
+  const subnets = await Promise.all(
+    networks.map(async (name) => {
+      try {
+        const network = await docker.getNetwork(name).inspect()
+        return ((network.IPAM?.Config ?? []) as { Subnet?: string }[]).flatMap((config) => (config.Subnet ? [config.Subnet] : []))
+      } catch (error) {
+        if (isStatus(error, 404)) return []
+        throw error
+      }
+    }),
+  )
+  return [...new Set(subnets.flat())]
+}
+
+/** DNS through the system resolver (Docker's embedded DNS in compose) and the IPAM subnets of UNTRUSTED_NETWORKS. */
 export const systemProxySource: TrustedProxySource = {
   async resolve(host) {
     try {
@@ -135,15 +156,7 @@ export const systemProxySource: TrustedProxySource = {
       throw error
     }
   },
-  async untrustedSubnets() {
-    try {
-      const network = await useDocker().getNetwork(SANDBOX_NETWORK).inspect()
-      return ((network.IPAM?.Config ?? []) as { Subnet?: string }[]).flatMap((config) => (config.Subnet ? [config.Subnet] : []))
-    } catch (error) {
-      if (isStatus(error, 404)) return []
-      throw error
-    }
-  },
+  untrustedSubnets: () => networkSubnets(useDocker(), UNTRUSTED_NETWORKS),
 }
 
 let instance: TrustedProxies | null = null

@@ -19,11 +19,17 @@ import { workerStateCounts } from './workers'
 /** `listScans` hides `deleting`/`deleted` scans unless the state filter names them. */
 export const LISTED_BY_DEFAULT = ['creating', 'running', 'paused', 'completed', 'failed', 'cancelled'] as const
 
-export async function listScans(principal: UserPrincipal, query: ListScansQuery): Promise<Page<ScanSummary>> {
+/** The filter of listScans: owner, states (deleting and deleted hidden by default), task, and `q` as an escaped substring of the name. */
+export function listScansFilter(principal: UserPrincipal, query: ListScansQuery): Filter<ScanDoc> {
   const clauses: Filter<ScanDoc>[] = [ownerFilter(principal, query.userId)]
   clauses.push({ state: { $in: query.state && query.state.length > 0 ? query.state : [...LISTED_BY_DEFAULT] } })
   if (query.task) clauses.push(isUuid(query.task) ? { 'task.id': query.task.toLowerCase() } : { 'task.name': query.task })
-  return findPage(useCollections().scans, { $and: clauses }, { limit: query.limit, cursor: query.cursor }, toScanSummary)
+  if (query.q) clauses.push({ name: { $regex: escapeRegex(query.q), $options: 'i' } })
+  return { $and: clauses }
+}
+
+export async function listScans(principal: UserPrincipal, query: ListScansQuery): Promise<Page<ScanSummary>> {
+  return findPage(useCollections().scans, listScansFilter(principal, query), { limit: query.limit, cursor: query.cursor }, toScanSummary)
 }
 
 /** The full `Scan` representation (with the worker summary). */
@@ -57,6 +63,8 @@ export function toApiEvent(doc: EventDoc): Event {
   if (doc.scanId) event.scanId = doc.scanId
   if (doc.taskId) event.taskId = doc.taskId
   if (doc.revisionId) event.revisionId = doc.revisionId
+  if (doc.scriptId) event.scriptId = doc.scriptId
+  if (doc.scriptRunId) event.scriptRunId = doc.scriptRunId
   if (doc.workerId) event.workerId = doc.workerId
   if (doc.nodeId) event.nodeId = doc.nodeId
   if (doc.data) event.data = doc.data

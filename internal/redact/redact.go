@@ -3,9 +3,9 @@
 //
 // Redacted: the authorization, proxy-authorization, x-api-key, x-scantor-internal-auth,
 // x-scantor-setup-token, x-registry-auth, cookie and set-cookie headers; token-shaped substrings
-// (sk_scantor_…, snt_…, swt_…, sst_…, spk_…, sic_…, sec_…); passwords in scheme://user:pass@ URLs (amqp,
-// amqps and every other scheme); X-Amz-Signature query values; the /setup?token= query; git
-// extraheader values; and "Authorization: <value>" text.
+// (sk_scantor_…, snt_…, swt_…, ssr_…, sst_…, spk_…, sic_…, sec_…); passwords in scheme://user:pass@
+// URLs (amqp, amqps and every other scheme); X-Amz-Signature query values; the /setup?token= query;
+// git extraheader values; and "Authorization: <value>" text.
 package redact
 
 import (
@@ -76,8 +76,9 @@ var rules = []rule{
 	{regexp.MustCompile(`(?i)(X-Amz-Security-Token=)[^&\s"'<>]+`), "${1}" + Mask},
 	// first-admin setup link
 	{regexp.MustCompile(`(/setup\?(?:[^\s"'<>]*&)?token=)[^&\s"'<>]+`), "${1}" + Mask},
-	// worker tokens keep their (non-secret) worker id for debugging
+	// worker tokens and script-run tokens keep their (non-secret) worker or script run id for debugging
 	{regexp.MustCompile(`swt_([0-9a-fA-F-]{36}\.)?[A-Za-z0-9_-]{8,}`), "swt_${1}" + Mask},
+	{regexp.MustCompile(`ssr_([0-9a-fA-F-]{36}\.)?[A-Za-z0-9_-]{8,}`), "ssr_${1}" + Mask},
 	// API keys (default and editor configurations)
 	{regexp.MustCompile(`(sk_scantor_(?:editor_)?)[A-Za-z0-9_-]{8,}`), "${1}" + Mask},
 	// node tokens, setup tokens, passkey setup tokens, internal capabilities, editor one-time codes
@@ -112,7 +113,7 @@ func ReplaceAttr(_ []string, a slog.Attr) slog.Attr {
 
 func sensitiveKey(key string) bool {
 	switch key {
-	case "token", "password", "secret", "apikey", "api_key", "workertoken", "nodetoken":
+	case "token", "password", "secret", "apikey", "api_key", "workertoken", "nodetoken", "scripttoken":
 		return true
 	}
 	return false

@@ -20,11 +20,13 @@ const (
 )
 
 // ExitError carries an exit class. Silent errors are not printed (the command already reported the
-// outcome, for example `dev run` with failed analyses).
+// outcome, for example `dev run` with failed analyses). A Process error carries a process exit code
+// instead of a class, passed through unchanged (ProcessExit).
 type ExitError struct {
-	Code   int
-	Err    error
-	Silent bool
+	Code    int
+	Err     error
+	Silent  bool
+	Process bool
 }
 
 func (e *ExitError) Error() string {
@@ -50,6 +52,11 @@ func WithExit(code int, err error) error {
 // SilentExit returns an error that ends the command with code without printing anything.
 func SilentExit(code int) error { return &ExitError{Code: code, Silent: true} }
 
+// ProcessExit returns an error that ends the process with code (0–255) as it is, without printing
+// anything: the runtime roles report their own outcome, and script mode ends with the script's own exit
+// code or 128 + signal (docs/scripts.md §10), which the job reads from the container.
+func ProcessExit(code int) error { return &ExitError{Code: code, Silent: true, Process: true} }
+
 // UsageError marks err as a usage problem (exit 2).
 func UsageError(err error) error { return WithExit(ExitValidation, err) }
 
@@ -63,11 +70,16 @@ func PlatformError(err error) error { return WithExit(ExitPlatform, err) }
 // api.NetworkError and domain errors of other packages).
 type exitClasser interface{ ExitClass() int }
 
-// ExitCode maps the error returned by the root command to the process exit code: nil → 0; the first
-// ExitClass in the error chain; anything else (including an interrupt) → 3.
+// ExitCode maps the error returned by the root command to the process exit code: nil → 0; a
+// ProcessExit code as it is; the first ExitClass in the error chain; anything else (including an
+// interrupt) → 3.
 func ExitCode(err error) int {
 	if err == nil {
 		return ExitOK
+	}
+	var pe *ExitError
+	if errors.As(err, &pe) && pe.Process && pe.Code >= 0 && pe.Code <= 255 {
+		return pe.Code
 	}
 	var ec exitClasser
 	if errors.As(err, &ec) {

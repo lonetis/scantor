@@ -20,6 +20,7 @@ const TEXT_RULES: [RegExp, string][] = [
   [/\bsk_scantor_(?!editor_)[A-Za-z0-9]+/g, `sk_scantor_${REDACTED}`],
   [/\bsnt_[A-Za-z0-9_-]+/g, `snt_${REDACTED}`],
   [/\bswt_[0-9a-fA-F-]+\.[A-Za-z0-9_-]+/g, `swt_${REDACTED}`],
+  [/\bssr_[0-9a-fA-F-]+\.[A-Za-z0-9_-]+/g, `ssr_${REDACTED}`],
   [/\bsst_[A-Za-z0-9_-]+/g, `sst_${REDACTED}`],
   [/\bspk_[A-Za-z0-9_-]+/g, `spk_${REDACTED}`],
   [/\bsic_[A-Za-z0-9_-]+/g, `sic_${REDACTED}`],

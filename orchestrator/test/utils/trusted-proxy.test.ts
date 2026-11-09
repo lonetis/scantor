@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { useLogger } from '../../server/utils/logger'
-import { MISS_REFRESH_MS, TrustedProxies, type TrustedProxySource } from '../../server/utils/trusted-proxy'
+import { SANDBOX_NETWORK, SCRIPTS_NETWORK } from '../../server/utils/docker'
+import { MISS_REFRESH_MS, networkSubnets, TrustedProxies, type TrustedProxySource, UNTRUSTED_NETWORKS } from '../../server/utils/trusted-proxy'
 
 // Trusted reverse proxies (docs/auth.md §4.3, security.md AUTH-6): only the configured peers may set the client IP.
 
@@ -51,6 +52,36 @@ describe('TrustedProxies', () => {
     expect(proxies.isTrusted('10.10.2.200')).toBe(false)
     expect(proxies.isTrusted('10.10.1.5')).toBe(true)
     expect(proxies.isTrusted('10.20.0.1')).toBe(true)
+  })
+
+  it('never trusts a peer in the scantor-scripts subnets either, even when the list covers it', async () => {
+    const networks = new Map<string, string[]>([
+      [SANDBOX_NETWORK, ['10.10.2.0/24']],
+      [SCRIPTS_NETWORK, ['10.10.3.0/24', 'fd00:3::/64']],
+    ])
+    const docker = {
+      getNetwork: (name: string) => ({
+        inspect: async () => {
+          const subnets = networks.get(name)
+          if (!subnets) throw Object.assign(new Error('no such network'), { statusCode: 404 })
+          return { IPAM: { Config: subnets.map((subnet) => ({ Subnet: subnet })) } }
+        },
+      }),
+    }
+    expect(UNTRUSTED_NETWORKS).toEqual([SANDBOX_NETWORK, SCRIPTS_NETWORK])
+    const subnets = await networkSubnets(docker as never, UNTRUSTED_NETWORKS)
+    expect(subnets).toEqual(['10.10.2.0/24', '10.10.3.0/24', 'fd00:3::/64'])
+    const proxies = new TrustedProxies(['10.0.0.0/8', 'fd00::/8'], source({}, subnets), log)
+    await proxies.refresh()
+    expect(proxies.isTrusted('10.10.3.7')).toBe(false)
+    expect(proxies.isTrusted('fd00:3::7')).toBe(false)
+    expect(proxies.isTrusted('10.10.2.7')).toBe(false)
+    expect(proxies.isTrusted('10.10.1.5')).toBe(true)
+    // A missing network contributes nothing; another Docker error is passed on (the refresh keeps the last result).
+    networks.delete(SCRIPTS_NETWORK)
+    expect(await networkSubnets(docker as never, UNTRUSTED_NETWORKS)).toEqual(['10.10.2.0/24'])
+    const failing = { getNetwork: () => ({ inspect: async () => Promise.reject(Object.assign(new Error('daemon down'), { statusCode: 500 })) }) }
+    await expect(networkSubnets(failing as never, UNTRUSTED_NETWORKS)).rejects.toThrow('daemon down')
   })
 
   it('follows a new address after a miss, at most every few seconds', async () => {

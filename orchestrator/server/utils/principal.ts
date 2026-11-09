@@ -52,7 +52,30 @@ export interface SetupPrincipal {
   kind: 'setup'
 }
 
-export type Principal = UserPrincipal | NodePrincipal | WorkerPrincipal | RegistryPrincipal | ToolsPrincipal | SetupPrincipal
+/**
+ * The container of one running script run (`/api/script-runtime/*`): it acts for the run's owner (the script's owner)
+ * and may read only the scans the run was started with.
+ */
+export interface ScriptRunPrincipal {
+  kind: 'scriptRun'
+  scriptRun: {
+    id: string
+    userId: string
+    scriptId: string
+    scanIds: string[]
+    /** analyses per stream of a sample run; null = all */
+    limit: number | null
+  }
+}
+
+export type Principal =
+  | UserPrincipal
+  | NodePrincipal
+  | WorkerPrincipal
+  | RegistryPrincipal
+  | ToolsPrincipal
+  | SetupPrincipal
+  | ScriptRunPrincipal
 
 // ── credentials ─────────────────────────────────────────────────────────────
 

@@ -1,0 +1,69 @@
+"""[[.Name]]: a scantor script.
+
+Streams the succeeded analyses of the first selected scan, typed with the task's result model from
+models.py, evaluates them in worker processes, reports progress, checkpoints its position, writes one
+CSV row per analysis as an output and returns a summary. A restart with resume continues after the last
+checkpoint and copies the rows of the run it resumes into its own CSV.
+"""
+
+import csv
+import io
+import shutil
+
+from pydantic import BaseModel
+
+import scantor
+from models import Result
+from scantor.script import Analysis, Script, ScriptContext
+
+CSV_NAME = "analyses.csv"
+
+
+class Config(scantor.Config):
+    """The run's config; every field needs a default."""
+
+
+class Row(BaseModel):
+    seq: int
+    files: int
+
+
+class Summary(BaseModel):
+    scan: str
+    analyses: int
+    files: int
+
+
+def evaluate(analysis: Analysis[Result]) -> Row:
+    """Evaluate one analysis. Module level, because it runs in worker processes."""
+    return Row(seq=analysis.seq, files=len(analysis.files))
+
+
+def run(ctx: ScriptContext, config: Config) -> Summary:
+    scan = ctx.scans[0]
+    state = ctx.resume_state or {"after_seq": None, "analyses": 0, "files": 0}
+    total = min(ctx.limit, scan.counts.succeeded) if ctx.limit else scan.counts.succeeded
+    previous = next((out for out in ctx.resume_outputs if out.name in {CSV_NAME, f"{CSV_NAME}.partial"}), None)
+
+    stream = ctx.analyses(scan, result=Result, status="succeeded", after_seq=state["after_seq"])
+    # In input order, so that the rows written and the counters match the checkpointed watermark.
+    rows = ctx.map(evaluate, stream, processes=ctx.cpus, ordered=True)
+    with ctx.outputs.open(CSV_NAME) as file:
+        writer = csv.writer(file)
+        if previous is None:
+            writer.writerow(["seq", "files"])
+        else:
+            with io.TextIOWrapper(previous.open(), encoding="utf-8", newline="") as rows_so_far:
+                shutil.copyfileobj(rows_so_far, file)
+        for row in rows:
+            writer.writerow([row.seq, row.files])
+            state["analyses"] += 1
+            state["files"] += row.files
+            state["after_seq"] = rows.watermark
+            ctx.progress(state["analyses"], total)
+            ctx.checkpoint(state)
+
+    return Summary(scan=scan.name, analyses=state["analyses"], files=state["files"])
+
+
+script = Script(run=run, config=Config, result=Summary)

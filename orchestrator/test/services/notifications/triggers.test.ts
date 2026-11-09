@@ -52,6 +52,12 @@ describe('triggerOf', () => {
     expect(triggerOf({ type: 'node.revoked', level: 'warning', userId: null })).toBeNull()
   })
 
+  it('maps finished script runs of the owner', () => {
+    expect(triggerOf({ type: 'scriptRun.completed', level: 'info', userId: owner })).toBe('scriptRunCompleted')
+    expect(triggerOf({ type: 'scriptRun.failed', level: 'error', userId: owner })).toBe('scriptRunFailed')
+    expect(triggerOf({ type: 'scriptRun.cancelled', level: 'info', userId: owner })).toBeNull()
+  })
+
   it('ignores worker, scheduling and security events', () => {
     for (const type of ['scan.created', 'scan.scaled', 'worker.crashed', 'worker.started', 'scan.schedulingFailed', 'security.ingestRejected']) {
       expect(triggerOf({ type, level: 'error', userId: owner }), type).toBeNull()

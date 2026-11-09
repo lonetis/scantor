@@ -14,3 +14,7 @@ template choice into a task folder that publishes unchanged. The scaffolds are e
 `scantor` binary. The Go scaffold's `go.mod` and `go.sum` are stored as `go.mod.tmpl` and `go.sum.tmpl`
 (`go:embed` skips directories that contain a `go.mod`) and renamed when rendered. The example tasks under
 `tasks/` are not embedded and keep real `go.mod` and `go.sum` files.
+
+`python-script/` is the script starter (the `script.scaffold` of the Python row): `scantor scripts init`
+and `scantor workspace scaffold --script` render its `files/` into a script folder, without a template
+choice.

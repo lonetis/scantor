@@ -50,6 +50,7 @@ export function expectedScopeFor(pathTemplate: string, method: string): Operatio
   if (pathTemplate.startsWith('/api/node/')) return ['node']
   if (pathTemplate === '/api/registry/token') return ['node']
   if (pathTemplate.startsWith('/api/runtime/')) return ['worker']
+  if (pathTemplate.startsWith('/api/script-runtime/')) return ['scriptRun']
   if (pathTemplate.startsWith('/api/setup/')) return ['setup']
   if (pathTemplate === '/api/tools/forward-auth') return ['tools']
   return ['owner', 'admin']
