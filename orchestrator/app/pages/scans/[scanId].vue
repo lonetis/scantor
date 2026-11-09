@@ -72,6 +72,9 @@ const EVENT_TYPES = [
 const eventType = ref('all')
 const events = useEvents(scanId, { type: () => (eventType.value === 'all' ? null : eventType.value), enabled: () => tab.value === 'events' && scan.value !== null })
 
+// "Run script": choose one of the owner's scripts and open its run form with this scan preselected.
+const runScriptOpen = ref(false)
+
 async function refreshAll(): Promise<void> {
   await refresh()
   if (tab.value === 'workers') await Promise.all([workers.refresh(), refreshInflight()])
@@ -88,6 +91,17 @@ async function refreshAll(): Promise<void> {
         </template>
         <template #right>
           <RefreshButton :loading="polling" @click="refreshAll()" />
+          <UButton
+            v-if="scan && scan.state !== 'deleting' && scan.state !== 'deleted'"
+            label="Run script"
+            aria-label="Run script"
+            icon="i-lucide-file-code-2"
+            size="sm"
+            color="neutral"
+            variant="outline"
+            :ui="{ label: 'hidden lg:inline' }"
+            @click="runScriptOpen = true"
+          />
         </template>
       </UDashboardNavbar>
       <UDashboardToolbar v-if="scan">
@@ -167,6 +181,7 @@ async function refreshAll(): Promise<void> {
       </div>
 
       <AnalysisSlideover v-if="scan" :scan="scan" />
+      <RunScriptModal v-if="scan" v-model:open="runScriptOpen" :scan="scan" />
     </template>
   </UDashboardPanel>
 </template>

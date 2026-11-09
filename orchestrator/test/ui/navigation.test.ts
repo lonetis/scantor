@@ -7,6 +7,7 @@ describe('sidebar navigation (docs/ui.md §3.2)', () => {
     expect(links).toEqual([
       ['Workspace', 'Overview', '/', 'i-lucide-layout-dashboard'],
       ['Workspace', 'Tasks', '/tasks', 'i-lucide-package'],
+      ['Workspace', 'Scripts', '/scripts', 'i-lucide-file-code-2'],
       ['Workspace', 'Scans', '/scans', 'i-lucide-radar'],
       ['Workspace', 'Templates', '/templates', 'i-lucide-layout-template'],
       ['Workspace', 'Editor', '/editor', 'i-lucide-code'],

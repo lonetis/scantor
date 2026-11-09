@@ -1,11 +1,11 @@
 <script setup lang="ts">
 // Editor (docs/ui.md §5.10): the caller's code-server, embedded from the separate editor origin. Every iframe load
 // and every new tab uses a fresh one-time session URL (createEditorSession; valid 60 s, single use). `?task=<name>`
-// opens that task's folder. Visiting the page opens the editor, unless its last start failed (then the error and
-// "Retry" are shown) or the user stopped it here.
+// opens that task's folder, `?script=<name>` that script's folder. Visiting the page opens the editor, unless its last
+// start failed (then the error and "Retry" are shown) or the user stopped it here.
 useHead({ title: 'Editor · scantor' })
 
-type Phase = 'loading' | 'starting' | 'ready' | 'stopped' | 'failed' | 'busy' | 'taskMissing'
+type Phase = 'loading' | 'starting' | 'ready' | 'stopped' | 'failed' | 'busy' | 'taskMissing' | 'scriptMissing'
 
 const route = useRoute()
 const toast = useToast()
@@ -20,6 +20,13 @@ const failure = ref<string | null>(null)
 const opening = ref(false)
 
 const task = computed(() => (typeof route.query.task === 'string' && route.query.task !== '' ? route.query.task : null))
+const script = computed(() => (!task.value && typeof route.query.script === 'string' && route.query.script !== '' ? route.query.script : null))
+/** The folder the session opens: `?task=` wins over `?script=` (the API accepts only one of them). */
+const folder = computed<EditorFolder | null>(() => {
+  if (task.value) return { kind: 'task', name: task.value }
+  if (script.value) return { kind: 'script', name: script.value }
+  return null
+})
 const idleText = computed(() => idleTimeoutText(status.value?.idleTimeoutMs))
 
 function fail(error: unknown): void {
@@ -28,9 +35,9 @@ function fail(error: unknown): void {
     phase.value = 'busy'
     return
   }
-  // `?task=` names no task of the caller: retrying cannot help, opening the workspace root can.
-  if (apiError.code === 'notFound' && task.value) {
-    phase.value = 'taskMissing'
+  // `?task=` or `?script=` names no task or script of the caller: retrying cannot help, opening the workspace root can.
+  if (apiError.code === 'notFound' && folder.value) {
+    phase.value = folder.value.kind === 'script' ? 'scriptMissing' : 'taskMissing'
     return
   }
   failure.value = apiError.message
@@ -43,7 +50,7 @@ async function open(): Promise<void> {
   opening.value = true
   failure.value = null
   try {
-    const session = await openSession(task.value)
+    const session = await openSession(folder.value)
     if (session.editor.state === 'running') {
       frameUrl.value = session.url
       frameStartedAt.value = session.editor.startedAt
@@ -101,7 +108,7 @@ async function openWorkspace(): Promise<void> {
 
 async function openInNewTab(): Promise<void> {
   try {
-    const session = await openSession(task.value)
+    const session = await openSession(folder.value)
     window.open(session.url, '_blank', 'noopener')
     if (phase.value !== 'ready' && session.editor.state === 'starting') phase.value = 'starting'
   } catch (error) {
@@ -204,6 +211,17 @@ async function stopEditor(): Promise<void> {
         />
 
         <UAlert
+          v-else-if="phase === 'scriptMissing'"
+          class="max-w-lg"
+          color="warning"
+          variant="subtle"
+          icon="i-lucide-folder-x"
+          :title="`Script “${script}” was not found`"
+          description="None of your scripts has this name. Open the editor on your whole workspace instead."
+          :actions="[{ label: 'Open workspace', color: 'neutral', variant: 'outline', loading: opening, onClick: () => { void openWorkspace() } }]"
+        />
+
+        <UAlert
           v-else-if="phase === 'failed'"
           class="max-w-lg"
           color="error"
@@ -218,7 +236,7 @@ async function stopEditor(): Promise<void> {
           v-else
           icon="i-lucide-code"
           title="The editor is stopped"
-          description="Open it to edit your tasks in the browser. Your workspace files are kept while it is stopped."
+          description="Open it to edit your tasks and scripts in the browser. Your workspace files are kept while it is stopped."
           action-label="Open editor"
           action-icon="i-lucide-play"
           @action="open"

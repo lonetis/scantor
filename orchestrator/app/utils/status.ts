@@ -9,6 +9,7 @@ export type StatusKind =
   | 'analysis'
   | 'revision'
   | 'testRun'
+  | 'scriptRun'
   | 'worker'
   | 'node'
   | 'export'
@@ -65,6 +66,14 @@ const STATUS_STYLES = {
     failed: { color: 'error', icon: 'i-lucide-circle-x' },
   },
   testRun: {
+    queued: { color: 'neutral', icon: 'i-lucide-clock' },
+    building: { color: 'info', icon: 'i-lucide-loader-circle' },
+    running: { color: 'info', icon: 'i-lucide-circle-play' },
+    completed: { color: 'success', icon: 'i-lucide-circle-check' },
+    failed: { color: 'error', icon: 'i-lucide-circle-x' },
+    cancelled: { color: 'neutral', icon: 'i-lucide-ban' },
+  },
+  scriptRun: {
     queued: { color: 'neutral', icon: 'i-lucide-clock' },
     building: { color: 'info', icon: 'i-lucide-loader-circle' },
     running: { color: 'info', icon: 'i-lucide-circle-play' },

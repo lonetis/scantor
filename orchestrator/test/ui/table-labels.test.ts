@@ -58,6 +58,7 @@ describe('row keys (docs/ui.md §11 rule 3)', () => {
     expect(unkeyed).toEqual([])
     // The check sees the tables it guards, and the exceptions still exist without a key.
     expect(keyed).toContain('components/NodeTable.vue')
+    expect(keyed).toEqual(expect.arrayContaining(['components/ScriptTable.vue', 'components/ScriptRunsTable.vue']))
     expect(keyed.filter((file) => file in INDEX_KEYED)).toEqual([])
     for (const file of Object.keys(INDEX_KEYED)) expect(readFileSync(join(APP, file), 'utf8')).toContain('<UTable')
   })

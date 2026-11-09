@@ -31,6 +31,7 @@ export const SIDEBAR_GROUPS: readonly NavigationGroup[] = [
     links: [
       { label: 'Overview', to: '/', icon: 'i-lucide-layout-dashboard', visible: 'all' },
       { label: 'Tasks', to: '/tasks', icon: 'i-lucide-package', visible: 'all' },
+      { label: 'Scripts', to: '/scripts', icon: 'i-lucide-file-code-2', visible: 'all' },
       { label: 'Scans', to: '/scans', icon: 'i-lucide-radar', visible: 'all', badge: 'activeScans' },
       { label: 'Templates', to: '/templates', icon: 'i-lucide-layout-template', visible: 'all' },
       { label: 'Editor', to: '/editor', icon: 'i-lucide-code', visible: 'editorFeature' },

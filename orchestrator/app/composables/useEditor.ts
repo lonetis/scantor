@@ -5,6 +5,18 @@
 export const EDITOR_TRANSITION_POLL_MS = 2_000
 export const EDITOR_IDLE_POLL_MS = 30_000
 
+/** The folder an editor session opens: a task's (`open`) or a script's (`openScript`), by name among the caller's own. */
+export interface EditorFolder {
+  kind: 'task' | 'script'
+  name: string
+}
+
+/** The createEditorSession body that opens `folder` (the workspace root without one). */
+export function editorSessionBody(folder: EditorFolder | null | undefined): { open?: string; openScript?: string } {
+  if (!folder) return {}
+  return folder.kind === 'script' ? { openScript: folder.name } : { open: folder.name }
+}
+
 export function useEditor() {
   const api = useApi()
   const status = shallowRef<EditorStatus | null>(null)
@@ -24,13 +36,13 @@ export function useEditor() {
   }
 
   /**
-   * createEditorSession: starts the editor when needed and returns a fresh one-time URL (valid 60 s, single use).
-   * Errors are not toasted; callers show them inline (429 when every editor slot is busy).
+   * createEditorSession: starts the editor when needed and returns a fresh one-time URL (valid 60 s, single use) that
+   * lands in `folder`. Errors are not toasted; callers show them inline (429 when every editor slot is busy).
    */
-  async function openSession(task?: string | null): Promise<EditorSession> {
+  async function openSession(folder?: EditorFolder | null): Promise<EditorSession> {
     const session = await api<EditorSession>('/api/editor/session', {
       method: 'POST',
-      body: task ? { open: task } : {},
+      body: editorSessionBody(folder),
       toast: false,
     })
     status.value = {
