@@ -207,6 +207,8 @@ type ListScansQuery struct {
 	States []string
 	Task   string
 	UserID string
+	// Q filters by a case-insensitive substring of the scan name (≤ 64 characters).
+	Q string
 }
 
 // ScaleScan is the body of scaleScan; at least one field is required.

@@ -827,5 +827,452 @@
     "access_token": "eyJhbGciOiJFUzI1NiIs…",
     "expires_in": 300,
     "issued_at": "2026-10-21T10:00:00Z"
+  },
+  "Script": {
+    "id": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+    "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+    "name": "csp-report",
+    "language": "python",
+    "description": "Count the sites that send a Content-Security-Policy header",
+    "source": {
+      "kind": "scaffold"
+    },
+    "workspace": {
+      "packSha256": "d41c…7e",
+      "fileCount": 8,
+      "bytes": 9216,
+      "checkedAt": "2026-10-22T08:10:00.000Z"
+    },
+    "describe": {
+      "packSha256": "d41c…7e",
+      "configSchema": {
+        "type": "object",
+        "properties": {
+          "minBytes": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "resultSchema": {
+        "type": "object",
+        "properties": {
+          "analyses": {
+            "type": "integer"
+          },
+          "withCsp": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "analyses",
+          "withCsp"
+        ]
+      },
+      "at": "2026-10-22T08:12:31.000Z"
+    },
+    "latestRun": {
+      "id": "4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8",
+      "state": "completed",
+      "createdAt": "2026-10-22T09:00:00.000Z",
+      "finishedAt": "2026-10-22T11:42:05.000Z"
+    },
+    "recentRuns": [
+      {
+        "id": "4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8",
+        "state": "completed",
+        "createdAt": "2026-10-22T09:00:00.000Z",
+        "finishedAt": "2026-10-22T11:42:05.000Z",
+        "progress": {
+          "done": 1000000,
+          "total": 1000000,
+          "message": null,
+          "updatedAt": "2026-10-22T11:42:04.000Z"
+        }
+      },
+      {
+        "id": "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+        "state": "cancelled",
+        "createdAt": "2026-10-22T08:20:00.000Z",
+        "finishedAt": "2026-10-22T08:55:12.000Z",
+        "progress": {
+          "done": 310000,
+          "total": 1000000,
+          "message": "reading report files",
+          "updatedAt": "2026-10-22T08:55:10.000Z"
+        }
+      },
+      {
+        "id": "6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c",
+        "state": "completed",
+        "createdAt": "2026-10-22T08:12:00.000Z",
+        "finishedAt": "2026-10-22T08:12:48.000Z",
+        "progress": {
+          "done": 100,
+          "total": 1000000,
+          "message": null,
+          "updatedAt": "2026-10-22T08:12:47.000Z"
+        }
+      }
+    ],
+    "createdAt": "2026-10-22T08:00:00.000Z",
+    "updatedAt": "2026-10-22T11:42:05.000Z"
+  },
+  "UploadScriptResult": {
+    "script": {
+      "id": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+      "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+      "name": "csp-report",
+      "language": "python",
+      "description": "Count the sites that send a Content-Security-Policy header",
+      "source": {
+        "kind": "upload"
+      },
+      "workspace": {
+        "packSha256": "d41c…7e",
+        "fileCount": 8,
+        "bytes": 9216,
+        "checkedAt": "2026-10-22T08:10:00.000Z"
+      },
+      "describe": null,
+      "latestRun": null,
+      "createdAt": "2026-10-22T08:00:00.000Z",
+      "updatedAt": "2026-10-22T08:00:00.000Z"
+    },
+    "created": true
+  },
+  "WriteScriptFilesResult": {
+    "written": [
+      "main.py",
+      "models.py"
+    ],
+    "workspace": {
+      "packSha256": "e52d…80"
+    }
+  },
+  "ScriptRun": {
+    "id": "4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8",
+    "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+    "scriptId": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+    "scriptName": "csp-report",
+    "scans": [
+      {
+        "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+        "name": "tranco top 1M"
+      }
+    ],
+    "state": "completed",
+    "input": {
+      "config": {
+        "minBytes": 0
+      },
+      "settings": {
+        "timeoutMs": 259200000,
+        "resources": {
+          "cpus": 4,
+          "memoryMiB": 4096
+        },
+        "limit": null
+      }
+    },
+    "secrets": [
+      "REPORT_API_TOKEN"
+    ],
+    "source": {
+      "packSha256": "d41c…7e",
+      "packBytes": 2911,
+      "fileCount": 8
+    },
+    "restartedFrom": {
+      "id": "2d3e4f5a-6b7c-4d8e-9f0a-1b2c3d4e5f6a",
+      "resume": true
+    },
+    "image": {
+      "ref": "scripts/9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f:d41c…7e",
+      "cached": true
+    },
+    "errors": [],
+    "error": null,
+    "exitCode": 0,
+    "progress": {
+      "done": 1000000,
+      "total": 1000000,
+      "message": null,
+      "updatedAt": "2026-10-22T11:42:04.000Z"
+    },
+    "checkpoint": {
+      "savedAt": "2026-10-22T11:41:58.000Z",
+      "bytes": 64
+    },
+    "result": {
+      "analyses": 1000000,
+      "withCsp": 233918
+    },
+    "outputs": [
+      {
+        "id": "8a9b0c1d-2e3f-4a5b-8c6d-7e8f9a0b1c2d",
+        "name": "csp-sites.csv",
+        "size": 9646823,
+        "sha256": "5f0e…a1",
+        "contentType": "text/csv",
+        "createdAt": "2026-10-22T11:42:01.000Z"
+      }
+    ],
+    "log": {
+      "lines": 214,
+      "firstLine": 1,
+      "droppedLines": 0
+    },
+    "logTail": [
+      {
+        "line": 212,
+        "at": "2026-10-22T11:42:01.512Z",
+        "stream": "stdout",
+        "text": "wrote csp-sites.csv (233918 rows)"
+      },
+      {
+        "line": 213,
+        "at": "2026-10-22T11:42:04.020Z",
+        "stream": "stdout",
+        "text": "1000000 analyses, 233918 with a CSP header"
+      },
+      {
+        "line": 214,
+        "at": "2026-10-22T11:42:05.004Z",
+        "stream": "system",
+        "text": "the script exited with code 0"
+      }
+    ],
+    "createdAt": "2026-10-22T09:00:00.000Z",
+    "startedAt": "2026-10-22T09:00:21.000Z",
+    "finishedAt": "2026-10-22T11:42:05.000Z",
+    "updatedAt": "2026-10-22T11:42:05.000Z",
+    "expiresAt": "2026-11-21T11:42:05.000Z"
+  },
+  "ScriptRunFailed": {
+    "id": "6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c",
+    "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+    "scriptId": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+    "scriptName": "csp-report",
+    "scans": [
+      {
+        "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+        "name": "tranco top 1M"
+      }
+    ],
+    "state": "failed",
+    "input": {
+      "config": {
+        "minBytes": 1024
+      },
+      "settings": {
+        "timeoutMs": 259200000,
+        "resources": {
+          "cpus": 1,
+          "memoryMiB": 1024
+        },
+        "limit": 100
+      }
+    },
+    "secrets": [],
+    "source": {
+      "packSha256": "b8a2…13",
+      "packBytes": 2874,
+      "fileCount": 8
+    },
+    "restartedFrom": null,
+    "image": {
+      "ref": "scripts/9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f:b8a2…13",
+      "cached": false
+    },
+    "errors": [],
+    "error": {
+      "type": "scriptError",
+      "message": "KeyError: 'headers'",
+      "stack": "Traceback (most recent call last):\n  File \"/task/main.py\", line 18, in check\n    headers = analysis.read_json(analysis.result.report)[\"headers\"]\nKeyError: 'headers'\n"
+    },
+    "exitCode": 1,
+    "progress": {
+      "done": 37,
+      "total": 100,
+      "message": null,
+      "updatedAt": "2026-10-22T08:05:14.000Z"
+    },
+    "checkpoint": null,
+    "result": null,
+    "outputs": [
+      {
+        "id": "1b2c3d4e-5f6a-4b7c-9d8e-9f0a1b2c3d4e",
+        "name": "csp-sites.csv.partial",
+        "size": 1873,
+        "sha256": "0c4f…9b",
+        "contentType": "text/csv",
+        "createdAt": "2026-10-22T08:05:15.000Z"
+      }
+    ],
+    "log": {
+      "lines": 57,
+      "firstLine": 1,
+      "droppedLines": 0
+    },
+    "logTail": [
+      {
+        "line": 55,
+        "at": "2026-10-22T08:05:14.881Z",
+        "stream": "stderr",
+        "text": "    headers = analysis.read_json(analysis.result.report)[\"headers\"]"
+      },
+      {
+        "line": 56,
+        "at": "2026-10-22T08:05:14.881Z",
+        "stream": "stderr",
+        "text": "KeyError: 'headers'"
+      },
+      {
+        "line": 57,
+        "at": "2026-10-22T08:05:15.302Z",
+        "stream": "system",
+        "text": "the script exited with code 1"
+      }
+    ],
+    "createdAt": "2026-10-22T08:04:30.000Z",
+    "startedAt": "2026-10-22T08:05:02.000Z",
+    "finishedAt": "2026-10-22T08:05:15.000Z",
+    "updatedAt": "2026-10-22T08:05:15.000Z",
+    "expiresAt": "2026-11-21T08:05:15.000Z"
+  },
+  "ScriptRunQueued": {
+    "id": "7a8b9c0d-1e2f-4a3b-9c4d-5e6f7a8b9c0d",
+    "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+    "scriptId": "9c4d2e1f-6a7b-4c8d-9e0f-1a2b3c4d5e6f",
+    "scriptName": "csp-report",
+    "scans": [
+      {
+        "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+        "name": "tranco top 1M"
+      }
+    ],
+    "state": "queued",
+    "input": {
+      "config": {
+        "minBytes": 0
+      },
+      "settings": {
+        "timeoutMs": null,
+        "resources": {
+          "cpus": 4,
+          "memoryMiB": null
+        },
+        "limit": null
+      }
+    },
+    "secrets": [
+      "REPORT_API_TOKEN"
+    ],
+    "source": {
+      "packSha256": "d41c…7e",
+      "packBytes": 2911,
+      "fileCount": 8
+    },
+    "restartedFrom": null,
+    "image": null,
+    "errors": [],
+    "error": null,
+    "exitCode": null,
+    "progress": null,
+    "checkpoint": null,
+    "result": null,
+    "outputs": [],
+    "log": {
+      "lines": 0,
+      "firstLine": 1,
+      "droppedLines": 0
+    },
+    "logTail": [],
+    "createdAt": "2026-10-22T12:00:00.000Z",
+    "startedAt": null,
+    "finishedAt": null,
+    "updatedAt": "2026-10-22T12:00:00.000Z",
+    "expiresAt": null
+  },
+  "ScriptRunLogsPage": {
+    "lines": [
+      {
+        "line": 1,
+        "at": "2026-10-22T09:00:01.902Z",
+        "stream": "system",
+        "text": "scan tranco top 1M is running: the run reads the analyses stored so far"
+      },
+      {
+        "line": 2,
+        "at": "2026-10-22T09:00:02.114Z",
+        "stream": "build",
+        "text": "#6 [3/4] RUN pip install --no-cache-dir -r requirements.txt"
+      },
+      {
+        "line": 3,
+        "at": "2026-10-22T09:00:22.907Z",
+        "stream": "stdout",
+        "text": "resuming after seq 309999 (310000 analyses done)"
+      },
+      {
+        "line": 4,
+        "at": "2026-10-22T09:03:40.215Z",
+        "stream": "stderr",
+        "text": "scantor: skipped analysis 5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f-311207: the report file is not JSON"
+      }
+    ],
+    "firstLine": 1,
+    "nextLine": 4,
+    "complete": false
+  },
+  "StartScriptRunRequest": {
+    "scans": [
+      "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f"
+    ],
+    "config": {
+      "minBytes": 1024
+    },
+    "secrets": {
+      "REPORT_API_TOKEN": "rpt_4f1c…"
+    },
+    "settings": {
+      "timeoutMs": 86400000,
+      "resources": {
+        "cpus": 4,
+        "memoryMiB": 4096
+      },
+      "limit": 100
+    }
+  },
+  "RestartScriptRunRequest": {
+    "resume": true,
+    "settings": {
+      "limit": null
+    }
+  },
+  "ScriptRunConfirmationDetails": {
+    "scans": [
+      {
+        "id": "5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f",
+        "name": "tranco top 1M",
+        "analyses": 1000000
+      }
+    ],
+    "packSha256": "d41c…7e"
+  },
+  "FileContent": {
+    "name": "csp-sites.csv",
+    "contentType": "text/csv",
+    "size": 9646823,
+    "sha256": "5f0e…a1",
+    "offset": 0,
+    "length": 98304,
+    "encoding": "utf8",
+    "content": "domain,policy\ngoogle.com,\"script-src 'report-sample' 'nonce-…' 'unsafe-inline'\"\n…",
+    "truncated": true,
+    "nextOffset": 98304
   }
 }

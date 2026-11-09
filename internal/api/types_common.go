@@ -283,18 +283,20 @@ const (
 
 // Event is one timeline entry (docs/data-model.md §4.11).
 type Event struct {
-	ID         string          `json:"id"`
-	At         Time            `json:"at"`
-	Type       string          `json:"type"`
-	Level      string          `json:"level"`
-	UserID     *string         `json:"userId"`
-	ScanID     string          `json:"scanId,omitempty"`
-	TaskID     string          `json:"taskId,omitempty"`
-	RevisionID string          `json:"revisionId,omitempty"`
-	WorkerID   string          `json:"workerId,omitempty"`
-	NodeID     string          `json:"nodeId,omitempty"`
-	Message    string          `json:"message"`
-	Data       json.RawMessage `json:"data,omitempty"`
+	ID          string          `json:"id"`
+	At          Time            `json:"at"`
+	Type        string          `json:"type"`
+	Level       string          `json:"level"`
+	UserID      *string         `json:"userId"`
+	ScanID      string          `json:"scanId,omitempty"`
+	TaskID      string          `json:"taskId,omitempty"`
+	RevisionID  string          `json:"revisionId,omitempty"`
+	WorkerID    string          `json:"workerId,omitempty"`
+	NodeID      string          `json:"nodeId,omitempty"`
+	ScriptID    string          `json:"scriptId,omitempty"`
+	ScriptRunID string          `json:"scriptRunId,omitempty"`
+	Message     string          `json:"message"`
+	Data        json.RawMessage `json:"data,omitempty"`
 }
 
 // Condition is a bounded status entry of a scan (docs/data-model.md §4.5.4).

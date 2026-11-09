@@ -57,9 +57,10 @@ scantor [flags]
 * [scantor jobs](#scantor-jobs)	 - Inspect background jobs (deletions, retries, exports, builds)
 * [scantor node](#scantor-node)	 - Run the node daemon that runs workers on this Docker host
 * [scantor nodes](#scantor-nodes)	 - Manage the nodes that run workers (admins)
-* [scantor push](#scantor-push)	 - Upload a task folder and publish a revision
+* [scantor push](#scantor-push)	 - Upload a task or script folder (and publish a task revision)
 * [scantor revisions](#scantor-revisions)	 - Publish and inspect task revisions
 * [scantor scans](#scantor-scans)	 - Start, follow and control scans
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
 * [scantor tasks](#scantor-tasks)	 - Manage tasks and their workspace files
 * [scantor templates](#scantor-templates)	 - List the templates and estimate scan sizes
 * [scantor uploads](#scantor-uploads)	 - Upload list files for scans of the list template
@@ -1467,13 +1468,15 @@ scantor nodes workers <node> [flags]
 
 ## scantor push
 
-Upload a task folder and publish a revision
+Upload a task or script folder (and publish a task revision)
 
 ### Synopsis
 
 Pack the task folder locally and upload it (docs/tasks.md §13); the instance applies its own file count and size limits to the upload. The manifest name selects or creates the task, the upload replaces its platform workspace, and a revision is published and built on the server unless --no-publish is given. The upload fails with workspaceDirty when the platform workspace has changes that were never published or synced (for example editor edits); --force replaces them.
 
 Inside the editor (SCANTOR_WORKSPACE set and the folder inside it) the folder already is the workspace, so push only publishes a revision. With --wait the command waits for the build and exits 2 when the revision failed on its content, 3 on a platform failure.
+
+A folder with a scantor-script.yaml is a script folder: push uploads it like 'scantor scripts push' (only --force applies). A folder with both scantor.yaml and scantor-script.yaml is refused.
 
 ```
 scantor push [dir] [flags]
@@ -2334,6 +2337,822 @@ scantor scans workers <scan> [flags]
 ### SEE ALSO
 
 * [scantor scans](#scantor-scans)	 - Start, follow and control scans
+
+
+## scantor scripts
+
+Manage scripts, their files and their runs
+
+```
+scantor scripts [flags]
+```
+
+### Options
+
+```
+  -h, --help   help for scripts
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor](#scantor)	 - Run scanning tasks at scale
+* [scantor scripts create](#scantor-scripts-create)	 - Create a script from the scaffold
+* [scantor scripts delete](#scantor-scripts-delete)	 - Delete a script with its runs
+* [scantor scripts files](#scantor-scripts-files)	 - Read and change the files of a script folder
+* [scantor scripts get](#scantor-scripts-get)	 - Show a script
+* [scantor scripts init](#scantor-scripts-init)	 - Create a script folder from the scaffold
+* [scantor scripts list](#scantor-scripts-list)	 - List scripts
+* [scantor scripts push](#scantor-scripts-push)	 - Upload a script folder
+* [scantor scripts run](#scantor-scripts-run)	 - Start a run of a script on scans
+* [scantor scripts runs](#scantor-scripts-runs)	 - Inspect and control script runs
+
+
+## scantor scripts create
+
+Create a script from the scaffold
+
+### Synopsis
+
+Create a script on the platform and scaffold its folder (a working example that reads the results of a scan). Edit it in the browser editor, with 'scantor scripts files' or locally (see 'scantor scripts init' and 'scantor scripts push').
+
+```
+scantor scripts create <name> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts create csp-report --description "Count the sites that send a CSP header"
+```
+
+### Options
+
+```
+      --description string   short description
+  -h, --help                 help for create
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
+
+
+## scantor scripts delete
+
+Delete a script with its runs
+
+### Synopsis
+
+Delete a script: a background job cancels its active runs and removes their outputs, logs and snapshots, the script's images and its folder. A script is addressed by its name or its id.
+
+```
+scantor scripts delete <script> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts delete csp-report --wait
+```
+
+### Options
+
+```
+  -h, --help               help for delete
+      --timeout duration   give up waiting after this duration (0 = no limit)
+      --wait               wait until the deletion has finished
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
+
+
+## scantor scripts files
+
+Read and change the files of a script folder
+
+```
+scantor scripts files [flags]
+```
+
+### Options
+
+```
+  -h, --help   help for files
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
+* [scantor scripts files delete](#scantor-scripts-files-delete)	 - Delete a file or folder of a script folder
+* [scantor scripts files list](#scantor-scripts-files-list)	 - List the files of a script folder
+* [scantor scripts files read](#scantor-scripts-files-read)	 - Print a file of a script folder
+* [scantor scripts files write](#scantor-scripts-files-write)	 - Write files into a script folder
+
+
+## scantor scripts files delete
+
+Delete a file or folder of a script folder
+
+### Synopsis
+
+Delete one file of the script folder, or a folder with --recursive. A script is addressed by its name or its id.
+
+```
+scantor scripts files delete <script> <path> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts files delete csp-report old.py
+  scantor scripts files delete csp-report testdata --recursive
+```
+
+### Options
+
+```
+  -h, --help        help for delete
+  -r, --recursive   delete a folder with its content
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts files](#scantor-scripts-files)	 - Read and change the files of a script folder
+
+
+## scantor scripts files list
+
+List the files of a script folder
+
+### Synopsis
+
+List the files below a folder of the script (default: the script root). At most 5000 entries are returned. A script is addressed by its name or its id.
+
+```
+scantor scripts files list <script> [path] [flags]
+```
+
+### Examples
+
+```
+  scantor scripts files list csp-report
+  scantor scripts files list csp-report lib --recursive=false
+```
+
+### Options
+
+```
+  -h, --help        help for list
+      --recursive   include subfolders (default true)
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts files](#scantor-scripts-files)	 - Read and change the files of a script folder
+
+
+## scantor scripts files read
+
+Print a file of a script folder
+
+### Synopsis
+
+Print one file of the script folder. The content is written as raw bytes into a pipe or file; on a terminal, control characters are shown escaped (\x1b). The API returns at most 1 MiB of a file. With -o json the response object (with base64 content for binary files) is printed instead.
+
+```
+scantor scripts files read <script> <path> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts files read csp-report main.py
+```
+
+### Options
+
+```
+  -h, --help   help for read
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts files](#scantor-scripts-files)	 - Read and change the files of a script folder
+
+
+## scantor scripts files write
+
+Write files into a script folder
+
+### Synopsis
+
+Write one or more files into the script folder (at most 200 per call). Each argument is a script-relative path, optionally followed by =&lt;source&gt;: a local file, or - for stdin. Without a source, the local file with the same relative path is uploaded. Text files are sent as UTF-8, other files as base64. The next run uses the changed folder.
+
+```
+scantor scripts files write <script> <path>[=<source>]... [flags]
+```
+
+### Examples
+
+```
+  scantor scripts files write csp-report main.py models.py
+  cat main.py | scantor scripts files write csp-report main.py=-
+```
+
+### Options
+
+```
+  -h, --help   help for write
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts files](#scantor-scripts-files)	 - Read and change the files of a script folder
+
+
+## scantor scripts get
+
+Show a script
+
+### Synopsis
+
+Show a script with its cached folder status, the schemas its code reported and its recent runs. A script is addressed by its name or its id.
+
+```
+scantor scripts get <script> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts get csp-report
+```
+
+### Options
+
+```
+  -h, --help   help for get
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
+
+
+## scantor scripts init
+
+Create a script folder from the scaffold
+
+### Synopsis
+
+Create a script folder locally from the script scaffold: scantor-script.yaml, a Dockerfile, a working main.py and models.py for the Result model of the task whose scans the script reads.
+
+dir defaults to ./&lt;name&gt;; --name defaults to the slugified base name of dir; --language defaults to the only language that supports scripts. An existing non-empty directory is refused.
+
+```
+scantor scripts init [dir] [flags]
+```
+
+### Examples
+
+```
+  scantor scripts init csp-report
+  scantor scripts init --name csp-report --description "Count CSP headers"
+```
+
+### Options
+
+```
+      --description string   script description
+  -h, --help                 help for init
+      --language string      script language (default: the only language that supports scripts)
+      --name string          script name (default: the slugified base name of dir)
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
+
+
+## scantor scripts list
+
+List scripts
+
+### Synopsis
+
+List your scripts, newest first. Admins see every user's scripts and may filter with --user.
+
+```
+scantor scripts list [flags]
+```
+
+### Examples
+
+```
+  scantor scripts list
+  scantor scripts list --search csp -o json
+```
+
+### Options
+
+```
+      --cursor string   continue a previous listing (the cursor it printed)
+  -h, --help            help for list
+      --limit int       maximum number of items (server default 50, max 200)
+      --search string   only scripts whose name or description contains this text
+      --user string     only scripts of this user id (admins)
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
+
+
+## scantor scripts push
+
+Upload a script folder
+
+### Synopsis
+
+Pack the script folder locally and upload it. The name in scantor-script.yaml selects or creates the script, and the upload replaces its folder on the platform. The upload fails with workspaceDirty when the platform folder has changes that were never uploaded (for example editor edits); --force replaces them. Scripts have no revisions: the next run uses the uploaded folder.
+
+Inside the editor (SCANTOR_WORKSPACE set and the folder below .scripts/) the folder already is the script's folder, so nothing is uploaded.
+
+```
+scantor scripts push [dir] [flags]
+```
+
+### Examples
+
+```
+  scantor scripts push
+  scantor scripts push ./csp-report --force
+```
+
+### Options
+
+```
+      --force   replace a platform folder with changes that were never uploaded
+  -h, --help    help for push
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
+
+
+## scantor scripts run
+
+Start a run of a script on scans
+
+### Synopsis
+
+Start a run of a script on one or more of your scans (--scan, up to 20). The argument is a script name or id, or a script folder: a folder (also the current directory when no argument is given) is uploaded first like 'scantor scripts push'; inside the editor the folder's script is used as it is.
+
+The run executes the script folder as it is now: the platform snapshots it, builds its image and runs one container that reads the scans' results and files. --config is the script's config (a JSON object inline, as @file or - for stdin); --secret NAME=VALUE (or NAME=@file, the file's exact content) passes a secret the script reads as ctx.secrets[NAME], stored encrypted and never shown again. --limit N makes a sample run: every analysis stream ends after N analyses. --timeout, --cpus and --memory override the manifest defaults within the instance's limits. --yes confirms a run that needs a confirmation.
+
+--follow prints the run's log until the run ends. Interrupting a followed run (Ctrl-C) only detaches: the run keeps running, and the command prints how to follow or cancel it again; --cancel-on-interrupt cancels it instead. With -o json, --follow prints only the final run.
+
+Exit codes when following or waiting: 0 the run completed, 1 it failed or was cancelled, 2 invalid input, 3 a platform error (also a run that failed for a platform reason) or an interrupt.
+
+```
+scantor scripts run [<script>|dir] [flags]
+```
+
+### Examples
+
+```
+  scantor scripts run csp-report --scan 5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f --limit 100 --follow
+  scantor scripts run ./csp-report --scan 5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f --config '{"minBytes":1024}' --cpus 4 --memory 4GiB
+  scantor scripts run csp-report --scan 5e1f0c2d-8a7b-4c3d-9e1f-2a3b4c5d6e7f --secret API_TOKEN=@token.txt --follow
+```
+
+### Options
+
+```
+      --cancel-on-interrupt   with --follow: cancel the run on Ctrl-C instead of detaching
+      --config string         script config: JSON object, @file or - (stdin)
+      --cpus float            CPUs of the run's container (default: the manifest default)
+      --follow                print the run's log until the run ends
+  -h, --help                  help for run
+      --limit int             sample run: every analysis stream ends after this many analyses
+      --memory string         memory of the run's container, for example 512MiB or 4GiB (default: the manifest default)
+      --scan strings          id of a scan the run reads (repeatable, up to 20)
+      --secret stringArray    secret NAME=VALUE or NAME=@file (repeatable)
+      --timeout duration      maximum duration of the run (for example 12h; default: the manifest default, capped by the instance)
+      --yes                   confirm a run that needs a confirmation
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
+
+
+## scantor scripts runs
+
+Inspect and control script runs
+
+```
+scantor scripts runs [flags]
+```
+
+### Options
+
+```
+  -h, --help   help for runs
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts](#scantor-scripts)	 - Manage scripts, their files and their runs
+* [scantor scripts runs cancel](#scantor-scripts-runs-cancel)	 - Cancel a script run
+* [scantor scripts runs get](#scantor-scripts-runs-get)	 - Show a script run
+* [scantor scripts runs list](#scantor-scripts-runs-list)	 - List the runs of a script
+* [scantor scripts runs logs](#scantor-scripts-runs-logs)	 - Print the log of a script run
+* [scantor scripts runs outputs](#scantor-scripts-runs-outputs)	 - Download the output files of a script run
+* [scantor scripts runs restart](#scantor-scripts-runs-restart)	 - Start a new run like an earlier one
+* [scantor scripts runs source](#scantor-scripts-runs-source)	 - Download the snapshot a script run was built from
+
+
+## scantor scripts runs cancel
+
+Cancel a script run
+
+### Synopsis
+
+Cancel a queued, building or running script run: its container is stopped and removed. Outputs already stored are kept. This cannot be undone; restart the run to run it again.
+
+```
+scantor scripts runs cancel <run> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts runs cancel 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8
+```
+
+### Options
+
+```
+  -h, --help   help for cancel
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts runs](#scantor-scripts-runs)	 - Inspect and control script runs
+
+
+## scantor scripts runs get
+
+Show a script run
+
+### Synopsis
+
+Show a script run: state, scans, settings, progress, error, result, outputs and the end of its log. With --wait the command waits until the run has ended.
+
+Exit codes when following or waiting: 0 the run completed, 1 it failed or was cancelled, 2 invalid input, 3 a platform error (also a run that failed for a platform reason) or an interrupt.
+
+```
+scantor scripts runs get <run> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts runs get 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8
+  scantor scripts runs get 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8 --wait -o json
+```
+
+### Options
+
+```
+  -h, --help               help for get
+      --timeout duration   give up waiting after this duration (0 = no limit)
+      --wait               wait until the run has ended (completed, failed or cancelled)
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts runs](#scantor-scripts-runs)	 - Inspect and control script runs
+
+
+## scantor scripts runs list
+
+List the runs of a script
+
+### Synopsis
+
+List the runs of a script, newest first. A script is addressed by its name or its id.
+
+```
+scantor scripts runs list <script> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts runs list csp-report
+```
+
+### Options
+
+```
+      --cursor string   continue a previous listing (the cursor it printed)
+  -h, --help            help for list
+      --limit int       maximum number of items (server default 50, max 200)
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts runs](#scantor-scripts-runs)	 - Inspect and control script runs
+
+
+## scantor scripts runs logs
+
+Print the log of a script run
+
+### Synopsis
+
+Print the log of a script run: the image build (build), the script's output (stdout, stderr) and platform notices (system). --follow keeps printing new lines until the run has ended; interrupting it never affects the run. The log keeps its first MiB and its newest lines; lines in between can be dropped for long runs. With -o json every line is printed as one JSON object per line.
+
+```
+scantor scripts runs logs <run> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts runs logs 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8
+  scantor scripts runs logs 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8 --follow
+```
+
+### Options
+
+```
+      --after-line int   start after this line number
+      --follow           keep printing new lines until the run has ended
+  -h, --help             help for logs
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts runs](#scantor-scripts-runs)	 - Inspect and control script runs
+
+
+## scantor scripts runs outputs
+
+Download the output files of a script run
+
+```
+scantor scripts runs outputs [flags]
+```
+
+### Options
+
+```
+  -h, --help   help for outputs
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts runs](#scantor-scripts-runs)	 - Inspect and control script runs
+* [scantor scripts runs outputs get](#scantor-scripts-runs-outputs-get)	 - Download an output file of a script run
+
+
+## scantor scripts runs outputs get
+
+Download an output file of a script run
+
+### Synopsis
+
+Download an output file of a script run by its id, as listed by 'scantor scripts runs get'. The file is saved under its name in the current directory unless --file names another path (- writes to stdout). Size and SHA-256 are verified; an existing file is only replaced with --force.
+
+```
+scantor scripts runs outputs get <run> <output> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts runs outputs get 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8 8a9b0c1d-2e3f-4a5b-8c6d-7e8f9a0b1c2d
+  scantor scripts runs outputs get 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8 8a9b0c1d-2e3f-4a5b-8c6d-7e8f9a0b1c2d --file - | head
+```
+
+### Options
+
+```
+  -f, --file string   write the output file to this file (- = stdout)
+      --force         overwrite an existing file
+  -h, --help          help for get
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts runs outputs](#scantor-scripts-runs-outputs)	 - Download the output files of a script run
+
+
+## scantor scripts runs restart
+
+Start a new run like an earlier one
+
+### Synopsis
+
+Start a new run of the script's current folder with the scans, config, secrets and settings of an earlier run. --config replaces the config; --timeout, --cpus, --memory and --limit override the settings, and --no-limit turns a sample run into a full one. --resume (only for a run that has ended) hands the earlier run's last checkpoint and its outputs to the new run, so the script can continue where it stopped.
+
+```
+scantor scripts runs restart <run> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts runs restart 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8 --resume
+  scantor scripts runs restart 6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c --no-limit --memory 8GiB
+```
+
+### Options
+
+```
+      --config string      replace the config: JSON object, @file or - (stdin)
+      --cpus float         CPUs of the run's container (default: the manifest default)
+  -h, --help               help for restart
+      --limit int          sample run: every analysis stream ends after this many analyses
+      --memory string      memory of the run's container, for example 512MiB or 4GiB (default: the manifest default)
+      --no-limit           remove the earlier run's --limit (a full run)
+      --resume             hand the earlier run's checkpoint and outputs to the new run
+      --timeout duration   maximum duration of the run (for example 12h; default: the manifest default, capped by the instance)
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts runs](#scantor-scripts-runs)	 - Inspect and control script runs
+
+
+## scantor scripts runs source
+
+Download the snapshot a script run was built from
+
+### Synopsis
+
+Download the snapshot of the script folder a run was built from, as a tar.gz. It is saved as &lt;script&gt;-&lt;run&gt;.tar.gz in the current directory unless --file names another path (- writes to stdout). The size is verified; an existing file is only replaced with --force.
+
+```
+scantor scripts runs source <run> [flags]
+```
+
+### Examples
+
+```
+  scantor scripts runs source 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8
+  scantor scripts runs source 4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8 --file - | tar -tz
+```
+
+### Options
+
+```
+  -f, --file string   write the snapshot to this file (- = stdout)
+      --force         overwrite an existing file
+  -h, --help          help for source
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor scripts runs](#scantor-scripts-runs)	 - Inspect and control script runs
 
 
 ## scantor tasks

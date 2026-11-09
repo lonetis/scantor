@@ -376,6 +376,7 @@ func (c *Client) ListScans(ctx context.Context, query ListScansQuery) (*Page[Sca
 	setList(q, "state", query.States)
 	setIf(q, "task", query.Task)
 	setIf(q, "userId", query.UserID)
+	setIf(q, "q", query.Q)
 	var out Page[ScanSummary]
 	return &out, c.getJSON(ctx, "/api/scans", q, &out)
 }
