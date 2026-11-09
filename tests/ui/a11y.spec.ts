@@ -126,7 +126,7 @@ async function crawlAll(viewers: Viewers, pages: UiPage[]): Promise<PageReport[]
     })
     try {
       await visit(page, spec)
-      const snapshot = await page.locator('body').ariaSnapshot({ timeout: 10_000 })
+      const snapshot = await page.locator('body').ariaSnapshot({ timeout: 20_000 })
       const facts = await domFacts(page)
       const shapes = new Set<string>()
       const probes = facts.iconButtons.filter((button) => {
