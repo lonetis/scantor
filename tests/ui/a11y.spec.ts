@@ -8,6 +8,7 @@ import {
   createUiTenant,
   createWorld,
   CRAWL_CONCURRENCY,
+  CRAWL_TIMEOUT_MS,
   domFacts,
   labelShape,
   mapConcurrently,
@@ -89,7 +90,7 @@ const test = base.extend<{ viewers: Viewers }, A11yWorker>({
         await viewers.dispose()
       }
     },
-    { scope: 'worker', timeout: 150_000 },
+    { scope: 'worker', timeout: CRAWL_TIMEOUT_MS },
   ],
   // Pages of the tests run as this spec's own tenant, never as the shared per-worker fixture tenant.
   storageState: async ({ uiTenant }, use) => use(uiTenant.storageState),

@@ -387,6 +387,12 @@ export class Viewers {
 /** Pages crawled at the same time: the crawl runs in a worker fixture and must stay well under its timeout. */
 export const CRAWL_CONCURRENCY = 6
 
+/**
+ * The timeout of the worker fixtures that crawl every page of `uiPages()`. On a loaded CI runner a page takes 10–20 s to
+ * get ready, so the 50 visits of the route map need about 150 s at CRAWL_CONCURRENCY; this leaves room above that.
+ */
+export const CRAWL_TIMEOUT_MS = 240_000
+
 /** Maps the items with at most `concurrency` calls in flight; the results keep the items' order. */
 export async function mapConcurrently<T, R>(items: readonly T[], concurrency: number, fn: (item: T) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length)

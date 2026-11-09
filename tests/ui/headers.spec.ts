@@ -4,6 +4,7 @@ import {
   createUiTenant,
   createWorld,
   CRAWL_CONCURRENCY,
+  CRAWL_TIMEOUT_MS,
   mapConcurrently,
   routeThroughPlaywright,
   stopTenantEditor,
@@ -89,7 +90,7 @@ const test = base.extend<object, HeadersWorker>({
         await viewers.dispose()
       }
     },
-    { scope: 'worker', timeout: 150_000 },
+    { scope: 'worker', timeout: CRAWL_TIMEOUT_MS },
   ],
   storageState: async ({ uiTenant }, use) => use(uiTenant.storageState),
   page: async ({ page }, use) => {
