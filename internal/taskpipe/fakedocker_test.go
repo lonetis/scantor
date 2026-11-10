@@ -35,8 +35,10 @@ type fakeDocker struct {
 	// remote holds the images a pull can fetch.
 	remote map[string]image.InspectResponse
 	pulls  []string
-	// registry holds the digest references a distribution inspect finds.
+	// registry holds the digest references a distribution inspect finds; tags maps the tag references
+	// it finds (normalised) to the digest the registry serves for them.
 	registry           map[string]bool
+	tags               map[string]string
 	distributionChecks []string
 
 	// build decides the outcome of ImageBuild: the stream messages and the built image (nil: none).
@@ -88,7 +90,7 @@ type fakeContainer struct {
 }
 
 func newFakeDocker() *fakeDocker {
-	return &fakeDocker{images: map[string]image.InspectResponse{}, remote: map[string]image.InspectResponse{}, registry: map[string]bool{}}
+	return &fakeDocker{images: map[string]image.InspectResponse{}, remote: map[string]image.InspectResponse{}, registry: map[string]bool{}, tags: map[string]string{}}
 }
 
 // addImage registers a local image under refs (its id is added too).
@@ -154,6 +156,14 @@ func (f *fakeDocker) DistributionInspect(_ context.Context, ref string, _ client
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.distributionChecks = append(f.distributionChecks, ref)
+	if digest, ok := f.tags[ref]; ok {
+		// Decoded like the client does, so the test needs no go-digest import.
+		var res client.DistributionInspectResult
+		if err := json.Unmarshal([]byte(`{"Descriptor":{"digest":"`+digest+`"}}`), &res.DistributionInspect); err != nil {
+			return client.DistributionInspectResult{}, err
+		}
+		return res, nil
+	}
 	if !f.registry[ref] {
 		return client.DistributionInspectResult{}, errors.New("unauthorized: authentication required")
 	}

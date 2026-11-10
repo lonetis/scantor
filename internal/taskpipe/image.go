@@ -96,16 +96,20 @@ func builtOn(image, base []string) bool {
 	return len(base) > 0 && len(image) >= len(base) && slices.Equal(image[:len(base)], base)
 }
 
-// pinBase resolves the base image b.baseRef, pulls it anonymously when it is absent
-// and returns the SCANTOR_BASE value and the base image's layers: <repository>@<digest> when the
-// registry serves that digest, else the tag reference with the local image id recorded as the digest
-// (local development images).
+// pinBase resolves the base image b.baseRef, pulls it anonymously when it is absent or not the image the
+// registry serves for the tag, and returns the SCANTOR_BASE value and the base image's layers:
+// <repository>@<digest> when the registry serves that digest, else the tag reference with the local image
+// id recorded as the digest (local development images).
 //
-// BuildKit resolves a digest reference against the registry even when the image exists locally, and
-// the containerd image store gives locally built images repo digests too, so a repo digest alone does
-// not prove that the registry has the image. Development builds name their base images without
-// registry and namespace (docs/architecture.md §4.2) and are never looked up; for any other reference
-// the daemon checks the digest anonymously (distribution inspect) before it is pinned.
+// Development builds name their base images without registry and namespace (docs/architecture.md §4.2)
+// and are never looked up. For any other reference the daemon first asks the registry anonymously
+// (distribution inspect) which digest the tag points at, because a moving tag such as latest would
+// otherwise keep a deployment on the base image it pulled first, through every upgrade. When the registry
+// does not answer, or the refresh pull fails, the build uses the local copy.
+//
+// BuildKit resolves a digest reference against the registry even when the image exists locally, and the
+// containerd image store gives locally built images repo digests too, so a repo digest alone does not
+// prove that the registry has the image: a digest is pinned only when the registry serves it.
 func (b *builder) pinBase(ctx context.Context) (string, []string, bool) {
 	ref := b.baseRef
 	named, err := reference.ParseNormalizedNamed(ref)
@@ -113,23 +117,27 @@ func (b *builder) pinBase(ctx context.Context) (string, []string, bool) {
 		b.failf(api.BuildPhasePlatform, "invalid base image reference %q: %v", ref, err)
 		return "", nil, false
 	}
-	inspect, err := b.p.docker.ImageInspect(ctx, ref)
-	if container.IsNotFound(err) {
-		b.log(api.BuildPhaseBuild, "pulling the base image %s", ref)
-		if err := container.Pull(ctx, b.p.docker, ref, container.PullOptions{}); err != nil {
-			b.failf(api.BuildPhasePlatform, "pull the base image: %v", err)
-			return "", nil, false
-		}
-		inspect, err = b.p.docker.ImageInspect(ctx, ref)
+	repository, development := named.Name(), localDevelopmentImage(named)
+	var current string
+	var lookupErr error
+	if !development {
+		current, lookupErr = b.registryDigest(ctx, named.String())
 	}
-	if err != nil {
-		b.failf(api.BuildPhasePlatform, "inspect the base image %s: %v", ref, err)
+	inspect, ok := b.baseImage(ctx, ref, repository, current)
+	if !ok {
 		return "", nil, false
 	}
 	pinned, digest := ref, inspect.ID
-	if !localDevelopmentImage(named) {
-		if d := repoDigest(inspect.RepoDigests, named.Name()); d != "" {
-			canonical := named.Name() + "@" + d
+	switch {
+	case development:
+	case lookupErr != nil:
+		b.log(api.BuildPhaseBuild, "the registry does not serve %s (%s); building from the local image", ref, oneLine(lookupErr.Error()))
+	case hasRepoDigest(inspect.RepoDigests, repository, current):
+		pinned, digest = repository+"@"+current, current
+	default:
+		// The refresh pull failed: the local copy is pinned by its own digest while the registry serves it.
+		if d := repoDigest(inspect.RepoDigests, repository); d != "" {
+			canonical := repository + "@" + d
 			if err := b.inRegistry(ctx, canonical); err == nil {
 				pinned, digest = canonical, d
 			} else {
@@ -142,8 +150,50 @@ func (b *builder) pinBase(ctx context.Context) (string, []string, bool) {
 	return pinned, inspect.RootFS.Layers, true
 }
 
-// registryCheckTimeout bounds the registry lookup of the base image digest.
+// baseImage inspects the local base image ref and pulls it when it is absent, or when current (the digest
+// the registry serves for ref, "" when unknown) is not among its repo digests of repository. A failed
+// refresh of an existing copy is logged, and the copy is used.
+func (b *builder) baseImage(ctx context.Context, ref, repository, current string) (client.ImageInspectResult, bool) {
+	inspect, err := b.p.docker.ImageInspect(ctx, ref)
+	switch {
+	case container.IsNotFound(err):
+		b.log(api.BuildPhaseBuild, "pulling the base image %s", ref)
+		if err := container.Pull(ctx, b.p.docker, ref, container.PullOptions{}); err != nil {
+			b.failf(api.BuildPhasePlatform, "pull the base image: %v", err)
+			return client.ImageInspectResult{}, false
+		}
+		inspect, err = b.p.docker.ImageInspect(ctx, ref)
+	case err == nil && current != "" && !hasRepoDigest(inspect.RepoDigests, repository, current):
+		b.log(api.BuildPhaseBuild, "pulling the base image %s: the registry serves %s", ref, current)
+		if err := container.Pull(ctx, b.p.docker, ref, container.PullOptions{}); err != nil {
+			b.log(api.BuildPhaseBuild, "cannot pull the base image (%s); building from the local image", oneLine(err.Error()))
+			return inspect, true
+		}
+		inspect, err = b.p.docker.ImageInspect(ctx, ref)
+	}
+	if err != nil {
+		b.failf(api.BuildPhasePlatform, "inspect the base image %s: %v", ref, err)
+		return client.ImageInspectResult{}, false
+	}
+	return inspect, true
+}
+
+// registryCheckTimeout bounds each registry lookup of the base image.
 const registryCheckTimeout = 20 * time.Second
+
+// registryDigest asks the daemon, anonymously, for the digest the registry serves for ref.
+func (b *builder) registryDigest(ctx context.Context, ref string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, registryCheckTimeout)
+	defer cancel()
+	res, err := b.p.docker.DistributionInspect(ctx, ref, client.DistributionInspectOptions{})
+	if err != nil {
+		return "", err
+	}
+	if res.Descriptor.Digest == "" {
+		return "", errors.New("the registry returned no digest")
+	}
+	return res.Descriptor.Digest.String(), nil
+}
 
 // inRegistry asks the daemon whether the registry serves a digest reference, anonymously.
 func (b *builder) inRegistry(ctx context.Context, canonical string) error {
@@ -174,6 +224,18 @@ func repoDigest(repoDigests []string, repository string) string {
 		}
 	}
 	return ""
+}
+
+// hasRepoDigest reports whether repoDigests contain repository@digest.
+func hasRepoDigest(repoDigests []string, repository, digest string) bool {
+	return slices.ContainsFunc(repoDigests, func(rd string) bool {
+		named, err := reference.ParseNormalizedNamed(rd)
+		if err != nil {
+			return false
+		}
+		canonical, ok := named.(reference.Canonical)
+		return ok && named.Name() == repository && canonical.Digest().String() == digest
+	})
 }
 
 // checkExternal pulls every literal external image of the Dockerfile anonymously when it is absent and

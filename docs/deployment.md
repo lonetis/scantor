@@ -115,8 +115,10 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
   that the bake `default` group builds for the test runner's prod compose.
 - `docker compose -f docker-compose.prod.yml pull` updates only the images of compose services (orchestrator, node and therefore
   `scantor`, and the infra services). At boot the orchestrator pulls the editor image in the background
-  when the prefix is not empty, so the first editor start does not wait for a 2 GB pull. The task
-  pipeline pulls base images when it pins them by digest ([tasks](tasks.md)).
+  when the prefix is not empty, so the first editor start does not wait for a 2 GB pull. Base images are
+  not compose images: every task and script build asks the registry which digest the base image tag points at
+  and pulls the base image when the local copy is absent or outdated, so a moving tag such as `latest` needs no
+  manual pull after an upgrade ([tasks](tasks.md) §9.4).
 - The orchestrator image contains the `scantor` binary (`/usr/local/bin/scantor`), the built Nuxt output
   and `schemas/` and `docs/guide/` as Nitro server assets (bases `schemas` and `guide`), plus the favicons of
   `brand/favicons/` as public assets and the logos it bundles from `brand/` ([ui](ui.md) §1). Its build

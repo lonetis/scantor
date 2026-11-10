@@ -143,8 +143,9 @@ runtime resolver.
 
 - Static: `taskpipe.CheckScriptStatic` reads `scantor-script.yaml` (§2.3), requires the `Dockerfile` and the
   entry, and runs the unchanged `dockerfile.Check` (D1–D11, [tasks](tasks.md) §8.2).
-- Build: the base image is pinned by digest from the manifest's language; `--reuse-existing` skips the build when
-  the tag exists; the image passes the size cap and the inherited-label check (LBL-3); BuildKit's cache is pruned to
+- Build: the base image of the manifest's language is pulled when absent or outdated and pinned by digest
+  ([tasks](tasks.md) §9.4); `--reuse-existing` skips the build when the tag exists and was built on that base image;
+  the image passes the size cap and the inherited-label check (LBL-3); BuildKit's cache is pruned to
   `SCANTOR_BUILD_CACHE_MAX_BYTES` like every build.
 - `--expect-name` is required (rule S6). Phases are `pack`, `static`, `build`; the NDJSON event framing and the exit
   codes are those of `task build` (0 success, 2 content error, 3 platform error). An interrupt after a successful

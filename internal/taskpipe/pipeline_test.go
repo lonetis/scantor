@@ -268,7 +268,7 @@ func TestBuildPinsRegistryBaseByDigest(t *testing.T) {
 	ref := "ghcr.io/lonetis/scantor-base-python:1.4.0"
 	digest := "sha256:4444444444444444444444444444444444444444444444444444444444444444"
 	env.docker.remote[ref] = image.InspectResponse{ID: baseID, RepoDigests: []string{"ghcr.io/lonetis/scantor-base-python@" + digest}}
-	env.docker.registry["ghcr.io/lonetis/scantor-base-python@"+digest] = true
+	env.docker.tags[ref] = digest
 	res := env.buildTask(t, minimalTask(), BuildOptions{})
 	if !res.OK {
 		t.Fatal(res.Errors)
@@ -276,12 +276,73 @@ func TestBuildPinsRegistryBaseByDigest(t *testing.T) {
 	if !slices.Equal(env.docker.pulls, []string{ref}) {
 		t.Fatalf("pulls %v: the absent base image is pulled", env.docker.pulls)
 	}
+	if !slices.Equal(env.docker.distributionChecks, []string{ref}) {
+		t.Fatalf("checks %v: the tag lookup alone proves that the registry serves the digest", env.docker.distributionChecks)
+	}
 	if got := *env.docker.buildOpts[0].BuildArgs["SCANTOR_BASE"]; got != "ghcr.io/lonetis/scantor-base-python@"+digest {
 		t.Fatalf("SCANTOR_BASE = %s", got)
 	}
 	if *res.BaseImage != (api.ImageRef{Ref: ref, Digest: digest}) {
 		t.Fatalf("baseImage = %+v", res.BaseImage)
 	}
+}
+
+func TestBuildRefreshesAMovedBaseImageTag(t *testing.T) {
+	// A deployment that follows latest pulled the base image before an upgrade; the registry's latest has
+	// moved since. Builds must not stay on the old copy (it may lack, for example, SCANTOR_SCRIPT_CMD).
+	const (
+		repo      = "ghcr.io/lonetis/scantor-base-python"
+		ref       = repo + ":latest"
+		oldID     = "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+		oldDigest = "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+		newDigest = "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+	)
+	newEnv := func(localDigest string) *pipelineEnv {
+		env := newPipelineEnv()
+		env.cfg.Images = version.ImageOverride{Prefix: "ghcr.io/lonetis/", Tag: "latest"}
+		env.docker.addImage(image.InspectResponse{ID: oldID, RepoDigests: []string{repo + "@" + localDigest}, RootFS: image.RootFS{Layers: []string{"sha256:old"}}}, ref)
+		env.docker.tags[ref] = newDigest
+		return env
+	}
+	scantorBase := func(env *pipelineEnv) string { return *env.docker.buildOpts[0].BuildArgs["SCANTOR_BASE"] }
+
+	t.Run("an outdated copy is pulled again", func(t *testing.T) {
+		env := newEnv(oldDigest)
+		env.docker.remote[ref] = image.InspectResponse{ID: baseID, RepoDigests: []string{repo + "@" + newDigest}, RootFS: image.RootFS{Layers: baseLayers}}
+		res := env.buildTask(t, minimalTask(), BuildOptions{})
+		if !res.OK {
+			t.Fatal(res.Errors)
+		}
+		if !slices.Equal(env.docker.pulls, []string{ref}) || !hasLog(env.eventList(t), api.BuildPhaseBuild, "the registry serves "+newDigest) {
+			t.Fatalf("pulls %v", env.docker.pulls)
+		}
+		if scantorBase(env) != repo+"@"+newDigest || *res.BaseImage != (api.ImageRef{Ref: ref, Digest: newDigest}) {
+			t.Fatalf("SCANTOR_BASE %s, baseImage %+v", scantorBase(env), res.BaseImage)
+		}
+	})
+
+	t.Run("a current copy is used as it is", func(t *testing.T) {
+		env := newEnv(newDigest)
+		res := env.buildTask(t, minimalTask(), BuildOptions{})
+		if !res.OK || len(env.docker.pulls) != 0 || scantorBase(env) != repo+"@"+newDigest {
+			t.Fatalf("errors %+v pulls %v SCANTOR_BASE %s", res.Errors, env.docker.pulls, scantorBase(env))
+		}
+		if !slices.Equal(env.docker.distributionChecks, []string{ref}) {
+			t.Fatalf("checks %v", env.docker.distributionChecks)
+		}
+	})
+
+	t.Run("a failed pull builds on the local copy", func(t *testing.T) {
+		env := newEnv(oldDigest)
+		env.docker.registry[repo+"@"+oldDigest] = true
+		res := env.buildTask(t, minimalTask(), BuildOptions{})
+		if !res.OK || !hasLog(env.eventList(t), api.BuildPhaseBuild, "cannot pull the base image") {
+			t.Fatalf("errors %+v", res.Errors)
+		}
+		if scantorBase(env) != repo+"@"+oldDigest || *res.BaseImage != (api.ImageRef{Ref: ref, Digest: oldDigest}) {
+			t.Fatalf("SCANTOR_BASE %s, baseImage %+v: the local copy is pinned while the registry serves it", scantorBase(env), res.BaseImage)
+		}
+	})
 }
 
 func TestBuildKeepsTheTagOfLocalBaseImages(t *testing.T) {
@@ -295,8 +356,11 @@ func TestBuildKeepsTheTagOfLocalBaseImages(t *testing.T) {
 	if !res.OK || *env.docker.buildOpts[0].BuildArgs["SCANTOR_BASE"] != ref || *res.BaseImage != (api.ImageRef{Ref: ref, Digest: baseID}) {
 		t.Fatalf("errors %+v base %+v", res.Errors, res.BaseImage)
 	}
-	if !slices.Equal(env.docker.distributionChecks, []string{"docker.io/example/scantor-base-python@" + baseID}) {
+	if !slices.Equal(env.docker.distributionChecks, []string{"docker.io/example/scantor-base-python:local"}) {
 		t.Fatalf("checks %v", env.docker.distributionChecks)
+	}
+	if len(env.docker.pulls) != 0 || !hasLog(env.eventList(t), api.BuildPhaseBuild, "building from the local image") {
+		t.Fatalf("pulls %v: a tag the registry does not serve builds on the local image", env.docker.pulls)
 	}
 	// Development images (no registry, no namespace) are never looked up.
 	env = newPipelineEnv()
