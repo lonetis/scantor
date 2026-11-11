@@ -91,9 +91,10 @@ services:
 
   data-init:
     image: alpine:3.24
-    # Gives each data directory to the uid its service runs as (mongo and rabbitmq 999, RustFS 10001), as the
-    # images' entrypoints would as root, so those services run as their own users. A filesystem that refuses
-    # chown, such as NFS under rootless Docker, gets mode 0777 instead (docs/deployment.md §5.1).
+    # Gives each data directory to the uid its service runs as (mongo and rabbitmq 999, RustFS 10001), so those
+    # services run as their own users; with "tree" also every entry below it, as the mongo and RabbitMQ entrypoints
+    # did as root (never for the RustFS objects). A filesystem that refuses chown, such as NFS under rootless Docker,
+    # gets mode 0777 on the directory instead (docs/deployment.md §4.9).
     command:
       - sh
       - -euc
@@ -101,7 +102,9 @@ services:
         own() {
           dir="$$1" uid="$$2"
           if [ "$$(stat -c %u "$$dir")" = "$$uid" ] || chown "$$uid:$$uid" "$$dir" 2>/dev/null; then
-            find "$$dir" ! -user "$$uid" -exec chown "$$uid:$$uid" {} + || echo "data-init: some entries of $$dir keep their owner"
+            if [ "$${3-}" = tree ]; then
+              find "$$dir" ! -user "$$uid" -exec chown "$$uid:$$uid" {} + || echo "data-init: some entries of $$dir keep their owner"
+            fi
           elif chmod 0777 "$$dir" 2>/dev/null || [ "$$(stat -c %a "$$dir")" = 777 ]; then
             echo "data-init: $$dir refuses chown to uid $$uid; it is world-writable (mode 0777) instead"
           else
@@ -109,9 +112,9 @@ services:
             exit 1
           fi
         }
-        own /data/mongo 999
-        own /data/mongo-config 999
-        own /data/rabbitmq 999
+        own /data/mongo 999 tree
+        own /data/mongo-config 999 tree
+        own /data/rabbitmq 999 tree
         own /data/rustfs 10001
     restart: "no"
     container_name: scantor-data-init
