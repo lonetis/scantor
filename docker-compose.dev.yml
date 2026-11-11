@@ -95,6 +95,40 @@ services:
       - SCANTOR_LOG_LEVEL=${SCANTOR_LOG_LEVEL}
       - SCANTOR_LOG_FORMAT=${SCANTOR_LOG_FORMAT}
 
+  data-init:
+    image: alpine:3.24
+    # Gives each data directory to the uid its service runs as (mongo and rabbitmq 999, RustFS 10001), as the
+    # images' entrypoints would as root, so those services run as their own users. A filesystem that refuses
+    # chown, such as NFS under rootless Docker, gets mode 0777 instead (docs/deployment.md §5.1).
+    command:
+      - sh
+      - -euc
+      - |
+        own() {
+          dir="$$1" uid="$$2"
+          if [ "$$(stat -c %u "$$dir")" = "$$uid" ] || chown "$$uid:$$uid" "$$dir" 2>/dev/null; then
+            find "$$dir" ! -user "$$uid" -exec chown "$$uid:$$uid" {} + || echo "data-init: some entries of $$dir keep their owner"
+          elif chmod 0777 "$$dir" 2>/dev/null || [ "$$(stat -c %a "$$dir")" = 777 ]; then
+            echo "data-init: $$dir refuses chown to uid $$uid; it is world-writable (mode 0777) instead"
+          else
+            echo "data-init: $$dir cannot be made writable for uid $$uid: chown and chmod fail" >&2
+            exit 1
+          fi
+        }
+        own /data/mongo 999
+        own /data/mongo-config 999
+        own /data/rabbitmq 999
+        own /data/rustfs 10001
+    restart: "no"
+    container_name: scantor-data-init
+    logging: *logging
+    network_mode: none
+    volumes:
+      - ${SCANTOR_MONGO_DATA}:/data/mongo
+      - ${SCANTOR_MONGO_CONFIG_DATA}:/data/mongo-config
+      - ${SCANTOR_RABBITMQ_DATA}:/data/rabbitmq
+      - ${SCANTOR_RUSTFS_DATA}:/data/rustfs
+
   mongo:
     image: mongo:9.0
     command: ["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--slowOpSampleRate", "0", "--bind_ip_all"]
@@ -105,9 +139,11 @@ services:
         set -euo pipefail
         openssl rand -base64 756 > /tmp/mongo-keyfile
         chmod 400 /tmp/mongo-keyfile
-        chown mongodb:mongodb /tmp/mongo-keyfile
         exec docker-entrypoint.sh "$$@"
       - mongo-entrypoint
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test:
@@ -121,6 +157,7 @@ services:
       start_period: 30s
       start_interval: 2s
     container_name: scantor-mongo
+    user: mongodb
     mem_limit: ${SCANTOR_MONGO_MEMORY_LIMIT}
     logging: *logging
     labels:
@@ -144,6 +181,9 @@ services:
 
   rabbitmq:
     image: rabbitmq:4.4-management
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
@@ -153,6 +193,7 @@ services:
       start_period: 30s
     container_name: scantor-rabbitmq
     hostname: rabbitmq
+    user: rabbitmq
     mem_limit: ${SCANTOR_RABBITMQ_MEMORY_LIMIT}
     logging: *logging
     labels:
@@ -184,6 +225,9 @@ services:
 
   rustfs:
     image: rustfs/rustfs:1.0.3
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health/ready"]

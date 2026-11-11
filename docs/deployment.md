@@ -68,7 +68,9 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
   `labels`); (4) `ports`, `networks`; (5) `volumes`; (6) `environment`, `env_file`. There is a blank line
   between services and between top-level blocks, and none within a service.
 - Every service has a `healthcheck` (`lint-compose` enforces it, [testing](testing.md) §11), and so does
-  every long-running container scantor creates itself ([architecture](architecture.md) §7).
+  every long-running container scantor creates itself ([architecture](architecture.md) §7). The one-shot
+  `data-init` (§4.9) is the exception: it runs once with `restart: "no"`, and every service that depends on
+  it waits for `service_completed_successfully`, never for health.
 - Every persistent mount takes its source from its `SCANTOR_*_DATA` variable (§5.1; `lint-compose` enforces it
   for the infrastructure services), so operators choose a volume or a host directory per service.
 - Variables are interpolated as plain `${VAR}`. **Compose files contain no defaults**, because defaults
@@ -174,9 +176,10 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 | Aspect | Value |
 |---|---|
 | command | `["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--slowOpSampleRate", "0", "--bind_ip_all"]` |
-| entrypoint | a bash wrapper that writes a fresh random keyFile (`openssl rand -base64 756`, mode 400, owner `mongodb`) and then `exec docker-entrypoint.sh "$@"`. A single-member replica set needs a keyFile with `--auth` but never compares it with anything. |
+| entrypoint | a bash wrapper that writes a fresh random keyFile (`openssl rand -base64 756`, mode 400) and then `exec docker-entrypoint.sh "$@"`. A single-member replica set needs a keyFile with `--auth` but never compares it with anything. |
+| depends_on | `data-init` (`service_completed_successfully`, §4.9) |
 | healthcheck | `mongosh` as root: `try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}).ok }`. This initiates the replica set on first start and reports health. Interval 5 s, timeout 10 s, 12 retries, `start_period` 30 s, `start_interval` 2 s. |
-| other | `container_name: scantor-mongo`, `mem_limit: ${SCANTOR_MONGO_MEMORY_LIMIT}`. The member host `mongo:27017` is stored in the replica-set config, so **never rename the service**. |
+| other | `container_name: scantor-mongo`, `user: mongodb` (uid 999: the image entrypoint then skips its `chown` and `gosu`, which a filesystem that refuses `chown` would fail; `data-init` prepared the directories), `mem_limit: ${SCANTOR_MONGO_MEMORY_LIMIT}`. The member host `mongo:27017` is stored in the replica-set config, so **never rename the service**. |
 | networks | `scantor` |
 | ports | `${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017` |
 | volumes | `${SCANTOR_MONGO_DATA}:/data/db`, `${SCANTOR_MONGO_CONFIG_DATA}:/data/configdb` (default the volumes `scantor-mongo-data`, `scantor-mongo-config`, §5.1) |
@@ -206,7 +209,8 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 | Aspect | Value |
 |---|---|
 | healthcheck | `rabbitmq-diagnostics -q check_port_connectivity`, interval 10 s, timeout 10 s, 6 retries, `start_period` 30 s. Do not use `check_local_alarms`, because an alarm is no reason to restart. |
-| other | `container_name: scantor-rabbitmq`, `hostname: rabbitmq` (**required**: the data directory is keyed by node name, so without a fixed hostname every container recreation starts an empty broker), `mem_limit: ${SCANTOR_RABBITMQ_MEMORY_LIMIT}` |
+| depends_on | `data-init` (`service_completed_successfully`, §4.9) |
+| other | `container_name: scantor-rabbitmq`, `hostname: rabbitmq` (**required**: the data directory is keyed by node name, so without a fixed hostname every container recreation starts an empty broker), `user: rabbitmq` (uid 999, as for mongo), `mem_limit: ${SCANTOR_RABBITMQ_MEMORY_LIMIT}` |
 | networks | `scantor`, `scantor-sandbox` (master workers reach `rabbitmq:5672`) |
 | ports | AMQP on `SCANTOR_BIND_ADDRESS`, management on `SCANTOR_ADMIN_BIND_ADDRESS` (§1) |
 | volumes | `${SCANTOR_RABBITMQ_DATA}:/var/lib/rabbitmq` (default the volume `scantor-rabbitmq-data`, §5.1) |
@@ -276,7 +280,8 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
 | Aspect | Value |
 |---|---|
 | healthcheck | `curl -fsS http://127.0.0.1:9000/health/ready`, interval 10 s, timeout 5 s, 6 retries, `start_period` 20 s |
-| other | `container_name: scantor-rustfs`. The image runs as uid 10001; a named volume works as is. |
+| depends_on | `data-init` (`service_completed_successfully`, §4.9) |
+| other | `container_name: scantor-rustfs`. The image runs as uid 10001; `data-init` gives it the data directory. |
 | networks | `scantor`, `scantor-sandbox` (master workers PUT presigned URLs to `rustfs:9000`), `scantor-scripts` (script runs read and upload through presigned URLs of `rustfs:9000`) |
 | ports | S3 on `SCANTOR_BIND_ADDRESS`, console on `SCANTOR_ADMIN_BIND_ADDRESS` (§1) |
 | volumes | `${SCANTOR_RUSTFS_DATA}:/data` (default the volume `scantor-rustfs-data`, §5.1) |
@@ -328,6 +333,22 @@ attacker-influenced data, so never publish it any other way. Secrets in the URLs
 | env | `env_file: .env` (DNS provider credentials such as `CF_DNS_API_TOKEN`, §7.6) |
 | labels | the dashboard router and the shared `scantor-tools-auth` forwardAuth middleware (§7.5) |
 
+### 4.9 data-init (one-shot)
+
+| Aspect | Value |
+|---|---|
+| image | `alpine:3.24` |
+| command | `sh -euc` with one `own <dir> <uid>` call per data location: mongo's two directories and RabbitMQ's to uid 999, RustFS's to uid 10001 |
+| restart | `"no"`: it runs once per `up` and exits 0; mongo, rabbitmq and rustfs start only after it (`service_completed_successfully`), so it has no healthcheck (§2) |
+| other | `container_name: scantor-data-init`, `network_mode: none` |
+| volumes | `${SCANTOR_MONGO_DATA}:/data/mongo`, `${SCANTOR_MONGO_CONFIG_DATA}:/data/mongo-config`, `${SCANTOR_RABBITMQ_DATA}:/data/rabbitmq`, `${SCANTOR_RUSTFS_DATA}:/data/rustfs` |
+
+`own` does what the mongo and RabbitMQ entrypoints did as root, once, so those services run as their own users:
+when the directory belongs to the uid already, or `chown` to it succeeds, every entry that belongs to another uid is
+given to it (`find ! -user <uid> -exec chown`). A filesystem that refuses `chown`, such as NFS under rootless Docker
+(§10.1), gets mode 0777 on the directory instead, with a log line, and `data-init` fails only when even `chmod` is
+refused. Keep such a directory below a parent that other host users cannot enter.
+
 ## 5. Networks and volumes
 
 | Network | Created by | Members | Properties |
@@ -371,10 +392,10 @@ host path stores that service's data in the directory instead, set per service: 
 | compose volumes (mongo, rabbitmq, rustfs, registry, traefik) | the variable is the mount source (`${SCANTOR_MONGO_DATA}:/data/db`): a volume name mounts the declared volume, a path is a bind mount; `lint-compose` keeps every persistent mount of these services on its variable ([testing](testing.md) §11) | is created by Docker when missing (owned by root) |
 | `scantor-workspaces`, `scantor-editor-home` | the orchestrator creates the volume at boot (step `docker-objects`), bound to the directory (local driver, `type=none`, `o=bind`, `device=<path>`), because editors and helpers mount volume subpaths, which bind mounts cannot do | must exist before the orchestrator starts (`sudo mkdir -p <path>`); its `<userId>` directories are created by the `init` helper as before |
 
-Ownership: mongod and RabbitMQ start as root and take ownership of their directory; the registry and Traefik run
-as root; RustFS runs as uid 10001, so its directory must be writable by it
-(`sudo chown 10001:10001 <path>`). Prefer local filesystems: MongoDB and RabbitMQ in particular are not meant
-for network filesystems such as NFS.
+Ownership: mongo and RabbitMQ run as uid 999 and RustFS as uid 10001; the one-shot `data-init` (§4.9) gives
+their directories to those uids before they start, or makes a directory world-writable where the filesystem
+refuses `chown`. The registry and Traefik run as root. Prefer local filesystems: MongoDB and RabbitMQ in particular
+are not meant for network filesystems such as NFS.
 
 A changed value never moves data. Moving a service to a directory:
 
@@ -485,6 +506,40 @@ services:
       - SCANTOR_LOG_LEVEL=${SCANTOR_LOG_LEVEL}
       - SCANTOR_LOG_FORMAT=${SCANTOR_LOG_FORMAT}
 
+  data-init:
+    image: alpine:3.24
+    # Gives each data directory to the uid its service runs as (mongo and rabbitmq 999, RustFS 10001), as the
+    # images' entrypoints would as root, so those services run as their own users. A filesystem that refuses
+    # chown, such as NFS under rootless Docker, gets mode 0777 instead (docs/deployment.md §5.1).
+    command:
+      - sh
+      - -euc
+      - |
+        own() {
+          dir="$$1" uid="$$2"
+          if [ "$$(stat -c %u "$$dir")" = "$$uid" ] || chown "$$uid:$$uid" "$$dir" 2>/dev/null; then
+            find "$$dir" ! -user "$$uid" -exec chown "$$uid:$$uid" {} + || echo "data-init: some entries of $$dir keep their owner"
+          elif chmod 0777 "$$dir" 2>/dev/null || [ "$$(stat -c %a "$$dir")" = 777 ]; then
+            echo "data-init: $$dir refuses chown to uid $$uid; it is world-writable (mode 0777) instead"
+          else
+            echo "data-init: $$dir cannot be made writable for uid $$uid: chown and chmod fail" >&2
+            exit 1
+          fi
+        }
+        own /data/mongo 999
+        own /data/mongo-config 999
+        own /data/rabbitmq 999
+        own /data/rustfs 10001
+    restart: "no"
+    container_name: scantor-data-init
+    logging: *logging
+    network_mode: none
+    volumes:
+      - ${SCANTOR_MONGO_DATA}:/data/mongo
+      - ${SCANTOR_MONGO_CONFIG_DATA}:/data/mongo-config
+      - ${SCANTOR_RABBITMQ_DATA}:/data/rabbitmq
+      - ${SCANTOR_RUSTFS_DATA}:/data/rustfs
+
   mongo:
     image: mongo:9.0
     command: ["mongod", "--replSet", "rs0", "--keyFile", "/tmp/mongo-keyfile", "--wiredTigerCacheSizeGB", "${SCANTOR_MONGO_CACHE_GB}", "--noscripting", "--slowOpSampleRate", "0", "--bind_ip_all"]
@@ -495,9 +550,11 @@ services:
         set -euo pipefail
         openssl rand -base64 756 > /tmp/mongo-keyfile
         chmod 400 /tmp/mongo-keyfile
-        chown mongodb:mongodb /tmp/mongo-keyfile
         exec docker-entrypoint.sh "$$@"
       - mongo-entrypoint
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test:
@@ -511,6 +568,7 @@ services:
       start_period: 30s
       start_interval: 2s
     container_name: scantor-mongo
+    user: mongodb
     mem_limit: ${SCANTOR_MONGO_MEMORY_LIMIT}
     logging: *logging
     labels:
@@ -534,6 +592,9 @@ services:
 
   rabbitmq:
     image: rabbitmq:4.4-management
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
@@ -543,6 +604,7 @@ services:
       start_period: 30s
     container_name: scantor-rabbitmq
     hostname: rabbitmq
+    user: rabbitmq
     mem_limit: ${SCANTOR_RABBITMQ_MEMORY_LIMIT}
     logging: *logging
     labels:
@@ -574,6 +636,9 @@ services:
 
   rustfs:
     image: rustfs/rustfs:1.0.3
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health/ready"]

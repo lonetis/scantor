@@ -12,7 +12,7 @@ const STACK = 'tests/docker/stack.tests.yml'
 const TESTS = 'docker-compose.tests.yml'
 
 /** The infrastructure services that must be identical in the dev and prod compose files. */
-const INFRASTRUCTURE = ['mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik'] as const
+const INFRASTRUCTURE = ['data-init', 'mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik'] as const
 
 /** Edits one service of a compose file through the YAML document model (anchors and formatting are kept). */
 async function editService(copy: RepoCopy, file: string, service: string, edit: (path: (string | number)[], doc: ReturnType<typeof parseDocument>) => void) {
@@ -125,6 +125,26 @@ const RULES: RuleCase[] = [
     title: 'a production service has no healthcheck',
     breakRule: (copy) => editService(copy, PROD, 'node', (path, doc) => doc.deleteIn([...path, 'healthcheck'])),
     problem: `${PROD}: node has no healthcheck`,
+  },
+  {
+    title: 'mongo runs as root again',
+    breakRule: (copy) => editService(copy, PROD, 'mongo', (path, doc) => doc.deleteIn([...path, 'user'])),
+    problem: `${PROD}: mongo must run as user mongodb`,
+  },
+  {
+    title: 'rabbitmq starts before data-init has prepared its data',
+    breakRule: (copy) => editService(copy, PROD, 'rabbitmq', (path, doc) => doc.setIn([...path, 'depends_on', 'data-init', 'condition'], 'service_started')),
+    problem: `${PROD}: rabbitmq must depend on data-init with condition service_completed_successfully`,
+  },
+  {
+    title: 'data-init does not prepare the RustFS data location',
+    breakRule: (copy) => copy.replace(PROD, '${SCANTOR_RUSTFS_DATA}:/data/rustfs', 'scantor-rustfs-data:/data/rustfs'),
+    problem: `${PROD}: data-init must mount /data/rustfs from \${SCANTOR_RUSTFS_DATA}`,
+  },
+  {
+    title: 'the one-shot data-init restarts, so it needs a healthcheck',
+    breakRule: (copy) => editService(copy, PROD, 'data-init', (path, doc) => doc.setIn([...path, 'restart'], 'on-failure')),
+    problem: `${PROD}: data-init has no healthcheck`,
   },
   {
     title: 'the test runner disables its healthcheck',

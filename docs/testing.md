@@ -967,8 +967,8 @@ regenerates the index in the same commit ([development](development.md) §13).
   comments, fenced code blocks and inline code spans, identifiers (camelCase, snake_case) and env variable
   names.
 - `tests/scripts/lint-compose.mjs` (`just lint-compose`, part of `just lint`) parses the compose files
-  and fails when the infrastructure services (`mongo`, `rabbitmq`, `rustfs`, `registry`, `mongo-express`,
-  `traefik`) differ between `docker-compose.dev.yml` and `docker-compose.prod.yml`, or when a compose rule
+  and fails when the infrastructure services (`data-init`, `mongo`, `rabbitmq`, `rustfs`, `registry`,
+  `mongo-express`, `traefik`) differ between `docker-compose.dev.yml` and `docker-compose.prod.yml`, or when a compose rule
   of [security](security.md) is broken: Traefik `exposedbydefault=false`, the compose-project constraint
   and `api.insecure=false`; admin GUIs and MongoDB published only on `SCANTOR_ADMIN_BIND_ADDRESS`; the
   MongoDB TCP router only with `SCANTOR_EXPOSE_MONGO`; mongo-express read-only; `mongod --noscripting` and
@@ -976,7 +976,10 @@ regenerates the index in the same commit ([development](development.md) §13).
   memory limits on the orchestrator, mongo and rabbitmq; the orchestrator never mounts
   `scantor-workspaces`; no variable default anywhere (every `docker-compose.*.yml` and
   `tests/docker/stack.tests.yml`) except the image prefix fallback; the orchestrator and Traefik get
-  `env_file: .env`; every service of every compose file defines an enabled healthcheck.
+  `env_file: .env`; mongo and rabbitmq run as their own users and mongo, rabbitmq and rustfs wait for
+  `data-init` (`service_completed_successfully`), which mounts their `SCANTOR_*_DATA` locations; every
+  service of every compose file defines an enabled healthcheck, except a one-shot service (`restart: "no"`,
+  every dependent waits for `service_completed_successfully`).
 - `tests/scripts/lint-env.mjs` (part of `just lint`, dependency-free) fails when a `SCANTOR_*` variable read
   by code (the Go `LoadConfig`s in `internal/*/config.go` and direct `Getenv`/`LookupEnv` calls,
   `server/utils/config.ts`, compose interpolations including `tests/docker/stack.tests.yml`, recipes,
@@ -986,7 +989,7 @@ regenerates the index in the same commit ([development](development.md) §13).
   secret), or when a shipped value breaks a secure default:
   loopback `SCANTOR_BIND_ADDRESS` and `SCANTOR_ADMIN_BIND_ADDRESS`, `SCANTOR_NODE_DIND=disabled` and
   `SCANTOR_BUILTIN_NODE_DIND=disabled` ([security](security.md) PRIV-1), `SCANTOR_MONGO_EXPRESS_READONLY=true`
-  (GUI-4), `SCANTOR_EXPOSE_MONGO=false`, `SCANTOR_NODE_EGRESS_DENY` covering `169.254.0.0/16` and
+  (GUI-4), `SCANTOR_EXPOSE_MONGO=false`, `SCANTOR_ALLOW_UNISOLATED_NETWORKS=false`, `SCANTOR_NODE_EGRESS_DENY` covering `169.254.0.0/16` and
   `fd00:ec2::254/128`, and the first-initialisation note on the database root passwords. Variables that are
   not configuration form an exact allowlist and must never appear in `.env.example` (the check fails in both
   directions): the internal contract variables of [architecture](architecture.md) §10

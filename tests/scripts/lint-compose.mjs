@@ -13,7 +13,10 @@
 //     image prefix fallback `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}`;
 //   - every persistent mount of the infrastructure services takes its source from its data-location variable
 //     (`${SCANTOR_MONGO_DATA}:/data/db`, …; docs/deployment.md §5.1), so each service's data can live at a host path;
-//   - every service of every compose file defines a healthcheck (and does not disable it).
+//   - mongo and rabbitmq run as their own users, and mongo, rabbitmq and rustfs start only after the one-shot
+//     data-init, which mounts their data locations and makes them writable for those users;
+//   - every service of every compose file defines a healthcheck (and does not disable it), except a one-shot service:
+//     `restart: "no"`, and every service that depends on it waits for `service_completed_successfully`.
 //
 // Needs the `yaml` package (tests/node_modules). Exports the rule function for security/compose-lint.spec.ts.
 import { isDeepStrictEqual } from 'node:util'
@@ -24,7 +27,7 @@ import { parse } from 'yaml'
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)))
 
-export const INFRASTRUCTURE_SERVICES = ['mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik']
+export const INFRASTRUCTURE_SERVICES = ['data-init', 'mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik']
 
 /** Persistent mounts of the infrastructure services: service → container path → the variable naming its source. */
 export const DATA_MOUNTS = {
@@ -33,7 +36,17 @@ export const DATA_MOUNTS = {
   rustfs: { '/data': 'SCANTOR_RUSTFS_DATA' },
   registry: { '/var/lib/registry': 'SCANTOR_REGISTRY_DATA' },
   traefik: { '/acme': 'SCANTOR_TRAEFIK_ACME_DATA' },
+  'data-init': {
+    '/data/mongo': 'SCANTOR_MONGO_DATA',
+    '/data/mongo-config': 'SCANTOR_MONGO_CONFIG_DATA',
+    '/data/rabbitmq': 'SCANTOR_RABBITMQ_DATA',
+    '/data/rustfs': 'SCANTOR_RUSTFS_DATA',
+  },
 }
+
+/** Services that run as their own user (no root entrypoint chown) on the data data-init prepared. */
+const SERVICE_USERS = { mongo: 'mongodb', rabbitmq: 'rabbitmq' }
+const AFTER_DATA_INIT = ['mongo', 'rabbitmq', 'rustfs']
 
 /** Container ports of admin GUIs and MongoDB that must only be published on the admin bind address. */
 const ADMIN_PORTS = { mongo: [27017], rabbitmq: [15672], rustfs: [9001], 'mongo-express': [8081] }
@@ -94,6 +107,14 @@ function serviceRules(name, compose) {
       problems.push(`${name}: ${service} must have env_file .env`)
     }
   }
+  for (const [service, user] of Object.entries(SERVICE_USERS)) {
+    if (services[service] && services[service].user !== user) problems.push(`${name}: ${service} must run as user ${user}`)
+  }
+  for (const service of AFTER_DATA_INIT) {
+    if (services[service] && services[service].depends_on?.['data-init']?.condition !== 'service_completed_successfully') {
+      problems.push(`${name}: ${service} must depend on data-init with condition service_completed_successfully`)
+    }
+  }
   for (const [service, mounts] of Object.entries(DATA_MOUNTS)) {
     const volumes = asList(services[service]?.volumes).map((volume) => (typeof volume === 'string' ? volume : `${volume?.source}:${volume?.target}`))
     for (const [target, variable] of Object.entries(mounts)) {
@@ -103,10 +124,24 @@ function serviceRules(name, compose) {
   return problems
 }
 
-/** Services without an enabled healthcheck (`test` given, not `NONE`, not `disable: true`). */
+/**
+ * A one-shot service runs once and exits: `restart: "no"`, at least one dependent, and every dependent waits for
+ * `service_completed_successfully`, so nothing waits for it to become healthy.
+ */
+function isOneShot(services, service) {
+  if (services[service]?.restart !== 'no') return false
+  const conditions = Object.values(services)
+    .map((definition) => (Array.isArray(definition?.depends_on) ? null : definition?.depends_on?.[service]))
+    .filter((dependency) => dependency !== undefined)
+  return conditions.length > 0 && conditions.every((dependency) => dependency?.condition === 'service_completed_successfully')
+}
+
+/** Services without an enabled healthcheck (`test` given, not `NONE`, not `disable: true`), one-shot services aside. */
 function healthcheckProblems(name, compose) {
   const problems = []
-  for (const [service, definition] of Object.entries(compose.services ?? {})) {
+  const services = compose.services ?? {}
+  for (const [service, definition] of Object.entries(services)) {
+    if (!definition?.healthcheck && isOneShot(services, service)) continue
     const healthcheck = definition?.healthcheck
     const test = asList(healthcheck?.test).map(String)
     if (!healthcheck || healthcheck.disable === true || test.length === 0 || test[0] === 'NONE') problems.push(`${name}: ${service} has no healthcheck`)

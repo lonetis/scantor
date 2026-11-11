@@ -118,7 +118,8 @@ Run the narrowest suite first (`just test-go ./internal/taskpipe/...`, `just tes
 - **Containers-only recipes**: recipes call only `docker`, `git` and POSIX tools on the host; tool
   images are pinned at the top of the `justfile`; containers they create carry `scantor.dev=true` or
   `scantor.test=true`.
-- **Healthchecks everywhere**: every compose service defines one (`lint-compose`); every long-running container
+- **Healthchecks everywhere**: every compose service defines one (`lint-compose`), except a one-shot service such as
+  `data-init` (`restart: "no"`, dependents wait for `service_completed_successfully`); every long-running container
   scantor creates sets one in its spec (runtime containers `container.RuntimeHealthcheck` in Go and
   `RUNTIME_HEALTHCHECK` in `server/utils/docker.ts`, the editor `EDITOR_HEALTHCHECK`), one-shot containers set
   `NONE`. Health is informational: nothing restarts a container because of it.
