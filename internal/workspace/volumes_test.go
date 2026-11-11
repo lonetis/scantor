@@ -138,11 +138,15 @@ func TestPurgeUserLockedDirectories(t *testing.T) {
 	}
 	userDir := filepath.Join(opts.Root, volumeWorkspaces, testUserID)
 	writeTree(t, userDir, map[string]node{"echo/scantor.yaml": file(testManifest), "echo/deep/x": file("x")})
-	for path, mode := range map[string]os.FileMode{
-		filepath.Join(userDir, "echo", "deep"): 0o500,
-		filepath.Join(userDir, "echo"):         0o000,
+	// The inner directory first: once echo is locked, deep cannot be reached.
+	for _, lock := range []struct {
+		path string
+		mode os.FileMode
+	}{
+		{filepath.Join(userDir, "echo", "deep"), 0o500},
+		{filepath.Join(userDir, "echo"), 0o000},
 	} {
-		if err := os.Chmod(path, mode); err != nil {
+		if err := os.Chmod(lock.path, lock.mode); err != nil {
 			t.Fatal(err)
 		}
 	}
