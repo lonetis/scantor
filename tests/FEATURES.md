@@ -208,7 +208,7 @@ Mechanisms: [api](../docs/api.md) §4.7, [editor](../docs/editor.md) §9, [secur
 - **WS-009** [security] Archive caps are enforced while streaming: a gzip bomb is stopped, more than `SCANTOR_TASK_MAX_FILES` entries are refused and `SCANTOR_WORKSPACE_MAX_BYTES` is enforced, each with 413 `payloadTooLarge` and `details.limit` and an unchanged workspace.
 - **WS-010** [api] Extracted archives are normalised: tar owners are ignored, file modes become 0644 or 0755 and directories 0755, a single top-level directory containing `scantor.yaml` is stripped, and `.git/` and `.scantor/` entries are dropped.
 - **WS-011** [security] A write never passes through a pre-existing workspace symlink that points outside the task folder: it returns 422 `invalidPath`.
-- **WS-012** [security] Workspace helper containers (`scantor-h-*`) run as 1000:1000 with only the user's volume subpath mounted, network `none` (git operations: `scantor-egress`), a read-only root filesystem with a `noexec` `/tmp`, `CapDrop ALL`, `no-new-privileges`, managed labels and resource limits, and are removed after every run; the orchestrator container mounts no workspace volume.
+- **WS-012** [security] Workspace helper containers (`scantor-h-*`) run as 1000:1000 with only the user's volume subpath mounted, network `none` (git operations: `scantor-egress`), a read-only root filesystem with a `noexec` `/tmp`, `CapDrop ALL`, `no-new-privileges`, managed labels and resource limits, and are removed after every run; `init` and `purge` also run as 1000:1000 without capabilities but mount both whole volumes, and only `prepare` runs as root, with `CHOWN` and `FOWNER`; the orchestrator container mounts no workspace volume.
 
 ## GIT. Git import and pull
 

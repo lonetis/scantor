@@ -390,7 +390,7 @@ host path stores that service's data in the directory instead, set per service: 
 | Volumes | Mechanism | The directory |
 |---|---|---|
 | compose volumes (mongo, rabbitmq, rustfs, registry, traefik) | the variable is the mount source (`${SCANTOR_MONGO_DATA}:/data/db`): a volume name mounts the declared volume, a path is a bind mount; `lint-compose` keeps every persistent mount of these services on its variable ([testing](testing.md) §11) | is created by Docker when missing (owned by root) |
-| `scantor-workspaces`, `scantor-editor-home` | the orchestrator creates the volume at boot (step `docker-objects`), bound to the directory (local driver, `type=none`, `o=bind`, `device=<path>`), because editors and helpers mount volume subpaths, which bind mounts cannot do | must exist before the orchestrator starts (`sudo mkdir -p <path>`); its `<userId>` directories are created by the `init` helper as before |
+| `scantor-workspaces`, `scantor-editor-home` | the orchestrator creates the volume at boot (step `docker-objects`), bound to the directory (local driver, `type=none`, `o=bind`, `device=<path>`), because editors and helpers mount volume subpaths, which bind mounts cannot do | must exist before the orchestrator starts (`sudo mkdir -p <path>`); the root `prepare` helper gives it to uid 1000 (mode 0711), or makes it sticky and writable for everyone (1777) where the filesystem refuses `chown`, and the `init` helper creates its `<userId>` directories ([editor](editor.md) §9.4) |
 
 Ownership: mongo and RabbitMQ run as uid 999 and RustFS as uid 10001; the one-shot `data-init` (§4.9) gives
 their directories to those uids before they start, or makes a directory world-writable where the filesystem

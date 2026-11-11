@@ -6,7 +6,7 @@ import { scantorImageRef, useDocker } from '../../utils/docker'
 import { type Logger, useLogger } from '../../utils/logger'
 import { observeHelperRun, setHelpersRunning } from '../metrics/catalogue'
 import { KeyedRwLock, KeyedSemaphore, type Release, Semaphore, SemaphoreTimeoutError } from './concurrency'
-import { stderrTail } from './protocol'
+import { parseHelperStdout, stderrTail } from './protocol'
 import { HelperOutputTooLargeError, HelperTimeoutError, runHelperContainer } from './runner'
 import { helperContainerSpec, helperMountFor } from './spec'
 import { EXCLUSIVE_OPS, GIT_OPS, type HelperOp, type HelperResult, type HelperRunOptions, type HelperStreamOptions } from './types'
@@ -16,7 +16,8 @@ import { EXCLUSIVE_OPS, GIT_OPS, type HelperOp, type HelperResult, type HelperRu
 // slots (waiting at most 30 s, else 429 tooManyRequests), then one of SCANTOR_HELPER_CONCURRENCY global slots (waiting
 // at most 30 s, else 503 unavailable), and runs its container with the per-operation profile. The per-user cap keeps
 // one user's slow uploads or git clones from holding every global slot. The first helper of a user in this process
-// runs `init` first, which creates the user's volume subpaths.
+// runs `init` first, which creates the user's volume subpaths; the first `init` or `purge` of the process runs the root
+// `prepare` helper first, which gives the volume roots to the helper user that `init` and `purge` run as.
 
 export const SLOT_WAIT_MS = 30_000
 
@@ -32,6 +33,8 @@ export interface HelperRuntime {
   initialized: Set<string>
   /** in-flight `init` runs by user, so concurrent first requests share one run */
   initializing: Map<string, Promise<void>>
+  /** the `prepare` run of this process, shared by concurrent callers; cleared when it fails */
+  preparing?: Promise<void> | null
 }
 
 let runtime: HelperRuntime | null = null
@@ -146,9 +149,36 @@ function isDockerUnavailable(error: unknown): boolean {
   return code === 'ECONNREFUSED' || code === 'ENOENT' || code === 'EACCES'
 }
 
-/** Runs `init` for a user (root, both whole volumes) under the user's exclusive lock. */
+/**
+ * Gives the roots of both volumes to the helper user with the root `prepare` helper, once per process (docs/editor.md
+ * §9.4). Where the filesystem refuses chown, the roots become writable for every host user instead, which is logged.
+ */
+function ensureVolumesPrepared(rt: HelperRuntime, userId: string): Promise<void> {
+  rt.preparing ??= runContainer(rt, 'prepare', { userId })
+    .then((result) => {
+      if (result.exitCode !== 0) {
+        rt.log.error('workspace prepare failed', { exitCode: result.exitCode, stderr: stderrTail(result.stderr) })
+        throw apiError('internal', 'preparing the workspace volumes failed')
+      }
+      const output = parseHelperStdout<{ volumes: { volume: string; shared: boolean }[] }>('prepare', result)
+      const shared = output.volumes.filter((v) => v.shared).map((v) => v.volume)
+      if (shared.length > 0) {
+        rt.log.warn('the workspace volumes refuse chown; their roots are writable for every host user (mode 1777)', { volumes: shared })
+      }
+    })
+    .catch((error: unknown) => {
+      rt.preparing = null
+      throw error
+    })
+  return rt.preparing
+}
+
+/** Runs `init` for a user (helper user, both whole volumes) under the user's exclusive lock. */
 async function runInit(rt: HelperRuntime, userId: string): Promise<HelperResult> {
-  const result = await rt.userLocks.run(userId, 'exclusive', () => runContainer(rt, 'init', { userId, args: ['--user', userId] }))
+  const result = await rt.userLocks.run(userId, 'exclusive', async () => {
+    await ensureVolumesPrepared(rt, userId)
+    return runContainer(rt, 'init', { userId, args: ['--user', userId] })
+  })
   if (result.exitCode === 0) rt.initialized.add(userId)
   return result
 }
@@ -180,8 +210,12 @@ export async function executeHelper(op: HelperOp, options: HelperRunOptions, str
   const mount = helperMountFor(op, options.args ?? [])
   if (mount === 'none') return runContainer(rt, op, options, stream)
   if (op === 'init') return runInit(rt, options.userId)
+  if (op === 'prepare') return ensureVolumesPrepared(rt, options.userId).then(() => ({ stdout: Buffer.from('{}'), stderr: '', exitCode: 0 }))
   if (op !== 'purge') await ensureUserDirsWith(rt, options.userId)
-  const result = await rt.userLocks.run(options.userId, lockModeOf(op), () => runContainer(rt, op, options, stream))
+  const result = await rt.userLocks.run(options.userId, lockModeOf(op), async () => {
+    if (op === 'purge') await ensureVolumesPrepared(rt, options.userId)
+    return runContainer(rt, op, options, stream)
+  })
   if (op === 'purge' && result.exitCode === 0) rt.initialized.delete(options.userId)
   return result
 }

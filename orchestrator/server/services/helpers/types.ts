@@ -3,6 +3,7 @@ import type { Readable, Writable } from 'node:stream'
 // Workspace helper operations (docs/editor.md §9.4) and the shapes of their stdout documents.
 
 export const HELPER_OPS = [
+  'prepare',
   'init',
   'purge',
   'list',
@@ -22,8 +23,14 @@ export type HelperOp = (typeof HELPER_OPS)[number]
 /** Operations that hold the user's exclusive lock; every other operation holds it shared (docs/editor.md §9.8). */
 export const EXCLUSIVE_OPS: ReadonlySet<HelperOp> = new Set(['write-files', 'delete-files', 'commit', 'scaffold', 'init', 'purge'])
 
-/** Operations that run as root on the whole volumes and create or remove one user's directories. */
-export const VOLUME_ADMIN_OPS: ReadonlySet<HelperOp> = new Set(['init', 'purge'])
+/**
+ * Operations that mount both whole volumes: `prepare` gives their roots to the helper user, `init` and `purge` create
+ * or remove one user's directories.
+ */
+export const VOLUME_OPS: ReadonlySet<HelperOp> = new Set(['prepare', 'init', 'purge'])
+
+/** The only operation that runs as root (with CHOWN and FOWNER): `prepare`, once per process (docs/editor.md §9.4). */
+export const ROOT_OPS: ReadonlySet<HelperOp> = new Set(['prepare'])
 
 /** Operations that run on `scantor-egress` instead of network `none`. */
 export const GIT_OPS: ReadonlySet<HelperOp> = new Set(['git-clone', 'git-pull'])

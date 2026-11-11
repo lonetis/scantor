@@ -1,20 +1,21 @@
 import type { ContainerCreateOptions } from 'dockerode'
 import { EDITOR_HOME_VOLUME, EGRESS_NETWORK, WORKSPACES_VOLUME } from '../../utils/docker'
 import { managedLabels, managedNamePrefix } from '../../utils/labels'
-import { type HelperMount, type HelperNetwork, type HelperOp, VOLUME_ADMIN_OPS } from './types'
+import { type HelperMount, type HelperNetwork, type HelperOp, ROOT_OPS, VOLUME_OPS } from './types'
 
 // The container profile of workspace helpers (docs/editor.md §9.2, security.md WS-2): one throwaway container per
 // operation, `scantor workspace <op>` in the scantor image, uid 1000:1000 with only the user's workspace subpath
 // (none for `--archive`), network none (git: scantor-egress), read-only rootfs with a small noexec /tmp, no
 // capabilities, no-new-privileges, pids/memory/CPU limits, no logs (output is read through attach) and the managed
-// labels. `init` and `purge` run as root with CHOWN, DAC_OVERRIDE and FOWNER on the whole volumes.
+// labels. `prepare`, `init` and `purge` mount the whole volumes; only `prepare`, which gives the volume roots to the
+// helper user once per process, runs as root, with CHOWN and FOWNER.
 
 export const HELPER_BINARY = '/usr/local/bin/scantor'
 export const HELPER_WORKSPACE_DIR = '/workspace'
 export const HELPER_VOLUMES_DIR = '/volumes'
 export const HELPER_TMPFS = 'rw,nosuid,nodev,noexec,size=64m'
 export const HELPER_USER = '1000:1000'
-const ADMIN_CAPS = ['CHOWN', 'DAC_OVERRIDE', 'FOWNER']
+const ROOT_CAPS = ['CHOWN', 'FOWNER']
 
 export interface HelperSpecInput {
   op: HelperOp
@@ -31,16 +32,16 @@ export interface HelperSpecInput {
   id: string
 }
 
-/** The mount layout of an operation: `--archive` reads stdin only; init/purge see both whole volumes. */
+/** The mount layout of an operation: `--archive` reads stdin only; prepare, init and purge see both whole volumes. */
 export function helperMountFor(op: HelperOp, args: readonly string[]): HelperMount {
-  if (VOLUME_ADMIN_OPS.has(op)) return 'volumes'
+  if (VOLUME_OPS.has(op)) return 'volumes'
   if ((op === 'list' || op === 'read') && args.includes('--archive')) return 'none'
   return 'user'
 }
 
 /** Engine API create options of one helper container. Pure: snapshot-tested per operation. */
 export function helperContainerSpec(input: HelperSpecInput): ContainerCreateOptions {
-  const admin = input.mount === 'volumes'
+  const root = ROOT_OPS.has(input.op)
   const mounts =
     input.mount === 'user'
       ? [
@@ -63,7 +64,7 @@ export function helperContainerSpec(input: HelperSpecInput): ContainerCreateOpti
     Image: input.image,
     Entrypoint: [HELPER_BINARY],
     Cmd: ['workspace', input.op, ...input.args],
-    User: admin ? '0:0' : HELPER_USER,
+    User: root ? '0:0' : HELPER_USER,
     Env: Object.entries(env)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, value]) => `${key}=${value}`),
@@ -79,7 +80,7 @@ export function helperContainerSpec(input: HelperSpecInput): ContainerCreateOpti
       ReadonlyRootfs: true,
       Tmpfs: { '/tmp': HELPER_TMPFS },
       CapDrop: ['ALL'],
-      CapAdd: admin ? ADMIN_CAPS : undefined,
+      CapAdd: root ? ROOT_CAPS : undefined,
       SecurityOpt: ['no-new-privileges:true'],
       PidsLimit: input.pidsLimit,
       Memory: input.memoryBytes,

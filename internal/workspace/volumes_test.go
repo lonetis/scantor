@@ -129,6 +129,112 @@ func TestPurgeUser(t *testing.T) {
 	}
 }
 
+// A user can make directories unwritable or unsearchable in the editor; the purge helper, which runs as
+// their owner without DAC_OVERRIDE, still removes them.
+func TestPurgeUserLockedDirectories(t *testing.T) {
+	opts := newVolumes(t)
+	if _, err := InitUser(bg, opts, testUserID); err != nil {
+		t.Fatal(err)
+	}
+	userDir := filepath.Join(opts.Root, volumeWorkspaces, testUserID)
+	writeTree(t, userDir, map[string]node{"echo/scantor.yaml": file(testManifest), "echo/deep/x": file("x")})
+	for path, mode := range map[string]os.FileMode{
+		filepath.Join(userDir, "echo", "deep"): 0o500,
+		filepath.Join(userDir, "echo"):         0o000,
+	} {
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := PurgeUser(bg, opts, testUserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(res.Removed, "workspaces/"+testUserID) {
+		t.Fatalf("removed %v", res.Removed)
+	}
+	mustNotExist(t, userDir)
+}
+
+func TestPrepareVolumes(t *testing.T) {
+	opts := newVolumes(t)
+	res, err := PrepareVolumes(bg, opts, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []PreparedVolume{{Volume: volumeWorkspaces}, {Volume: volumeEditorHome}}
+	if !slices.Equal(res.Volumes, want) {
+		t.Fatalf("volumes %+v, want %+v", res.Volumes, want)
+	}
+	for _, v := range []string{volumeWorkspaces, volumeEditorHome} {
+		if info, err := os.Lstat(filepath.Join(opts.Root, v)); err != nil || info.Mode() != os.ModeDir|0o711 {
+			t.Fatalf("%s: %v %v", v, info, err)
+		}
+	}
+	// init and purge then work as the owner of the roots.
+	if _, err := InitUser(bg, opts, testUserID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PurgeUser(bg, opts, testUserID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Where chown is refused (here: an unprivileged test chowning to another uid, on NFS under rootless Docker:
+// every chown), the roots become sticky and writable for everyone, and a warning says so.
+func TestPrepareVolumesWithoutChown(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root can chown to any uid")
+	}
+	opts := newVolumes(t)
+	opts.UID, opts.GID = os.Getuid()+1, os.Getgid()+1
+	var buf bytes.Buffer
+	res, err := PrepareVolumes(bg, opts, NewEvents(&buf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Volumes[0].Shared || !res.Volumes[1].Shared {
+		t.Fatalf("volumes %+v", res.Volumes)
+	}
+	for _, v := range []string{volumeWorkspaces, volumeEditorHome} {
+		if info, err := os.Lstat(filepath.Join(opts.Root, v)); err != nil || info.Mode() != os.ModeDir|os.ModeSticky|0o777 {
+			t.Fatalf("%s: %v %v", v, info, err)
+		}
+	}
+	if !strings.Contains(buf.String(), "refuses chown") {
+		t.Fatalf("no warning: %s", buf.String())
+	}
+	// init then gives the user directories mode 0755, so the rootless Docker daemon can open them to mount
+	// them as volume subpaths; the staging folder stays private.
+	opts.UID, opts.GID = os.Getuid(), os.Getgid()
+	if _, err := InitUser(bg, opts, testUserID); err != nil {
+		t.Fatal(err)
+	}
+	for path, want := range map[string]os.FileMode{
+		filepath.Join(opts.Root, volumeWorkspaces, testUserID):             0o755,
+		filepath.Join(opts.Root, volumeEditorHome, testUserID):             0o755,
+		filepath.Join(opts.Root, volumeWorkspaces, testUserID, StagingDir): 0o700,
+	} {
+		if info, err := os.Lstat(path); err != nil || info.Mode().Perm() != want {
+			t.Fatalf("%s: %v %v, want %v", path, info, err, want)
+		}
+	}
+	if _, err := PurgeUser(bg, opts, testUserID); err != nil {
+		t.Fatal(err)
+	}
+
+	// A root that is no directory is an error.
+	if err := os.RemoveAll(filepath.Join(opts.Root, volumeEditorHome)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(opts.Root, volumeEditorHome), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareVolumes(bg, opts, nil); err == nil {
+		t.Fatal("a file as volume root was accepted")
+	}
+}
+
 func TestEvents(t *testing.T) {
 	var buf bytes.Buffer
 	ev := NewEvents(&buf)

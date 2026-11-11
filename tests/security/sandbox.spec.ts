@@ -529,7 +529,26 @@ test.describe('short-lived containers', () => {
       })
       const ops = new Set(captured.map((c) => c.Config.Labels['scantor.op']))
       expect([...ops]).toEqual(expect.arrayContaining(['write-files', 'snapshot', 'read']))
-      for (const container of captured.filter((c) => c.Config.Labels['scantor.op'] !== 'init' && c.Config.Labels['scantor.op'] !== 'purge')) {
+      // prepare (root, once per orchestrator process) and init (the user's first helper) mount both whole volumes; the
+      // suite cannot tell whether this test triggers them, so each is checked when it ran.
+      const volumeOps = new Set(['prepare', 'init', 'purge'])
+      for (const container of captured.filter((c) => volumeOps.has(c.Config.Labels['scantor.op']!))) {
+        const label = container.Config.Labels['scantor.op']!
+        const root = label === 'prepare'
+        expect(container.Config.User, label).toBe(root ? '0:0' : '1000:1000')
+        expect(container.HostConfig.CapDrop, label).toEqual(['ALL'])
+        expect(
+          (container.HostConfig.CapAdd ?? []).map((c) => c.replace(/^CAP_/, '')),
+          label,
+        ).toEqual(root ? ['CHOWN', 'FOWNER'] : [])
+        expect(container.HostConfig.NetworkMode, label).toBe('none')
+        const volumeMounts = (container.HostConfig.Mounts ?? []) as { Source: string; Target: string }[]
+        expect(volumeMounts.map((m) => `${m.Source}:${m.Target}`).sort(), label).toEqual([
+          'scantor-editor-home:/volumes/editor-home',
+          'scantor-workspaces:/volumes/workspaces',
+        ])
+      }
+      for (const container of captured.filter((c) => !volumeOps.has(c.Config.Labels['scantor.op']!))) {
         const host = container.HostConfig
         const label = container.Config.Labels['scantor.op']
         expect(container.Name, label).toMatch(/^\/scantor-h-/)

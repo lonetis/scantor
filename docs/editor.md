@@ -200,13 +200,13 @@ serves only the unix socket; the orchestrator always passes its own `Cmd`.
 
 ## 3. Uid, volumes and directories
 
-- Every editor and every workspace helper (except `init` and `purge`) runs as **1000:1000**. Users are
+- Every editor and every workspace helper (except `prepare`, §9.4) runs as **1000:1000**. Users are
   isolated by **volume subpaths**, not by uid: a container only ever sees its own user's directories.
   Symlinks inside a subpath resolve inside the container's own mount namespace, so they cannot reach
   other users' directories (verified).
 - Docker requires a volume subpath to exist before mounting it. The orchestrator creates the per-user
   directories through the `init` helper (§9.4): `scantor-workspaces/<userId>` and
-  `scantor-editor-home/<userId>`, owned by 1000:1000, mode 0700. It also creates
+  `scantor-editor-home/<userId>`, owned by 1000:1000, mode 0700 (0755 on a shared volume, §9.4 `prepare`). It also creates
   `scantor-editor-sockets/<userId>` directly (owned by 1000:1000, mode 0700), because the orchestrator
   mounts that volume whole at `/run/scantor/editor-sockets`.
 - Layout inside a workspace: `<userId>/<taskName>/…` (one folder per task, the task name being a slug),
@@ -607,9 +607,9 @@ docker run -i --name scantor-h-<uuid> \
 | Aspect | Value | Exceptions |
 |---|---|---|
 | image | `${SCANTOR_IMAGE_PREFIX}scantor:${SCANTOR_IMAGE_TAG}` (static binary + git) | – |
-| user | `1000:1000` | `init`, `purge`: `0:0` with `--cap-add CHOWN --cap-add DAC_OVERRIDE --cap-add FOWNER` |
+| user | `1000:1000` | `prepare`: `0:0` with `--cap-add CHOWN --cap-add FOWNER` |
 | network | `none` | `git-clone`, `git-pull`: `scantor-egress` |
-| mounts | `scantor-workspaces` subpath `<userId>` at `/workspace` | `list --archive`, `read --archive`: no mount. `init`, `purge`: whole `scantor-workspaces` at `/volumes/workspaces` and whole `scantor-editor-home` at `/volumes/editor-home`. |
+| mounts | `scantor-workspaces` subpath `<userId>` at `/workspace` | `list --archive`, `read --archive`: no mount. `prepare`, `init`, `purge`: whole `scantor-workspaces` at `/volumes/workspaces` and whole `scantor-editor-home` at `/volumes/editor-home`. |
 | limits | `SCANTOR_HELPER_MEMORY_LIMIT`, `SCANTOR_HELPER_PIDS_LIMIT`, 1 CPU, wall clock `SCANTOR_HELPER_TIMEOUT` (the runner kills and removes on expiry, and when its caller is cancelled, such as the snapshot of a cancelled test run) | – |
 | logging | driver `none`; the output is read through attach | – |
 | removal | always removed explicitly after `wait`, or after the timeout kill. `AutoRemove` is not used (it races with `wait`). The boot sweep removes leftover `scantor.kind=helper` containers. | – |
@@ -657,8 +657,9 @@ copies every summary into the task's or script's `workspace` cache ([data model]
 
 | Op | Flags | stdin | stdout | Effect |
 |---|---|---|---|---|
-| `init` | `--user <userId>` | – | `{"created": ["workspaces/<id>", "editor-home/<id>"]}` | Creates `<id>` in both volumes if missing (1000:1000, 0700) and `<id>/.scantor-staging` in the workspace. An existing entry must be a real directory; owner and mode are fixed. Reads no content. |
-| `purge` | `--user <userId>` | – | `{"removed": [...]}` | Removes `<id>` from both volumes (Go `os.RemoveAll`, which never follows symlinks). Reads no content. |
+| `prepare` | – | – | `{"volumes": [{"volume": "workspaces", "shared": false}, {"volume": "editor-home", "shared": false}]}` | The only root helper (CHOWN, FOWNER). Gives the roots of both volumes to 1000:1000 with mode 0711, so `init` and `purge` run as 1000:1000. Where the filesystem refuses `chown` (NFS under rootless Docker) the root gets mode 1777 instead (sticky, like `/tmp`), the volume is `shared` and a warning is logged. The orchestrator runs it once per process, before the first `init` or `purge`, and again after a failure. Reads no content. |
+| `init` | `--user <userId>` | – | `{"created": ["workspaces/<id>", "editor-home/<id>"]}` | Creates `<id>` in both volumes if missing (1000:1000, 0700) and `<id>/.scantor-staging` (0700) in the workspace. On a shared volume (sticky root) `<id>` gets mode 0755: the rootless Docker daemon runs as the host user without DAC override there and must open the directory to mount it as a subpath. An existing entry must be a real directory; owner and mode are fixed, and `chown`/`chmod` run only when they differ. Reads no content. |
+| `purge` | `--user <userId>` | – | `{"removed": [...]}` | Removes `<id>` from both volumes (Go `os.RemoveAll`, which never follows symlinks). Running without DAC override, it gives every directory below `<id>` mode 0700 and tries again when the first attempt is refused, so directories the user locked in the editor cannot block it. Reads no content. |
 | `list` | `--task`, `--path` (default `""`), `--recursive` (default true), `--max-entries 5000` | – | `{"entries": [{path, type: "file"\|"dir"\|"symlink", size, mode}], "truncated": bool}` | Sorted by path, `lstat` only (symlinks are listed, never followed). |
 | `list --archive` | `--path`, `--recursive`, `--max-entries` | tar.gz (a revision snapshot streamed from S3) | same | for `listTaskFiles?revision=`. `--path` follows the path rules of §9.5; the snapshot's entries follow the pack's ([tasks](tasks.md) §2), so an entry deeper than 32 levels or below a folder named `.scantor-staging` is listed and never fails the request. |
 | `read` | `--task`, `--path`, `--max-bytes 1048576` | – | `{path, size, sha256, encoding: "utf8"\|"base64", content, truncated}` | `sha256` covers the whole file. The content is cut at `--max-bytes`. `utf8` when the file is valid UTF-8 without NUL, else `base64`. A symlink or directory gives `invalidPath`. |
@@ -851,7 +852,7 @@ The orchestrator then decides ([api](api.md) §4.8):
 | login CSRF (a victim redeems the attacker's code) | codes are single use and valid for 60 s; the window title shows the owner (`--app-name`); opening the editor from the dashboard always issues a new cookie. Accepted residual risk. |
 | tar slip, symlink, hardlink, device entries, zip bombs | helper archive rules (§9.5) inside a sandbox with only the user's subpath and no network |
 | git clone-time RCE (CVE-2024-32002 class), SSRF | git runs only in helpers; no submodules, hooks disabled, https only, no redirects, private addresses rejected and pinned; `scantor-egress` has inter-container traffic disabled; the egress deny list applies |
-| cross-user file access | volume subpaths; `init`/`purge` touch only a validated uuid directory and never read content |
+| cross-user file access | volume subpaths; `init`/`purge` run as 1000:1000 without capabilities, touch only a validated uuid directory and never read content; only `prepare` runs as root, and it changes nothing but the owner and mode of the two volume roots |
 | privilege escalation in the editor | read-only rootfs, `CapDrop ALL`, `no-new-privileges`, no Docker socket, no fixuid |
 | disk exhaustion through the editor | not hard-limited in v1 (Docker volumes have no quotas). Helper operations refuse to grow a workspace beyond `SCANTOR_WORKSPACE_MAX_BYTES`, and `getTaskWorkspace` reports sizes. See future extensions. |
 
@@ -894,13 +895,12 @@ Decisions 1, 3, 4, 5, 6 and 7 are approved by the lead. The rest are flagged for
   the orchestrator's dedicated listener on container port **3001** (`SCANTOR_EDITOR_PORT → 3001`; the
   Traefik editor router targets 3001). The dashboard listener answers 421 for the editor host. Host
   dispatch therefore happens per listener, not inside Nitro.
-- [architecture](architecture.md) §4.2: the workspace helper operations are `init | purge | list | read |
+- [architecture](architecture.md) §4.2: the workspace helper operations are `prepare | init | purge | list | read |
   write-files | delete-files | scaffold | extract | git-clone | git-pull | commit | discard | snapshot`
   (`list` and `read` with `--archive`).
 - [architecture](architecture.md) §4.5 and §7: add the volume `scantor-editor-home` (editors: subpath
-  `<userId>` at `/home/coder`; `init`/`purge` helpers: whole). `init`/`purge` helpers run as root with
-  `CHOWN`, `DAC_OVERRIDE` and `FOWNER` and the whole `scantor-workspaces` and `scantor-editor-home`
-  volumes. They never read content.
+  `<userId>` at `/home/coder`; `prepare`/`init`/`purge` helpers: whole). Only `prepare` runs as root, with
+  `CHOWN` and `FOWNER`; `init` and `purge` run as 1000:1000 without capabilities. They never read content.
 - [architecture](architecture.md) §4.1 boot step 6: ensure the network `scantor-egress` and the volumes
   `scantor-workspaces` and `scantor-editor-home` (compose does not create them).
 - [data model](data-model.md) §4.15: add `apiKeyExpiresAt` (Date | null, *internal*); `startedAt` is set

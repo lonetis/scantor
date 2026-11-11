@@ -22,6 +22,7 @@ const DefaultWorkspaceRoot = "/workspace"
 
 func init() {
 	registerGroup("", "workspace", "Workspace helper operations (run by the orchestrator in helper containers)", true)
+	registerCommand("workspace", newWorkspacePrepareCommand)
 	registerCommand("workspace", newWorkspaceInitCommand)
 	registerCommand("workspace", newWorkspacePurgeCommand)
 	registerCommand("workspace", newWorkspaceListCommand)
@@ -188,12 +189,32 @@ func (b *wsByteSize) Set(s string) error {
 
 func (b *wsByteSize) Type() string { return "bytes" }
 
+func newWorkspacePrepareCommand(app *App) *cobra.Command {
+	var volumes string
+	uid, gid := workspace.DefaultUID, workspace.DefaultGID
+	cmd := &cobra.Command{
+		Use:   "prepare",
+		Short: "Give the workspace and editor home volume roots to the helper user (root helper)",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return wsRun(app, cmd, args, func(ctx context.Context, events *workspace.Events) (any, error) {
+				return workspace.PrepareVolumes(ctx, workspace.VolumeOptions{Root: volumes, UID: uid, GID: gid}, events)
+			})
+		},
+	}
+	wsVolumeFlags(cmd, &volumes)
+	cmd.Flags().IntVar(&uid, "uid", uid, "owner uid of the volume roots")
+	cmd.Flags().IntVar(&gid, "gid", gid, "owner gid of the volume roots")
+	_ = cmd.Flags().MarkHidden("uid")
+	_ = cmd.Flags().MarkHidden("gid")
+	return wsCommand(app, cmd)
+}
+
 func newWorkspaceInitCommand(app *App) *cobra.Command {
 	var user, volumes string
 	uid, gid := workspace.DefaultUID, workspace.DefaultGID
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Create a user's workspace and editor home directories (root helper)",
+		Short: "Create a user's workspace and editor home directories",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return wsRun(app, cmd, args, func(ctx context.Context, _ *workspace.Events) (any, error) {
 				if err := wsRequire(wsFlag{"user", user}); err != nil {
@@ -221,7 +242,7 @@ func newWorkspacePurgeCommand(app *App) *cobra.Command {
 	var user, volumes string
 	cmd := &cobra.Command{
 		Use:   "purge",
-		Short: "Remove a user's workspace and editor home directories (root helper)",
+		Short: "Remove a user's workspace and editor home directories",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return wsRun(app, cmd, args, func(ctx context.Context, _ *workspace.Events) (any, error) {
 				if err := wsRequire(wsFlag{"user", user}); err != nil {

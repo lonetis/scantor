@@ -23,7 +23,7 @@ function spec(op: HelperOp, args: string[] = [], network: 'none' | 'egress' = 'n
 }
 
 describe('helper container spec', () => {
-  it.each(HELPER_OPS.filter((op) => op !== 'init' && op !== 'purge'))('%s runs as 1000:1000 on the user subpath only', (op) => {
+  it.each(HELPER_OPS.filter((op) => op !== 'prepare' && op !== 'init' && op !== 'purge'))('%s runs as 1000:1000 on the user subpath only', (op) => {
     const created = spec(op)
     expect(created.User).toBe('1000:1000')
     expect(created.HostConfig?.CapDrop).toEqual(['ALL'])
@@ -72,17 +72,30 @@ describe('helper container spec', () => {
     expect(helperMountFor('list', ['--task', 'echo'])).toBe('user')
   })
 
-  it('runs init and purge as root with CHOWN, DAC_OVERRIDE and FOWNER on both whole volumes', () => {
+  it('runs init and purge as 1000:1000 without capabilities on both whole volumes', () => {
     for (const op of ['init', 'purge'] as const) {
       const created = spec(op, ['--user', USER])
-      expect(created.User).toBe('0:0')
+      expect(created.User).toBe('1000:1000')
       expect(created.HostConfig?.CapDrop).toEqual(['ALL'])
-      expect(created.HostConfig?.CapAdd).toEqual(['CHOWN', 'DAC_OVERRIDE', 'FOWNER'])
+      expect(created.HostConfig?.CapAdd).toBeUndefined()
       expect(created.HostConfig?.Mounts).toEqual([
         { Type: 'volume', Source: 'scantor-workspaces', Target: '/volumes/workspaces' },
         { Type: 'volume', Source: 'scantor-editor-home', Target: '/volumes/editor-home' },
       ])
     }
+  })
+
+  it('runs only prepare as root, with CHOWN and FOWNER on both whole volumes', () => {
+    const created = spec('prepare')
+    expect(created.User).toBe('0:0')
+    expect(created.Cmd).toEqual(['workspace', 'prepare'])
+    expect(created.HostConfig?.CapDrop).toEqual(['ALL'])
+    expect(created.HostConfig?.CapAdd).toEqual(['CHOWN', 'FOWNER'])
+    expect(created.HostConfig?.NetworkMode).toBe('none')
+    expect(created.HostConfig?.Mounts).toEqual([
+      { Type: 'volume', Source: 'scantor-workspaces', Target: '/volumes/workspaces' },
+      { Type: 'volume', Source: 'scantor-editor-home', Target: '/volumes/editor-home' },
+    ])
   })
 
   it('takes the exclusive per-user lock for writers only', () => {
