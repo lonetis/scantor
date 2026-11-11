@@ -68,6 +68,8 @@ export interface Config {
   // traefik
   composeProfiles: string[]
   domain: string | null
+  /** Traefik serves the dashboard at `<dashboardSubdomain>.<domain>`; null = the bare domain */
+  dashboardSubdomain: string | null
   trustProxy: boolean
   /** IP addresses, CIDR ranges and host names whose X-Forwarded-For counts (with trustProxy) */
   trustedProxies: string[]
@@ -285,6 +287,27 @@ const hostname = () =>
     .transform((value) => value.toLowerCase())
     .pipe(z.string().regex(HOSTNAME, 'must be a DNS host name'))
 
+/** The fixed Traefik hosts below SCANTOR_DOMAIN (docs/deployment.md §7.3), which the dashboard subdomain must not take. */
+export const FIXED_TRAEFIK_SUBDOMAINS = ['editor', 's3', 'registry', 'amqp', 'mongo', 'rabbitmq', 'mongo-express', 'rustfs', 'traefik'] as const
+
+const dashboardSubdomain = () =>
+  z
+    .string()
+    .trim()
+    .transform((value) => value.toLowerCase())
+    .pipe(
+      z.union([
+        z.literal(''),
+        z
+          .string()
+          .regex(/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/, 'must be one DNS label')
+          .refine((value) => !(FIXED_TRAEFIK_SUBDOMAINS as readonly string[]).includes(value), {
+            message: `must not be one of the fixed hosts ${FIXED_TRAEFIK_SUBDOMAINS.join(', ')}`,
+          }),
+      ]),
+    )
+    .transform((value) => value || null)
+
 const hostWithPort = () =>
   fromParser((value) => {
     const input = value.trim()
@@ -426,6 +449,7 @@ const VARIABLES = {
 
   composeProfiles: v('COMPOSE_PROFILES', '', fromParser(parseList), true),
   domain: v('SCANTOR_DOMAIN', '', z.union([z.literal(''), hostname()]).transform((value) => value || null), true),
+  dashboardSubdomain: v('SCANTOR_DASHBOARD_SUBDOMAIN', '', dashboardSubdomain(), true),
   trustProxy: v('SCANTOR_TRUST_PROXY', 'false', boolean(), true),
   trustedProxies: v('SCANTOR_TRUSTED_PROXIES', 'traefik', proxyList(), true),
   exposeMongo: v('SCANTOR_EXPOSE_MONGO', 'false', boolean(), true),

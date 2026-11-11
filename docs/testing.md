@@ -975,7 +975,8 @@ regenerates the index in the same commit ([development](development.md) §13).
   `--slowOpSampleRate 0`; RabbitMQ with the management plugin only (`RABBITMQ_ENABLED_PLUGINS`);
   memory limits on the orchestrator, mongo and rabbitmq; the orchestrator never mounts
   `scantor-workspaces`; no variable default anywhere (every `docker-compose.*.yml` and
-  `tests/docker/stack.tests.yml`) except the image prefix fallback; the orchestrator and Traefik get
+  `tests/docker/stack.tests.yml`) except the image prefix fallback (an alternative value `${VAR:+…}` is
+  no default); the orchestrator and Traefik get
   `env_file: .env`; mongo and rabbitmq run as their own users and mongo, rabbitmq and rustfs wait for
   `data-init` (`service_completed_successfully`), which mounts their `SCANTOR_*_DATA` locations; every
   service of every compose file defines an enabled healthcheck, except a one-shot service (`restart: "no"`,

@@ -10,7 +10,8 @@
 //     orchestrator, mongo and rabbitmq; the orchestrator never mounts scantor-workspaces; the orchestrator and
 //     Traefik get `env_file: .env`;
 //   - no compose file (including the test runner's and the test stack override) gives a variable a default, except the
-//     image prefix fallback `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}`;
+//     image prefix fallback `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}`; an alternative value (`${VAR:+…}`, only when
+//     VAR is set) is no default and stays allowed;
 //   - every persistent mount of the infrastructure services takes its source from its data-location variable
 //     (`${SCANTOR_MONGO_DATA}:/data/db`, …; docs/deployment.md §5.1), so each service's data can live at a host path;
 //   - mongo and rabbitmq run as their own users, and mongo, rabbitmq and rustfs start only after the one-shot
@@ -149,11 +150,11 @@ function healthcheckProblems(name, compose) {
   return problems
 }
 
-/** `${VAR:-x}`, `${VAR-x}`, `${VAR:?x}` … anywhere except the image prefix fallback. */
+/** `${VAR:-x}`, `${VAR-x}`, `${VAR:?x}` … anywhere except the image prefix fallback; `${VAR:+x}` is no default. */
 function defaultProblems(name, text) {
   const problems = []
   text.split('\n').forEach((line, index) => {
-    for (const match of line.matchAll(/\$\{[A-Za-z_][A-Za-z0-9_]*(:?[-?+=])[^}]*\}/g)) {
+    for (const match of line.matchAll(/\$\{[A-Za-z_][A-Za-z0-9_]*(:?[-?=])[^}]*\}/g)) {
       if (match[0] !== ALLOWED_DEFAULT) problems.push(`${name}:${index + 1}: no defaults in compose files (${match[0]})`)
     }
   })

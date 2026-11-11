@@ -30,6 +30,7 @@ describe('parseConfig', () => {
       SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS: 'https://app.example.com, https://other.example.com/',
       SCANTOR_AMQP_PUBLIC_URL: 'amqps://amqp.example.com:443',
       SCANTOR_DOMAIN: 'Scantor.Example.com',
+      SCANTOR_DASHBOARD_SUBDOMAIN: ' Dash ',
       SCANTOR_CA_CERT: '-----BEGIN CERTIFICATE-----\\nMIIB\\n-----END CERTIFICATE-----',
       SCANTOR_ALLOW_INSECURE_TRANSPORT: 'true',
     })
@@ -44,6 +45,7 @@ describe('parseConfig', () => {
     expect(config.mcpAllowedRedirectOrigins).toEqual(['https://app.example.com', 'https://other.example.com'])
     expect(config.amqpPublicUrl).toBe('amqps://amqp.example.com:443')
     expect(config.domain).toBe('scantor.example.com')
+    expect(config.dashboardSubdomain).toBe('dash')
     expect(config.caCert).toBe('-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----')
     expect(config.allowInsecureTransport).toBe(true)
     expect(config.adminEmail).toBeNull()
@@ -65,6 +67,10 @@ describe('parseConfig', () => {
     ['SCANTOR_ALLOW_INSECURE_DEFAULTS', '1'],
     ['SCANTOR_ALLOW_INSECURE_TRANSPORT', 'yes'],
     ['SCANTOR_ALLOW_UNISOLATED_NETWORKS', 'on'],
+    ['SCANTOR_DASHBOARD_SUBDOMAIN', 'editor'],
+    ['SCANTOR_DASHBOARD_SUBDOMAIN', 'mongo-express'],
+    ['SCANTOR_DASHBOARD_SUBDOMAIN', 'dash.board'],
+    ['SCANTOR_DASHBOARD_SUBDOMAIN', '-dash'],
     ['SCANTOR_GIT_ALLOW_PRIVATE', 'TRUE'],
     ['SCANTOR_MONGO_EXPRESS_READONLY', 'True'],
     ['SCANTOR_PASSKEY_RP_ID', 'not a host!'],

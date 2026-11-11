@@ -31,9 +31,15 @@ services:
     logging: *logging
     labels:
       - traefik.enable=true
-      - traefik.http.routers.scantor.rule=Host(`${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.scantor.rule=Host(`${SCANTOR_DASHBOARD_SUBDOMAIN:+${SCANTOR_DASHBOARD_SUBDOMAIN}.}${SCANTOR_DOMAIN}`)
       - traefik.http.routers.scantor.service=scantor
       - traefik.http.services.scantor.loadbalancer.server.port=3000
+      - traefik.http.routers.scantor-root.rule=Host(`${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.scantor-root.priority=1
+      - traefik.http.routers.scantor-root.service=scantor
+      - traefik.http.routers.scantor-root.middlewares=scantor-root-redirect
+      - traefik.http.middlewares.scantor-root-redirect.redirectregex.regex=^https?://[^/]+(.*)$$
+      - traefik.http.middlewares.scantor-root-redirect.redirectregex.replacement=${SCANTOR_PUBLIC_URL}$${1}
       - traefik.http.routers.scantor-editor.rule=Host(`editor.${SCANTOR_DOMAIN}`)
       - traefik.http.routers.scantor-editor.service=scantor-editor
       - traefik.http.services.scantor-editor.loadbalancer.server.port=3001
@@ -381,7 +387,7 @@ services:
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
-      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.to=:${SCANTOR_HTTPS_PORT}
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
       - --entrypoints.websecure.asdefault=true

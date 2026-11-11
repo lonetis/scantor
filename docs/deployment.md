@@ -74,7 +74,8 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
 - Every persistent mount takes its source from its `SCANTOR_*_DATA` variable (§5.1; `lint-compose` enforces it
   for the infrastructure services), so operators choose a volume or a host directory per service.
 - Variables are interpolated as plain `${VAR}`. **Compose files contain no defaults**, because defaults
-  live only in `.env.example`. `.env` must be complete; `just init` creates it and merges new variables
+  live only in `.env.example`. An alternative value `${VAR:+…}`, used only when `VAR` is set, is no default:
+  the dashboard router uses one for its optional subdomain (§7.3). `.env` must be complete; `just init` creates it and merges new variables
   into it (§8.3). Every `just` recipe that starts a stack runs `just init` first. The one exception is the
   image prefix of `docker-compose.prod.yml`, written `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}` (`-`, not
   `:-`): an unset prefix pulls from GHCR, and an explicitly empty prefix selects locally built images (the
@@ -449,9 +450,15 @@ services:
     logging: *logging
     labels:
       - traefik.enable=true
-      - traefik.http.routers.scantor.rule=Host(`${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.scantor.rule=Host(`${SCANTOR_DASHBOARD_SUBDOMAIN:+${SCANTOR_DASHBOARD_SUBDOMAIN}.}${SCANTOR_DOMAIN}`)
       - traefik.http.routers.scantor.service=scantor
       - traefik.http.services.scantor.loadbalancer.server.port=3000
+      - traefik.http.routers.scantor-root.rule=Host(`${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.scantor-root.priority=1
+      - traefik.http.routers.scantor-root.service=scantor
+      - traefik.http.routers.scantor-root.middlewares=scantor-root-redirect
+      - traefik.http.middlewares.scantor-root-redirect.redirectregex.regex=^https?://[^/]+(.*)$$
+      - traefik.http.middlewares.scantor-root-redirect.redirectregex.replacement=${SCANTOR_PUBLIC_URL}$${1}
       - traefik.http.routers.scantor-editor.rule=Host(`editor.${SCANTOR_DOMAIN}`)
       - traefik.http.routers.scantor-editor.service=scantor-editor
       - traefik.http.services.scantor-editor.loadbalancer.server.port=3001
@@ -792,7 +799,7 @@ services:
       - --providers.file.directory=/etc/traefik/dynamic
       - --providers.file.watch=true
       - --entrypoints.web.address=:80
-      - --entrypoints.web.http.redirections.entrypoint.to=websecure
+      - --entrypoints.web.http.redirections.entrypoint.to=:${SCANTOR_HTTPS_PORT}
       - --entrypoints.web.http.redirections.entrypoint.scheme=https
       - --entrypoints.websecure.address=:443
       - --entrypoints.websecure.asdefault=true
@@ -920,9 +927,15 @@ services:
     logging: *logging
     labels:
       - traefik.enable=true
-      - traefik.http.routers.scantor.rule=Host(`${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.scantor.rule=Host(`${SCANTOR_DASHBOARD_SUBDOMAIN:+${SCANTOR_DASHBOARD_SUBDOMAIN}.}${SCANTOR_DOMAIN}`)
       - traefik.http.routers.scantor.service=scantor
       - traefik.http.services.scantor.loadbalancer.server.port=3000
+      - traefik.http.routers.scantor-root.rule=Host(`${SCANTOR_DOMAIN}`)
+      - traefik.http.routers.scantor-root.priority=1
+      - traefik.http.routers.scantor-root.service=scantor
+      - traefik.http.routers.scantor-root.middlewares=scantor-root-redirect
+      - traefik.http.middlewares.scantor-root-redirect.redirectregex.regex=^https?://[^/]+(.*)$$
+      - traefik.http.middlewares.scantor-root-redirect.redirectregex.replacement=${SCANTOR_PUBLIC_URL}$${1}
       - traefik.http.routers.scantor-editor.rule=Host(`editor.${SCANTOR_DOMAIN}`)
       - traefik.http.routers.scantor-editor.service=scantor-editor
       - traefik.http.services.scantor-editor.loadbalancer.server.port=3001
@@ -1040,14 +1053,15 @@ settings, such as an operator-provided default certificate (§7.4). Routers are 
 
 | Entrypoint | Address | Behaviour |
 |---|---|---|
-| `web` | `:80` | permanent redirect to `websecure`, scheme https |
+| `web` | `:80` | permanent redirect to the published HTTPS port `:${SCANTOR_HTTPS_PORT}`, scheme https (with 443 the URL carries no port, as a redirect to `websecure` would; another port, such as 10443 on a rootless host, stays in the URL) |
 | `websecure` | `:443` | `asdefault`; TLS for every HTTP router through the entrypoint (`http.tls=true`, certresolver, wildcard domains); TCP routers with `HostSNI` share the port and are matched first by the TLS ClientHello SNI; `respondingTimeouts.readTimeout=${SCANTOR_TRAEFIK_READ_TIMEOUT}`, because the default of 60 s for the whole request body breaks large S3 uploads |
 
 ### 7.3 Routers
 
 | Router | Kind | Rule | Target | Middlewares |
 |---|---|---|---|---|
-| `scantor` | HTTP | `Host(${SCANTOR_DOMAIN})` | orchestrator:3000 | – (the app authenticates; security headers come from Nitro) |
+| `scantor` | HTTP | `Host(${SCANTOR_DASHBOARD_SUBDOMAIN:+${SCANTOR_DASHBOARD_SUBDOMAIN}.}${SCANTOR_DOMAIN})`: `<domain>`, or `<subdomain>.<domain>` when `SCANTOR_DASHBOARD_SUBDOMAIN` is set | orchestrator:3000 | – (the app authenticates; security headers come from Nitro) |
+| `scantor-root` | HTTP | `Host(${SCANTOR_DOMAIN})`, `priority=1` | orchestrator:3000 | `scantor-root-redirect` (redirectregex to `${SCANTOR_PUBLIC_URL}` with the path and query kept). Without a dashboard subdomain its rule equals that of `scantor`, whose default priority (the rule length) wins, so it never matches. |
 | `scantor-editor` | HTTP | `Host(editor.${SCANTOR_DOMAIN})` | orchestrator:3001 | – (editor cookie, [editor](editor.md)) |
 | `registry` | HTTP | `Host(registry.${SCANTOR_DOMAIN})` | registry:5000 | – (token auth) |
 | `s3` | HTTP | `Host(s3.${SCANTOR_DOMAIN})` | rustfs:9000 | – (SigV4; Host preserved) |
@@ -1058,7 +1072,9 @@ settings, such as an operator-provided default certificate (§7.4). Routers are 
 | `amqp` | TCP | `HostSNI(amqp.${SCANTOR_DOMAIN})`, `tls=true` (terminated) | rabbitmq:5672 | – |
 | `mongo` | TCP | `HostSNI(mongo.${SCANTOR_DOMAIN})`, `tls=true` | mongo:27017 | – (only with `SCANTOR_EXPOSE_MONGO=true`) |
 
-- The subdomains are fixed, not configurable. The four admin-tool hosts (`traefik.`, `rabbitmq.`,
+- The subdomains are fixed, not configurable, except the dashboard's (`SCANTOR_DASHBOARD_SUBDOMAIN`, empty by
+  default: the bare domain). Its value must be one DNS label and none of the fixed hosts, or the orchestrator
+  refuses to start. The four admin-tool hosts (`traefik.`, `rabbitmq.`,
   `mongo-express.`, `rustfs.`) are also the redirect targets of `createToolsSession` and the
   `X-Forwarded-Host` allowlist of `toolsForwardAuth` ([auth](auth.md) §11, [api](api.md) §4.18).
 
@@ -1145,7 +1161,7 @@ orchestrator logs a warning at boot when a URL host does not match its fixed Tra
 
 | Variable | Value |
 |---|---|
-| `SCANTOR_PUBLIC_URL` | `https://scantor.example.com` |
+| `SCANTOR_PUBLIC_URL` | `https://scantor.example.com` (with `SCANTOR_DASHBOARD_SUBDOMAIN=dash`: `https://dash.scantor.example.com`; with a published HTTPS port other than 443, every URL below carries it, for example `https://scantor.example.com:10443`) |
 | `SCANTOR_EDITOR_URL` | `https://editor.scantor.example.com` |
 | `SCANTOR_S3_PUBLIC_URL` | `https://s3.scantor.example.com` |
 | `SCANTOR_AMQP_PUBLIC_URL` | `amqps://amqp.scantor.example.com:443` |
