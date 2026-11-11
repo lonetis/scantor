@@ -20,18 +20,28 @@ default_tag="latest"
 prefix="${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}"
 tag="${SCANTOR_IMAGE_TAG:-$default_tag}"
 
-# The container user needs the group that owns the Docker socket: the host's group on Linux, root
-# inside the VM of Docker Desktop and similar setups.
+# The host's Docker socket (rootless Docker: /run/user/<uid>/docker.sock).
+socket="${SCANTOR_DOCKER_SOCKET:-/var/run/docker.sock}"
+
+# The container runs as the invoking user with the group that owns the Docker socket: the host's
+# group on Linux, root inside the VM of Docker Desktop and similar setups. Rootless Docker maps
+# container root to the invoking user and cannot run other host uids, so there it runs as root.
+user="$(id -u):$(id -g)"
 socket_gid=0
-if [ "$(uname -s)" = Linux ] && [ -S /var/run/docker.sock ]; then
-  socket_gid="$(stat -L -c %g /var/run/docker.sock)"
+info=""
+if [ "$(uname -s)" = Linux ]; then
+  info="$(docker info --format '{{.OperatingSystem}} {{json .SecurityOptions}}' 2>/dev/null || true)"
+  case "$info" in
+    *name=rootless*) user="0:0" ;;
+    *) if [ -S "$socket" ]; then socket_gid="$(stat -L -c %g "$socket")"; fi ;;
+  esac
 fi
 
 # How the container reaches the host's localhost. Docker Desktop (also on Linux) routes the host
 # gateway to it; a Linux Docker Engine does not for ports bound to 127.0.0.1, such as the dev stack's.
 network="--add-host host.docker.internal:host-gateway"
 if [ "$(uname -s)" = Linux ]; then
-  case "$(docker info --format '{{.OperatingSystem}}' 2>/dev/null || true)" in
+  case "$info" in
     "Docker Desktop"*) ;;
     *) network="--network host --add-host host.docker.internal:127.0.0.1" ;;
   esac
@@ -46,9 +56,9 @@ fi
 # pair is always passed, so base images match the CLI image.
 # shellcheck disable=SC2086 # $network and $tty are lists of flags
 exec docker run --rm -i $tty --init \
-  -u "$(id -u):$(id -g)" --group-add "$socket_gid" -e HOME=/tmp \
+  -u "$user" --group-add "$socket_gid" -e HOME=/tmp \
   -v "$PWD:$PWD" -w "$PWD" \
-  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v "$socket:/var/run/docker.sock" \
   $network \
   -e SCANTOR_URL -e SCANTOR_TOKEN -e SCANTOR_CA_CERT -e SCANTOR_DEV_MODE \
   -e SCANTOR_IMAGE_PREFIX="$prefix" -e SCANTOR_IMAGE_TAG="$tag" \

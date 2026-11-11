@@ -293,7 +293,10 @@ Image references used by the binary (base images for builds, the scantor image f
   normally has neither variable set and uses its own version. The docker shim `scantor.sh` always passes
   the pair of the image it runs (default `ghcr.io/lonetis/` and the release the shim was downloaded
   with), so the containerized CLI references the base images of its own version; it runs as the invoking
-  user with the Docker socket's group, `HOME=/tmp` and the current directory mounted at the same path.
+  user with the Docker socket's group, `HOME=/tmp` and the current directory mounted at the same path. The
+  socket is `SCANTOR_DOCKER_SOCKET` (rootless Docker: `/run/user/<uid>/docker.sock`); under rootless Docker,
+  which maps container root to the invoking user and cannot start containers as other host uids, the shim
+  runs as root in the container instead, so files it writes still belong to the user.
   `host.docker.internal` names the host for the CLI's loopback rewrite: `--add-host
   host.docker.internal:host-gateway` on Docker Desktop, and on a Linux Docker Engine `--network host` with
   `--add-host host.docker.internal:127.0.0.1`, because Docker publishes a port bound to `127.0.0.1` (the dev

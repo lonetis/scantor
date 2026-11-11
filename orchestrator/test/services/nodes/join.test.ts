@@ -40,6 +40,7 @@ services:
     container_name: scantor-node
     stop_grace_period: 30s
     volumes:
+      # rootless Docker: /run/user/<uid>/docker.sock:/var/run/docker.sock
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - SCANTOR_URL=https://scantor.example.com
@@ -48,6 +49,8 @@ services:
       # - SCANTOR_NODE_MAX_WORKERS=8
       # - SCANTOR_NODE_DIND=sysbox
       # - SCANTOR_CA_CERT=-----BEGIN CERTIFICATE-----...
+      # rootless Docker without br_netfilter (workers can then reach each other):
+      # - SCANTOR_ALLOW_UNISOLATED_NETWORKS=true
 `)
   })
 

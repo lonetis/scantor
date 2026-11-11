@@ -126,7 +126,10 @@ docker run -d --name scantor-node --restart unless-stopped \
   ghcr.io/lonetis/scantor:1.4.0 node
 ```
 
-`compose` (written to `compose.yml` in an empty directory, then `docker compose up -d`):
+`compose` (written to `compose.yml` in an empty directory, then `docker compose up -d`). Its comments name
+the two changes a rootless Docker host needs: the user's socket `/run/user/<uid>/docker.sock` as the mount
+source, and `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true` when root has not loaded `br_netfilter` (§6.8). The
+one-line `dockerRun` has no room for comments; edit its `-v` source the same way.
 
 ```yaml
 name: scantor-node
@@ -145,6 +148,7 @@ services:
     container_name: scantor-node
     stop_grace_period: 30s
     volumes:
+      # rootless Docker: /run/user/<uid>/docker.sock:/var/run/docker.sock
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
       - SCANTOR_URL=https://scantor.example.com
@@ -153,6 +157,8 @@ services:
       # - SCANTOR_NODE_MAX_WORKERS=8
       # - SCANTOR_NODE_DIND=sysbox
       # - SCANTOR_CA_CERT=-----BEGIN CERTIFICATE-----...
+      # rootless Docker without br_netfilter (workers can then reach each other):
+      # - SCANTOR_ALLOW_UNISOLATED_NETWORKS=true
 ```
 
 The UI shows both snippets next to a checklist:

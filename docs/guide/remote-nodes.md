@@ -75,6 +75,7 @@ private address (`SCANTOR_BIND_ADDRESS`).
        container_name: scantor-node
        stop_grace_period: 30s
        volumes:
+         # rootless Docker: /run/user/<uid>/docker.sock:/var/run/docker.sock
          - /var/run/docker.sock:/var/run/docker.sock
        environment:
          - SCANTOR_URL=https://scantor.example.com
@@ -83,6 +84,8 @@ private address (`SCANTOR_BIND_ADDRESS`).
          # - SCANTOR_NODE_MAX_WORKERS=8
          # - SCANTOR_NODE_DIND=sysbox
          # - SCANTOR_CA_CERT=-----BEGIN CERTIFICATE-----...
+         # rootless Docker without br_netfilter (workers can then reach each other):
+         # - SCANTOR_ALLOW_UNISOLATED_NETWORKS=true
    ```
 
    Use the exact snippet the master printed: it has the right image and URL. `scantor nodes join
@@ -102,6 +105,13 @@ containers disabled. Optional daemon settings (`SCANTOR_NODE_MAX_WORKERS`, `SCAN
 `SCANTOR_NODE_EGRESS_DENY`, the worker container limits such as `SCANTOR_NODE_PIDS_LIMIT`, logging) are
 environment variables of the daemon container; `.env.example` lists them all with their defaults. Never
 give a remote node `SCANTOR_SECRET`.
+
+**Rootless Docker.** Mount the user's socket instead of `/var/run/docker.sock`
+(`-v /run/user/<uid>/docker.sock:/var/run/docker.sock`). Rootless Docker cannot disable traffic between
+containers unless root loads the `br_netfilter` kernel module; without it the daemon creates no
+`scantor-workers` network and runs no worker. `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true` lets it create the
+network without that isolation: workers of different scans and users on the node can then reach each other,
+and Admin → Nodes shows "Network not isolated" for the node.
 
 ## Tokens
 

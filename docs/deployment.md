@@ -141,7 +141,7 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
 | other | `container_name: scantor-orchestrator`, `mem_limit: ${SCANTOR_ORCHESTRATOR_MEMORY_LIMIT}`, `stop_grace_period: 30s` (components stop at the signal and requeue their jobs, waits and long-polls answer at once, Nitro drains the open requests, then the AMQP and MongoDB clients close; [architecture](architecture.md) §4.1) |
 | networks | `scantor`, `scantor-sandbox`, `scantor-scripts` (the service name `orchestrator` is its DNS alias on all three) |
 | ports | 3000 and 3001 (§1) |
-| volumes | `/var/run/docker.sock` (builds, helpers, editors, test runs, script runs, registry GC exec); `scantor-editor-sockets:/run/scantor/editor-sockets`; `scantor-registry-auth:/run/scantor/registry-auth`. **Never `scantor-workspaces`.** |
+| volumes | the host's Docker socket `${SCANTOR_DOCKER_SOCKET}` at `/var/run/docker.sock` (builds, helpers, editors, test runs, script runs, registry GC exec); `scantor-editor-sockets:/run/scantor/editor-sockets`; `scantor-registry-auth:/run/scantor/registry-auth`. **Never `scantor-workspaces`.** |
 | env | `env_file: .env` (dev adds `SCANTOR_IMAGE_PREFIX=`, `SCANTOR_IMAGE_TAG=dev`, `SCANTOR_BUILD_CACHE_MAX_BYTES=0` because the dev stack shares the developer's Docker daemon and its build cache with other projects, and `NODE_ENV=development`) |
 | process | runs as root inside its container (Docker socket; connects to the editors' 0600 sockets) |
 
@@ -166,7 +166,7 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 | healthcheck | `/usr/local/bin/scantor node healthcheck` every 30 s, 3 retries, `start_period` 60 s ([nodes](nodes.md) §7.1) |
 | other | `container_name: scantor-node`, `stop_grace_period: 30s`. Workers keep running when it stops ([nodes](nodes.md) §7.5). |
 | networks | `scantor` only (reaches `orchestrator:3000`). The workers it creates join `scantor-sandbox`. |
-| volumes | `/var/run/docker.sock` |
+| volumes | `${SCANTOR_DOCKER_SOCKET}` at `/var/run/docker.sock` |
 | env | `SCANTOR_URL=${SCANTOR_INTERNAL_URL}`, `SCANTOR_NODE_BUILTIN=true`, `SCANTOR_SECRET`, `SCANTOR_NODE_MAX_WORKERS=${SCANTOR_BUILTIN_NODE_MAX_WORKERS}`, `SCANTOR_NODE_DIND=${SCANTOR_BUILTIN_NODE_DIND}`, `SCANTOR_NODE_EGRESS_DENY`, `SCANTOR_NODE_PIDS_LIMIT`, `SCANTOR_NODE_SHM_SIZE`, `SCANTOR_NODE_NOFILE`, `SCANTOR_NODE_WORKER_LOG_MAX_SIZE`, `SCANTOR_NODE_WORKER_LOG_MAX_FILES`, `SCANTOR_NODE_IMAGE_RETENTION`, `SCANTOR_NODE_PULL_TIMEOUT`, `SCANTOR_LOG_LEVEL`, `SCANTOR_LOG_FORMAT` |
 
 ### 4.3 mongo
@@ -324,7 +324,7 @@ attacker-influenced data, so never publish it any other way. Secrets in the URLs
 | other | `container_name: scantor-traefik`, `profiles: [traefik]` |
 | networks | `scantor` |
 | ports | `${SCANTOR_TRAEFIK_BIND_ADDRESS}:${SCANTOR_HTTP_PORT}:80`, `${SCANTOR_TRAEFIK_BIND_ADDRESS}:${SCANTOR_HTTPS_PORT}:443` |
-| volumes | `/var/run/docker.sock:/var/run/docker.sock:ro`, `${SCANTOR_TRAEFIK_ACME_DATA}:/acme` (default the volume `scantor-traefik-acme`, §5.1), `./traefik/dynamic:/etc/traefik/dynamic:ro` (file-provider dynamic configuration, empty by default, §7.4) |
+| volumes | `${SCANTOR_DOCKER_SOCKET}:/var/run/docker.sock:ro`, `${SCANTOR_TRAEFIK_ACME_DATA}:/acme` (default the volume `scantor-traefik-acme`, §5.1), `./traefik/dynamic:/etc/traefik/dynamic:ro` (file-provider dynamic configuration, empty by default, §7.4) |
 | env | `env_file: .env` (DNS provider credentials such as `CF_DNS_API_TOKEN`, §7.6) |
 | labels | the dashboard router and the shared `scantor-tools-auth` forwardAuth middleware (§7.5) |
 
@@ -442,7 +442,7 @@ services:
       - scantor-sandbox
       - scantor-scripts
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SCANTOR_DOCKER_SOCKET}:/var/run/docker.sock
       - scantor-editor-sockets:/run/scantor/editor-sockets
       - scantor-registry-auth:/run/scantor/registry-auth
     env_file:
@@ -467,7 +467,7 @@ services:
     networks:
       - scantor
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SCANTOR_DOCKER_SOCKET}:/var/run/docker.sock
     environment:
       - SCANTOR_URL=${SCANTOR_INTERNAL_URL}
       - SCANTOR_NODE_BUILTIN=true
@@ -767,7 +767,7 @@ services:
     networks:
       - scantor
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${SCANTOR_DOCKER_SOCKET}:/var/run/docker.sock:ro
       - ${SCANTOR_TRAEFIK_ACME_DATA}:/acme
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
     env_file:
@@ -871,7 +871,7 @@ services:
     volumes:
       - .:/app
       - scantor-orchestrator-node-modules:/app/orchestrator/node_modules
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SCANTOR_DOCKER_SOCKET}:/var/run/docker.sock
       - scantor-editor-sockets:/run/scantor/editor-sockets
       - scantor-registry-auth:/run/scantor/registry-auth
     environment:

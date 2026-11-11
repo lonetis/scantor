@@ -47,7 +47,7 @@ services:
     volumes:
       - .:/app
       - scantor-orchestrator-node-modules:/app/orchestrator/node_modules
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SCANTOR_DOCKER_SOCKET}:/var/run/docker.sock
       - scantor-editor-sockets:/run/scantor/editor-sockets
       - scantor-registry-auth:/run/scantor/registry-auth
     environment:
@@ -77,7 +77,7 @@ services:
     networks:
       - scantor
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${SCANTOR_DOCKER_SOCKET}:/var/run/docker.sock
     environment:
       - SCANTOR_URL=${SCANTOR_INTERNAL_URL}
       - SCANTOR_NODE_BUILTIN=true
@@ -377,7 +377,7 @@ services:
     networks:
       - scantor
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${SCANTOR_DOCKER_SOCKET}:/var/run/docker.sock:ro
       - ${SCANTOR_TRAEFIK_ACME_DATA}:/acme
       - ./traefik/dynamic:/etc/traefik/dynamic:ro
     env_file:

@@ -36,10 +36,12 @@ npm_cache := "-v scantor-dev-npm:/tmp/.npm"
 uv_cache := "-v scantor-dev-uv:/tmp/.cache/uv"
 cache_volumes := "scantor-dev-gomod scantor-dev-gobuild scantor-dev-npm scantor-dev-uv"
 
-# Group that owns the Docker socket inside containers: the host's group on Linux, root inside the
-# VM of Docker Desktop and similar setups.
-docker_gid := if os() == "linux" { `stat -L -c %g /var/run/docker.sock 2>/dev/null || echo 0` } else { "0" }
-docker_socket := "-v /var/run/docker.sock:/var/run/docker.sock --group-add " + docker_gid
+# The host's Docker socket (SCANTOR_DOCKER_SOCKET from the shell; rootless Docker: /run/user/<uid>/docker.sock),
+# and the group that owns it inside containers: the host's group on Linux, root inside the VM of Docker Desktop and
+# similar setups.
+docker_socket_path := env("SCANTOR_DOCKER_SOCKET", "/var/run/docker.sock")
+docker_gid := if os() == "linux" { `stat -L -c %g "${SCANTOR_DOCKER_SOCKET:-/var/run/docker.sock}" 2>/dev/null || echo 0` } else { "0" }
+docker_socket := "-v " + quote(docker_socket_path) + ":/var/run/docker.sock --group-add " + docker_gid
 
 # docker-bake.hcl with the build parameters of dev images (docs/development.md §10).
 bake := 'IMAGE_PREFIX= IMAGE_TAG=dev VERSION=dev COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)" docker buildx bake'
@@ -473,7 +475,7 @@ test-orchestrator-integration *args:
     echo "==> Running the integration tests"
     docker run --rm --init --name "$prefix" --network "$prefix" --label scantor.test=true \
       -v {{quote(root)}}:/repo:ro -w /src/orchestrator \
-      -v /var/run/docker.sock:/var/run/docker.sock \
+      -v {{quote(docker_socket_path)}}:/var/run/docker.sock \
       -v "$prefix-editor-sockets:/run/scantor/editor-sockets" \
       -v "$prefix-editor-home:/volumes/editor-home" -v "$prefix-editor-workspaces:/volumes/workspaces" \
       -v "$prefix-scantor-bin:/opt/scantor-bin:ro" \

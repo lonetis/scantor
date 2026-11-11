@@ -115,8 +115,9 @@ Conventions for recipes:
   private recipe `_caches`, a dependency of every tool recipe and run by `just init`, creates missing ones
   (label `scantor.dev=true`) and `chown`s them to the invoking user, so Docker never creates them owned
   by root.
-- Recipes that need Docker (integration tests, conformance, images) mount `/var/run/docker.sock` and
-  label every container they create (`scantor.test=true` or `scantor.dev=true`).
+- Recipes that need Docker (integration tests, conformance, images) mount the host's Docker socket
+  (`SCANTOR_DOCKER_SOCKET` from the shell, as for `scantor.sh`) at `/var/run/docker.sock` and label every
+  container they create (`scantor.test=true` or `scantor.dev=true`).
 - Multi-line recipes are `#!/usr/bin/env bash` + `set -euo pipefail` shebang recipes with `==>` progress
   lines. The justfile does not use `dotenv-load`: compose reads `.env` itself, and recipes stay independent
   of local configuration.
