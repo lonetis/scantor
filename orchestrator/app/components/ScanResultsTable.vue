@@ -118,8 +118,17 @@ function reload(): void {
 // The first page waits for the default columns (from the revision) unless columns were saved for this task.
 const columnsKnown = computed(() => prefs.getResultColumns(props.scan.task.id) !== null || !revisionPending.value)
 
+// One source per value: the page replaces `scan` at every poll (3 s while it runs), and a single getter returning an
+// array would yield a new array each time, which reloaded the table from the start whether or not auto-refresh was on.
 watch(
-  () => [props.scan.id, JSON.stringify(filters.value.statuses), filters.value.advanced, JSON.stringify(filters.value.columns), startAfter.value, columnsKnown.value],
+  [
+    () => props.scan.id,
+    () => JSON.stringify(filters.value.statuses),
+    () => filters.value.advanced,
+    () => JSON.stringify(filters.value.columns),
+    startAfter,
+    columnsKnown,
+  ],
   () => {
     if (columnsKnown.value) reload()
   },

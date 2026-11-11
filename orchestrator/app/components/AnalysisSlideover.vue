@@ -50,7 +50,8 @@ async function load(): Promise<void> {
   }
 }
 
-watch(() => [props.scan.id, seq.value], () => void load(), { immediate: true })
+// Separate sources, so a new `scan` object of the same scan (every poll of the page) does not reload the analysis.
+watch([() => props.scan.id, seq], () => void load(), { immediate: true })
 
 // The describe output names where FileRefs live in the result (`fileRefPaths`).
 const revisionPath = computed(() => (open.value ? `/api/tasks/${props.scan.task.id}/revisions/${props.scan.revision.id}` : null))

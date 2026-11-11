@@ -46,7 +46,8 @@ async function loadPreview(): Promise<void> {
   }
 }
 
-watch(() => [props.analysisId, props.file.id, props.preview], () => {
+// Separate sources, so a new `file` object of the same file (a refreshed results row) does not reload the preview.
+watch([() => props.analysisId, () => props.file.id, () => props.preview], () => {
   previewInfo.value = null
   previewFailed.value = false
   void loadPreview()

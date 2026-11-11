@@ -854,8 +854,8 @@ test.describe('results of a finished scan', () => {
 
 test.describe('results of a running scan', () => {
   test(
-    'auto-refresh, workers, worker logs and the in-flight analyses while the scan runs',
-    { tag: ['@UI-RES-006', '@UI-RES-018', '@UI-RES-019', '@UI-RES-020'] },
+    'auto-refresh, the drawer, workers, worker logs and the in-flight analyses while the scan runs',
+    { tag: ['@UI-RES-006', '@UI-RES-007', '@UI-RES-018', '@UI-RES-019', '@UI-RES-020'] },
     async ({ page, api, user, openapi }) => {
       test.setTimeout(180_000)
       const sleep = await sharedTask(user, openapi, 'sleep')
@@ -872,12 +872,43 @@ test.describe('results of a running scan', () => {
         })
         .toBeGreaterThan(0)
 
+      // Requests of the scan (polled every 3 s while it runs), its results list and the drawer's analysis.
+      const requests = { scan: 0, list: 0, analysis: 0 }
+      page.on('request', (request) => {
+        const path = new URL(request.url()).pathname
+        if (path === `/api/scans/${scan.id}`) requests.scan++
+        else if (path === `/api/scans/${scan.id}/analyses`) requests.list++
+        else if (path === `/api/analyses/${scan.id}-0`) requests.analysis++
+      })
+      /** Waits until the page polled the scan at least `polls` more times, so it re-rendered with a new scan object. */
+      const scanPolls = async (polls: number) => {
+        const target = requests.scan + polls
+        await expect.poll(() => requests.scan, { timeout: 20_000 }).toBeGreaterThanOrEqual(target)
+      }
+
       await openScanPage(page, scan.id, '?tab=results')
       const autoRefresh = page.getByRole('switch', { name: 'Auto-refresh' })
       await expect(autoRefresh).toBeChecked()
       await page.waitForRequest((request) => request.url().includes(`/api/scans/${scan.id}/analyses?`), { timeout: 20_000 })
       await autoRefresh.click()
       await expect(autoRefresh).not.toBeChecked()
+      // Switched off, the table is never reloaded, although the page keeps polling the scan (every 3 s) and the
+      // auto-refresh interval (10 s) passes.
+      const listed = requests.list
+      await scanPolls(4)
+      await page.waitForTimeout(1000)
+      expect(requests.list, 'results requests after auto-refresh was switched off').toBe(listed)
+
+      // The open drawer loads its analysis once; the scan polls do not reload it.
+      await openScanPage(page, scan.id, '?tab=results&analysis=0')
+      // A sleeping analysis may not be stored yet: the drawer then says so, and the check holds all the same.
+      await expect(drawer(page, 0)).toBeVisible()
+      await expect.poll(() => requests.analysis).toBeGreaterThan(0)
+      const loadedAnalysis = requests.analysis
+      await scanPolls(3)
+      expect(requests.analysis, 'analysis requests while the drawer stays open').toBe(loadedAnalysis)
+      await page.keyboard.press('Escape')
+      await expect(drawer(page, 0)).toHaveCount(0)
 
       await openScanTab(page, 'Workers')
       await expect(page.getByText(/^\d+ active · \d+ pending · \d+ desired$/)).toBeVisible()
