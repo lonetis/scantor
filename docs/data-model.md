@@ -579,7 +579,7 @@ Indexes: `{scanId: 1, role: 1, state: 1}`, `{nodeId: 1, state: 1}`, `{userId: 1,
 | `maxWorkers` | int \| null | ✓ | admin override; effective capacity = min(`info.maxWorkers`, `maxWorkers`) |
 | `cordoned` | boolean | ✓ | no new placements; existing workers stay |
 | `instance` | `{id, version, startedAt, lastSeenAt}` \| null | ✓ | lease holder; the lease is live while `lastSeenAt > now − SCANTOR_NODE_OFFLINE_AFTER` |
-| `info` | object \| null | ✓ | last report: `{version, hostname, os, arch, kernel, dockerVersion, cpus, memoryBytes, diskFreeBytes, dindMode: "disabled"\|"sysbox"\|"privileged", maxWorkers, egressDenyApplied, clockOffsetMs}`. `dindMode` is the **effective** mode (daemon `SCANTOR_NODE_DIND`, but a node configured for `sysbox` without the `sysbox-runc` runtime reports `disabled`); `maxWorkers` is daemon `SCANTOR_NODE_MAX_WORKERS` (0 → number of CPUs) |
+| `info` | object \| null | ✓ | last report: `{version, hostname, os, arch, kernel, dockerVersion, cpus, memoryBytes, diskFreeBytes, dindMode: "disabled"\|"sysbox"\|"privileged", maxWorkers, egressDenyApplied, networkIsolated?, clockOffsetMs}`. `dindMode` is the **effective** mode (daemon `SCANTOR_NODE_DIND`, but a node configured for `sysbox` without the `sysbox-runc` runtime reports `disabled`); `maxWorkers` is daemon `SCANTOR_NODE_MAX_WORKERS` (0 → number of CPUs) |
 | `assignmentsRev` | int ≥ 0 | ✓ | desired-state revision; incremented on every change of the node's desired set or log requests |
 | `lastSeenAt` | Date \| null | ✓ | last hello/status |
 | `createdBy` | uuid \| null | ✓ | admin who created it (null for built-in) |

@@ -470,6 +470,8 @@ export interface NodeDoc {
     dindMode: DindMode
     maxWorkers: number
     egressDenyApplied: boolean
+    /** absent until a daemon that reports it has connected (docs/nodes.md §6.8) */
+    networkIsolated?: boolean
     clockOffsetMs?: number
   } | null
   assignmentsRev: number

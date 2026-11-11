@@ -257,7 +257,11 @@ func apiWriteNode(w io.Writer, n *api.Node) error {
 		if !i.EgressDenyApplied {
 			egress = "not applied"
 		}
-		kv.add("daemon", fmt.Sprintf("%s, DinD %s, egress deny list %s", i.Version, i.DinDMode, egress))
+		daemon := fmt.Sprintf("%s, DinD %s, egress deny list %s", i.Version, i.DinDMode, egress)
+		if i.NetworkIsolated != nil && !*i.NetworkIsolated {
+			daemon += ", network not isolated"
+		}
+		kv.add("daemon", daemon)
 	}
 	kv.add("token", n.TokenPrefix)
 	kv.add("last seen", apiTime(n.LastSeenAt))

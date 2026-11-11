@@ -641,7 +641,7 @@ A note links to the authoring guides ([templates](templates.md) is the internal 
   hyphens." under the filter instead of a request): name (mono) + "built-in" pill, state badge, cordoned
   badge, pool, labels (chips), arch, CPUs, memory, free disk, workers `activeWorkers / capacity`, DinD
   mode, version, last seen (relative), warnings: egress deny not applied (`info.egressDenyApplied ===
-  false`), clock offset > 2 s.
+  false`), "Network not isolated" (`info.networkIsolated === false`, [nodes](nodes.md) §6.8), clock offset > 2 s.
 - Navbar "Add node" → `NodeFormModal` (name slug, pool default `shared`, labels `KeyValueEditor` ≤ 32,
   `maxWorkers` optional) → `createNode` → `SecretRevealModal` showing the token **once** with copy, the
   `docker run` command and the compose snippet from `join` (each in a `CodeBlock` with copy), and the
@@ -653,7 +653,9 @@ A note links to the authoring guides ([templates](templates.md) is the internal 
   `revokeNodeToken`), Delete (`ConfirmModal` → `deleteNode`). Rotate, revoke and delete are disabled for
   the built-in node; its menu explains why in a label above them ("The built-in node's token is derived from
   SCANTOR_SECRET"). The actions button's tooltip is its name, "Node actions for <name>" (§11 rule 1).
-- Node detail: info `dl` (all `info` fields, instance version and start, lease), workers on the node
+- Node detail: info `dl` (all `info` fields, `networkIsolated` as "Worker network" or, on the built-in node,
+  "Test-run network": isolated, not isolated or – for daemons that do not report it; instance version and
+  start, lease), workers on the node
   (`listNodeWorkers`: scan link, role, state, processes, restarts), node events (`listNodeEvents`).
 
 ### 5.16 Users (`/admin/users`)

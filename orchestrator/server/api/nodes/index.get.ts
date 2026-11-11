@@ -71,6 +71,7 @@ defineRouteMeta({
                   dindMode: { type: 'string', enum: ['disabled', 'sysbox', 'privileged'] },
                   maxWorkers: { type: 'integer' },
                   egressDenyApplied: { type: 'boolean' },
+                  networkIsolated: { type: 'boolean', description: 'absent until a daemon that reports it has connected' },
                   clockOffsetMs: { type: 'integer' },
                 },
               },

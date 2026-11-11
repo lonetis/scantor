@@ -17,6 +17,7 @@ export interface NodeInfo {
   dindMode: DindMode
   maxWorkers: number
   egressDenyApplied: boolean
+  networkIsolated?: boolean
   clockOffsetMs?: number
 }
 

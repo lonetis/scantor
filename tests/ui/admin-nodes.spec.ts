@@ -84,7 +84,9 @@ async function patchBuiltinWarnings(page: Page, builtinId: string): Promise<void
     (url) => url.pathname === '/api/nodes' && !url.searchParams.has('state') && !url.searchParams.has('pool'),
     (route) =>
       patchJsonResponse<ItemList<Node>>(route, (body) => ({
-        items: body.items.map((node) => (node.id === builtinId ? { ...node, info: { ...node.info!, egressDenyApplied: false, clockOffsetMs: 7_500 } } : node)),
+        items: body.items.map((node) =>
+          node.id === builtinId ? { ...node, info: { ...node.info!, egressDenyApplied: false, networkIsolated: false, clockOffsetMs: 7_500 } } : node,
+        ),
       })),
   )
 }
@@ -198,23 +200,29 @@ test.describe('nodes table', () => {
     },
   )
 
-  test('warns when a node did not apply the egress deny list or its clock is off', { tag: ['@UI-ADMIN-001'] }, async ({ page, adminApi }) => {
-    const builtin = await builtinNode(adminApi)
-    await patchBuiltinWarnings(page, builtin.id)
-    await openPage(page, '/admin/nodes')
-    const row = nodeRow(page, builtin.id)
-    const egress = row.locator(`[aria-label="${builtin.name}: Egress deny list not applied"]`)
-    const clock = row.locator(`[aria-label="${builtin.name}: Clock off by 7.5s"]`)
-    await expect(egress).toBeVisible()
-    await expect(clock).toBeVisible()
-    await egress.hover()
-    await expect(page.getByRole('tooltip')).toHaveText('Egress deny list not applied')
-    // The open tooltip may cover the neighbouring icon: move away and let it close first.
-    await page.mouse.move(0, 0)
-    await expect(page.getByRole('tooltip')).toHaveCount(0)
-    await clock.hover()
-    await expect(page.getByRole('tooltip')).toHaveText('Clock off by 7.5s')
-  })
+  test(
+    'warns when a node did not apply the egress deny list, its network is not isolated or its clock is off',
+    { tag: ['@UI-ADMIN-001'] },
+    async ({ page, adminApi }) => {
+      const builtin = await builtinNode(adminApi)
+      await patchBuiltinWarnings(page, builtin.id)
+      await openPage(page, '/admin/nodes')
+      const row = nodeRow(page, builtin.id)
+      const egress = row.locator(`[aria-label="${builtin.name}: Egress deny list not applied"]`)
+      const network = row.locator(`[aria-label="${builtin.name}: Network not isolated"]`)
+      const clock = row.locator(`[aria-label="${builtin.name}: Clock off by 7.5s"]`)
+      await expect(egress).toBeVisible()
+      await expect(network).toBeVisible()
+      await expect(clock).toBeVisible()
+      await egress.hover()
+      await expect(page.getByRole('tooltip')).toHaveText('Egress deny list not applied')
+      // The open tooltip may cover the neighbouring icon: move away and let it close first.
+      await page.mouse.move(0, 0)
+      await expect(page.getByRole('tooltip')).toHaveCount(0)
+      await clock.hover()
+      await expect(page.getByRole('tooltip')).toHaveText('Clock off by 7.5s')
+    },
+  )
 })
 
 test.describe('adding a node', () => {
@@ -549,6 +557,7 @@ test.describe('node page', () => {
       await expect(fact('CPUs')).toHaveText(String(info.cpus))
       await expect(fact('DinD mode')).toHaveText(info.dindMode)
       await expect(fact('Egress deny list')).toHaveText(info.egressDenyApplied ? 'applied' : 'not applied')
+      await expect(fact('Test-run network')).toHaveText(info.networkIsolated === false ? 'not isolated' : 'isolated')
       await expect(fact('Instance version')).toHaveText(builtin.instance!.version)
       await expect(fact('Instance started')).not.toHaveText('')
       await expect(page.locator('[aria-label="Workers on this node"]')).toBeVisible()

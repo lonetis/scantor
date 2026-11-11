@@ -54,6 +54,10 @@ const infoRows = computed<InfoRow[]>(() => {
       { label: 'DinD mode', value: info.dindMode },
       { label: 'Reported max workers', value: String(info.maxWorkers) },
       { label: 'Egress deny list', value: info.egressDenyApplied ? 'applied' : 'not applied' },
+      {
+        label: node.value?.builtIn ? 'Test-run network' : 'Worker network',
+        value: info.networkIsolated === undefined ? '–' : info.networkIsolated ? 'isolated' : 'not isolated',
+      },
       { label: 'Clock offset', value: info.clockOffsetMs === undefined ? '–' : `${info.clockOffsetMs} ms` },
     )
   }

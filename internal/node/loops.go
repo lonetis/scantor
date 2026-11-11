@@ -273,6 +273,7 @@ func (s *session) sendStatus(ctx context.Context) error {
 			DinDMode:          s.d.dind,
 			MaxWorkers:        s.d.maxWorkers(),
 			EgressDenyApplied: s.d.egressOK.Load(),
+			NetworkIsolated:   !s.d.networkUnisolated.Load(),
 		},
 		Workers: workers,
 	}

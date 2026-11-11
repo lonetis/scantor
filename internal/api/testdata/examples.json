@@ -379,7 +379,8 @@
       "diskFreeBytes": 412316860416,
       "dindMode": "disabled",
       "maxWorkers": 8,
-      "egressDenyApplied": true
+      "egressDenyApplied": true,
+      "networkIsolated": true
     },
     "containers": [
       {
@@ -462,7 +463,8 @@
       "diskFreeBytes": 409600000000,
       "dindMode": "disabled",
       "maxWorkers": 8,
-      "egressDenyApplied": true
+      "egressDenyApplied": true,
+      "networkIsolated": true
     },
     "workers": [
       {

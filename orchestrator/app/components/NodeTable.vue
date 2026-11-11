@@ -35,6 +35,7 @@ function capacity(node: ScantorNode): number | null {
 function warnings(node: ScantorNode): string[] {
   const result: string[] = []
   if (node.info?.egressDenyApplied === false) result.push('Egress deny list not applied')
+  if (node.info?.networkIsolated === false) result.push('Network not isolated')
   const offset = node.info?.clockOffsetMs
   if (offset !== undefined && Math.abs(offset) > CLOCK_SKEW_MS) result.push(`Clock off by ${formatDuration(Math.abs(offset))}`)
   return result

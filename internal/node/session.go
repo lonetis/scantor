@@ -447,24 +447,51 @@ func (s *session) networkUsable() (bool, string) {
 
 // ensureNetwork checks that the worker network exists and, on remote nodes, creates it when it is
 // missing. On remote nodes an existing network must have the properties the daemon creates it with
-// (container.CheckIsolatedNetwork): a scantor-workers network made by hand or by another tool, or
-// edited, could let workers of different scans and users reach each other (docs/nodes.md §6.8). The
-// daemon never deletes networks.
+// (container.CheckWorkerNetwork): a scantor-workers network made by hand or by another tool, or
+// edited, could let workers of different scans and users reach each other (docs/nodes.md §6.8). With
+// SCANTOR_ALLOW_UNISOLATED_NETWORKS the network may allow inter-container traffic; the daemon reports
+// that as networkIsolated: false. The daemon never deletes networks.
 func (s *session) ensureNetwork() error {
+	if s.d.cfg.BuiltIn {
+		return s.ensureBuiltInNetwork()
+	}
 	existing, err := s.d.docker.NetworkInspect(s.opCtx, s.ws.network, client.NetworkInspectOptions{})
+	var isolated bool
 	switch {
-	case err == nil && s.d.cfg.BuiltIn:
-		return nil
 	case err == nil:
-		return container.CheckIsolatedNetwork(existing.Network)
+		isolated, err = container.CheckWorkerNetwork(existing.Network, s.d.cfg.AllowUnisolatedNetworks)
 	case !container.IsNotFound(err):
 		return fmt.Errorf("inspect network %s: %w", s.ws.network, err)
-	case s.d.cfg.BuiltIn:
-		return fmt.Errorf("network %s does not exist (it is created by the compose stack)", s.ws.network)
+	default:
+		isolated, err = container.EnsureNetwork(s.opCtx, s.d.docker, s.ws.network, s.d.cfg.AllowUnisolatedNetworks)
+		if err == nil {
+			s.log.Info("created the worker network", "network", s.ws.network, "isolated", isolated)
+		}
 	}
-	if err := container.EnsureNetwork(s.opCtx, s.d.docker, s.ws.network); err != nil {
+	if err != nil {
 		return err
 	}
-	s.log.Info("created the worker network", "network", s.ws.network)
+	s.d.setNetworkIsolated(s.log, s.ws.network, isolated)
+	return nil
+}
+
+// ensureBuiltInNetwork checks that scantor-sandbox, which compose creates, exists. Workers on it reach
+// the orchestrator, RabbitMQ and RustFS by design, so the built-in node reports the isolation of
+// scantor-egress instead: the network of the master's test runs and git helpers, which the orchestrator
+// creates without inter-container isolation only with SCANTOR_ALLOW_UNISOLATED_NETWORKS.
+func (s *session) ensureBuiltInNetwork() error {
+	if _, err := s.d.docker.NetworkInspect(s.opCtx, s.ws.network, client.NetworkInspectOptions{}); err != nil {
+		if container.IsNotFound(err) {
+			return fmt.Errorf("network %s does not exist (it is created by the compose stack)", s.ws.network)
+		}
+		return fmt.Errorf("inspect network %s: %w", s.ws.network, err)
+	}
+	egress, err := s.d.docker.NetworkInspect(s.opCtx, container.NetworkEgress, client.NetworkInspectOptions{})
+	switch {
+	case err == nil:
+		s.d.setNetworkIsolated(s.log, container.NetworkEgress, container.InterContainerTrafficDisabled(egress.Network))
+	case !container.IsNotFound(err):
+		s.log.Warn("cannot inspect the test-run network", "network", container.NetworkEgress, "err", err)
+	}
 	return nil
 }

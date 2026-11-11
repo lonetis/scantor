@@ -64,6 +64,7 @@ describe('parseConfig', () => {
     ['SCANTOR_TRUSTED_PROXIES', 'traefik/8'],
     ['SCANTOR_ALLOW_INSECURE_DEFAULTS', '1'],
     ['SCANTOR_ALLOW_INSECURE_TRANSPORT', 'yes'],
+    ['SCANTOR_ALLOW_UNISOLATED_NETWORKS', 'on'],
     ['SCANTOR_GIT_ALLOW_PRIVATE', 'TRUE'],
     ['SCANTOR_MONGO_EXPRESS_READONLY', 'True'],
     ['SCANTOR_PASSKEY_RP_ID', 'not a host!'],

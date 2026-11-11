@@ -30,6 +30,9 @@ type NodeHelloInfo struct {
 	DinDMode          string `json:"dindMode"`
 	MaxWorkers        int    `json:"maxWorkers"`
 	EgressDenyApplied bool   `json:"egressDenyApplied"`
+	// NetworkIsolated is false while containers on the node's network can reach each other
+	// (SCANTOR_ALLOW_UNISOLATED_NETWORKS, docs/nodes.md §6.8).
+	NetworkIsolated bool `json:"networkIsolated"`
 }
 
 // NodeContainer is a managed worker container found at daemon start (for adoption).
@@ -188,6 +191,9 @@ type NodeStatusInfo struct {
 	DinDMode          string `json:"dindMode"`
 	MaxWorkers        int    `json:"maxWorkers"`
 	EgressDenyApplied bool   `json:"egressDenyApplied"`
+	// NetworkIsolated is false while containers on the node's network can reach each other
+	// (SCANTOR_ALLOW_UNISOLATED_NETWORKS, docs/nodes.md §6.8).
+	NetworkIsolated bool `json:"networkIsolated"`
 }
 
 // NodeStatusRequest is the body of POST /api/node/status: a complete snapshot of the node's workers.

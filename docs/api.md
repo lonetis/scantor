@@ -1244,7 +1244,8 @@ Content-Type: application/json
     "diskFreeBytes": 412316860416,
     "dindMode": "disabled",
     "maxWorkers": 8,
-    "egressDenyApplied": true
+    "egressDenyApplied": true,
+    "networkIsolated": true
   },
   "containers": [
     { "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "containerId": "f1e2d3c4b5a6", "state": "running", "specHash": "sha256:5d41…" }
@@ -1358,7 +1359,8 @@ desired set; any managed container not listed must be stopped (grace `drainGrace
     "diskFreeBytes": 409600000000,
     "dindMode": "disabled",
     "maxWorkers": 8,
-    "egressDenyApplied": true
+    "egressDenyApplied": true,
+    "networkIsolated": true
   },
   "workers": [
     {

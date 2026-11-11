@@ -64,6 +64,7 @@ export class FakeNode {
       dindMode: 'disabled',
       maxWorkers: 16,
       egressDenyApplied: true,
+      networkIsolated: true,
       ...options.info,
     }
     const node = new FakeNode(adminApi, context, new ApiClient(context, openapi), created, info, version)
@@ -138,6 +139,7 @@ export class FakeNode {
             dindMode: info.dindMode,
             maxWorkers: info.maxWorkers,
             egressDenyApplied: info.egressDenyApplied,
+            networkIsolated: info.networkIsolated,
           },
           workers: this.workers,
         },

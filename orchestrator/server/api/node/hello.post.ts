@@ -34,6 +34,7 @@ defineRouteMeta({
                   dindMode: { type: 'string', enum: ['disabled', 'sysbox', 'privileged'] },
                   maxWorkers: { type: 'integer', minimum: 0 },
                   egressDenyApplied: { type: 'boolean' },
+                  networkIsolated: { type: 'boolean', description: 'false while containers on the node network can reach each other' },
                 },
               },
               containers: {

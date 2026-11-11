@@ -62,29 +62,60 @@ export function scantorImageRef(image: string): string {
   return `${config.imagePrefix}${image}:${config.imageTag}`
 }
 
-/** Ensures the bridge network `scantor-egress` without inter-container traffic, carrying the managed labels. */
+const BRIDGE_ICC_OPTION = 'com.docker.network.bridge.enable_icc'
+
+/**
+ * Ensures the bridge network `scantor-egress` without inter-container traffic, carrying the managed labels. With
+ * SCANTOR_ALLOW_UNISOLATED_NETWORKS, a Docker daemon that cannot disable inter-container traffic (rootless Docker
+ * without br_netfilter) gets a plain bridge network instead: test runs and git helpers can then reach each other, and
+ * the built-in node reports it to admins (docs/nodes.md §6.8).
+ */
 export async function ensureEgressNetwork(log: Logger = useLogger('docker')): Promise<void> {
   const client = useDocker()
+  const { allowUnisolatedNetworks } = useConfig()
   try {
     const existing = await client.getNetwork(EGRESS_NETWORK).inspect()
-    if (existing.Options?.['com.docker.network.bridge.enable_icc'] !== 'false') {
-      log.warn('network scantor-egress exists with inter-container traffic enabled; recreate it to restore isolation', {
-        network: EGRESS_NETWORK,
-      })
+    if (existing.Options?.[BRIDGE_ICC_OPTION] !== 'false') {
+      if (allowUnisolatedNetworks) {
+        log.warn('network scantor-egress lets test runs and git helpers reach each other (SCANTOR_ALLOW_UNISOLATED_NETWORKS)', {
+          network: EGRESS_NETWORK,
+        })
+      } else {
+        log.warn('network scantor-egress exists with inter-container traffic enabled; recreate it to restore isolation', {
+          network: EGRESS_NETWORK,
+        })
+      }
     }
     return
   } catch (error) {
     if (!isStatus(error, 404)) throw error
   }
+  const create = (options: Record<string, string>) =>
+    client.createNetwork({ Name: EGRESS_NETWORK, Driver: 'bridge', CheckDuplicate: true, Options: options, Labels: managedLabels('network') })
   try {
-    await client.createNetwork({
-      Name: EGRESS_NETWORK,
-      Driver: 'bridge',
-      CheckDuplicate: true,
-      Options: { 'com.docker.network.bridge.enable_icc': 'false' },
-      Labels: managedLabels('network'),
-    })
+    await create({ [BRIDGE_ICC_OPTION]: 'false' })
     log.info('created network', { network: EGRESS_NETWORK })
+    return
+  } catch (error) {
+    if (isStatus(error, 409)) return
+    const message = error instanceof Error ? error.message : String(error)
+    if (!allowUnisolatedNetworks) {
+      throw new Error(
+        `create network ${EGRESS_NETWORK}: ${message} (if this Docker daemon cannot disable inter-container traffic, as rootless ` +
+          'Docker without br_netfilter cannot, load br_netfilter or set SCANTOR_ALLOW_UNISOLATED_NETWORKS=true)',
+        { cause: error },
+      )
+    }
+    log.warn('the Docker daemon cannot disable inter-container traffic; creating scantor-egress without it', {
+      network: EGRESS_NETWORK,
+      reason: message,
+    })
+  }
+  try {
+    await create({})
+    log.warn('created network scantor-egress without inter-container isolation: test runs and git helpers can reach each other', {
+      network: EGRESS_NETWORK,
+    })
   } catch (error) {
     if (!isStatus(error, 409)) throw error
   }

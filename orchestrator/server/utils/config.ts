@@ -62,6 +62,9 @@ export interface Config {
   s3AccessKey: string
   s3SecretKey: string
   s3Bucket: string
+  // docker host
+  /** networks without inter-container isolation where the daemon cannot disable it (rootless Docker) */
+  allowUnisolatedNetworks: boolean
   // traefik
   composeProfiles: string[]
   domain: string | null
@@ -418,6 +421,8 @@ const VARIABLES = {
   s3AccessKey: v('SCANTOR_S3_ACCESS_KEY', 'scantor', nonEmpty(), true),
   s3SecretKey: v('SCANTOR_S3_SECRET_KEY', 'rustfs-insecure-dev', nonEmpty(), true),
   s3Bucket: v('SCANTOR_S3_BUCKET', 'scantor', z.string().regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, 'must be an S3 bucket name'), true),
+
+  allowUnisolatedNetworks: v('SCANTOR_ALLOW_UNISOLATED_NETWORKS', 'false', boolean(), true),
 
   composeProfiles: v('COMPOSE_PROFILES', '', fromParser(parseList), true),
   domain: v('SCANTOR_DOMAIN', '', z.union([z.literal(''), hostname()]).transform((value) => value || null), true),

@@ -108,43 +108,80 @@ const (
 const bridgeICCOption = "com.docker.network.bridge.enable_icc"
 
 // EnsureNetwork creates the bridge network name with inter-container traffic disabled
-// (com.docker.network.bridge.enable_icc=false), no IPv6 and the managed labels of kind network. An
-// existing network of that name (a 409, or a concurrent create) counts as success only when
-// CheckIsolatedNetwork accepts it; scantor never deletes these networks.
-func EnsureNetwork(ctx context.Context, docker client.APIClient, name string) error {
+// (com.docker.network.bridge.enable_icc=false), no IPv6 and the managed labels of kind network, and
+// reports whether the network it created or found is isolated. An existing network of that name (a 409,
+// or a concurrent create) counts as success only when CheckWorkerNetwork accepts it; scantor never
+// deletes these networks.
+//
+// With allowUnisolated (SCANTOR_ALLOW_UNISOLATED_NETWORKS), a daemon that cannot disable inter-container
+// traffic, such as rootless Docker without br_netfilter, gets a plain bridge network instead, and
+// isolated is false: containers on it can reach each other.
+func EnsureNetwork(ctx context.Context, docker client.APIClient, name string, allowUnisolated bool) (isolated bool, err error) {
 	labels, err := ManagedLabels(KindNetwork, Identity{})
 	if err != nil {
-		return err
+		return false, err
 	}
 	ipv6 := false
-	_, err = docker.NetworkCreate(ctx, name, client.NetworkCreateOptions{
-		Driver:     "bridge",
-		EnableIPv6: &ipv6,
-		Options:    map[string]string{bridgeICCOption: "false"},
-		Labels:     labels,
-	})
-	if err == nil {
-		return nil
+	create := func(options map[string]string) error {
+		_, err := docker.NetworkCreate(ctx, name, client.NetworkCreateOptions{
+			Driver:     "bridge",
+			EnableIPv6: &ipv6,
+			Options:    options,
+			Labels:     labels,
+		})
+		return err
 	}
-	existing, inspectErr := docker.NetworkInspect(ctx, name, client.NetworkInspectOptions{})
-	if inspectErr != nil {
-		return fmt.Errorf("create network %s: %w", name, err)
+	// existing checks a network that already exists, because the create failed; found is false when
+	// there is none.
+	existing := func() (isolated, found bool, err error) {
+		n, inspectErr := docker.NetworkInspect(ctx, name, client.NetworkInspectOptions{})
+		if inspectErr != nil {
+			return false, false, inspectErr
+		}
+		isolated, err = CheckWorkerNetwork(n.Network, allowUnisolated)
+		return isolated, true, err
 	}
-	return CheckIsolatedNetwork(existing.Network)
+
+	createErr := create(map[string]string{bridgeICCOption: "false"})
+	if createErr == nil {
+		return true, nil
+	}
+	isolated, found, err := existing()
+	switch {
+	case found:
+		return isolated, err
+	case !allowUnisolated || !IsNotFound(err):
+		return false, fmt.Errorf("create network %s: %w (if this Docker daemon cannot disable inter-container traffic, "+
+			"as rootless Docker without br_netfilter cannot, load br_netfilter or set SCANTOR_ALLOW_UNISOLATED_NETWORKS=true)", name, createErr)
+	}
+	if plainErr := create(nil); plainErr != nil {
+		if isolated, found, err := existing(); found {
+			return isolated, err
+		}
+		return false, fmt.Errorf("create network %s with inter-container isolation: %w; without it: %w", name, createErr, plainErr)
+	}
+	return false, nil
 }
 
-// CheckIsolatedNetwork returns an error naming every property in which an existing network differs
-// from what EnsureNetwork creates: the bridge driver, inter-container traffic disabled, no IPv6 and the
+// InterContainerTrafficDisabled reports whether containers on n cannot reach each other.
+func InterContainerTrafficDisabled(n network.Inspect) bool {
+	return n.Options[bridgeICCOption] == "false"
+}
+
+// CheckWorkerNetwork returns an error naming every property in which an existing network differs from
+// what EnsureNetwork creates: the bridge driver, inter-container traffic disabled, no IPv6 and the
 // managed labels of kind network (docs/nodes.md §6.8). A network of the right name that someone else
 // created, or that was edited, could let workers of different scans and users reach each other, so it is
-// never used as is.
-func CheckIsolatedNetwork(n network.Inspect) error {
+// never used as is. allowUnisolated accepts inter-container traffic, which isolated then reports.
+func CheckWorkerNetwork(n network.Inspect, allowUnisolated bool) (isolated bool, err error) {
+	isolated = InterContainerTrafficDisabled(n)
 	var problems []string
 	if n.Driver != "bridge" {
 		problems = append(problems, fmt.Sprintf("its driver is %q, not bridge", n.Driver))
 	}
-	if n.Options[bridgeICCOption] != "false" {
-		problems = append(problems, "inter-container traffic is enabled ("+bridgeICCOption+" is not false)")
+	if !isolated && !allowUnisolated {
+		problems = append(problems, "inter-container traffic is enabled ("+bridgeICCOption+" is not false; "+
+			"SCANTOR_ALLOW_UNISOLATED_NETWORKS=true accepts it)")
 	}
 	if n.EnableIPv6 {
 		problems = append(problems, "IPv6 is enabled")
@@ -153,8 +190,8 @@ func CheckIsolatedNetwork(n network.Inspect) error {
 		problems = append(problems, "it lacks the managed labels of kind network")
 	}
 	if len(problems) == 0 {
-		return nil
+		return isolated, nil
 	}
-	return fmt.Errorf("network %s was not created by scantor as an isolated worker network: %s; remove it so that it is created again",
+	return false, fmt.Errorf("network %s was not created by scantor as a worker network: %s; remove it so that it is created again",
 		n.Name, strings.Join(problems, ", "))
 }

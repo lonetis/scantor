@@ -147,6 +147,7 @@ export class FakeDaemon {
           dindMode: info.dindMode,
           maxWorkers: info.maxWorkers,
           egressDenyApplied: info.egressDenyApplied,
+          networkIsolated: info.networkIsolated,
         },
         workers,
       },
@@ -209,6 +210,7 @@ export class FakeNode {
       dindMode: 'disabled',
       maxWorkers: 8,
       egressDenyApplied: true,
+      networkIsolated: true,
       ...options.info,
     }
     return new FakeNode(adminApi, context, created, new FakeDaemon(new ApiClient(context, openapi), created.token, version), info)

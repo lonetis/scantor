@@ -58,6 +58,9 @@ type Config struct {
 	// EgressDeny are the CIDRs workers must not reach; empty (SCANTOR_NODE_EGRESS_DENY=none) disables
 	// the egress helper.
 	EgressDeny []netip.Prefix
+	// AllowUnisolatedNetworks is SCANTOR_ALLOW_UNISOLATED_NETWORKS: a remote node whose Docker daemon
+	// cannot disable inter-container traffic uses a plain scantor-workers network (docs/nodes.md §6.8).
+	AllowUnisolatedNetworks bool
 	// Worker container settings.
 	PidsLimit      int64
 	ShmSize        int64
@@ -85,7 +88,7 @@ func (e *ConfigError) Error() string { return "invalid node configuration: " + e
 func (e *ConfigError) Unwrap() error { return e.Err }
 
 // LoadConfig reads the daemon variables. Security-relevant problems (URL, token sources, DinD mode,
-// egress CIDRs, CA bundle, the insecure-transport switch) are returned as a *ConfigError; other invalid
+// egress CIDRs, CA bundle, the insecure-transport and unisolated-network switches) are returned as a *ConfigError; other invalid
 // values fall back to their defaults and are listed in Config.Warnings.
 func LoadConfig(lookup LookupEnv) (Config, error) {
 	getenv := func(name string) string {
@@ -108,6 +111,8 @@ func LoadConfig(lookup LookupEnv) (Config, error) {
 		CACert:         r.PEMCertificates("SCANTOR_CA_CERT", envconf.Security()),
 		AllowInsecure:  r.Bool("SCANTOR_ALLOW_INSECURE_TRANSPORT", false, envconf.Security()),
 		LogFormat:      r.Enum("SCANTOR_LOG_FORMAT", redact.FormatJSON, []string{redact.FormatJSON, redact.FormatText}),
+
+		AllowUnisolatedNetworks: r.Bool("SCANTOR_ALLOW_UNISOLATED_NETWORKS", false, envconf.Security()),
 	}
 	// The Enum fallback guarantees a parsable level.
 	cfg.LogLevel, _ = redact.ParseLevel(r.Enum("SCANTOR_LOG_LEVEL", "info", []string{"debug", "info", "warn", "error"}))

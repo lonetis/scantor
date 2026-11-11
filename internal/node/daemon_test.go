@@ -12,6 +12,7 @@ import (
 
 	dcontainer "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/network"
+	"github.com/moby/moby/client"
 
 	"github.com/lonetis/scantor/internal/api"
 	"github.com/lonetis/scantor/internal/container"
@@ -370,6 +371,60 @@ func TestRemoteNodeRefusesAWorkerNetworkWithInterContainerTraffic(t *testing.T) 
 		Options: map[string]string{"com.docker.network.bridge.enable_icc": "false"},
 	})
 	h.waitWorkerState(testWorker1, api.NodeWorkerRunning)
+}
+
+// A remote node whose Docker daemon cannot disable inter-container traffic (rootless Docker without
+// br_netfilter) runs no worker, unless SCANTOR_ALLOW_UNISOLATED_NETWORKS lets it create a plain
+// scantor-workers network, which it then reports as networkIsolated: false (docs/nodes.md §6.8).
+func TestRemoteNodeUnisolatedNetworkOptIn(t *testing.T) {
+	refused := newHarness(t, nil)
+	refused.docker.noICC = true
+	refused.start()
+	refused.orch.setDesired(testAssignment(testWorker1))
+	st := refused.waitWorkerState(testWorker1, api.NodeWorkerError)
+	if st.Error == nil || !strings.Contains(st.Error.Message, "SCANTOR_ALLOW_UNISOLATED_NETWORKS") {
+		t.Errorf("error = %+v", st.Error)
+	}
+	if refused.docker.callCount("create "+workerName(testWorker1)) != 0 {
+		t.Error("a worker was created without a worker network")
+	}
+
+	h := newHarness(t, func(c *Config) { c.AllowUnisolatedNetworks = true })
+	h.docker.noICC = true
+	h.start()
+	h.orch.setDesired(testAssignment(testWorker1))
+	h.waitWorkerState(testWorker1, api.NodeWorkerRunning)
+	n, err := h.docker.NetworkInspect(t.Context(), container.NetworkWorkers, client.NetworkInspectOptions{})
+	if err != nil || container.InterContainerTrafficDisabled(n.Network) || n.Network.Labels[container.LabelKind] != string(container.KindNetwork) {
+		t.Errorf("worker network = %+v, err = %v", n.Network, err)
+	}
+	eventually(t, 5*time.Second, "networkIsolated: false", func() bool {
+		st := h.orch.lastStatus()
+		return st != nil && !st.Info.NetworkIsolated
+	})
+	if !h.logContains("can reach each other") {
+		t.Error("the missing isolation was not logged")
+	}
+}
+
+// The built-in node reports the isolation of scantor-egress, the network of the master's test runs and
+// git helpers: workers on scantor-sandbox reach the platform services by design.
+func TestBuiltInNodeReportsTheEgressNetworkIsolation(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.BuiltIn = true })
+	h.docker.addNetwork(network.Network{Name: container.NetworkSandbox, Driver: "bridge"})
+	h.docker.addNetwork(network.Network{
+		Name: container.NetworkEgress, Driver: "bridge", Options: map[string]string{"com.docker.network.bridge.enable_icc": "false"},
+	})
+	h.start()
+	eventually(t, 5*time.Second, "networkIsolated: true", func() bool {
+		st := h.orch.lastStatus()
+		return st != nil && st.Info.NetworkIsolated
+	})
+	h.docker.addNetwork(network.Network{Name: container.NetworkEgress, Driver: "bridge"})
+	eventually(t, 5*time.Second, "networkIsolated: false", func() bool {
+		st := h.orch.lastStatus()
+		return st != nil && !st.Info.NetworkIsolated
+	})
 }
 
 func TestConflictStopsWithoutTouchingContainers(t *testing.T) {

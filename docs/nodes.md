@@ -515,6 +515,21 @@ could let workers of different scans and users reach each other. The daemon then
 the missing properties and reports every assignment as `createFailed` until an operator removes the
 network; the next check (every 30 s) creates it again. The daemon never deletes networks.
 
+**Unisolated networks (explicit opt-in).** A Docker daemon that cannot restrict inter-container traffic
+refuses `enable_icc=false` (rootless Docker without the `br_netfilter` module: `cannot restrict
+inter-container communication`). Such a node runs no worker unless `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true`
+is set in its environment. With it, the daemon first still asks for an isolated network; only when the
+daemon refuses does it create `scantor-workers` as a plain bridge (same driver, IPv6 off and labels), and an
+existing network that differs from the table only in `enable_icc` is accepted. The orchestrator handles
+`scantor-egress` (test runs and git helpers on the master) the same way with the same variable. Containers on
+such a network can reach each other, across scans and users, so the opt-in never happens on its own:
+
+- every daemon reports `networkIsolated` in hello and status (§7.1): a remote node for `scantor-workers`; the
+  built-in node for `scantor-egress`, because master workers share `scantor-sandbox` with the platform
+  services by design;
+- the daemon logs a warning when its network loses isolation, the orchestrator one at boot, and Admin → Nodes
+  shows "Network not isolated" ([ui](ui.md) §5.15).
+
 ### 6.9 DinD modes
 
 Privileged (Docker-in-Docker) tasks need **both** the user flag `canRunPrivileged` (checked by the
@@ -582,6 +597,7 @@ Sent every `config.statusIntervalMs` (±10 % jitter), and additionally right aft
 | `dindMode` | effective mode (§6.9) |
 | `maxWorkers` | `SCANTOR_NODE_MAX_WORKERS`, or `cpus` when 0 |
 | `egressDenyApplied` | result of the last egress helper run (§9) |
+| `networkIsolated` | `false` while containers on the node's network can reach each other (§6.8): `scantor-workers` on a remote node, `scantor-egress` on the built-in node. Older daemons omit it. |
 
   `arch`, `os`, `kernel`, `hostname` and `dockerVersion` are sent in `hello` (they never change while
   the daemon runs).
@@ -980,6 +996,8 @@ The state poll returns `min(desired, applied)` while scaling up and `desired` at
 | `imagePullFailed` | realm reachability from the node host (§10.1), registry TLS trust (§10.3), `insufficient_scope` (the worker is not assigned to the node) |
 | `crashLoop` with `oomKilled: true` | raise `resources.memoryMiB` per process, or lower `processes` |
 | `egressDenyApplied: false` | daemon warn log: firewall backend, rootless Docker, IPv6 |
+| `networkIsolated: false` | `SCANTOR_ALLOW_UNISOLATED_NETWORKS` on a daemon that cannot disable inter-container traffic (§6.8); load `br_netfilter` as root and remove the network, so it is created again isolated |
+| workers `createFailed` "cannot restrict inter-container communication" | rootless Docker without `br_netfilter` (§6.8): load the module or set `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true` |
 | `clockSkew` | NTP on the node host |
 
 ## 14. Decisions made in this document

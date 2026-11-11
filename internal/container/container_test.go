@@ -141,9 +141,9 @@ func isolatedNetwork(t *testing.T) network.Network {
 	return network.Network{Name: NetworkWorkers, Driver: "bridge", Options: map[string]string{bridgeICCOption: "false"}, Labels: labels}
 }
 
-func TestCheckIsolatedNetwork(t *testing.T) {
-	if err := CheckIsolatedNetwork(network.Inspect{Network: isolatedNetwork(t)}); err != nil {
-		t.Fatalf("an isolated network was refused: %v", err)
+func TestCheckWorkerNetwork(t *testing.T) {
+	if isolated, err := CheckWorkerNetwork(network.Inspect{Network: isolatedNetwork(t)}, false); err != nil || !isolated {
+		t.Fatalf("an isolated network: isolated = %v, err = %v", isolated, err)
 	}
 	cases := map[string]func(n *network.Network){
 		"its driver is \"overlay\", not bridge":       func(n *network.Network) { n.Driver = "overlay" },
@@ -155,28 +155,41 @@ func TestCheckIsolatedNetwork(t *testing.T) {
 		n := isolatedNetwork(t)
 		n.Options = maps.Clone(n.Options)
 		mutate(&n)
-		err := CheckIsolatedNetwork(network.Inspect{Network: n})
+		_, err := CheckWorkerNetwork(network.Inspect{Network: n}, false)
 		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), NetworkWorkers) {
 			t.Errorf("%s: err = %v", want, err)
 		}
 	}
 	n := isolatedNetwork(t)
 	n.Options = map[string]string{bridgeICCOption: "true"}
-	if err := CheckIsolatedNetwork(network.Inspect{Network: n}); err == nil {
+	if _, err := CheckWorkerNetwork(network.Inspect{Network: n}, false); err == nil {
 		t.Error("enable_icc=true was accepted")
+	}
+	// The opt-in accepts inter-container traffic and reports it, but nothing else.
+	if isolated, err := CheckWorkerNetwork(network.Inspect{Network: n}, true); err != nil || isolated {
+		t.Errorf("enable_icc=true with the opt-in: isolated = %v, err = %v", isolated, err)
+	}
+	n.EnableIPv6 = true
+	if _, err := CheckWorkerNetwork(network.Inspect{Network: n}, true); err == nil || !strings.Contains(err.Error(), "IPv6 is enabled") {
+		t.Errorf("IPv6 with the opt-in: err = %v", err)
 	}
 }
 
-// networkEngine is a Docker engine with one existing network.
+// networkEngine is a Docker engine with one existing network. With noICC it refuses to create a network
+// with inter-container traffic disabled, like rootless Docker without br_netfilter.
 type networkEngine struct {
 	client.APIClient
 	existing *network.Network
+	noICC    bool
 	created  *client.NetworkCreateOptions
 }
 
 func (e *networkEngine) NetworkCreate(_ context.Context, name string, opts client.NetworkCreateOptions) (client.NetworkCreateResult, error) {
 	if e.existing != nil && e.existing.Name == name {
 		return client.NetworkCreateResult{}, cerrdefs.ErrConflict.WithMessage("network with name " + name + " already exists")
+	}
+	if e.noICC && opts.Options[bridgeICCOption] == "false" {
+		return client.NetworkCreateResult{}, cerrdefs.ErrUnknown.WithMessage("cannot restrict inter-container communication or run without the userland proxy")
 	}
 	e.created = &opts
 	return client.NetworkCreateResult{ID: name}, nil
@@ -191,20 +204,46 @@ func (e *networkEngine) NetworkInspect(_ context.Context, name string, _ client.
 
 func TestEnsureNetwork(t *testing.T) {
 	engine := &networkEngine{}
-	if err := EnsureNetwork(t.Context(), engine, NetworkWorkers); err != nil {
-		t.Fatal(err)
+	if isolated, err := EnsureNetwork(t.Context(), engine, NetworkWorkers, false); err != nil || !isolated {
+		t.Fatalf("isolated = %v, err = %v", isolated, err)
 	}
 	if c := engine.created; c == nil || c.Driver != "bridge" || c.Options[bridgeICCOption] != "false" || c.EnableIPv6 == nil || *c.EnableIPv6 || c.Labels[LabelKind] != string(KindNetwork) {
 		t.Errorf("create options = %+v", engine.created)
 	}
 	// A 409 counts as success only for an isolated network.
 	isolated := isolatedNetwork(t)
-	if err := EnsureNetwork(t.Context(), &networkEngine{existing: &isolated}, NetworkWorkers); err != nil {
-		t.Errorf("an existing isolated network was refused: %v", err)
+	if ok, err := EnsureNetwork(t.Context(), &networkEngine{existing: &isolated}, NetworkWorkers, false); err != nil || !ok {
+		t.Errorf("an existing isolated network: isolated = %v, err = %v", ok, err)
 	}
 	foreign := network.Network{Name: NetworkWorkers, Driver: "bridge"}
-	if err := EnsureNetwork(t.Context(), &networkEngine{existing: &foreign}, NetworkWorkers); err == nil || !strings.Contains(err.Error(), "inter-container traffic is enabled") {
+	if _, err := EnsureNetwork(t.Context(), &networkEngine{existing: &foreign}, NetworkWorkers, false); err == nil || !strings.Contains(err.Error(), "inter-container traffic is enabled") {
 		t.Errorf("an existing network with inter-container traffic: err = %v", err)
+	}
+}
+
+func TestEnsureNetworkUnisolated(t *testing.T) {
+	// Without the opt-in, a daemon that cannot disable inter-container traffic gets no network.
+	engine := &networkEngine{noICC: true}
+	if _, err := EnsureNetwork(t.Context(), engine, NetworkWorkers, false); err == nil || !strings.Contains(err.Error(), "SCANTOR_ALLOW_UNISOLATED_NETWORKS") || engine.created != nil {
+		t.Fatalf("err = %v, created = %+v", err, engine.created)
+	}
+	// With it, a plain bridge network with the managed labels and no IPv6.
+	isolated, err := EnsureNetwork(t.Context(), engine, NetworkWorkers, true)
+	if err != nil || isolated {
+		t.Fatalf("isolated = %v, err = %v", isolated, err)
+	}
+	if c := engine.created; c == nil || c.Driver != "bridge" || len(c.Options) != 0 || c.EnableIPv6 == nil || *c.EnableIPv6 || c.Labels[LabelKind] != string(KindNetwork) {
+		t.Errorf("create options = %+v", engine.created)
+	}
+	// A daemon that can isolate still gets an isolated network with the opt-in.
+	if isolated, err := EnsureNetwork(t.Context(), &networkEngine{}, NetworkWorkers, true); err != nil || !isolated {
+		t.Errorf("isolating daemon with the opt-in: isolated = %v, err = %v", isolated, err)
+	}
+	// An existing plain network with the managed labels is accepted and reported.
+	plain := isolatedNetwork(t)
+	plain.Options = nil
+	if isolated, err := EnsureNetwork(t.Context(), &networkEngine{existing: &plain}, NetworkWorkers, true); err != nil || isolated {
+		t.Errorf("existing plain network: isolated = %v, err = %v", isolated, err)
 	}
 }
 

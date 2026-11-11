@@ -153,7 +153,9 @@ type NodeInfoRecord struct {
 	DinDMode          string `json:"dindMode"`
 	MaxWorkers        int    `json:"maxWorkers"`
 	EgressDenyApplied bool   `json:"egressDenyApplied"`
-	ClockOffsetMs     int64  `json:"clockOffsetMs"`
+	// NetworkIsolated is absent until a daemon that reports it has connected.
+	NetworkIsolated *bool `json:"networkIsolated,omitempty"`
+	ClockOffsetMs   int64 `json:"clockOffsetMs"`
 }
 
 // Node is the API representation of a node (docs/api.md §2).

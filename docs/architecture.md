@@ -217,7 +217,8 @@ Orchestrator boot order (the process exits non-zero on any failure before step 7
    - warn when a public endpoint is plaintext on a public address, which remote nodes refuse
      ([nodes](nodes.md) §11);
    - ensure the Docker network `scantor-egress` (bridge, `com.docker.network.bridge.enable_icc=false`,
-     managed labels) and the volumes `scantor-workspaces` and `scantor-editor-home`, which compose does not
+     managed labels; a plain bridge only with `SCANTOR_ALLOW_UNISOLATED_NETWORKS` on a daemon that cannot
+     isolate, [nodes](nodes.md) §6.8) and the volumes `scantor-workspaces` and `scantor-editor-home`, which compose does not
      create because no compose service uses them ([deployment](deployment.md) §5);
    - inspect the subnets of the compose network `scantor-scripts` for the peer restriction of the script
      runtime API (`35.scripts.ts`, order 650; a missing network is a warning, and the API refuses every

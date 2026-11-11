@@ -40,6 +40,8 @@ type fakeDocker struct {
 	calls      []string
 
 	// Behaviour knobs.
+	// noICC refuses networks with inter-container traffic disabled, like rootless Docker without br_netfilter.
+	noICC      bool
 	engineID   string
 	os, arch   string
 	apiVersion string
@@ -606,6 +608,10 @@ func (f *fakeDocker) NetworkCreate(_ context.Context, name string, opts client.N
 	f.record("network create " + name)
 	if _, ok := f.networks[name]; ok {
 		return client.NetworkCreateResult{}, fmt.Errorf("network with name %s already exists: %w", name, errFakeConflict)
+	}
+	if f.noICC && opts.Options["com.docker.network.bridge.enable_icc"] == "false" {
+		return client.NetworkCreateResult{}, errors.New("cannot restrict inter-container communication or run without the userland proxy: " +
+			"stat /proc/sys/net/bridge/bridge-nf-call-iptables: no such file or directory")
 	}
 	f.networks[name] = network.Inspect{Network: network.Network{
 		Name: name, Driver: opts.Driver, EnableIPv6: opts.EnableIPv6 != nil && *opts.EnableIPv6,

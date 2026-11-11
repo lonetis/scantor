@@ -44,6 +44,7 @@ const SECURE_DEFAULTS = {
   SCANTOR_BUILTIN_NODE_DIND: [(v) => v === 'disabled', 'disabled (PRIV-1)'],
   SCANTOR_MONGO_EXPRESS_READONLY: [(v) => v === 'true', 'true (GUI-4)'],
   SCANTOR_EXPOSE_MONGO: [(v) => v === 'false', 'false'],
+  SCANTOR_ALLOW_UNISOLATED_NETWORKS: [(v) => v === 'false', 'false'],
   SCANTOR_NODE_EGRESS_DENY: [
     (v) => v.split(',').includes('169.254.0.0/16') && v.split(',').includes('fd00:ec2::254/128'),
     'a list covering 169.254.0.0/16 and fd00:ec2::254/128',

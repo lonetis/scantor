@@ -78,6 +78,9 @@ type Daemon struct {
 	clock      clockEstimate
 	gc         *imageGC
 	egressOK   atomic.Bool
+	// networkUnisolated is set while the network the node reports on lets containers reach each other
+	// (session.ensureNetwork); hello and status report it as networkIsolated.
+	networkUnisolated atomic.Bool
 	// current is the running session (nil between sessions).
 	current atomic.Pointer[session]
 
@@ -325,6 +328,20 @@ func (d *Daemon) resolveOwnBinary(ctx context.Context) (*container.Binary, error
 	return container.RuntimeBinary{Docker: d.docker, CacheDir: cache, Executable: exe}.Resolve(ctx)
 }
 
+// setNetworkIsolated records the isolation of network and logs a warning when it is lost.
+func (d *Daemon) setNetworkIsolated(log *slog.Logger, network string, isolated bool) {
+	if d.networkUnisolated.Swap(!isolated) == !isolated {
+		return
+	}
+	if isolated {
+		log.Info("the network isolates containers again", "network", network)
+	} else {
+		log.Warn("containers on this network can reach each other: inter-container traffic is not disabled "+
+			"(SCANTOR_ALLOW_UNISOLATED_NETWORKS); workers and test runs of different users are not isolated from each other",
+			"network", network)
+	}
+}
+
 // helloRequest builds the hello body with the managed containers found now.
 func (d *Daemon) helloRequest(found []api.NodeContainer) api.NodeHelloRequest {
 	return api.NodeHelloRequest{
@@ -342,6 +359,7 @@ func (d *Daemon) helloRequest(found []api.NodeContainer) api.NodeHelloRequest {
 			DinDMode:          d.dind,
 			MaxWorkers:        d.maxWorkers(),
 			EgressDenyApplied: d.egressOK.Load(),
+			NetworkIsolated:   !d.networkUnisolated.Load(),
 		},
 		Containers: found,
 	}

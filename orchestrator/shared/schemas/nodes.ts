@@ -114,6 +114,7 @@ export const nodeHelloBody = z.strictObject({
     dindMode: z.enum(DIND_MODES),
     maxWorkers: count(100_000),
     egressDenyApplied: z.boolean(),
+    networkIsolated: z.boolean().optional(),
   }),
   containers: z
     .array(
@@ -176,6 +177,7 @@ export const nodeStatusBody = z.strictObject({
     dindMode: z.enum(DIND_MODES),
     maxWorkers: count(100_000),
     egressDenyApplied: z.boolean(),
+    networkIsolated: z.boolean().optional(),
   }),
   workers: z.array(nodeWorkerReport).max(10_000).nullable().default([]),
 })
