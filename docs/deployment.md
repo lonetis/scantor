@@ -1355,6 +1355,34 @@ docker compose up -d
 - Infrastructure images are pinned in the compose file. They change only with a scantor release, which
   mentions such changes (RabbitMQ and MongoDB upgrades are one-way).
 
+### 10.1 Rootless Docker
+
+A master on a rootless Docker daemon (one user's daemon, no root access) needs only `.env` settings and a
+one-time host setup; no compose override. On top of the Traefik settings of §7.7:
+
+```env
+SCANTOR_DOCKER_SOCKET=/run/user/<uid>/docker.sock   # the daemon socket (docker context inspect shows it)
+SCANTOR_ALLOW_UNISOLATED_NETWORKS=true              # only without br_netfilter (below)
+COMPOSE_FILE=docker-compose.prod.yml                # only Traefik and the registry's loopback port are published
+SCANTOR_HTTP_PORT=10080                             # ports of at least 1024 (below); every public URL then
+SCANTOR_HTTPS_PORT=10443                            #   carries :10443, for example https://dash.<domain>:10443
+SCANTOR_DASHBOARD_SUBDOMAIN=dash                    # optional (§7.3)
+LEGO_DISABLE_CNAME_SUPPORT=true                     # only for a DNS zone with a wildcard CNAME (.env.example)
+```
+
+The `docker` CLI on the host must reach the same daemon: `export DOCKER_HOST=unix:///run/user/<uid>/docker.sock`
+(or a Docker context) before every `docker compose …` command, also in `.bashrc` or a cron job. What `.env` cannot
+configure:
+
+| Topic | What to do once, and why |
+|---|---|
+| daemon lifetime | `loginctl enable-linger <user>` (root) and `systemctl --user enable --now docker`, so the daemon runs without a login session and starts at boot |
+| ports below 1024 | rootless Docker cannot bind them unless root lowers `net.ipv4.ip_unprivileged_port_start`; use ports of at least 1024 instead |
+| network isolation | rootless Docker can disable traffic between containers only when root has loaded `br_netfilter` (`modprobe br_netfilter`, persisted in `/etc/modules-load.d/`). Without it the orchestrator refuses `scantor-egress` until `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true` accepts plain networks, and test runs and git helpers of different users can then reach each other ([nodes](nodes.md) §6.8, [security](security.md) R21) |
+| client addresses | the default port driver (`builtin`) of RootlessKit makes every connection come from one internal address, so all users share the per-IP authentication rate limits and logs show no client IP. The `slirp4netns` port driver (or the `pasta` network driver) keeps source addresses: `DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=slirp4netns` in the environment of the user's `docker.service` |
+| egress deny list | the egress helper finds no `DOCKER-USER` chain in the daemon's network namespace, so `egressDenyApplied` stays `false` ([nodes](nodes.md) §9); block the cloud metadata ranges in the host's firewall |
+| data on NFS | the network filesystem refuses `chown` from rootless containers: `data-init` (§4.9) makes the MongoDB, RabbitMQ and RustFS directories world-writable, and the `prepare` helper does the same for the roots of workspaces and editor homes, whose user directories then get mode 0755 ([editor](editor.md) §9.4). Keep every such directory below a parent that only the deploying user can enter (`chmod 700`), or keep the data in named volumes, which live in the user's Docker data root (`~/.local/share/docker`). MongoDB and RabbitMQ are not meant for network filesystems anyway (§5.1). |
+
 ## 11. Remote node deployment
 
 The flow, snippets, requirements and lifecycle are in [nodes](nodes.md) §4, §7.5 and §10. In short: an

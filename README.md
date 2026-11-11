@@ -115,6 +115,10 @@ token; other DNS providers work too) and `https` URLs. Every public endpoint is 
 A deployment that is reachable from the network refuses to start while any secret still has its
 insecure development value.
 
+**Rootless Docker.** A host where you have only a rootless Docker daemon works with `.env` settings alone:
+the daemon socket (`SCANTOR_DOCKER_SOCKET`), unprivileged Traefik ports and, without the `br_netfilter` kernel
+module, `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true`. The "DOCKER HOST" section of `.env.example` lists them.
+
 **Data locations.** By default every service keeps its data in a named Docker volume. To store a service's
 data elsewhere, for example MongoDB on one disk and RabbitMQ on another, set its variable in the "DATA LOCATIONS"
 section of `.env.example` to a host directory. Each service is configured on its own.
