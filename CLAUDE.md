@@ -26,7 +26,7 @@ This file is the index for agents developing this repository. `README.md` is use
 | `skills/`, `.claude-plugin/`, `.mcp.json` | agent skills shipped as a Claude Code plugin, and the MCP client config |
 | `traefik/dynamic/` | Traefik file-provider directory (empty by default) |
 | `.devcontainer/`, `.github/workflows/`, `.github/scripts/` | devcontainer; CI (`images.yml`, `release.yml`, `test.yml`) and its step scripts |
-| root files | `Dockerfile` (scantor image), `docker-bake.hcl` (every image build), `docker-compose.{dev,prod,tests}.yml`, `justfile`, `scantor.sh` (CLI docker shim), `embed.go`, `.env.example` |
+| root files | `Dockerfile` (scantor image), `docker-bake.hcl` (every image build), `docker-compose.{dev,prod,tests}.yml`, `docker-compose.ports.yml` (direct ports overlay, selected by `COMPOSE_FILE`), `justfile`, `scantor.sh` (CLI docker shim), `embed.go`, `.env.example` |
 
 ## Terminology
 

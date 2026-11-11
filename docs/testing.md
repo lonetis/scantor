@@ -375,7 +375,7 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
  test-runner container (privileged, own netns, no published ports)
  ├── dnsmasq  127.0.0.1 + 172.17.0.1   *.scantor.localhost → 172.17.0.1 ; rest → outer Docker DNS
  ├── dockerd  (bip 172.17.0.1/16, pools 10.10.0.0/16, dns 172.17.0.1, data on scantor-test-runner-docker)
- │    └── compose project "scantor" = docker-compose.prod.yml + tests/docker/stack.tests.yml (profile traefik)
+ │    └── compose project "scantor" = docker-compose.prod.yml + docker-compose.ports.yml + tests/docker/stack.tests.yml (profile traefik)
  │         traefik :443/:80 published on 0.0.0.0 of the runner ─┐  default cert = test CA wildcard
  │         orchestrator · mongo · rabbitmq · rustfs · registry · mongo-express · node (built-in, pool shared)
  │         fixtures   (tranco/crux/crux-cache/ntfy on :8089 as fixtures.scantor.localhost; git behind Traefik as git.scantor.localhost)
@@ -411,7 +411,8 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
   (`NODE_EXTRA_CA_CERTS`), by Chromium (imported into the NSS database with `certutil`), by the remote
   node's dockerd, and by nodes and workers through `SCANTOR_CA_CERT`. No TLS verification is disabled
   anywhere; `ignoreHTTPSErrors` is off.
-- The inner stack is the real `docker-compose.prod.yml` with `SCANTOR_IMAGE_PREFIX=` (empty, honoured by
+- The inner stack is the real `docker-compose.prod.yml` with the direct ports of `docker-compose.ports.yml` (the
+  suite reads RabbitMQ's management API through its loopback port) and `SCANTOR_IMAGE_PREFIX=` (empty, honoured by
   its `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}` references) and `SCANTOR_IMAGE_TAG=dev` (both from
   `stack.env`, below), started with `--pull never` after the absent third-party images were pulled
   (§7.4 phase 8), so the production compose file is tested. Its project directory is
@@ -477,7 +478,7 @@ failures and normal exits all tear down. Playwright and the keep-alive wait run 
 | 5. stale state | run the stack removal of phase 9 once (an aborted run's stack would otherwise restart from the cache volume with `restart: unless-stopped`); never `docker network prune`/`volume prune` (breaks BuildKit) | log and continue |
 | 6. images | `SCANTOR_TEST_IMAGES_DIR` set → `docker load` every `*.tar`; `SCANTOR_TEST_SKIP_BUILD=true` → use the images in the cache volume; otherwise `docker buildx bake --load test` from `/src` (`IMAGE_PREFIX=`, `IMAGE_TAG=dev`, `VERSION=dev`, `COMMIT` from git), retried 4× (cold pulls in DinD hit TLS timeouts). Then every tag of `bake --print test` must exist | exit 1 |
 | 7. the stack's `.env` | write `/run/scantor-test/.env`: `/src/.env.example`, overridden by `stack.env` (so compose interpolation and the orchestrator's `env_file` see the empty `SCANTOR_IMAGE_PREFIX` and `SCANTOR_IMAGE_TAG=dev`, never the shipped GHCR values), with every other `-insecure-dev` value replaced by 48 random hex characters (the `just init` merge of [deployment](deployment.md) §8.3), a random `SCANTOR_ADMIN_PASSWORD` and the CA PEM as `SCANTOR_CA_CERT` (double-quoted, `\n`-escaped); a `stack.env` key missing from `.env.example` fails | exit 1 |
-| 8. stack | pull every image that `compose config --images` names and that is absent locally, with `docker pull` retried 4× like the build; after phase 6 only the pinned third-party images (including the remote node's `docker:29.9-dind`) can be absent (once per cache volume locally, on every CI run). Then `docker compose -p scantor --project-directory /run/scantor-test -f /src/docker-compose.prod.yml -f /opt/scantor-test/stack.tests.yml up -d --pull never` (profiles from `COMPOSE_PROFILES` in the project `.env`) | exit 1 |
+| 8. stack | pull every image that `compose config --images` names and that is absent locally, with `docker pull` retried 4× like the build; after phase 6 only the pinned third-party images (including the remote node's `docker:29.9-dind`) can be absent (once per cache volume locally, on every CI run). Then `docker compose -p scantor --project-directory /run/scantor-test -f /src/docker-compose.prod.yml -f /src/docker-compose.ports.yml -f /opt/scantor-test/stack.tests.yml up -d --pull never` (profiles from `COMPOSE_PROFILES` in the project `.env`) | exit 1 |
 | 8a. wait | poll `https://scantor.localhost/api/health` until `status: ok` and every component `ok` (≤ 300 s) | dump `compose ps` and `compose logs --tail 200`, exit 1 |
 | 8b. remote node | `node join-remote-node.mjs`: sign in as the seeded admin (one sign-in), `createNode {name: "remote-1", pool: "remote", labels: {zone: "remote"}}`, `docker save scantor:dev \| docker exec -i scantor-remote-node docker load`, run the `dockerRun` of the response inside the remote node with `-e SCANTOR_CA_CERT`, wait ≤ 120 s until the node is `online`, write `{id, name, pool, labels, token}` to `/run/scantor-test/remote-node.json` (0600) | the node daemon's log tail, exit 1 |
 | 8c. playwright | `npm ci` into the node_modules volume when `package-lock.json` changed (stamp `node_modules/.scantor-package-lock.json`); remove `tests/.auth`; write `SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `SCANTOR_ADMIN_EMAIL`, `SCANTOR_ADMIN_PASSWORD`, `SCANTOR_SECRET`, `SCANTOR_AUTH_RATE_LIMIT_SCALE`, `NODE_EXTRA_CA_CERTS`, `SCANTOR_TEST_WORKERS`, the host uid/gid and `CI` to `/etc/profile.d/scantor-test.sh`; run `scantor-test-playwright "$@"` (`tests/docker/playwright.sh`: sources that file, runs `npx playwright test` in `/work/tests`, hands `playwright-report/`, `test-results/` and `.auth/` to `SCANTOR_TEST_HOST_UID:GID`); keep its exit code | a non-zero exit code: write `compose ps -a`, every service's log, the remote node daemon's log and the inner dockerd's log (with timestamps, gzipped) to `test-results/stack-logs/`, since phase 9 removes the stack and the broker or reconciler failures behind many test failures show only there |
@@ -968,7 +969,9 @@ regenerates the index in the same commit ([development](development.md) §13).
   names.
 - `tests/scripts/lint-compose.mjs` (`just lint-compose`, part of `just lint`) parses the compose files
   and fails when the infrastructure services (`data-init`, `mongo`, `rabbitmq`, `rustfs`, `registry`,
-  `mongo-express`, `traefik`) differ between `docker-compose.dev.yml` and `docker-compose.prod.yml`, or when a compose rule
+  `mongo-express`, `traefik`) differ between `docker-compose.dev.yml` and `docker-compose.prod.yml`, when either
+  publishes a port other than Traefik's and the registry's, when the overlay `docker-compose.ports.yml` sets
+  anything but `ports` of services of the production file, or when a compose rule
   of [security](security.md) is broken: Traefik `exposedbydefault=false`, the compose-project constraint
   and `api.insecure=false`; admin GUIs and MongoDB published only on `SCANTOR_ADMIN_BIND_ADDRESS`; the
   MongoDB TCP router only with `SCANTOR_EXPOSE_MONGO`; mongo-express read-only; `mongod --noscripting` and

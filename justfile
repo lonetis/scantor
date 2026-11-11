@@ -46,8 +46,10 @@ docker_socket := "-v " + quote(docker_socket_path) + ":/var/run/docker.sock --gr
 # docker-bake.hcl with the build parameters of dev images (docs/development.md §10).
 bake := 'IMAGE_PREFIX= IMAGE_TAG=dev VERSION=dev COMMIT="$(git rev-parse --short HEAD 2>/dev/null || true)" docker buildx bake'
 
-dev_compose := "docker compose -f docker-compose.dev.yml"
-prod_compose := "docker compose -f docker-compose.prod.yml"
+# The dev stack names its files; the production stack uses COMPOSE_FILE from .env (docker-compose.prod.yml and, by
+# default, the direct ports of docker-compose.ports.yml).
+dev_compose := "docker compose -f docker-compose.dev.yml -f docker-compose.ports.yml"
+prod_compose := "docker compose"
 tests_compose := "docker compose -f docker-compose.tests.yml"
 
 # Runs `npm ci` in the current directory only when package-lock.json changed since the last install.

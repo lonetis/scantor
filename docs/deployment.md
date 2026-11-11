@@ -35,7 +35,9 @@ volumes and variables. Variables are only *named* here and documented with their
  host Docker daemon: builds (BuildKit), helpers, editors, test runs, script runs, master workers
 ```
 
-Host ports and the address variable they bind to:
+Host ports and the address variable they bind to. Only Traefik's and the registry's are in
+`docker-compose.prod.yml`; the others come from the overlay `docker-compose.ports.yml` (§6.4), which
+`COMPOSE_FILE` in `.env` includes by default and a deployment behind Traefik leaves out:
 
 | Service | Container port | Host port variable | Bind address variable | Purpose |
 |---|---|---|---|---|
@@ -116,7 +118,7 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
   ([development](development.md) §10). The dev orchestrator image has its own name
   (`scantor-orchestrator-dev`), so it never collides with the production-style `scantor-orchestrator:dev`
   that the bake `default` group builds for the test runner's prod compose.
-- `docker compose -f docker-compose.prod.yml pull` updates only the images of compose services (orchestrator, node and therefore
+- `docker compose pull` updates only the images of compose services (orchestrator, node and therefore
   `scantor`, and the infra services). At boot the orchestrator pulls the editor image in the background
   when the prefix is not empty, so the first editor start does not wait for a 2 GB pull. Base images are
   not compose images: every task and script build asks the registry which digest the base image tag points at
@@ -143,7 +145,7 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
 | healthcheck | `wget -qO- http://127.0.0.1:3000/api/health` every 10 s, timeout 5 s, 6 retries, `start_period` 60 s (dev 180 s). `/api/health` is 503 only when MongoDB is down. |
 | other | `container_name: scantor-orchestrator`, `mem_limit: ${SCANTOR_ORCHESTRATOR_MEMORY_LIMIT}`, `stop_grace_period: 30s` (components stop at the signal and requeue their jobs, waits and long-polls answer at once, Nitro drains the open requests, then the AMQP and MongoDB clients close; [architecture](architecture.md) §4.1) |
 | networks | `scantor`, `scantor-sandbox`, `scantor-scripts` (the service name `orchestrator` is its DNS alias on all three) |
-| ports | 3000 and 3001 (§1) |
+| ports | 3000 and 3001 (§1; overlay §6.4) |
 | volumes | the host's Docker socket `${SCANTOR_DOCKER_SOCKET}` at `/var/run/docker.sock` (builds, helpers, editors, test runs, script runs, registry GC exec); `scantor-editor-sockets:/run/scantor/editor-sockets`; `scantor-registry-auth:/run/scantor/registry-auth`. **Never `scantor-workspaces`.** |
 | env | `env_file: .env` (dev adds `SCANTOR_IMAGE_PREFIX=`, `SCANTOR_IMAGE_TAG=dev`, `SCANTOR_BUILD_CACHE_MAX_BYTES=0` because the dev stack shares the developer's Docker daemon and its build cache with other projects, and `NODE_ENV=development`) |
 | process | runs as root inside its container (Docker socket; connects to the editors' 0600 sockets) |
@@ -182,7 +184,7 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 | healthcheck | `mongosh` as root: `try { rs.status().ok } catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}).ok }`. This initiates the replica set on first start and reports health. Interval 5 s, timeout 10 s, 12 retries, `start_period` 30 s, `start_interval` 2 s. |
 | other | `container_name: scantor-mongo`, `user: mongodb` (uid 999: the image entrypoint then skips its `chown` and `gosu`, which a filesystem that refuses `chown` would fail; `data-init` prepared the directories), `mem_limit: ${SCANTOR_MONGO_MEMORY_LIMIT}`. The member host `mongo:27017` is stored in the replica-set config, so **never rename the service**. |
 | networks | `scantor` |
-| ports | `${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017` |
+| ports | `${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017` (overlay §6.4) |
 | volumes | `${SCANTOR_MONGO_DATA}:/data/db`, `${SCANTOR_MONGO_CONFIG_DATA}:/data/configdb` (default the volumes `scantor-mongo-data`, `scantor-mongo-config`, §5.1) |
 | env | `MONGO_INITDB_ROOT_USERNAME=${SCANTOR_MONGO_USER}`, `MONGO_INITDB_ROOT_PASSWORD=${SCANTOR_MONGO_PASSWORD}`. **Applied only at first init.** |
 | labels | Traefik TCP router `mongo`, enabled only by `traefik.enable=${SCANTOR_EXPOSE_MONGO}` (§7.3) |
@@ -213,7 +215,7 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 | depends_on | `data-init` (`service_completed_successfully`, §4.9) |
 | other | `container_name: scantor-rabbitmq`, `hostname: rabbitmq` (**required**: the data directory is keyed by node name, so without a fixed hostname every container recreation starts an empty broker), `user: rabbitmq` (uid 999, as for mongo), `mem_limit: ${SCANTOR_RABBITMQ_MEMORY_LIMIT}` |
 | networks | `scantor`, `scantor-sandbox` (master workers reach `rabbitmq:5672`) |
-| ports | AMQP on `SCANTOR_BIND_ADDRESS`, management on `SCANTOR_ADMIN_BIND_ADDRESS` (§1) |
+| ports | AMQP on `SCANTOR_BIND_ADDRESS`, management on `SCANTOR_ADMIN_BIND_ADDRESS` (§1; overlay §6.4) |
 | volumes | `${SCANTOR_RABBITMQ_DATA}:/var/lib/rabbitmq` (default the volume `scantor-rabbitmq-data`, §5.1) |
 | env | `RABBITMQ_DEFAULT_USER=${SCANTOR_RABBITMQ_USER}` and `RABBITMQ_DEFAULT_PASS=${SCANTOR_RABBITMQ_PASSWORD}` (**first boot only**); `RABBITMQ_ENABLED_PLUGINS=rabbitmq_management` with `RABBITMQ_ENABLED_PLUGINS_FILE=/var/lib/rabbitmq/enabled_plugins` (below); `RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS` (below) |
 | labels | HTTP router `rabbitmq` (management, forwardAuth); TCP router `amqp` (§7.3) |
@@ -268,7 +270,7 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
   --wait`, because the first dev start installs `node_modules`, which can outlast the dev orchestrator's
   start period.
 - The JWKS is read only at registry start. After `SCANTOR_SECRET` changes, restart the registry
-  (`docker compose -f docker-compose.prod.yml restart registry`, in development `just restart registry`). The orchestrator logs a reminder when it rewrites a JWKS whose
+  (`docker compose restart registry`, in development `just restart registry`). The orchestrator logs a reminder when it rewrites a JWKS whose
   `kid` changed.
 - `REGISTRY_HTTP_SECRET` signs upload state. It is derived (HKDF label `registry-http`, §8.1), so it is
   stable across restarts without another secret in `.env`.
@@ -284,7 +286,7 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
 | depends_on | `data-init` (`service_completed_successfully`, §4.9) |
 | other | `container_name: scantor-rustfs`. The image runs as uid 10001; `data-init` gives it the data directory. |
 | networks | `scantor`, `scantor-sandbox` (master workers PUT presigned URLs to `rustfs:9000`), `scantor-scripts` (script runs read and upload through presigned URLs of `rustfs:9000`) |
-| ports | S3 on `SCANTOR_BIND_ADDRESS`, console on `SCANTOR_ADMIN_BIND_ADDRESS` (§1) |
+| ports | S3 on `SCANTOR_BIND_ADDRESS`, console on `SCANTOR_ADMIN_BIND_ADDRESS` (§1; overlay §6.4) |
 | volumes | `${SCANTOR_RUSTFS_DATA}:/data` (default the volume `scantor-rustfs-data`, §5.1) |
 | env | `RUSTFS_ACCESS_KEY=${SCANTOR_S3_ACCESS_KEY}`, `RUSTFS_SECRET_KEY=${SCANTOR_S3_SECRET_KEY}`, `RUSTFS_OBS_LOG_DIRECTORY=` (empty: log to stdout), `RUSTFS_OBS_LOGGER_LEVEL=info`, `RUSTFS_CHECK_UPDATE=false`, `RUSTFS_CONSOLE_CORS_ALLOWED_ORIGINS=${SCANTOR_RUSTFS_CONSOLE_URL}`, `RUSTFS_BROWSER_REDIRECT_URL=${SCANTOR_RUSTFS_CONSOLE_URL}` |
 | labels | HTTP router `s3` (no forwardAuth: SigV4 and presigned URLs, Host preserved); HTTP router `rustfs` (console, forwardAuth, redirect `/` → `/rustfs/console/`) |
@@ -307,7 +309,7 @@ variables use the byte-size syntax of [architecture](architecture.md) §10 (`153
 | healthcheck | `wget -qO- http://127.0.0.1:8081/status` (answers without auth), interval 30 s, 3 retries |
 | other | `container_name: scantor-mongo-express` |
 | networks | `scantor` |
-| ports | `${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081` |
+| ports | `${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081` (overlay §6.4) |
 | env | `READONLY_MONGODB_URL=mongodb://${SCANTOR_MONGO_ANALYTICS_USER}:${SCANTOR_MONGO_ANALYTICS_PASSWORD}@mongo:27017/${SCANTOR_MONGO_DB}?authSource=admin&directConnection=true`, `ROOT_MONGODB_URL=mongodb://${SCANTOR_MONGO_USER}:${SCANTOR_MONGO_PASSWORD}@mongo:27017/?authSource=admin&directConnection=true`, `ME_CONFIG_BASICAUTH=true`, `ME_CONFIG_BASICAUTH_USERNAME=${SCANTOR_MONGO_EXPRESS_USER}`, `ME_CONFIG_BASICAUTH_PASSWORD=${SCANTOR_MONGO_EXPRESS_PASSWORD}`, `ME_CONFIG_SITE_COOKIESECRET=${SCANTOR_MONGO_EXPRESS_SECRET}`, `ME_CONFIG_SITE_SESSIONSECRET=${SCANTOR_MONGO_EXPRESS_SECRET}`, `ME_CONFIG_OPTIONS_READONLY=${SCANTOR_MONGO_EXPRESS_READONLY}` |
 | labels | HTTP router `mongo-express` with forwardAuth |
 
@@ -378,7 +380,7 @@ refused. Keep such a directory below a parent that other host users cannot enter
 Docker volume subpaths must exist before a container can mount them (verified: `cannot access path …
 no such file or directory`). The orchestrator creates `<userId>` directories through the `init` helper
 ([editor](editor.md) §9.4) and creates the socket directories directly in `scantor-editor-sockets`.
-`docker compose -f docker-compose.prod.yml down -v` removes the compose-created volumes, including the database. It never removes
+`docker compose down -v` removes the compose-created volumes, including the database. It never removes
 `scantor-workspaces` or `scantor-editor-home`, because compose did not create them, nor any data in a host directory (§5.1).
 
 ### 5.1 Data locations
@@ -400,11 +402,11 @@ are not meant for network filesystems such as NFS.
 
 A changed value never moves data. Moving a service to a directory:
 
-1. Stop the service (`docker compose -f docker-compose.prod.yml stop mongo`; for workspaces and editor homes,
+1. Stop the service (`docker compose stop mongo`; for workspaces and editor homes,
    stop the orchestrator and every editor container).
 2. Copy the volume's content:
    `docker run --rm -v scantor-mongo-data:/from:ro -v /mnt/disk1/mongo:/to alpine:3.24 cp -a /from/. /to/`.
-3. Set the variable in `.env` and start again (`docker compose -f docker-compose.prod.yml up -d`). For the two
+3. Set the variable in `.env` and start again (`docker compose up -d`). For the two
    orchestrator volumes, remove the old volume first (`docker volume rm scantor-workspaces`): the orchestrator
    refuses to start while an existing volume is not at the location its variable names (a plain volume while a
    path is set, or another directory), naming the volume and this procedure, because switching silently would hide
@@ -462,9 +464,6 @@ services:
       - traefik.http.routers.scantor-editor.rule=Host(`editor.${SCANTOR_DOMAIN}`)
       - traefik.http.routers.scantor-editor.service=scantor-editor
       - traefik.http.services.scantor-editor.loadbalancer.server.port=3001
-    ports:
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_PORT}:3000"
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_EDITOR_PORT}:3001"
     networks:
       - scantor
       - scantor-sandbox
@@ -586,8 +585,6 @@ services:
       - traefik.tcp.routers.mongo.tls.certresolver=${SCANTOR_TRAEFIK_CERT_RESOLVER}
       - traefik.tcp.routers.mongo.service=mongo
       - traefik.tcp.services.mongo.loadbalancer.server.port=27017
-    ports:
-      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017"
     networks:
       - scantor
     volumes:
@@ -626,9 +623,6 @@ services:
       - traefik.tcp.routers.amqp.tls.certresolver=${SCANTOR_TRAEFIK_CERT_RESOLVER}
       - traefik.tcp.routers.amqp.service=amqp
       - traefik.tcp.services.amqp.loadbalancer.server.port=5672
-    ports:
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_AMQP_PORT}:5672"
-      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RABBITMQ_MANAGEMENT_PORT}:15672"
     networks:
       - scantor
       - scantor-sandbox
@@ -666,9 +660,6 @@ services:
       - traefik.http.middlewares.rustfs-console-root.redirectregex.regex=^https://([^/]+)/?$$
       - traefik.http.middlewares.rustfs-console-root.redirectregex.replacement=https://$${1}/rustfs/console/
       - traefik.http.services.rustfs.loadbalancer.server.port=9001
-    ports:
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_S3_PORT}:9000"
-      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RUSTFS_CONSOLE_PORT}:9001"
     networks:
       - scantor
       - scantor-sandbox
@@ -768,8 +759,6 @@ services:
       - traefik.http.routers.mongo-express.service=mongo-express
       - traefik.http.routers.mongo-express.middlewares=scantor-tools-auth@docker
       - traefik.http.services.mongo-express.loadbalancer.server.port=8081
-    ports:
-      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081"
     networks:
       - scantor
     environment:
@@ -890,7 +879,7 @@ Identical to production for `mongo`, `rabbitmq`, `rustfs`, `registry`, `mongo-ex
 files, [testing](testing.md)). The file has no `build:` sections. `just up` first builds every dev image
 with `docker buildx bake --load dev` (bake group `dev` of `docker-bake.hcl`, tag `dev`, no registry prefix, layer cache
 reused, so unchanged images take seconds; [development](development.md) §10) and then runs
-`docker compose -f docker-compose.dev.yml up -d`, which recreates every container whose image changed. The
+`docker compose -f docker-compose.dev.yml -f docker-compose.ports.yml up -d`, which recreates every container whose image changed. The
 differences:
 
 ```yaml
@@ -939,9 +928,6 @@ services:
       - traefik.http.routers.scantor-editor.rule=Host(`editor.${SCANTOR_DOMAIN}`)
       - traefik.http.routers.scantor-editor.service=scantor-editor
       - traefik.http.services.scantor-editor.loadbalancer.server.port=3001
-    ports:
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_PORT}:3000"
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_EDITOR_PORT}:3001"
     networks:
       - scantor
       - scantor-sandbox
@@ -1022,7 +1008,8 @@ variables. The properties this document relies on:
   `/var/lib/docker` is the named volume `scantor-test-runner-docker`, because overlay2 cannot nest on the
   container rootfs; the volume also caches images and build layers between runs.
 - The runner builds the images with `docker buildx bake` (tag `dev`) and starts the **real**
-  `docker-compose.prod.yml` with `SCANTOR_IMAGE_PREFIX=` (empty), `SCANTOR_IMAGE_TAG=dev` and the pull
+  `docker-compose.prod.yml` and `docker-compose.ports.yml` (§6.4; the suite reads RabbitMQ's management API
+  through its loopback port) with `SCANTOR_IMAGE_PREFIX=` (empty), `SCANTOR_IMAGE_TAG=dev` and the pull
   policy of [testing](testing.md) §7.4 (phase 7), plus the override `tests/docker/stack.tests.yml`.
 - The stack runs with `--project-directory /run/scantor-test`, so the production file's relative paths
   (`env_file: .env` and the `./traefik/dynamic` mount of §7.4) resolve to generated test files: a
@@ -1030,6 +1017,47 @@ variables. The properties this document relies on:
   certificate ([testing](testing.md) §7.3). `stack.tests.yml` only adds the fixtures server, the remote
   node pair and test settings; it adds no Traefik mount and uses no relative paths. Nodes and workers trust the test CA
   through `SCANTOR_CA_CERT`. Nothing disables certificate verification ([nodes](nodes.md) §11).
+
+### 6.4 `docker-compose.ports.yml`
+
+The overlay with every direct host port except Traefik's and the registry's. It only adds `ports` to services
+of `docker-compose.prod.yml` (`lint-compose` enforces both, [testing](testing.md) §11). The documented commands
+are plain `docker compose …`, because `COMPOSE_FILE` in `.env` names the files: by default
+`docker-compose.prod.yml:docker-compose.ports.yml`; behind Traefik `docker-compose.prod.yml` alone, so only
+Traefik faces the network. No variable can remove a compose `ports` entry, and on a host with several users
+every loopback port is reachable by all of them and may collide with theirs, which is why the ports live in a
+file of their own. The dev recipes layer the same overlay over `docker-compose.dev.yml` (`dev_compose` in the
+`justfile`), and the test runner over `docker-compose.prod.yml` (§6.3).
+
+```yaml
+# Direct host ports of the master (docs/deployment.md §6.4): every published port except Traefik's and the registry's,
+# which stay in docker-compose.prod.yml. COMPOSE_FILE in .env layers this file over docker-compose.prod.yml by
+# default; behind Traefik, leave it out (COMPOSE_FILE=docker-compose.prod.yml) so only Traefik faces the network.
+
+services:
+  orchestrator:
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_PORT}:3000"
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_EDITOR_PORT}:3001"
+
+  mongo:
+    ports:
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017"
+
+  rabbitmq:
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_AMQP_PORT}:5672"
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RABBITMQ_MANAGEMENT_PORT}:15672"
+
+  rustfs:
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_S3_PORT}:9000"
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RUSTFS_CONSOLE_PORT}:9001"
+
+  mongo-express:
+    ports:
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081"
+```
 
 ## 7. Traefik
 
@@ -1245,7 +1273,7 @@ Every recipe that starts a stack (`just up`, `just prod-up`, `just test`) runs `
 
 When no user exists, the orchestrator either creates the admin from `SCANTOR_ADMIN_EMAIL` /
 `SCANTOR_ADMIN_PASSWORD`, or logs a one-time setup URL
-(`docker compose -f docker-compose.prod.yml logs orchestrator | grep /setup`). The token changes on every
+(`docker compose logs orchestrator | grep /setup`). The token changes on every
 restart ([auth](auth.md)).
 
 ## 9. Resource guards
@@ -1293,22 +1321,24 @@ git clone https://github.com/lonetis/scantor.git && cd scantor   # or download a
 just init                                                        # creates .env with random secrets
 $EDITOR .env      # COMPOSE_PROFILES=traefik, SCANTOR_DOMAIN, URL checklist §7.7, SCANTOR_TRAEFIK_CERT_RESOLVER=acme,
                   # CF_DNS_API_TOKEN, SCANTOR_IMAGE_TAG=<version>, optional SCANTOR_ADMIN_EMAIL/PASSWORD
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
-docker compose -f docker-compose.prod.yml logs orchestrator | grep /setup     # unless SCANTOR_ADMIN_* was set
+docker compose pull
+docker compose up -d
+docker compose logs orchestrator | grep /setup     # unless SCANTOR_ADMIN_* was set
 curl -fsS https://<domain>/api/health
 ```
 
 Then log in, add remote nodes (§11), and create users. `just prod-up` wraps `init`, `pull` and `up -d`.
+Behind Traefik, also set `COMPOSE_FILE=docker-compose.prod.yml`, so the direct ports of §6.4 stay closed.
+A rootless Docker host needs a few more settings (§10.1).
 
 **Updating**:
 
 ```sh
 git pull                                   # compose file and .env.example changes, if any
-just init                                  # appends new variables to .env, never changes existing ones
+just init                                  # appends new variables to .env (COMPOSE_FILE too), never changes existing ones
 # set SCANTOR_IMAGE_TAG=<new version> in .env when pinning
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 - Data model migrations run at orchestrator boot under the `migrations` lock
@@ -1412,7 +1442,7 @@ monitoring profile scrapes them. RabbitMQ runs without its Prometheus plugin (§
   (`requestId`, `userId`, `scanId`, `workerId`, `nodeId`, `jobId`, `taskId`, `revisionId`). Secrets,
   tokens and config values are never logged.
 - Master services log to Docker's `local` driver with rotation (`x-logging`). Read them with
-  `docker compose -f docker-compose.prod.yml logs -f <service>`.
+  `docker compose logs -f <service>`.
 - Worker logs stay on their node (rotated) and are tailed on demand from the UI ([nodes](nodes.md) §7.3).
   Per-analysis log tails are stored on the analysis ([data model](data-model.md) §4.6).
 - `/api/health` (public) reports the component status for load balancers and uptime checks.
@@ -1446,9 +1476,9 @@ the children of a tagged OCI index (BuildKit attestation manifests) are kept (ve
 **Manual** (`just registry-gc`): stop the only pusher, collect, start again:
 
 ```sh
-docker compose -f docker-compose.prod.yml stop orchestrator
+docker compose stop orchestrator
 docker exec scantor-registry registry garbage-collect --delete-untagged /etc/distribution/config.yml
-docker compose -f docker-compose.prod.yml start orchestrator
+docker compose start orchestrator
 ```
 
 A build interrupted by the stop goes back to `queued` (the stopping orchestrator requeues its job) and is
@@ -1479,11 +1509,11 @@ docker exec -e NEW="$new_mongo" scantor-mongo sh -c 'mongosh --quiet -u "$MONGO_
 docker exec -e NEW="$new_rabbitmq" scantor-rabbitmq sh -c 'rabbitmqctl --quiet change_password "$RABBITMQ_DEFAULT_USER" "$NEW"'
 # then set SCANTOR_MONGO_PASSWORD and SCANTOR_RABBITMQ_PASSWORD in .env to the new values and recreate
 # the services that use them (mongo and rabbitmq too, so their environment matches again)
-docker compose -f docker-compose.prod.yml up -d
+docker compose up -d
 ```
 
 RustFS and mongo-express read their secrets at every start: change `.env` and run
-`docker compose -f docker-compose.prod.yml up -d`.
+`docker compose up -d`.
 
 ### 14.4 Changing `SCANTOR_SECRET` (disaster recovery)
 
@@ -1492,9 +1522,9 @@ key and HTTP secret, the built-in node token, the tools and editor cookies, and 
 credential and config secret ([architecture](architecture.md) §9). Procedure:
 
 1. Pause or cancel running scans.
-2. Change the secret and `docker compose -f docker-compose.prod.yml up -d`. The orchestrator rewrites the
+2. Change the secret and `docker compose up -d`. The orchestrator rewrites the
    JWKS and the HTTP secret, and resets `scan-*` RabbitMQ users through the reconciler.
-3. `docker compose -f docker-compose.prod.yml restart registry node`.
+3. `docker compose restart registry node`.
 4. Users re-enter git credentials and re-run scans that had secret config values, because those can no
    longer be decrypted.
 
@@ -1515,7 +1545,7 @@ API keys and remote node tokens survive, because they are stored as hashes.
 |---|---|---|
 | builds fail at push with `401`/`connection refused` to the realm | the master's host daemon cannot reach `${SCANTOR_PUBLIC_URL}/api/registry/token` (no hairpin NAT) | add `127.0.0.1 <domain>` to the master's `/etc/hosts`, or bind Traefik on all addresses |
 | builds fail at push to `localhost:5000` | `SCANTOR_BIND_ADDRESS` excludes loopback (§1) | use `127.0.0.1` or `0.0.0.0` |
-| registry restarts in a loop logging "waiting …" | the orchestrator has not booted (MongoDB, RabbitMQ or RustFS unhealthy) | check `docker compose -f docker-compose.prod.yml ps` and the orchestrator logs |
+| registry restarts in a loop logging "waiting …" | the orchestrator has not booted (MongoDB, RabbitMQ or RustFS unhealthy) | check `docker compose ps` and the orchestrator logs |
 | empty broker after recreating `rabbitmq` | `hostname` changed | keep `hostname: rabbitmq` |
 | orchestrator exits at boot listing variables | startup guard (§8.2) | run `just init`, or set `SCANTOR_ALLOW_INSECURE_DEFAULTS=true` for local Traefik tests |
 | AMQP over :443 times out | the client connects by IP, so no SNI is sent | use the hostname |

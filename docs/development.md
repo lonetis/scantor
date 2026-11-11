@@ -132,14 +132,14 @@ Conventions for recipes:
 | `init` | create or complete `.env` from `.env.example` ([deployment](deployment.md) §8.3): copy it when missing, append every key that `.env` lacks, replace each `-insecure-dev` value written in this run with 48 random hex characters, never change a key that already existed, print the names of added and generated keys (never values); create and own the cache volumes. Idempotent; every recipe that starts a stack runs it first. |
 | `deps` | install `node_modules` for `orchestrator/`, `tests/` and `connectors/js/` (`npm ci`, Linux binaries) so editors resolve imports |
 | **Dev stack** | |
-| `up` | `init`; `docker buildx bake --load dev` (every dev image built from source, tag `dev`, layer-cached, §10); `docker compose -f docker-compose.dev.yml up -d`, which recreates the services whose image changed; wait until the orchestrator container is healthy (polled, not `up --wait`: the first dev start installs `node_modules`, which can outlast the dev orchestrator's healthcheck start period, [deployment](deployment.md) §4.5); print the dashboard, editor and setup URLs (the setup link is read from the orchestrator log) |
+| `up` | `init`; `docker buildx bake --load dev` (every dev image built from source, tag `dev`, layer-cached, §10); `docker compose -f docker-compose.dev.yml -f docker-compose.ports.yml up -d`, which recreates the services whose image changed; wait until the orchestrator container is healthy (polled, not `up --wait`: the first dev start installs `node_modules`, which can outlast the dev orchestrator's healthcheck start period, [deployment](deployment.md) §4.5); print the dashboard, editor and setup URLs (the setup link is read from the orchestrator log) |
 | `down` | stop the dev stack (volumes kept) |
 | `restart *services` | restart dev services (all when empty) |
 | `logs *services` | follow logs of dev services |
 | `ps` | show dev services and scantor-managed containers |
 | `cli *args` | run the CLI from `scantor:dev` with the shim flags (`SCANTOR_URL`, `SCANTOR_TOKEN` passed through from the shell) |
 | `dev-run dir *args` | `scantor dev run <dir> *args` from `scantor:dev` (local mode against the host Docker daemon) |
-| `prod-up` | `init`, then `docker compose -f docker-compose.prod.yml pull` and `up -d` ([deployment](deployment.md) §10) |
+| `prod-up` | `init`, then `docker compose pull` and `up -d` ([deployment](deployment.md) §10) |
 | **Build** | |
 | `build` | build a native `scantor` binary for the host OS and architecture with dev ldflags (`bin/scantor`) in a Go container; the dev stack never uses it |
 | `build-images *targets` | `docker buildx bake --load` of `docker-bake.hcl` targets (default: the `dev` group, §10), tagged `:dev` without registry prefix |
@@ -195,7 +195,7 @@ Conventions for recipes:
   publishes it to the dev stack (create an API key on the "CLI & MCP access" page first).
 - **Remote node against the dev stack** (Docker Desktop): point the four public endpoints of `.env` at
   `host.docker.internal` (`SCANTOR_PUBLIC_URL=http://host.docker.internal:3000`, AMQP `:5672`, S3 `:9000`,
-  registry `host.docker.internal:5000`) and run `docker compose -f docker-compose.dev.yml up -d`; the
+  registry `host.docker.internal:5000`) and run `just up` (or `docker compose -f docker-compose.dev.yml -f docker-compose.ports.yml up -d`); the
   browser and the CLI keep using `localhost`. Start a privileged `docker:29.9-dind` on its own network
   with `DOCKER_TLS_CERTDIR=` and the dockerd flags `--insecure-registry host.docker.internal:5000 --dns
   <the DNS server of a normal container's /etc/resolv.conf>` (inner containers cannot use the embedded
@@ -696,7 +696,7 @@ just release 1.5.0
 
 Before tagging: `main` is green in `test.yml`. After the workflows finish: `docker run --rm
 ghcr.io/lonetis/scantor:X.Y.Z version` and a downloaded binary report `X.Y.Z`. Operators update with
-`docker compose -f docker-compose.prod.yml pull && docker compose -f docker-compose.prod.yml up -d`
+`docker compose pull && docker compose up -d`
 ([deployment](deployment.md)); remote nodes update by
 restarting `scantor node` with the new image tag within the compatibility window.
 

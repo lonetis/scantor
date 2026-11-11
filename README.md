@@ -97,18 +97,21 @@ the host.
 git clone https://github.com/lonetis/scantor.git && cd scantor
 just init                     # creates .env with random secrets
 $EDITOR .env                  # URLs, SCANTOR_IMAGE_TAG=<version>, optionally the first admin
-docker compose -f docker-compose.prod.yml pull
-docker compose -f docker-compose.prod.yml up -d
-docker compose -f docker-compose.prod.yml logs orchestrator | grep /setup   # first-admin link
+docker compose pull
+docker compose up -d
+docker compose logs orchestrator | grep /setup   # first-admin link
 ```
 
 `just prod-up` runs `init`, `pull` and `up -d` in one go. To update, run `git pull` and `just init`
-(which adds new variables), then `pull` and `up -d` again.
+(which adds new variables), then `pull` and `up -d` again. `COMPOSE_FILE` in `.env` selects the compose
+files: by default the production file plus [`docker-compose.ports.yml`](docker-compose.ports.yml) with the
+direct host ports of the dashboard, AMQP, S3 and the admin tools.
 
 **TLS with Traefik (recommended for public deployments).** Set `COMPOSE_PROFILES=traefik` and follow the
 "TRAEFIK & TLS" section of `.env.example`: a domain with DNS records for `<domain>` and `*.<domain>`, a
 wildcard certificate from Let's Encrypt through the DNS-01 challenge (Cloudflare by default, with an API
-token; other DNS providers work too) and `https` URLs. Every public endpoint is then served on port 443.
+token; other DNS providers work too) and `https` URLs. Every public endpoint is then served on port 443, and
+`COMPOSE_FILE=docker-compose.prod.yml` closes the direct ports.
 A deployment that is reachable from the network refuses to start while any secret still has its
 insecure development value.
 

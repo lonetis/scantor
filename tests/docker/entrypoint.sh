@@ -34,7 +34,7 @@ readonly domain public_url
 
 stack_compose() {
   docker compose -p "$project" --project-directory "$stack_dir" \
-    -f "$src_dir/docker-compose.prod.yml" -f "$opt_dir/stack.tests.yml" "$@"
+    -f "$src_dir/docker-compose.prod.yml" -f "$src_dir/docker-compose.ports.yml" -f "$opt_dir/stack.tests.yml" "$@"
 }
 
 # retry <attempts> <command...>: cold pulls through nested Docker hit TLS handshake timeouts now and then.
@@ -347,7 +347,7 @@ while IFS= read -r path; do
 done < <(sed -n 's/^SCANTOR_[A-Z_]*_DATA=\(\/.*\)$/\1/p' "$env_file")
 
 # ── Phase 8: the stack ──────────────────────────────────────────────────────────────────────────────
-log "Phase 8: starting the stack (docker-compose.prod.yml + stack.tests.yml, project $project)"
+log "Phase 8: starting the stack (docker-compose.prod.yml + docker-compose.ports.yml + stack.tests.yml, project $project)"
 while IFS= read -r image; do
   if ! docker image inspect "$image" >/dev/null 2>&1; then
     log "pulling $image"

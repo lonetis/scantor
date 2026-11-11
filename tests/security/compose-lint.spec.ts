@@ -8,6 +8,7 @@ import { expect, test } from '../fixtures'
 
 const PROD = 'docker-compose.prod.yml'
 const DEV = 'docker-compose.dev.yml'
+const PORTS = 'docker-compose.ports.yml'
 const STACK = 'tests/docker/stack.tests.yml'
 const TESTS = 'docker-compose.tests.yml'
 
@@ -49,32 +50,42 @@ const RULES: RuleCase[] = [
     title: 'the RabbitMQ management GUI is published on the public bind address',
     breakRule: (copy) =>
       copy.replace(
-        PROD,
+        PORTS,
         '"${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RABBITMQ_MANAGEMENT_PORT}:15672"',
         '"${SCANTOR_BIND_ADDRESS}:${SCANTOR_RABBITMQ_MANAGEMENT_PORT}:15672"',
       ),
-    problem: /^docker-compose\.prod\.yml: rabbitmq publishes 15672 without \$\{SCANTOR_ADMIN_BIND_ADDRESS\}/,
+    problem: /^docker-compose\.ports\.yml: rabbitmq publishes 15672 without \$\{SCANTOR_ADMIN_BIND_ADDRESS\}/,
   },
   {
     title: 'MongoDB is published on the public bind address',
-    breakRule: (copy) => copy.replace(PROD, '"${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017"', '"0.0.0.0:${SCANTOR_MONGO_PORT}:27017"'),
-    problem: /^docker-compose\.prod\.yml: mongo publishes 27017 without \$\{SCANTOR_ADMIN_BIND_ADDRESS\}/,
+    breakRule: (copy) => copy.replace(PORTS, '"${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017"', '"0.0.0.0:${SCANTOR_MONGO_PORT}:27017"'),
+    problem: /^docker-compose\.ports\.yml: mongo publishes 27017 without \$\{SCANTOR_ADMIN_BIND_ADDRESS\}/,
   },
   {
     title: 'mongo-express is published on the public bind address',
     breakRule: (copy) =>
-      copy.replace(PROD, '"${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081"', '"${SCANTOR_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081"'),
-    problem: /^docker-compose\.prod\.yml: mongo-express publishes 8081 without \$\{SCANTOR_ADMIN_BIND_ADDRESS\}/,
+      copy.replace(PORTS, '"${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081"', '"${SCANTOR_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081"'),
+    problem: /^docker-compose\.ports\.yml: mongo-express publishes 8081 without \$\{SCANTOR_ADMIN_BIND_ADDRESS\}/,
   },
   {
     title: 'the RustFS console is published on the public bind address',
     breakRule: (copy) =>
       copy.replace(
-        PROD,
+        PORTS,
         '"${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RUSTFS_CONSOLE_PORT}:9001"',
         '"${SCANTOR_BIND_ADDRESS}:${SCANTOR_RUSTFS_CONSOLE_PORT}:9001"',
       ),
-    problem: /^docker-compose\.prod\.yml: rustfs publishes 9001 without \$\{SCANTOR_ADMIN_BIND_ADDRESS\}/,
+    problem: /^docker-compose\.ports\.yml: rustfs publishes 9001 without \$\{SCANTOR_ADMIN_BIND_ADDRESS\}/,
+  },
+  {
+    title: 'the production file publishes a direct port again',
+    breakRule: (copy) => editService(copy, PROD, 'mongo', (path, doc) => doc.setIn([...path, 'ports'], doc.createNode(['127.0.0.1:27017:27017']))),
+    problem: `${PROD}: mongo publishes ports; direct ports belong in ${PORTS}`,
+  },
+  {
+    title: 'the ports overlay changes more than ports',
+    breakRule: (copy) => editService(copy, PORTS, 'rabbitmq', (path, doc) => doc.setIn([...path, 'user'], 'root')),
+    problem: `${PORTS}: rabbitmq may set only ports, not user`,
   },
   {
     title: 'the MongoDB TCP router is enabled without SCANTOR_EXPOSE_MONGO',

@@ -43,9 +43,6 @@ services:
       - traefik.http.routers.scantor-editor.rule=Host(`editor.${SCANTOR_DOMAIN}`)
       - traefik.http.routers.scantor-editor.service=scantor-editor
       - traefik.http.services.scantor-editor.loadbalancer.server.port=3001
-    ports:
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_PORT}:3000"
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_EDITOR_PORT}:3001"
     networks:
       - scantor
       - scantor-sandbox
@@ -174,8 +171,6 @@ services:
       - traefik.tcp.routers.mongo.tls.certresolver=${SCANTOR_TRAEFIK_CERT_RESOLVER}
       - traefik.tcp.routers.mongo.service=mongo
       - traefik.tcp.services.mongo.loadbalancer.server.port=27017
-    ports:
-      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017"
     networks:
       - scantor
     volumes:
@@ -214,9 +209,6 @@ services:
       - traefik.tcp.routers.amqp.tls.certresolver=${SCANTOR_TRAEFIK_CERT_RESOLVER}
       - traefik.tcp.routers.amqp.service=amqp
       - traefik.tcp.services.amqp.loadbalancer.server.port=5672
-    ports:
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_AMQP_PORT}:5672"
-      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RABBITMQ_MANAGEMENT_PORT}:15672"
     networks:
       - scantor
       - scantor-sandbox
@@ -254,9 +246,6 @@ services:
       - traefik.http.middlewares.rustfs-console-root.redirectregex.regex=^https://([^/]+)/?$$
       - traefik.http.middlewares.rustfs-console-root.redirectregex.replacement=https://$${1}/rustfs/console/
       - traefik.http.services.rustfs.loadbalancer.server.port=9001
-    ports:
-      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_S3_PORT}:9000"
-      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RUSTFS_CONSOLE_PORT}:9001"
     networks:
       - scantor
       - scantor-sandbox
@@ -356,8 +345,6 @@ services:
       - traefik.http.routers.mongo-express.service=mongo-express
       - traefik.http.routers.mongo-express.middlewares=scantor-tools-auth@docker
       - traefik.http.services.mongo-express.loadbalancer.server.port=8081
-    ports:
-      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081"
     networks:
       - scantor
     environment:

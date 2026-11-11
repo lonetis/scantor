@@ -1,0 +1,27 @@
+# Direct host ports of the master (docs/deployment.md §6.4): every published port except Traefik's and the registry's,
+# which stay in docker-compose.prod.yml. COMPOSE_FILE in .env layers this file over docker-compose.prod.yml by
+# default; behind Traefik, leave it out (COMPOSE_FILE=docker-compose.prod.yml) so only Traefik faces the network.
+
+services:
+  orchestrator:
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_PORT}:3000"
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_EDITOR_PORT}:3001"
+
+  mongo:
+    ports:
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_PORT}:27017"
+
+  rabbitmq:
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_AMQP_PORT}:5672"
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RABBITMQ_MANAGEMENT_PORT}:15672"
+
+  rustfs:
+    ports:
+      - "${SCANTOR_BIND_ADDRESS}:${SCANTOR_S3_PORT}:9000"
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_RUSTFS_CONSOLE_PORT}:9001"
+
+  mongo-express:
+    ports:
+      - "${SCANTOR_ADMIN_BIND_ADDRESS}:${SCANTOR_MONGO_EXPRESS_PORT}:8081"

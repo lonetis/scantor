@@ -36,7 +36,7 @@ export const loadComposeLint = () => loadScript<ComposeLintModule>('lint-compose
 export const loadEnvLint = () => loadScript<EnvLintModule>('lint-env.mjs')
 
 /** The compose files lint-compose reads, relative to the repository root. */
-export const COMPOSE_FILES = ['docker-compose.dev.yml', 'docker-compose.prod.yml', 'docker-compose.tests.yml', 'tests/docker/stack.tests.yml']
+export const COMPOSE_FILES = ['docker-compose.dev.yml', 'docker-compose.prod.yml', 'docker-compose.ports.yml', 'docker-compose.tests.yml', 'tests/docker/stack.tests.yml']
 
 /** Inputs of lint-env that a negative case may change (copied); the Go and orchestrator sources are linked. */
 export const ENV_LINT_FILES = [
@@ -44,6 +44,7 @@ export const ENV_LINT_FILES = [
   'justfile',
   'docker-compose.dev.yml',
   'docker-compose.prod.yml',
+  'docker-compose.ports.yml',
   'docker-compose.tests.yml',
   'tests/docker/stack.tests.yml',
   'tests/docker/stack.env',

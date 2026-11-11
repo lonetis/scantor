@@ -2,6 +2,9 @@
 // Compose rules (docs/testing.md §11, `just lint-compose`, part of `just lint`):
 //
 //   - the infrastructure services are identical in docker-compose.dev.yml and docker-compose.prod.yml;
+//   - docker-compose.dev.yml and docker-compose.prod.yml publish only Traefik's ports and the registry's: every other
+//     direct port lives in the overlay docker-compose.ports.yml, which adds `ports` to services of the production file
+//     and nothing else (the admin-port rule below applies to it too);
 //   - the compose rules of docs/security.md hold: Traefik with exposedbydefault=false, the compose-project constraint and
 //     api.insecure=false; admin GUIs and MongoDB published only on SCANTOR_ADMIN_BIND_ADDRESS; the MongoDB TCP router
 //     only with SCANTOR_EXPOSE_MONGO; mongo-express read-only; mongod --noscripting and --slowOpSampleRate 0 (slow
@@ -52,9 +55,43 @@ const AFTER_DATA_INIT = ['mongo', 'rabbitmq', 'rustfs']
 /** Container ports of admin GUIs and MongoDB that must only be published on the admin bind address. */
 const ADMIN_PORTS = { mongo: [27017], rabbitmq: [15672], rustfs: [9001], 'mongo-express': [8081] }
 
+/** The overlay with the direct ports, and the services the base files may still publish ports of. */
+export const PORTS_OVERLAY = 'docker-compose.ports.yml'
+const BASE_PORT_SERVICES = ['traefik', 'registry']
+
 const ALLOWED_DEFAULT = '${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}'
 
 const asList = (value) => (Array.isArray(value) ? value : value === undefined || value === null ? [] : [value])
+
+/** Admin GUIs and MongoDB published on another address than SCANTOR_ADMIN_BIND_ADDRESS. */
+function adminPortProblems(name, services) {
+  const problems = []
+  for (const [service, ports] of Object.entries(ADMIN_PORTS)) {
+    for (const mapping of asList(services[service]?.ports).map(String)) {
+      const target = Number(mapping.split(':').pop()?.split('/')[0])
+      if (ports.includes(target) && !mapping.startsWith('${SCANTOR_ADMIN_BIND_ADDRESS}:')) {
+        problems.push(`${name}: ${service} publishes ${target} without \${SCANTOR_ADMIN_BIND_ADDRESS} (${mapping})`)
+      }
+    }
+  }
+  return problems
+}
+
+/** The ports overlay adds only `ports`, only to services of the production file, and keeps the admin-port rule. */
+function overlayProblems(overlay, prod) {
+  const problems = []
+  for (const key of Object.keys(overlay ?? {})) {
+    if (key !== 'services') problems.push(`${PORTS_OVERLAY}: only services may be set, not ${key}`)
+  }
+  for (const [service, definition] of Object.entries(overlay?.services ?? {})) {
+    if (!prod.services?.[service]) problems.push(`${PORTS_OVERLAY}: ${service} is no service of docker-compose.prod.yml`)
+    for (const key of Object.keys(definition ?? {})) {
+      if (key !== 'ports') problems.push(`${PORTS_OVERLAY}: ${service} may set only ports, not ${key}`)
+    }
+  }
+  problems.push(...adminPortProblems(PORTS_OVERLAY, overlay?.services ?? {}))
+  return problems
+}
 
 /** Problems of one parsed production-style compose file (dev or prod). */
 function serviceRules(name, compose) {
@@ -73,12 +110,10 @@ function serviceRules(name, compose) {
       if (!command.includes(flag)) problems.push(`${name}: traefik lacks ${flag}`)
     }
   }
-  for (const [service, ports] of Object.entries(ADMIN_PORTS)) {
-    for (const mapping of asList(services[service]?.ports).map(String)) {
-      const target = Number(mapping.split(':').pop()?.split('/')[0])
-      if (ports.includes(target) && !mapping.startsWith('${SCANTOR_ADMIN_BIND_ADDRESS}:')) {
-        problems.push(`${name}: ${service} publishes ${target} without \${SCANTOR_ADMIN_BIND_ADDRESS} (${mapping})`)
-      }
+  problems.push(...adminPortProblems(name, services))
+  for (const [service, definition] of Object.entries(services)) {
+    if (!BASE_PORT_SERVICES.includes(service) && asList(definition?.ports).length > 0) {
+      problems.push(`${name}: ${service} publishes ports; direct ports belong in ${PORTS_OVERLAY}`)
     }
   }
   const mongoLabels = asList(services.mongo?.labels).map(String)
@@ -172,10 +207,13 @@ export function lintCompose(repo = root) {
     }
   }
   problems.push(...serviceRules('docker-compose.dev.yml', dev), ...serviceRules('docker-compose.prod.yml', prod))
+  problems.push(...overlayProblems(parse(read(PORTS_OVERLAY)), prod))
   const composeFiles = readdirSync(repo).filter((n) => /^docker-compose\..+\.yml$/.test(n))
   for (const file of [...composeFiles, 'tests/docker/stack.tests.yml']) {
     const text = read(file)
-    problems.push(...defaultProblems(file, text), ...healthcheckProblems(file, parse(text)))
+    problems.push(...defaultProblems(file, text))
+    // The overlay's services are completed by the file it is layered over.
+    if (file !== PORTS_OVERLAY) problems.push(...healthcheckProblems(file, parse(text)))
   }
   return problems
 }
