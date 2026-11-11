@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -367,5 +368,46 @@ func TestEgressLoopReportsTheResult(t *testing.T) {
 	eventually(t, 5*time.Second, "skip logged", func() bool { return skipped.logContains("egress helper is skipped") })
 	if st := skipped.orch.lastStatus(); st != nil && st.Info.EgressDenyApplied {
 		t.Error("egressDenyApplied without a helper run")
+	}
+}
+
+// A failure that repeats on every run, as the missing DOCKER-USER chain of rootless Docker does, is warned
+// about once, with a hint on rootless Docker; the repeats are debug lines (docs/nodes.md §9).
+func TestEgressLoopWarnsOnceAboutTheSameFailure(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.EgressDeny = prefixes("169.254.0.0/16") })
+	h.docker.rootless = true
+	h.d.t.egressEvery = 50 * time.Millisecond
+	self := h.docker.addContainer("scantor-node", nil, dcontainer.StateRunning)
+	img := h.docker.addImage("scantor:dev")
+	self.imageID = img.id
+	self.config.Hostname = shortID(self.id)
+	h.d.mountinfo = writeMountinfo(t, self.id)
+	var runs atomic.Int32
+	h.docker.onStart = func(f *fakeDocker, c *fakeContainer) {
+		if !strings.HasPrefix(c.name, "scantor-netpol-") {
+			return
+		}
+		runs.Add(1)
+		f.mu.Lock()
+		f.logs[c.name] = "{\"applied\":false,\"families\":{\"ipv4\":\"DOCKER-USER chain not found\"},\"errors\":[\"ipv4: DOCKER-USER chain not found\"]}\n"
+		f.mu.Unlock()
+		f.exit(c.name, 0, false)
+	}
+	h.start()
+	eventually(t, 5*time.Second, "three helper runs", func() bool { return runs.Load() >= 3 })
+	warnings := 0
+	for _, line := range strings.Split(h.logs.String(), "\n") {
+		if strings.Contains(line, "level=WARN") && strings.Contains(line, "the egress deny list was not applied completely") {
+			warnings++
+			if !strings.Contains(line, "rootless Docker") {
+				t.Errorf("no rootless hint: %s", line)
+			}
+		}
+	}
+	if warnings != 1 {
+		t.Errorf("%d warnings about the same failure, want 1", warnings)
+	}
+	if st := h.orch.lastStatus(); st != nil && st.Info.EgressDenyApplied {
+		t.Error("egressDenyApplied after failed runs")
 	}
 }

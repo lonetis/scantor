@@ -766,6 +766,10 @@ print {"applied": bool, "families": {...}, "errors": [...]} on stdout
   editors, test runs and BuildKit. Host-network containers and the host itself are not affected.
 - `egressDenyApplied` is `true` only when every configured CIDR is in place. Otherwise the daemon logs a
   warning with the errors, keeps running and retries at the next interval. This is best effort by design.
+  The same failure again (rootless Docker fails this way on every run: the helper finds no `DOCKER-USER`
+  chain in the daemon's network namespace) is logged at debug level; a new reason is a warning again. On a
+  rootless Docker daemon (`/info` security option `name=rootless`) the warning carries a hint to block the
+  denied ranges on the host instead.
   Known cases where it fails: Docker's experimental nftables firewall backend (no `DOCKER-USER` chain),
   rootless Docker, and IPv6 disabled in Docker (IPv6 CIDRs are then reported as not applied).
 - `/run/xtables.lock`: iptables-legacy opens this lock with `O_CREAT` and exits fatally when it cannot,

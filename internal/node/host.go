@@ -40,6 +40,8 @@ type hostInfo struct {
 	cpus          int
 	memoryBytes   int64
 	runtimes      []string
+	// rootless is true for a rootless Docker daemon (security option name=rootless).
+	rootless bool
 }
 
 // probeHost reads /info and /version of the Docker daemon. An engine older than minAPIVersion is an
@@ -74,6 +76,7 @@ func probeHost(ctx context.Context, docker client.APIClient) (hostInfo, error) {
 		h.runtimes = append(h.runtimes, name)
 	}
 	slices.Sort(h.runtimes)
+	h.rootless = slices.Contains(info.SecurityOptions, "name=rootless")
 	return h, nil
 }
 

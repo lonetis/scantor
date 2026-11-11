@@ -41,7 +41,9 @@ type fakeDocker struct {
 
 	// Behaviour knobs.
 	// noICC refuses networks with inter-container traffic disabled, like rootless Docker without br_netfilter.
-	noICC      bool
+	noICC bool
+	// rootless reports the security option of a rootless Docker daemon.
+	rootless   bool
 	engineID   string
 	os, arch   string
 	apiVersion string
@@ -251,10 +253,14 @@ func (f *fakeDocker) Info(context.Context, client.InfoOptions) (client.SystemInf
 	for _, r := range f.runtimes {
 		rt[r] = system.RuntimeWithStatus{}
 	}
-	return client.SystemInfoResult{Info: system.Info{
+	info := system.Info{
 		ID: f.engineID, Name: "fake-host", KernelVersion: "6.8.0", ServerVersion: "29.9.1",
-		NCPU: f.ncpu, MemTotal: f.memTotal, Runtimes: rt,
-	}}, nil
+		NCPU: f.ncpu, MemTotal: f.memTotal, Runtimes: rt, SecurityOptions: []string{"name=seccomp,profile=builtin"},
+	}
+	if f.rootless {
+		info.SecurityOptions = append(info.SecurityOptions, "name=rootless")
+	}
+	return client.SystemInfoResult{Info: info}, nil
 }
 
 func (f *fakeDocker) inspectLocked(c *fakeContainer) dcontainer.InspectResponse {

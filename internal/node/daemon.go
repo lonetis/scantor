@@ -78,6 +78,8 @@ type Daemon struct {
 	clock      clockEstimate
 	gc         *imageGC
 	egressOK   atomic.Bool
+	// egressFailure is the reason of the last failed egress helper run; a repeat is logged at debug level.
+	egressFailure atomic.Pointer[string]
 	// networkUnisolated is set while the network the node reports on lets containers reach each other
 	// (session.ensureNetwork); hello and status report it as networkIsolated.
 	networkUnisolated atomic.Bool

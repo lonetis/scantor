@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"time"
@@ -416,15 +417,30 @@ func (s *session) applyEgress() {
 		if errors.Is(err, context.Canceled) && s.stopCtx.Err() != nil {
 			return
 		}
-		s.d.egressOK.Store(false)
-		s.log.Warn("the egress deny list was not applied; retrying at the next interval", "err", err)
+		s.egressFailed("the egress deny list was not applied; retrying at the next interval", "err", err)
 	case !res.Applied:
-		s.d.egressOK.Store(false)
-		s.log.Warn("the egress deny list was not applied completely; retrying at the next interval", "families", res.Families, "errors", res.Errors)
+		s.egressFailed("the egress deny list was not applied completely; retrying at the next interval", "families", res.Families, "errors", res.Errors)
 	default:
+		s.d.egressFailure.Store(nil)
 		if !s.d.egressOK.Swap(true) {
 			s.log.Info("egress deny list applied", "families", res.Families)
 		}
 	}
 	s.statusChanged()
+}
+
+// egressFailed records a failed egress helper run. The first failure and every change of its reason are
+// warnings; a repeat of the same failure, which rootless Docker produces on every run, is a debug line.
+func (s *session) egressFailed(msg string, args ...any) {
+	s.d.egressOK.Store(false)
+	if s.d.host.rootless {
+		args = append(args, "hint", "rootless Docker: the helper usually finds no DOCKER-USER chain in the daemon's network "+
+			"namespace, so block the denied ranges on the host instead")
+	}
+	reason := fmt.Sprint(append([]any{msg}, args...)...)
+	if previous := s.d.egressFailure.Swap(&reason); previous != nil && *previous == reason {
+		s.log.Debug(msg, args...)
+		return
+	}
+	s.log.Warn(msg, args...)
 }
