@@ -26,8 +26,13 @@ rustfs_image := "rustfs/rustfs:1.0.3"
 registry_image := "registry:3.1.2"
 code_server_image := "codercom/code-server:4.141.0"
 
+# The container user that owns files as the invoking user: the invoking uid and gid, except under rootless Docker,
+# which maps container root to the invoking user and cannot run other host uids (as in scantor.sh). Shell text,
+# expanded when a recipe runs.
+docker_user := '$(case "$(docker info --format "{{json .SecurityOptions}}" 2>/dev/null)" in *name=rootless*) echo 0:0 ;; *) echo "$(id -u):$(id -g)" ;; esac)'
+
 # docker run as the invoking user with the repository at /src (docs/development.md §3).
-run := 'docker run --rm --init -u "$(id -u):$(id -g)" -e HOME=/tmp -v ' + quote(root) + ':/src -w /src --label scantor.dev=true'
+run := 'docker run --rm --init -u "' + docker_user + '" -e HOME=/tmp -v ' + quote(root) + ':/src -w /src --label scantor.dev=true'
 go_caches := "-v scantor-dev-gomod:/go/pkg/mod -v scantor-dev-gobuild:/tmp/.cache/go-build"
 # golangci-lint analyses with the Go of its image: GOTOOLCHAIN=local keeps the go command from downloading the
 # go.mod toolchain, which cannot be verified without a writable GOPATH when the container runs as the user.
@@ -69,7 +74,7 @@ init:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "==> Merging .env.example into .env"
-    docker run --rm -i -u "$(id -u):$(id -g)" -v {{quote(root)}}:/src -w /src {{alpine_image}} sh -s <<'SCRIPT'
+    docker run --rm -i -u "{{docker_user}}" -v {{quote(root)}}:/src -w /src {{alpine_image}} sh -s <<'SCRIPT'
     # docs/deployment.md §8.3: copy or append missing keys, randomise the "-insecure-dev" values
     # written in this run, never change an existing key, print key names only.
     set -eu
@@ -720,7 +725,7 @@ backup dir:
     mkdir -p "$1"
     dir="$(cd "$1" && pwd)"
     stamp="$(date +%F)"
-    owner="$(id -u):$(id -g)"
+    owner="{{docker_user}}"
     archive() { # volume-or-path file
       docker run --rm -v "$1:/data:ro" -v "$dir:/backup" {{alpine_image}} \
         sh -euc 'umask 077; tar -czf "/backup/$1" -C /data . && chown "$2" "/backup/$1"' sh "$2" "$owner"
@@ -817,7 +822,7 @@ _caches chown="missing":
     if [ "$created" = true ] || [ "$1" = always ]; then
       docker run --rm -v scantor-dev-gomod:/caches/gomod -v scantor-dev-gobuild:/caches/gobuild \
         -v scantor-dev-npm:/caches/npm -v scantor-dev-uv:/caches/uv {{alpine_image}} \
-        chown "$(id -u):$(id -g)" /caches/gomod /caches/gobuild /caches/npm /caches/uv
+        chown "{{docker_user}}" /caches/gomod /caches/gobuild /caches/npm /caches/uv
     fi
 
 # Bases of schemas/languages.json, one per line

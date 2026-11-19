@@ -109,7 +109,8 @@ Conventions for recipes:
   (`codercom/code-server:4.141.0`).
 - Invocation pattern: `docker run --rm --init -u "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src
   --label scantor.dev=true <cache volumes> <image> <command>`. Running as the invoking user keeps
-  generated files owned by the contributor.
+  generated files owned by the contributor. Under rootless Docker, which maps container root to the invoking
+  user and cannot run other host uids, the recipes run as `0:0` instead (`docker_user`, like `scantor.sh`).
 - Caches live in named volumes: `scantor-dev-gomod` (`/go/pkg/mod`), `scantor-dev-gobuild`
   (`/tmp/.cache/go-build`), `scantor-dev-npm` (`/tmp/.npm`), `scantor-dev-uv` (`/tmp/.cache/uv`). The
   private recipe `_caches`, a dependency of every tool recipe and run by `just init`, creates missing ones
