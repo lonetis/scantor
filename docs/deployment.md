@@ -558,6 +558,8 @@ services:
       - -c
       - |
         set -euo pipefail
+        # a restarted container still holds the read-only key of its previous run, which uid 999 cannot overwrite
+        rm -f /tmp/mongo-keyfile
         openssl rand -base64 756 > /tmp/mongo-keyfile
         chmod 400 /tmp/mongo-keyfile
         exec docker-entrypoint.sh "$$@"
