@@ -1,17 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { JobDoc, RevisionDoc, ScanDoc, TaskDoc, TestRunDoc } from '../../../server/types/documents'
+import type { BundleDoc, JobDoc, RevisionDoc, ScanDoc, TaskDoc, TestRunDoc } from '../../../server/types/documents'
 import type { Config } from '../../../server/utils/config'
 import type { JobContext } from '../../../server/utils/jobs'
 import { useLogger } from '../../../server/utils/logger'
 import { FakeCollection } from '../../helpers/fake-collection'
 
-// The taskDelete job (docs/data-model.md §4.12, docs/api.md §4.6): resumable phases that stop builds and test runs,
-// delete test runs, images, snapshots and build logs, revisions, the workspace folder and the task; and the request
-// (requestTaskDeletion), which marks the task before it checks for scans.
+// The taskDelete job (docs/data-model.md §4.12, docs/api.md §4.6): resumable phases that stop builds, bundles and test
+// runs, delete test runs, images, snapshots, bundle archives and build logs, revisions and bundles, the workspace
+// folder and the task; and the request (requestTaskDeletion), which marks the task before it checks for scans.
 
 const store = {
   tasks: new FakeCollection<TaskDoc>('tasks'),
   revisions: new FakeCollection<RevisionDoc>('revisions'),
+  bundles: new FakeCollection<BundleDoc>('bundles'),
   testRuns: new FakeCollection<TestRunDoc>('testRuns'),
   testRunAnalyses: new FakeCollection('testRunAnalyses'),
   jobs: new FakeCollection<JobDoc>('jobs', [{ keys: ['kind', 'subject.id'], partialFilter: { active: true } }]),
@@ -106,6 +107,7 @@ describe('taskDelete job', () => {
       `manifests:${task._id}:sha256:one`,
       `images:${task._id}`,
       `s3:snapshots/${task._id}/`,
+      `s3:bundles/${task._id}/`,
       's3:build-logs/rev-1.ndjson',
       's3:build-logs/rev-2.ndjson',
       'workspace:u1/echo',
@@ -129,6 +131,51 @@ describe('taskDelete job', () => {
     })
     await taskDeleteJobKind.handler(job, ctx)
     expect(failed).toEqual(['rev-2'])
+  })
+
+  it('fails the active bundles, cancels their jobs and deletes every bundle of the task', async () => {
+    const bundle = (id: string, state: BundleDoc['state']) =>
+      ({
+        _id: id,
+        taskId: task._id,
+        userId: 'u1',
+        revisionId: `rev-${id}`,
+        state,
+        key: `bundles/${task._id}/${id}.tar.gz`,
+        error: null,
+      }) as unknown as BundleDoc
+    await store.bundles.insertOne(bundle('b-running', 'running'))
+    await store.bundles.insertOne(bundle('b-ready', 'ready'))
+    await store.bundles.insertOne({ ...bundle('b-other', 'queued'), taskId: 'other-task' })
+    // A queued job: a running one would make the stop phase wait for it to notice its cancellation.
+    await store.jobs.insertOne({
+      _id: 'job-bundle',
+      kind: 'bundle',
+      subject: { kind: 'bundle', id: 'b-running' },
+      state: 'queued',
+      active: true,
+    } as unknown as JobDoc)
+
+    const job = { _id: 'j', kind: 'taskDelete', subject: { kind: 'task', id: task._id }, cursor: {} } as unknown as JobDoc
+    const first = context(job)
+    // Stop after the stop phase to look at the failed bundle before the revisions phase deletes it.
+    const saveCursor = first.ctx.saveCursor
+    first.ctx.saveCursor = async (cursor, step) => {
+      if (cursor.phase === 'testRuns') throw new Error('lease expired')
+      await saveCursor(cursor, step)
+    }
+    await expect(taskDeleteJobKind.handler(job, first.ctx)).rejects.toThrow('lease expired')
+    expect(store.bundles.docs.find((doc) => doc._id === 'b-running')).toMatchObject({
+      state: 'failed',
+      error: { code: 'revisionUnavailable', message: 'the task was deleted' },
+    })
+    expect(store.bundles.docs.find((doc) => doc._id === 'b-ready')).toMatchObject({ state: 'ready' })
+    expect(store.jobs.docs.find((doc) => doc._id === 'job-bundle')).toMatchObject({ state: 'cancelled', active: false })
+
+    const resumed = { ...job, cursor: { phase: 'testRuns' } } as unknown as JobDoc
+    await taskDeleteJobKind.handler(resumed, context(resumed).ctx)
+    expect(store.bundles.docs.map((doc) => doc._id)).toEqual(['b-other'])
+    expect(effects).toContain(`s3:bundles/${task._id}/`)
   })
 
   it('does not contact the registry when the task never pushed an image', async () => {
@@ -235,6 +282,16 @@ describe('requestTaskDeletion', () => {
 
 describe('userPurge task steps', () => {
   const purgeContext = () => ({ userId: 'u1', log: useLogger('test'), signal: new AbortController().signal }) as never
+
+  it('deletes the bundles and their archives of a purged user', async () => {
+    await store.bundles.insertOne({ _id: 'b-1', taskId: task._id, userId: 'u1', revisionId: 'rev-1', state: 'queued' } as unknown as BundleDoc)
+    await store.bundles.insertOne({ _id: 'b-2', taskId: 'task-2', userId: 'u2', revisionId: 'rev-9', state: 'ready' } as unknown as BundleDoc)
+    await purgeUserTestRuns(purgeContext())
+    expect(store.bundles.docs.find((doc) => doc._id === 'b-1')).toMatchObject({ state: 'failed' })
+    await purgeUserRevisions(purgeContext())
+    expect(store.bundles.docs.map((doc) => doc._id)).toEqual(['b-2'])
+    expect(effects).toContain(`s3:bundles/${task._id}/`)
+  })
 
   it('sweeps the registry for a build that the test-run step already stopped', async () => {
     // Step 50 stops the builds first, so step 60 finds nothing running itself.

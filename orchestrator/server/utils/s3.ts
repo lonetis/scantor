@@ -280,14 +280,27 @@ export async function putObject(key: string, body: Buffer | string, contentType:
   await useS3().send(new PutObjectCommand({ Bucket: s3Bucket(), Key: key, Body: body, ContentType: contentType, Metadata: metadata }))
 }
 
-/** Streams a body of unknown length into an object (multipart when large). */
-export async function uploadStream(key: string, body: Readable, contentType: string, metadata?: Record<string, string>): Promise<void> {
-  await new Upload({
+/**
+ * Streams a body of unknown length into an object (multipart when large). An abort of `signal` aborts the upload: the
+ * promise rejects with an AbortError at once, even while a request hangs (the client sets no request timeout).
+ */
+export async function uploadStream(key: string, body: Readable, contentType: string, metadata?: Record<string, string>, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
+  const upload = new Upload({
     client: useS3(),
     params: { Bucket: s3Bucket(), Key: key, Body: body, ContentType: contentType, Metadata: metadata },
     queueSize: 2,
     partSize: 8 * 1024 * 1024,
-  }).done()
+  })
+  // done() arms the upload's own abort handling, so the listener is added after it.
+  const done = upload.done()
+  const onAbort = () => void upload.abort()
+  signal?.addEventListener('abort', onAbort, { once: true })
+  try {
+    await done
+  } finally {
+    signal?.removeEventListener('abort', onAbort)
+  }
 }
 
 export interface ObjectHead {
@@ -459,10 +472,11 @@ export async function deletePrefix(prefix: string): Promise<number> {
 
 // ── bucket configuration (boot step 4) ──────────────────────────────────────
 
-export function lifecycleRules(config: Pick<Config, 'testRunRetentionDays' | 'exportRetentionDays'>) {
+export function lifecycleRules(config: Pick<Config, 'testRunRetentionDays' | 'exportRetentionDays' | 'bundleRetentionDays'>) {
   return [
     { ID: 'test-runs', Status: 'Enabled' as const, Filter: { Prefix: 'test-runs/' }, Expiration: { Days: config.testRunRetentionDays } },
     { ID: 'exports', Status: 'Enabled' as const, Filter: { Prefix: 'exports/' }, Expiration: { Days: config.exportRetentionDays } },
+    { ID: 'bundles', Status: 'Enabled' as const, Filter: { Prefix: 'bundles/' }, Expiration: { Days: config.bundleRetentionDays } },
     { ID: 'tmp', Status: 'Enabled' as const, Filter: { Prefix: 'tmp/' }, Expiration: { Days: 1 } },
     {
       ID: 'abort-incomplete-multipart',
@@ -475,7 +489,7 @@ export function lifecycleRules(config: Pick<Config, 'testRunRetentionDays' | 'ex
 
 /**
  * Ensures the private bucket, its CORS (GET/HEAD from the dashboard origin only) and its lifecycle rules for
- * `test-runs/`, `exports/`, `tmp/` and incomplete multipart uploads (docs/data-model.md §9).
+ * `test-runs/`, `exports/`, `bundles/`, `tmp/` and incomplete multipart uploads (docs/data-model.md §9).
  */
 export async function ensureBucket(log: Logger = useLogger('s3')): Promise<void> {
   const config = useConfig()

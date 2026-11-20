@@ -93,6 +93,7 @@ export interface Config {
   tombstoneDays: number
   eventsTtlDays: number
   exportRetentionDays: number
+  bundleRetentionDays: number
   registryGcIntervalMs: number
   // API limits
   maxRequestBytes: number
@@ -472,6 +473,7 @@ const VARIABLES = {
   tombstoneDays: v('SCANTOR_TOMBSTONE_DAYS', '7', integer(1, 3650)),
   eventsTtlDays: v('SCANTOR_EVENTS_TTL_DAYS', '30', integer(1, 3650)),
   exportRetentionDays: v('SCANTOR_EXPORT_RETENTION_DAYS', '7', integer(1, 3650)),
+  bundleRetentionDays: v('SCANTOR_BUNDLE_RETENTION_DAYS', '7', integer(1, 3650)),
   registryGcIntervalMs: v('SCANTOR_REGISTRY_GC_INTERVAL', '24h', duration()),
 
   maxRequestBytes: v('SCANTOR_MAX_REQUEST_BYTES', '10MiB', byteSize(1024)),

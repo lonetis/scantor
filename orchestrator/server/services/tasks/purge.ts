@@ -4,7 +4,8 @@ import { purgeUserDirs } from '../helpers/ops'
 import { deleteTaskImages, deleteTaskStorage, deleteTestRuns, STOP_SETTLE_MS, stopTaskWork } from './delete'
 
 // The task-domain steps of the userPurge job (docs/data-model.md §5, server/utils/user-purge.ts): 50 test runs,
-// 60 revisions and task images, 70 tasks, 80 the user's workspace and editor-home directories (helper `purge`).
+// 60 revisions, bundles and task images, 70 tasks, 80 the user's workspace and editor-home directories (helper
+// `purge`).
 // Every step is idempotent; the user is locked out, so no new tasks, revisions or test runs appear meanwhile.
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -37,13 +38,14 @@ export async function purgeUserRevisions(ctx: UserPurgeContext): Promise<void> {
   // Step 50 usually stopped the builds already; deleteTaskImages finds those stopped builds in the failed revisions
   // and sweeps the registry for the manifests they may still have pushed.
   await stopUserWork(ctx)
-  const { tasks, revisions } = useCollections()
+  const { tasks, revisions, bundles } = useCollections()
   const owned = await tasks.find({ userId: ctx.userId }, { projection: { _id: 1 } }).toArray()
   for (const task of owned) {
     ctx.signal.throwIfAborted()
     await deleteTaskImages(task._id, ctx.log)
     await deleteTaskStorage(task._id, ctx.signal)
   }
+  await bundles.deleteMany({ userId: ctx.userId })
   await revisions.deleteMany({ userId: ctx.userId })
 }
 

@@ -145,6 +145,19 @@ describe('parseConfig', () => {
     expect(warnings.map((warning) => warning.variable)).toEqual([variable])
   })
 
+  it('keeps bundles for SCANTOR_BUNDLE_RETENTION_DAYS (1 to 3650 days)', () => {
+    expect(parseConfig({}).config.bundleRetentionDays).toBe(7)
+    expect(parseConfig({ SCANTOR_BUNDLE_RETENTION_DAYS: '30' }).config.bundleRetentionDays).toBe(30)
+    for (const value of ['0', '3651', '1.5']) {
+      const { config, warnings } = parseConfig({ SCANTOR_BUNDLE_RETENTION_DAYS: value })
+      expect(config.bundleRetentionDays, value).toBe(7)
+      expect(
+        warnings.map((warning) => warning.variable),
+        value,
+      ).toEqual(['SCANTOR_BUNDLE_RETENTION_DAYS'])
+    }
+  })
+
   it('binds the orchestrator-created volumes to host directories only when a path is given', () => {
     expect(parseConfig({}).config).toMatchObject({ workspacesPath: null, editorHomePath: null })
     const { config } = parseConfig({ SCANTOR_WORKSPACES_DATA: ' /mnt/disk1/workspaces/ ', SCANTOR_EDITOR_HOME_DATA: 'scantor-editor-home' })

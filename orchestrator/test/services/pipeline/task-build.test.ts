@@ -2,7 +2,7 @@ import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import type { PipelineEvent } from '../../../server/services/pipeline/events'
-import { runTaskBuild, taskBuildArgs, type TaskBuildOptions } from '../../../server/services/pipeline/task-build'
+import { runPipelineCommand, runTaskBuild, taskBuildArgs, type TaskBuildOptions } from '../../../server/services/pipeline/task-build'
 import { classifyRevisionBuild, pushGateHandshake } from '../../../server/services/revisions/build'
 import { LeaseLostError } from '../../../server/utils/jobs'
 import { type Logger, useLogger } from '../../../server/utils/logger'
@@ -49,8 +49,24 @@ describe('runTaskBuild', () => {
     const result = await outcome
     expect(result.exitCode).toBe(0)
     expect(result.result?.image?.digest).toBe('sha256:d')
+    expect(result.outputError).toBeNull()
     expect(events.map((event) => event.seq)).toEqual([0, 1])
     expect(events[0]!.text).toContain('read 10 bytes')
+  })
+
+  it('refuses to combine the push gate with an output reader: both use fd 3', () => {
+    expect(() =>
+      runPipelineCommand(['task', 'build', '-'], {
+        input: Readable.from([]),
+        push: true,
+        output: async () => {},
+        env: {},
+        onEvent: () => {},
+        timeoutMs: 1000,
+        log,
+        binary: FAKE,
+      }),
+    ).toThrow(/push and output/)
   })
 
   it('answers the push gate after the handshake', async () => {

@@ -1,8 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { Readable } from 'node:stream'
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { parseConfig, setConfigForTesting } from '../../server/utils/config'
 import {
   abortMultipartUpload,
@@ -19,6 +20,7 @@ import {
   presignUploadPart,
   s3ErrorCode,
   safeName,
+  uploadStream,
 } from '../../server/utils/s3'
 
 // S3 key and download helpers (docs/data-model.md §9, security.md DL-1).
@@ -48,11 +50,12 @@ describe('contentDisposition', () => {
 })
 
 describe('lifecycleRules', () => {
-  it('expires test runs, exports and tmp/ and aborts incomplete uploads', () => {
-    const rules = lifecycleRules({ testRunRetentionDays: 7, exportRetentionDays: 3 })
+  it('expires test runs, exports, bundles and tmp/ and aborts incomplete uploads', () => {
+    const rules = lifecycleRules({ testRunRetentionDays: 7, exportRetentionDays: 3, bundleRetentionDays: 5 })
     expect(rules.map((rule) => [rule.Filter.Prefix, rule.Expiration?.Days ?? null])).toEqual([
       ['test-runs/', 7],
       ['exports/', 3],
+      ['bundles/', 5],
       ['tmp/', 1],
       ['', null],
     ])
@@ -290,9 +293,11 @@ describe('presignUploadPart', () => {
 })
 
 describe('multipart uploads and headObject', () => {
-  // A fake S3 endpoint on loopback recording the multipart calls.
+  // A fake S3 endpoint on loopback recording the multipart calls; requests for the key `stall` get no answer until the
+  // test ends.
   const calls: { method: string; path: string; query: URLSearchParams; body: string; headers: IncomingMessage['headers'] }[] = []
   let failNext: { status: number; code: string } | null = null
+  const stalled: ServerResponse[] = []
   let server: Server
 
   const xmlError = (res: ServerResponse, status: number, code: string) => {
@@ -307,6 +312,10 @@ describe('multipart uploads and headObject', () => {
       req.on('end', () => {
         const url = new URL(req.url ?? '/', 'http://s3')
         calls.push({ method: req.method ?? '', path: url.pathname, query: url.searchParams, body: Buffer.concat(chunks).toString(), headers: req.headers })
+        if (url.pathname === '/scantor/stall') {
+          stalled.push(res)
+          return
+        }
         if (failNext) {
           const { status, code } = failNext
           failNext = null
@@ -348,6 +357,22 @@ describe('multipart uploads and headObject', () => {
   afterEach(() => {
     calls.length = 0
     failNext = null
+    // A client error, which the SDK does not retry.
+    for (const res of stalled.splice(0)) xmlError(res, 400, 'BadRequest')
+  })
+
+  it('aborts a stream upload whose request hangs when its signal aborts', async () => {
+    const controller = new AbortController()
+    const upload = uploadStream('stall', Readable.from([Buffer.from('archive')]), 'application/gzip', undefined, controller.signal)
+    await vi.waitFor(() => expect(stalled).toHaveLength(1))
+    const started = Date.now()
+    controller.abort()
+    await expect(upload).rejects.toMatchObject({ name: 'AbortError' })
+    expect(Date.now() - started).toBeLessThan(1000)
+    // An aborted signal sends nothing.
+    const stop = new Error('stopped')
+    await expect(uploadStream('stall', Readable.from([Buffer.from('x')]), 'application/gzip', undefined, AbortSignal.abort(stop))).rejects.toBe(stop)
+    expect(calls).toHaveLength(1)
   })
 
   it('creates an upload with type and metadata and returns its id', async () => {

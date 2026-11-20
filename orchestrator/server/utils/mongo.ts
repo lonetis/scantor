@@ -3,6 +3,7 @@ import type {
   AnalysisDoc,
   AuthApiKeyDoc,
   AuthUserDoc,
+  BundleDoc,
   CredentialDoc,
   EditorDoc,
   EventDoc,
@@ -51,6 +52,7 @@ export interface ScantorCollections {
   jobs: Collection<JobDoc>
   locks: Collection<LockDoc>
   exports: Collection<ExportDoc>
+  bundles: Collection<BundleDoc>
   editors: Collection<EditorDoc>
   notificationSettings: Collection<NotificationSettingsDoc>
   scripts: Collection<ScriptDoc>
@@ -79,6 +81,7 @@ export const COLLECTION_NAMES = {
   jobs: 'jobs',
   locks: 'locks',
   exports: 'exports',
+  bundles: 'bundles',
   editors: 'editors',
   notificationSettings: 'notificationSettings',
   scripts: 'scripts',
@@ -105,6 +108,7 @@ export function collectionsOf(db: Db): ScantorCollections {
     jobs: db.collection<JobDoc>(COLLECTION_NAMES.jobs),
     locks: db.collection<LockDoc>(COLLECTION_NAMES.locks),
     exports: db.collection<ExportDoc>(COLLECTION_NAMES.exports),
+    bundles: db.collection<BundleDoc>(COLLECTION_NAMES.bundles),
     editors: db.collection<EditorDoc>(COLLECTION_NAMES.editors),
     notificationSettings: db.collection<NotificationSettingsDoc>(COLLECTION_NAMES.notificationSettings),
     scripts: db.collection<ScriptDoc>(COLLECTION_NAMES.scripts),
@@ -190,6 +194,12 @@ export function indexDefinitions(config: Pick<Config, 'eventsTtlDays'>): IndexDe
     { collection: 'exports', key: { userId: 1, createdAt: -1 } },
     { collection: 'exports', key: { scanId: 1 } },
     { collection: 'exports', key: { expiresAt: 1 }, options: TTL_NOW },
+
+    // One bundle per revision; expired bundles go by TTL (the S3 lifecycle rule uses the same retention).
+    { collection: 'bundles', key: { revisionId: 1 }, options: { unique: true } },
+    { collection: 'bundles', key: { taskId: 1 } },
+    { collection: 'bundles', key: { userId: 1, createdAt: -1 } },
+    { collection: 'bundles', key: { expiresAt: 1 }, options: TTL_NOW },
 
     { collection: 'editors', key: { state: 1, lastActivityAt: 1 } },
 

@@ -241,6 +241,12 @@ setup('seed tenants A and B for the authorization matrix', async ({ adminApi, op
     expect(b.taskName).toBe('alpha')
     expect([a.scriptName, b.scriptName]).toEqual(['alpha', 'alpha'])
 
+    // A and B: a bundle of each alpha revision, so getRevisionBundle finds one for its owner and for an admin (AUTHZ-010
+    // reads B's revision as an admin). They are not waited for: the bundle representation is not part of the
+    // fingerprint, and any state reads as 200.
+    ok(await aApi.call('createRevisionBundle', { path: { task: alphaA.task.id, revision: alphaA.revision.id } }), 'createRevisionBundle of A')
+    ok(await bApi.call('createRevisionBundle', { path: { task: alphaB.task.id, revision: alphaB.revision.id } }), 'createRevisionBundle of B')
+
     // The fingerprint must be stable on its own before B's attempts can be judged by it.
     const representations = await representationsOfA(aApi, a)
     const again = await representationsOfA(aApi, a)

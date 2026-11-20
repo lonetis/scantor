@@ -194,6 +194,9 @@ export const REQUESTS: Record<string, OperationRequests> = {
   getRevision: { valid: none },
   getRevisionBuildLog: { valid: none },
   downloadRevisionSource: { valid: none },
+  // The seed created A's bundle (so the reads find one); the owner's and the admin's create is the 400 of BAD_WAIT.
+  createRevisionBundle: { valid: none, safe: () => ({ query: BAD_WAIT }) },
+  getRevisionBundle: { valid: none },
   listTestRuns: { valid: none },
   testTask: { valid: () => ({ body: { scanConfig: { items: ['authz-matrix'] }, limit: 1 } }), safe: () => ({ body: {}, query: BAD_WAIT }) },
   getTestRun: { valid: () => ({ query: { analyses: true } }) },

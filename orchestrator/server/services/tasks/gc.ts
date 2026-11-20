@@ -5,19 +5,23 @@ import { type ManagedKind, isManagedContainer } from '../../utils/labels'
 import { LeaseLock } from '../../utils/locks'
 import type { Logger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
+import { bundleTimeoutMs } from '../bundles/job'
 import { platformError } from '../pipeline/events'
 import { failRevision } from '../revisions/build'
 import { ACTIVE_TEST_RUN_STATES } from '../test-runs'
 
 // Garbage collection of the task domain (docs/architecture.md §4.1 reconciler, docs/tasks.md §11.1,
 // docs/deployment.md §14.2), run by the reconciler under the `gc` lease: once at start (the boot sweep) and then
-// every minute (draft images every 10 minutes):
+// every minute (draft images and bundle tags every 10 minutes):
 //   - orphan containers: workspace helpers (`scantor-h-*`) older than SCANTOR_HELPER_TIMEOUT, test-run containers
 //     (`scantor-t-*`) of runs that are not running or older than SCANTOR_TEST_RUN_TIMEOUT, describe/check containers
 //     (`scantor-b-*`) older than their timeouts; ages leave a margin, so containers a live process still manages
 //     are never touched (the api component may run in another process);
 //   - draft images `tasks/<taskId>:draft-<packSha256>` created more than SCANTOR_DRAFT_IMAGE_RETENTION ago that no
 //     queued, building or running test run uses;
+//   - the temporary tags of bundle steps (`scantor-bundle/<uuid>:src|build`, docs/tasks.md §9.11) that a stopped step
+//     left behind: older than the bundle step's wall-clock limit plus the margin, while no bundle has been running for
+//     less than that (a `src` tag names the revision image, whose creation time says nothing about the tag);
 //   - test runs and revisions left unfinished without an active job (their job was cancelled or deleted) fail.
 
 export const GC_TICK_MS = 60_000
@@ -26,6 +30,7 @@ const CONTAINER_MARGIN_MS = 5 * 60_000
 /** Documents younger than this may still be waiting for their job to be inserted or claimed. */
 const STALE_DOCUMENT_GRACE_MS = 5 * 60_000
 const DRAFT_TAG = /^tasks\/[0-9a-f-]{36}:draft-[0-9a-f]{64}$/
+const BUNDLE_TAG = /^scantor-bundle\/[0-9a-f-]{36}:(src|build)$/
 
 export interface ContainerSummary {
   Id: string
@@ -60,6 +65,20 @@ export function orphanVerdict(
 export function draftVerdict(tag: string, createdSeconds: number, now: number, retentionMs: number, inUse: ReadonlySet<string>): OrphanVerdict {
   if (!DRAFT_TAG.test(tag) || inUse.has(tag)) return 'keep'
   return now - createdSeconds * 1000 > retentionMs ? 'remove' : 'keep'
+}
+
+/** How long a bundle step may keep its temporary tags: its wall-clock limit plus the container margin. */
+export function bundleTagLifetimeMs(config: Pick<Config, 'buildTimeoutMs'>): number {
+  return bundleTimeoutMs(config) + CONTAINER_MARGIN_MS
+}
+
+/**
+ * Whether a temporary tag of a bundle step may be removed (pure): never while a bundle step may still be running
+ * (`busy`), otherwise once the image is older than the step's lifetime.
+ */
+export function bundleTagVerdict(tag: string, createdSeconds: number, now: number, lifetimeMs: number, busy: boolean): OrphanVerdict {
+  if (!BUNDLE_TAG.test(tag) || busy) return 'keep'
+  return now - createdSeconds * 1000 > lifetimeMs ? 'remove' : 'keep'
 }
 
 export class TasksGc {
@@ -104,7 +123,10 @@ export class TasksGc {
     await this.failStaleTestRuns(now)
     await this.failStaleRevisions(now)
     await this.removeOrphanContainers(now)
-    if (withDrafts) await this.removeOldDraftImages(now)
+    if (withDrafts) {
+      await this.removeOldDraftImages(now)
+      await this.removeLeftoverBundleTags(now)
+    }
   }
 
   /** Active test runs without an active job (cancelled or deleted job) fail. */
@@ -169,6 +191,26 @@ export class TasksGc {
           const status = (error as { statusCode?: number }).statusCode
           // 409: a (test-run) container still uses it; the next sweep retries.
           if (status !== 404 && status !== 409) this.log.warn('removing a draft image failed', { image: tag, err: error })
+        }
+      }
+    }
+  }
+
+  /** Removes the temporary tags a stopped bundle step left on the master (removing a `src` tag only untags). */
+  async removeLeftoverBundleTags(now: number): Promise<void> {
+    const images = await this.docker.listImages({ filters: { reference: ['scantor-bundle/*'] } })
+    if (images.length === 0) return
+    const lifetimeMs = bundleTagLifetimeMs(this.config)
+    const busy = (await useCollections().bundles.countDocuments({ state: 'running', startedAt: { $gt: new Date(now - lifetimeMs) } }, { limit: 1 })) > 0
+    for (const image of images) {
+      for (const tag of image.RepoTags ?? []) {
+        if (bundleTagVerdict(tag, image.Created, now, lifetimeMs, busy) !== 'remove') continue
+        try {
+          await this.docker.getImage(tag).remove()
+          this.log.info('removed a leftover bundle tag', { image: tag })
+        } catch (error) {
+          const status = (error as { statusCode?: number }).statusCode
+          if (status !== 404 && status !== 409) this.log.warn('removing a leftover bundle tag failed', { image: tag, err: error })
         }
       }
     }

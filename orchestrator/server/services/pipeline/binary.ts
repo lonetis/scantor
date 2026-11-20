@@ -33,7 +33,8 @@ export function goDuration(ms: number): string {
 /**
  * The environment of every `scantor task …` / `scantor templates …` subprocess (docs/architecture.md §10, task
  * pipeline row): this deployment's image pair, the pipeline limits, the instance limits of manifest rule M8 and the
- * hosts of Dockerfile rule D5. Never SCANTOR_SECRET; the push password is added only for `--push`.
+ * hosts of Dockerfile rule D5. Never SCANTOR_SECRET; the push password is added only for `--push` and for the pull
+ * of `task bundle --pull` (the `bundle` job, docs/tasks.md §9.11), which never writes it into an image.
  */
 export function pipelineEnv(config: Config, extra: Record<string, string> = {}): Record<string, string> {
   return {

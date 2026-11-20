@@ -2,8 +2,9 @@ import { Transform, type TransformCallback } from 'node:stream'
 import type { BuildErrorPhase } from '#shared/utils/enums'
 import type { BuildErrorDoc, DescriptionDoc, ScanSettingsDefaultsDoc } from '../../types/documents'
 
-// Task-pipeline events (docs/tasks.md §9.8): NDJSON on the stdout of `scantor task build`, one event per line, in
-// order. The final event is always a `result` with the BuildResult.
+// Task-pipeline events (docs/tasks.md §9.8): NDJSON on the stdout of `scantor task build` (and `script build`,
+// `task bundle`), one event per line, in order. The final event is always a `result`: a BuildResult for task builds,
+// a BundleResult for `task bundle`.
 
 export type PipelinePhase = Exclude<BuildErrorPhase, 'config' | 'schedule'>
 export type PipelineStream = 'pipeline' | 'build' | 'stdout' | 'stderr' | 'check'
@@ -35,6 +36,30 @@ export interface BuildResult {
   baseImage: { ref: string; digest: string } | null
   image: BuildResultImage | null
   description: DescriptionDoc | null
+  errors: BuildErrorDoc[]
+  warnings: string[]
+  durationsMs: Record<string, number>
+}
+
+/** The archive `scantor task bundle` wrote to its output (docs/tasks.md §9.11). */
+export interface BundleArchive {
+  /** `localhost/scantor/<task>:<number>`, the name inside the archive */
+  image: string
+  platform: { os: string; arch: string; variant?: string }
+  /** size of the derived image */
+  imageBytes: number
+  /** size of the gzip archive written to the output */
+  bytes: number
+  /** SHA-256 (hex) of the gzip archive */
+  sha256: string
+  /** version of the runtime baked into the image */
+  scantorVersion: string
+}
+
+/** The final `result` of `scantor task bundle`: phase `build` for content errors, `platform` for the rest. */
+export interface BundleResult {
+  ok: boolean
+  bundle: BundleArchive | null
   errors: BuildErrorDoc[]
   warnings: string[]
   durationsMs: Record<string, number>

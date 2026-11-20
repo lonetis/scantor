@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { draftVerdict, orphanVerdict } from '../../../server/services/tasks/gc'
+import { bundleTagLifetimeMs, bundleTagVerdict, draftVerdict, orphanVerdict } from '../../../server/services/tasks/gc'
 import { managedLabels } from '../../../server/utils/labels'
 
 // Orphan detection of the task-domain GC (docs/architecture.md §4.1 boot sweeps and GC).
@@ -52,5 +52,30 @@ describe('draftVerdict', () => {
   it('ignores revision images and other repositories', () => {
     expect(draftVerdict('localhost:5000/tasks/7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c:c1d2', 0, NOW, 0, new Set())).toBe('keep')
     expect(draftVerdict('tasks/x:latest', 0, NOW, 0, new Set())).toBe('keep')
+  })
+})
+
+describe('bundleTagVerdict', () => {
+  const id = '7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c'
+  const created = (ageMs: number) => Math.floor((NOW - ageMs) / 1000)
+  const lifetime = bundleTagLifetimeMs(config)
+
+  it('lives as long as the bundle step may run, plus the container margin', () => {
+    expect(lifetime).toBe(config.buildTimeoutMs + 30 * MIN + 5 * MIN)
+  })
+
+  it('removes the temporary tags of a bundle step once older than its lifetime, unless a bundle may still be running', () => {
+    for (const tag of [`scantor-bundle/${id}:src`, `scantor-bundle/${id}:build`]) {
+      expect(bundleTagVerdict(tag, created(lifetime + MIN), NOW, lifetime, false), tag).toBe('remove')
+      expect(bundleTagVerdict(tag, created(lifetime - MIN), NOW, lifetime, false), tag).toBe('keep')
+      // A src tag names the (old) revision image: only the running bundles protect a step in progress.
+      expect(bundleTagVerdict(tag, created(100 * lifetime), NOW, lifetime, true), tag).toBe('keep')
+    }
+  })
+
+  it('ignores every other tag', () => {
+    for (const tag of [`scantor-bundle/${id}:latest`, 'scantor-bundle/echo:src', `localhost/scantor/echo:3`, `tasks/${id}:draft-${'a'.repeat(64)}`]) {
+      expect(bundleTagVerdict(tag, 0, NOW, lifetime, false), tag).toBe('keep')
+    }
   })
 })

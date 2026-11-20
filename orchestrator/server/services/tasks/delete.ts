@@ -13,9 +13,10 @@ import { ACTIVE_TEST_RUN_STATES } from '../test-runs'
 import { requestCancellation } from '../test-runs/live'
 
 // Task deletion (docs/api.md §4.6 deleteTask, docs/data-model.md §4.12 `taskDelete`): the API hides the task at once
-// (`deletingAt`); this job (reconciler component, cursor `{phase}`) then stops the task's builds and test runs,
-// deletes its test runs, its registry manifests and local images, its snapshots and build logs, its revisions, the
-// workspace folder (helper `delete-files --path "" --recursive`) and finally the task document. Every phase is
+// (`deletingAt`); this job (reconciler component, cursor `{phase}`) then stops the task's builds, bundles and test
+// runs, deletes its test runs, its registry manifests and local images, its snapshots, build logs and bundle archives,
+// its revisions and bundles, the workspace folder (helper `delete-files --path "" --recursive`) and finally the task
+// document. Every phase is
 // idempotent, so a job restarted after a lease expiry resumes at its phase. A scan that started while the deletion
 // was being requested keeps the revisions and images it runs on: the job defers itself before removing them until no
 // non-terminal scan uses the task. The same building blocks serve the userPurge steps 50–80 (./purge.ts).
@@ -60,17 +61,27 @@ export interface StoppedWork {
 }
 
 /**
- * Stops the work of the matching revisions and test runs: unfinished revisions fail ("the task was deleted"), active
- * test runs are cancelled, and their jobs are cancelled.
+ * Stops the work of the matching revisions, bundles and test runs: unfinished revisions and bundles fail ("the task
+ * was deleted"), active test runs are cancelled, and their jobs are cancelled.
  */
 export async function stopTaskWork(filter: { taskId: string } | { userId: string }, log: Logger): Promise<StoppedWork> {
-  const { revisions, testRuns, jobs } = useCollections()
+  const { revisions, bundles, testRuns, jobs } = useCollections()
   let running = false
   const unfinished = await revisions.find({ ...filter, state: { $in: ['queued', 'building'] } }, { projection: { _id: 1 } }).toArray()
   for (const revision of unfinished) {
     running = (await jobs.countDocuments({ kind: 'revisionBuild', 'subject.id': revision._id, state: 'running' })) > 0 || running
     await cancelActiveJobs('revisionBuild', revision._id)
     await failRevision(revision._id, [platformError(TASK_DELETED)], log)
+  }
+  const unfinishedBundles = await bundles.find({ ...filter, state: { $in: ['queued', 'running'] } }, { projection: { _id: 1 } }).toArray()
+  for (const bundle of unfinishedBundles) {
+    running = (await jobs.countDocuments({ kind: 'bundle', 'subject.id': bundle._id, state: 'running' })) > 0 || running
+    await cancelActiveJobs('bundle', bundle._id)
+    const at = new Date()
+    await bundles.updateOne(
+      { _id: bundle._id, state: { $in: ['queued', 'running'] } },
+      { $set: { state: 'failed', error: { code: 'revisionUnavailable', message: TASK_DELETED }, finishedAt: at, updatedAt: at } },
+    )
   }
   const active = await testRuns.find({ ...filter, state: { $in: [...ACTIVE_TEST_RUN_STATES] } } as Filter<TestRunDoc>, { projection: { _id: 1 } }).toArray()
   const now = new Date()
@@ -121,9 +132,10 @@ export async function deleteTaskImages(taskId: string, log: Logger): Promise<voi
   await removeLocalTaskImages(taskId, log)
 }
 
-/** Deletes a task's snapshots and the build logs of its revisions. */
+/** Deletes a task's snapshots, its bundle archives and the build logs of its revisions. */
 export async function deleteTaskStorage(taskId: string, signal: AbortSignal): Promise<void> {
   await deletePrefix(`snapshots/${taskId}/`)
+  await deletePrefix(`bundles/${taskId}/`)
   const revisions = await useCollections().revisions.find({ taskId }, { projection: { buildLogKey: 1 } }).toArray()
   for (const revision of revisions) {
     signal.throwIfAborted()
@@ -136,7 +148,7 @@ async function loadTask(job: JobDoc): Promise<TaskDoc | null> {
 }
 
 async function runPhase(phase: TaskDeletePhase, task: TaskDoc, ctx: JobContext): Promise<void> {
-  const { revisions, tasks } = useCollections()
+  const { revisions, bundles, tasks } = useCollections()
   if (SCAN_GUARDED_PHASES.has(phase)) {
     const scan = await scanUsingTask(task._id)
     if (scan) throw new JobDeferredError(new Date(Date.now() + SCAN_IN_USE_RECHECK_MS), `scan ${scan._id} (${scan.state}) still uses the task`)
@@ -157,6 +169,7 @@ async function runPhase(phase: TaskDeletePhase, task: TaskDoc, ctx: JobContext):
       await deleteTaskStorage(task._id, ctx.signal)
       return
     case 'revisions':
+      await bundles.deleteMany({ taskId: task._id })
       await revisions.deleteMany({ taskId: task._id })
       return
     case 'workspace':

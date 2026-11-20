@@ -28,6 +28,15 @@ describe('indexDefinitions', () => {
     expect(keys('scriptRunLogs')).toContainEqual({ key: { scriptRunId: 1, chunk: 1 }, options: { unique: true } })
   })
 
+  it('keeps one bundle per revision and expires bundles by TTL', () => {
+    expect(keys('bundles')).toEqual([
+      { key: { revisionId: 1 }, options: { unique: true } },
+      { key: { taskId: 1 }, options: {} },
+      { key: { userId: 1, createdAt: -1 }, options: {} },
+      { key: { expiresAt: 1 }, options: { expireAfterSeconds: 0 } },
+    ])
+  })
+
   it('indexes script runs for their lists, scan deletion, the GC and the retention sweep, without a TTL', () => {
     expect(keys('scripts')).toContainEqual({ key: { userId: 1, createdAt: -1, _id: -1 }, options: {} })
     expect(keys('scriptRuns')).toEqual([
@@ -63,6 +72,7 @@ describe('indexDefinitions', () => {
       'events',
       'jobs',
       'exports',
+      'bundles',
       'editors',
       'notificationSettings',
       'scripts',
@@ -120,6 +130,7 @@ describe('ensureIndexes', () => {
     )
     expect(names).toMatchObject({
       testRunAnalyses: 'testRunAnalyses',
+      bundles: 'bundles',
       scripts: 'scripts',
       scriptRuns: 'scriptRuns',
       scriptRunLogs: 'scriptRunLogs',

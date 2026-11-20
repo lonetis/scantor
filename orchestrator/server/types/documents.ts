@@ -1,6 +1,7 @@
 import type {
   AnalysisStatus,
   BuildErrorPhase,
+  BundleState,
   ConditionType,
   CredentialKind,
   DindMode,
@@ -589,6 +590,39 @@ export interface ExportDoc {
   createdAt: Date
   finishedAt: Date | null
   updatedAt: Date
+  expiresAt: Date
+}
+
+// ── bundles (§4.21) ─────────────────────────────────────────────────────────
+
+/** One bundle per revision (unique `revisionId`): a gzip Docker image archive of the revision in S3. */
+export interface BundleDoc {
+  _id: string
+  userId: string
+  taskId: string
+  taskName: string
+  revisionId: string
+  revisionNumber: number
+  state: BundleState
+  /** `localhost/scantor/<task>:<number>` */
+  image: string
+  /** the revision's image platform; `variant` once the archive reported one */
+  platform: { os: string; arch: string; variant?: string }
+  /** internal: `bundles/<taskId>/<bundleId>.tar.gz` */
+  key: string
+  /** `<task>-<number>-<os>-<arch>.bundle.tar.gz` */
+  fileName: string
+  bytes: number | null
+  sha256: string | null
+  /** the version of the runtime baked into the image */
+  scantorVersion: string | null
+  jobId: string | null
+  error: { code: string; message: string } | null
+  createdAt: Date
+  updatedAt: Date
+  startedAt: Date | null
+  finishedAt: Date | null
+  /** `createdAt + SCANTOR_BUNDLE_RETENTION_DAYS`, then `finishedAt + …` once ready (TTL) */
   expiresAt: Date
 }
 
