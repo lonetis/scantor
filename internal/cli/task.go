@@ -12,17 +12,19 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/lonetis/scantor/internal/api"
+	"github.com/lonetis/scantor/internal/bundle"
 	"github.com/lonetis/scantor/internal/container"
 	"github.com/lonetis/scantor/internal/taskpipe"
 )
 
 // The task pipeline commands (docs/tasks.md §9.1): hidden, because the orchestrator runs them as
-// subprocesses and users reach them through validate, dev run and push.
+// subprocesses and users reach them through validate, dev run, push and revisions bundle.
 func init() {
-	registerGroup("", "task", "Run the task pipeline: pack, static checks, build", true)
+	registerGroup("", "task", "Run the task pipeline: pack, static checks, build, bundle", true)
 	registerCommand("task", newTaskPackCommand)
 	registerCommand("task", newTaskCheckStaticCommand)
 	registerCommand("task", newTaskBuildCommand)
+	registerCommand("task", newTaskBundleCommand)
 }
 
 const taskInputHelp = "The input is a task folder, a tar.gz pack, or - for a pack on stdin."
@@ -105,9 +107,23 @@ func newTaskPackCommand(app *App) *cobra.Command {
 // taskPackToFile packs into a temporary file next to path and renames it only when packing succeeded,
 // so a failed pack never leaves a partial archive.
 func taskPackToFile(ctx context.Context, pipeline *taskpipe.Pipeline, in taskpipe.Input, path string) (*taskpipe.Result, error) {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".scantor-pack-*")
+	var res *taskpipe.Result
+	err := writeFileOnSuccess(path, ".scantor-pack-*", func(w io.Writer) bool {
+		res = pipeline.Pack(ctx, in, w)
+		return res.OK
+	})
 	if err != nil {
-		return nil, ValidationError(fmt.Errorf("create %s: %w", path, err))
+		return nil, err
+	}
+	return res, nil
+}
+
+// writeFileOnSuccess runs write on a temporary file (named after pattern) next to path and renames it to
+// path only when write reports success, so a failed command never leaves a partial file.
+func writeFileOnSuccess(path, pattern string, write func(w io.Writer) bool) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), pattern)
+	if err != nil {
+		return ValidationError(fmt.Errorf("create %s: %w", path, err))
 	}
 	committed := false
 	defer func() {
@@ -116,22 +132,21 @@ func taskPackToFile(ctx context.Context, pipeline *taskpipe.Pipeline, in taskpip
 			_ = os.Remove(tmp.Name())
 		}
 	}()
-	res := pipeline.Pack(ctx, in, tmp)
-	if !res.OK {
-		return res, nil
+	if !write(tmp) {
+		return nil
 	}
 	if err := tmp.Close(); err != nil {
-		return nil, PlatformError(fmt.Errorf("write %s: %w", path, err))
+		return PlatformError(fmt.Errorf("write %s: %w", path, err))
 	}
-	// A pack is an ordinary user file; CreateTemp creates it 0600.
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil { //nolint:gosec // the pack is the user's own file
-		return nil, PlatformError(err)
+	// The file is an ordinary user file; CreateTemp creates it 0600.
+	if err := os.Chmod(tmp.Name(), 0o644); err != nil { //nolint:gosec // the file is the user's own file
+		return PlatformError(err)
 	}
 	if err := os.Rename(tmp.Name(), path); err != nil {
-		return nil, PlatformError(fmt.Errorf("write %s: %w", path, err))
+		return PlatformError(fmt.Errorf("write %s: %w", path, err))
 	}
 	committed = true
-	return res, nil
+	return nil
 }
 
 func newTaskCheckStaticCommand(app *App) *cobra.Command {
@@ -234,18 +249,128 @@ func newTaskBuildCommand(app *App) *cobra.Command {
 	return cmd
 }
 
-// openPushGate opens the inherited file descriptor of --push-gate. 0, 1 and 2 are the standard streams
-// and never a gate.
-func openPushGate(fd int) (*os.File, error) {
-	if fd < 3 {
-		return nil, UsageError(fmt.Errorf("--push-gate %d: the gate must be an inherited file descriptor ≥ 3", fd))
+func newTaskBundleCommand(app *App) *cobra.Command {
+	var opts taskpipe.BundleOptions
+	var events taskEventFlags
+	var output string
+	var outputFD int
+	cmd := &cobra.Command{
+		Use:   "bundle <info|->",
+		Short: "Build the bundle archive of a revision image",
+		Long: "Build the bundle of a ready revision (docs/tasks.md §9.11): parse the bundle info (/scantor/bundle.json, " +
+			"from a file or - for stdin), use the local revision image --image (or pull --pull <registry host>/<repository>@sha256:<digest> " +
+			"with the registry push credential in SCANTOR_REGISTRY_PUSH_PASSWORD when the local image is absent or another one), " +
+			"build the bundle image with the runtime binary and the info on the local Docker daemon, and write its gzip docker " +
+			"save archive, named localhost/scantor/<task>:<revision>, to the inherited file descriptor --output-fd or to the " +
+			"file --output (exactly one). The result event reports {ok, bundle: {image, platform, imageBytes, bytes, sha256, " +
+			"scantorVersion}, errors, warnings, durationsMs}. Exit codes: 0 success, 2 build error, 3 platform failure.",
+		Args:   cobra.ExactArgs(1),
+		Hidden: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if opts.Image == "" {
+				return UsageError(errors.New("--image is required"))
+			}
+			toFD := cmd.Flags().Changed("output-fd")
+			switch {
+			case toFD == (output != ""):
+				return UsageError(errors.New("exactly one of --output-fd and --output is required"))
+			case output == "-":
+				return UsageError(errors.New("--output - is not supported: stdout carries the events; use --output-fd"))
+			}
+			format, err := events.resolve(app.Stdout)
+			if err != nil {
+				return err
+			}
+			var out *os.File
+			if toFD {
+				if out, err = openInheritedFD("output-fd", "output", outputFD); err != nil {
+					return err
+				}
+				defer out.Close()
+			}
+			cfg, err := app.Config()
+			if err != nil {
+				return err
+			}
+			info, err := readBundleInfo(app, args[0])
+			if err != nil {
+				return err
+			}
+			emitter := taskpipe.NewEmitter(app.Stdout, format)
+			docker, err := app.Docker()
+			if err != nil {
+				return err
+			}
+			ctx := cmd.Context()
+			pipeline := taskpipe.New(taskPipelineConfig(cfg), emitter, docker, bundleRuntime(docker, cfg, emitter))
+			var res *taskpipe.BundleResult
+			if toFD {
+				res = pipeline.Bundle(ctx, info, opts, out)
+			} else if err := writeFileOnSuccess(output, ".scantor-bundle-*", func(w io.Writer) bool {
+				res = pipeline.Bundle(ctx, info, opts, w)
+				return res.OK
+			}); err != nil {
+				return err
+			}
+			return bundleOutcome(emitter, res)
+		},
 	}
-	f := os.NewFile(uintptr(fd), "push-gate")
+	cmd.Flags().StringVar(&opts.Image, "image", "", "local reference of the revision image (required)")
+	cmd.Flags().StringVar(&opts.Pull, "pull", "", "the revision image by digest, pulled when the local image is absent or another one")
+	cmd.Flags().IntVar(&outputFD, "output-fd", 0, "inherited file descriptor (≥ 3) to write the archive to")
+	// --output shadows the global -o/--output (human|json), as in task pack: the result is reported as
+	// events, chosen with --events.
+	cmd.Flags().StringVarP(&output, "output", "o", "", "file to write the archive to (written only when the bundle succeeded)")
+	events.add(cmd)
+	return cmd
+}
+
+// readBundleInfo reads the <info|-> argument of task bundle: at most one byte more than a bundle info
+// may have, so the bundle step reports an oversized info.
+func readBundleInfo(app *App, arg string) ([]byte, error) {
+	r := app.Stdin
+	if arg != "-" {
+		f, err := os.Open(arg) //nolint:gosec // the caller names the info file to read
+		if err != nil {
+			return nil, ValidationError(err)
+		}
+		defer f.Close()
+		r = f
+	}
+	data, err := io.ReadAll(io.LimitReader(r, bundle.MaxInfoBytes+1))
+	if err != nil {
+		return nil, PlatformError(fmt.Errorf("read the bundle info: %w", err))
+	}
+	return data, nil
+}
+
+// bundleOutcome turns a bundle result into the command's exit, like taskOutcome: the events already
+// reported every error, so a failure exits silently with its code.
+func bundleOutcome(emitter *taskpipe.Emitter, res *taskpipe.BundleResult) error {
+	if err := emitter.Err(); err != nil {
+		return PlatformError(err)
+	}
+	if code := res.ExitCode(); code != ExitOK {
+		return SilentExit(code)
+	}
+	return nil
+}
+
+// openPushGate opens the inherited file descriptor of --push-gate.
+func openPushGate(fd int) (*os.File, error) { return openInheritedFD("push-gate", "gate", fd) }
+
+// openInheritedFD opens the inherited file descriptor fd of the flag --<flag>; noun names its role in
+// messages. 0, 1 and 2 are the standard streams and never accepted.
+func openInheritedFD(flag, noun string, fd int) (*os.File, error) {
+	if fd < 3 {
+		return nil, UsageError(fmt.Errorf("--%s %d: the %s must be an inherited file descriptor ≥ 3", flag, fd, noun))
+	}
+	f := os.NewFile(uintptr(fd), flag)
 	if f == nil {
-		return nil, UsageError(fmt.Errorf("--push-gate %d: invalid file descriptor", fd))
+		return nil, UsageError(fmt.Errorf("--%s %d: invalid file descriptor", flag, fd))
 	}
 	if _, err := f.Stat(); err != nil {
-		return nil, UsageError(fmt.Errorf("--push-gate %d: %w", fd, err))
+		return nil, UsageError(fmt.Errorf("--%s %d: %w", flag, fd, err))
 	}
 	return f, nil
 }
@@ -305,6 +430,16 @@ func taskRuntime(docker client.APIClient, cfg Config, emitter *taskpipe.Emitter)
 	r := taskRuntimeBinary(docker, cfg)
 	r.Progress = func(text string) {
 		emitter.Log(api.BuildPhaseDescribe, taskpipe.StreamPipeline, taskpipe.LevelInfo, text)
+	}
+	return r
+}
+
+// bundleRuntime returns the resolver of the runtime binary baked into a bundle image. Extraction progress
+// is reported as a build log event.
+func bundleRuntime(docker client.APIClient, cfg Config, emitter *taskpipe.Emitter) container.RuntimeBinary {
+	r := taskRuntimeBinary(docker, cfg)
+	r.Progress = func(text string) {
+		emitter.Log(api.BuildPhaseBuild, taskpipe.StreamPipeline, taskpipe.LevelInfo, text)
 	}
 	return r
 }

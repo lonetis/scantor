@@ -3,9 +3,12 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/lonetis/scantor/internal/taskpipe"
@@ -159,6 +162,94 @@ func TestTaskBuildUsage(t *testing.T) {
 	}
 }
 
+func TestTaskBundleUsage(t *testing.T) {
+	info := filepath.Join(t.TempDir(), "bundle.json")
+	if err := os.WriteFile(info, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "echo.bundle.tar.gz")
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"task", "bundle", info, "--output", out}, "--image is required"},
+		{[]string{"task", "bundle", info, "--image", "x:1"}, "exactly one of --output-fd and --output"},
+		{[]string{"task", "bundle", info, "--image", "x:1", "--output", out, "--output-fd", "3"}, "exactly one of --output-fd and --output"},
+		{[]string{"task", "bundle", info, "--image", "x:1", "--output", "-"}, "use --output-fd"},
+		{[]string{"task", "bundle", info, "--image", "x:1", "--output-fd", "1"}, "--output-fd 1: the output must be an inherited file descriptor ≥ 3"},
+		{[]string{"task", "bundle", info, "--image", "x:1", "--output-fd", "999"}, "--output-fd 999"},
+		{[]string{"task", "bundle", info, "--image", "x:1", "--output", out, "--events", "json"}, "invalid event format"},
+		{[]string{"task", "bundle", "--image", "x:1", "--output", out}, "accepts 1 arg"},
+		{[]string{"task", "bundle", filepath.Join(t.TempDir(), "missing.json"), "--image", "x:1", "--output", out}, "missing.json"},
+	} {
+		app, _, errOut := testApp(nil)
+		if code := run(app, tc.args...); code != 2 || !strings.Contains(errOut.String(), tc.want) {
+			t.Errorf("%v: exit %d, want 2 with %q (%s)", tc.args[2:], code, tc.want, errOut)
+		}
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatal("a usage error must not create the output")
+	}
+}
+
+// TestTaskBundleInvalidInfo runs the command up to the bundle step, which rejects the info before it
+// uses Docker: a platform error event, the result event and exit 3, with no output file and an output
+// descriptor that is closed without data.
+func TestTaskBundleInvalidInfo(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "echo.bundle.tar.gz")
+	app, stdout, errOut := testApp(nil)
+	app.Stdin = strings.NewReader(`{"v":1}`)
+	if code := run(app, "task", "bundle", "-", "--image", "x:1", "--output", out, "--events", "ndjson"); code != 3 {
+		t.Fatalf("exit %d, want 3 (%s)", code, errOut)
+	}
+	var events []taskpipe.BundleEvent
+	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
+		var ev taskpipe.BundleEvent
+		if err := json.Unmarshal([]byte(line), &ev); err != nil {
+			t.Fatalf("event %q: %v", line, err)
+		}
+		events = append(events, ev)
+	}
+	if len(events) != 2 || events[0].Type != taskpipe.EventError || events[0].Error.Phase != "platform" ||
+		!strings.Contains(events[0].Error.Message, "invalid bundle info") {
+		t.Fatalf("events %+v", events)
+	}
+	if last := events[1]; last.Type != taskpipe.EventResult || last.Result.OK || last.Result.Bundle != nil || len(last.Result.Errors) != 1 {
+		t.Fatalf("result %+v", last)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("a failed bundle must leave no file: %v", entries)
+	}
+
+	// The same through an inherited descriptor (a duplicate of a pipe's write end): the command closes
+	// it, so the reader sees end of file.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	fd, err := syscall.Dup(int(w.Fd()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	app, stdout, _ = testApp(nil)
+	app.Stdin = strings.NewReader("not json")
+	if code := run(app, "task", "bundle", "-", "--image", "x:1", "--output-fd", strconv.Itoa(fd), "--events", "text"); code != 3 {
+		t.Fatalf("exit %d, want 3", code)
+	}
+	if !strings.Contains(stdout.String(), "[platform] error: invalid bundle info") || !strings.Contains(stdout.String(), "[result] failed with 1 error(s)") {
+		t.Fatalf("text events:\n%s", stdout)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil || len(data) != 0 {
+		t.Fatalf("output %q %v", data, err)
+	}
+}
+
 func TestTaskCommandsAreHidden(t *testing.T) {
 	app, out, _ := testApp(nil)
 	if code := run(app, "--help"); code != 0 {
@@ -171,6 +262,14 @@ func TestTaskCommandsAreHidden(t *testing.T) {
 		if !strings.Contains(out.String(), "\n  "+cmd+" ") {
 			t.Errorf("%s is not listed", cmd)
 		}
+	}
+	// task bundle is hidden inside the hidden group too: users reach it through revisions bundle.
+	app, out, _ = testApp(nil)
+	if code := run(app, "task", "--help"); code != 0 {
+		t.Fatal(code)
+	}
+	if !strings.Contains(out.String(), "\n  build ") || strings.Contains(out.String(), "\n  bundle ") {
+		t.Fatalf("task help:\n%s", out)
 	}
 }
 

@@ -70,6 +70,9 @@ type Event = EventOf[*Result]
 // ScriptEvent is one event of `scantor script build`; its result is a ScriptResult.
 type ScriptEvent = EventOf[*ScriptResult]
 
+// BundleEvent is one event of `scantor task bundle`; its result is a BundleResult.
+type BundleEvent = EventOf[*BundleResult]
+
 // EventFormat selects how an Emitter writes events.
 type EventFormat string
 
@@ -161,6 +164,15 @@ func (e *Emitter) ScriptResult(phase api.BuildPhase, r *ScriptResult) {
 	ev := ScriptEvent{Phase: phase, Type: EventResult, Result: r}
 	stamp(e, &ev)
 	e.write(ev, func() string { return renderScriptResult(r) })
+}
+
+// BundleResult emits the final result event of a bundle step.
+func (e *Emitter) BundleResult(phase api.BuildPhase, r *BundleResult) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	ev := BundleEvent{Phase: phase, Type: EventResult, Result: r}
+	stamp(e, &ev)
+	e.write(ev, func() string { return renderBundleResult(r) })
 }
 
 func (e *Emitter) emit(ev Event) {
@@ -285,6 +297,18 @@ func renderScriptResult(r *ScriptResult) string {
 		return ""
 	}
 	return renderOutcome(r.OK, r.Image, r.Pack, r.Errors)
+}
+
+// renderBundleResult renders the summary of a bundle step: the archive of a success, or every error.
+func renderBundleResult(r *BundleResult) string {
+	if r == nil {
+		return ""
+	}
+	if !r.OK || r.Bundle == nil {
+		return renderOutcome(false, nil, nil, r.Errors)
+	}
+	a := r.Bundle
+	return fmt.Sprintf("[result] ok: bundle %s (%s/%s, %s, sha256 %s)\n", a.Image, a.Platform.OS, a.Platform.Arch, formatBytes(a.Bytes), a.SHA256)
 }
 
 // renderOutcome renders the summary of a result: the image or pack of a success, or every error.

@@ -29,7 +29,8 @@ type Config struct {
 	PublicURL          string
 	RegistryPublicHost string
 	// RegistryPushPassword is the derived `orchestrator` registry password (SCANTOR_REGISTRY_PUSH_PASSWORD),
-	// required by --push.
+	// required by --push; the bundle step also sends it to the host of --pull when it pulls a revision
+	// image. It never reaches an image.
 	RegistryPushPassword string
 }
 

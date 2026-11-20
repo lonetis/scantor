@@ -43,6 +43,29 @@ type ScriptResult struct {
 	DurationsMs map[string]int64 `json:"durationsMs"`
 }
 
+// BundleResult is the result of `scantor task bundle` (docs/tasks.md §9.11), the payload of its final
+// `result` event. Bundle is null unless the archive was written completely; Errors and Warnings are
+// never null.
+type BundleResult struct {
+	OK          bool             `json:"ok"`
+	Bundle      *BundleArchive   `json:"bundle"`
+	Errors      []api.BuildError `json:"errors"`
+	Warnings    []string         `json:"warnings"`
+	DurationsMs map[string]int64 `json:"durationsMs"`
+}
+
+// BundleArchive describes a written bundle archive: the image name it loads as, the image's platform
+// and size, the archive's size and SHA-256 (of the gzip bytes written to the output) and the version of
+// the runtime baked into it.
+type BundleArchive struct {
+	Image          string       `json:"image"`
+	Platform       api.Platform `json:"platform"`
+	ImageBytes     int64        `json:"imageBytes"`
+	Bytes          int64        `json:"bytes"`
+	SHA256         string       `json:"sha256"`
+	ScantorVersion string       `json:"scantorVersion"`
+}
+
 // Image is the image of a build result. Repository, Tag and Digest are set after a push.
 type Image struct {
 	Ref        string       `json:"ref"`
@@ -65,6 +88,10 @@ func (r *Result) ExitCode() int { return exitCode(r.OK, r.Errors) }
 // ExitCode returns the exit code of a script build, with the meaning of Result.ExitCode: 0 on success,
 // 3 when a platform error occurred, 2 for every other (script content) error.
 func (r *ScriptResult) ExitCode() int { return exitCode(r.OK, r.Errors) }
+
+// ExitCode returns the exit code of a bundle step, with the meaning of Result.ExitCode: 0 on success,
+// 3 when a platform error occurred, 2 for build errors (build timeout, image size, forbidden labels).
+func (r *BundleResult) ExitCode() int { return exitCode(r.OK, r.Errors) }
 
 func exitCode(ok bool, errs []api.BuildError) int {
 	if ok {

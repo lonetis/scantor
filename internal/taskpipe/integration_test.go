@@ -5,7 +5,10 @@ package taskpipe_test
 import (
 	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +16,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +28,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/lonetis/scantor/internal/api"
+	"github.com/lonetis/scantor/internal/bundle"
 	"github.com/lonetis/scantor/internal/cli"
 	"github.com/lonetis/scantor/internal/container"
 	"github.com/lonetis/scantor/internal/manifest"
@@ -497,5 +503,286 @@ func TestIntegrationBuildScript(t *testing.T) {
 	again, text := buildScript()
 	if again.Image.ID != res.Image.ID || !strings.Contains(text, "reusing the existing image "+tag) {
 		t.Fatalf("the unchanged script must reuse %s: %+v\n%s", res.Image.ID, again.Image, text)
+	}
+}
+
+// taskName matches the task-name slug of schemas/task-manifest.schema.json.
+var taskName = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`)
+
+// bundleTaskName returns a fresh task name <name-prefix><random>, so the loaded bundle image is named
+// like everything else the tests create.
+func bundleTaskName(t *testing.T) string {
+	t.Helper()
+	task := *namePrefix + uuid.NewString()[:8]
+	if !taskName.MatchString(task) {
+		t.Fatalf("-name-prefix %q does not give a task name", *namePrefix)
+	}
+	return task
+}
+
+// bundleInfoFor returns a bundle info of a fresh task at revision 1 for a built image: its description
+// and settings defaults, the dev-run limits and the image's platform.
+func bundleInfoFor(t *testing.T, res *taskpipe.Result) *bundle.Info {
+	t.Helper()
+	task := bundleTaskName(t)
+	s, l := res.SettingsDefaults, taskpipe.DefaultLocalLimits()
+	return &bundle.Info{
+		V: bundle.InfoVersion, Image: bundle.ImageName(task, 1), Ref: bundle.RevisionRef(task, 1), Task: task, Revision: 1,
+		Language: *res.Language, Entry: res.Manifest.Entry, Platform: res.Image.Platform, Description: *res.Description,
+		Settings: bundle.Settings{
+			Processes: s.Processes, TimeoutMs: s.TimeoutMs, MaxAttempts: s.MaxAttempts, Backoff: s.Backoff,
+			Resources: s.Resources, MaxAnalysesPerProcess: s.MaxAnalysesPerProcess,
+		},
+		Limits: bundle.Limits{
+			MaxAnalysisConfigBytes: l.MaxAnalysisConfigBytes, MaxResultBytes: l.MaxResultBytes, MaxFileBytes: l.MaxFileBytes,
+			MaxFilesPerAnalysis: l.MaxFilesPerAnalysis, LogTailBytes: l.LogTailBytes, LogTailEarlierBytes: l.LogTailEarlierBytes,
+			MaxProcesses: 64,
+		},
+	}
+}
+
+// bundleRun is the outcome of one bundle step into a file.
+type bundleRun struct {
+	res    *taskpipe.BundleResult
+	file   string
+	events string
+}
+
+func bundleTo(t *testing.T, c client.APIClient, cfg taskpipe.Config, rt taskpipe.RuntimeResolver, info *bundle.Info, opts taskpipe.BundleOptions) bundleRun {
+	t.Helper()
+	data, err := info.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(t.TempDir(), bundle.FileName(info.Task, info.Revision, info.Platform))
+	f, err := os.Create(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var events bytes.Buffer
+	res := taskpipe.New(cfg, taskpipe.NewEmitter(&events, taskpipe.EventsText), c, rt).Bundle(context.Background(), data, opts, f)
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if !res.OK {
+		t.Fatalf("bundle errors %+v\n%s", res.Errors, events.String())
+	}
+	return bundleRun{res: res, file: file, events: events.String()}
+}
+
+// checkTemporaryTagsRemoved checks that the temporary tags the step names in its events are gone.
+func checkTemporaryTagsRemoved(t *testing.T, c client.APIClient, events string) {
+	t.Helper()
+	m := regexp.MustCompile(`tagged \S+ as (` + taskpipe.BundleTempRepository + `/[0-9a-f-]{36}):src`).FindStringSubmatch(events)
+	if m == nil {
+		t.Fatalf("no temporary tag in the events:\n%s", events)
+	}
+	for _, ref := range []string{m[1] + ":src", m[1] + ":build"} {
+		if _, err := c.ImageInspect(context.Background(), ref); !container.IsNotFound(err) {
+			t.Errorf("the temporary tag %s survived: %v", ref, err)
+		}
+	}
+}
+
+// loadBundle checks the archive's size and digest, checks that its uncompressed bytes name neither the
+// temporary tags nor the forbidden strings, and loads it into the daemon. The loaded image is removed at
+// the end of the test.
+func loadBundle(t *testing.T, c client.APIClient, run bundleRun, forbidden ...string) {
+	t.Helper()
+	data, err := os.ReadFile(run.file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	if a := run.res.Bundle; int64(len(data)) != a.Bytes || hex.EncodeToString(sum[:]) != a.SHA256 {
+		t.Fatalf("archive of %d bytes, sha256 %x; reported %+v", len(data), sum, a)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plain, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range append([]string{taskpipe.BundleTempRepository + "/"}, forbidden...) {
+		if bytes.Contains(plain, []byte(s)) {
+			t.Errorf("the archive contains %q", s)
+		}
+	}
+	removeImage(t, c, run.res.Bundle.Image)
+	resp, err := c.ImageLoad(context.Background(), bytes.NewReader(data), client.ImageLoadWithQuiet(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := io.ReadAll(resp)
+	_ = resp.Close()
+	if err != nil || bytes.Contains(out, []byte(`"error`)) {
+		t.Fatalf("docker load: %v %s", err, out)
+	}
+}
+
+// TestIntegrationBundle bundles the integration build of tasks/echo (docs/tasks.md §9.11), loads the
+// archive into the same daemon and checks the loaded image: its only name, the bundle entrypoint, the
+// runtime healthcheck, the working directory /work, no reserved labels, and the bundle info it carries,
+// read from a created but never started container. Running the image is covered by the bundle e2e
+// suite.
+func TestIntegrationBundle(t *testing.T) {
+	c := dockerClient(t)
+	ctx := context.Background()
+	images := version.ImageOverride{Prefix: *basePrefix, Tag: *baseTag}
+	base := version.ImageRef("scantor-base-python", images)
+	if _, err := c.ImageInspect(ctx, base); err != nil {
+		t.Skipf("the Python base image %s is not available (docker buildx bake --load base-python, or -base-image-prefix/-base-image-tag): %v", base, err)
+	}
+	rt, _ := taskRuntime(t, c)
+	tag := *namePrefix + "echo:" + uuid.NewString()[:8]
+	r := build(t, c, pipelineConfig(images), rt, filepath.Join(moduleRoot, "tasks", "echo"), taskpipe.BuildOptions{Tag: tag, ExpectName: "echo", SkipCheck: true})
+	if !r.res.OK {
+		t.Fatalf("errors: %+v", r.res.Errors)
+	}
+	info := bundleInfoFor(t, r.res)
+	run := bundleTo(t, c, pipelineConfig(images), rt, info, taskpipe.BundleOptions{Image: tag})
+	if a := run.res.Bundle; a.Image != info.Image || a.Platform != info.Platform || a.ImageBytes <= r.res.Image.Bytes || a.ScantorVersion != version.Version {
+		t.Fatalf("bundle %+v (revision image %d bytes)", a, r.res.Image.Bytes)
+	}
+	if !strings.Contains(run.events, "[result] ok: bundle "+info.Image) {
+		t.Errorf("events:\n%s", run.events)
+	}
+	checkTemporaryTagsRemoved(t, c, run.events)
+	if _, err := c.ImageInspect(ctx, tag); err != nil {
+		t.Fatalf("the revision image must stay: %v", err)
+	}
+	loadBundle(t, c, run, tag)
+
+	img, err := c.ImageInspect(ctx, info.Image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := img.Config
+	if !slices.Equal(img.RepoTags, []string{info.Image}) || img.Os != "linux" || img.Architecture != info.Platform.Arch || cfg == nil {
+		t.Fatalf("loaded image %+v", img.InspectResponse)
+	}
+	if !slices.Equal(cfg.Entrypoint, []string{"/scantor/scantor", "runtime", "bundle"}) || len(cfg.Cmd) != 0 || cfg.WorkingDir != bundle.WorkDir || cfg.StopSignal != "SIGTERM" {
+		t.Fatalf("config %+v", cfg)
+	}
+	if hc := cfg.Healthcheck; hc == nil || !slices.Equal(hc.Test, []string{"CMD", "/scantor/scantor", "runtime", "healthcheck"}) || hc.Interval != 30*time.Second || hc.StartInterval != 5*time.Second {
+		t.Fatalf("healthcheck %+v", cfg.Healthcheck)
+	}
+	for k := range cfg.Labels {
+		if container.ForbiddenImageLabel(k) {
+			t.Errorf("the bundle image carries the label %s", k)
+		}
+	}
+	if cfg.Labels["org.opencontainers.image.title"] != info.Ref {
+		t.Errorf("labels %v", cfg.Labels)
+	}
+
+	// The bundle info, read from a created container that never starts.
+	created, err := c.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name:   *namePrefix + "bundle-" + uuid.NewString()[:8],
+		Config: &containertypes.Config{Image: info.Image, Labels: map[string]string{"scantor.test": "true"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := c.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
+			t.Errorf("remove the container: %v", err)
+		}
+	})
+	copied, err := c.CopyFromContainer(ctx, created.ID, client.CopyFromContainerOptions{SourcePath: bundle.InfoPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer copied.Content.Close()
+	tr := tar.NewReader(copied.Content)
+	hdr, err := tr.Next()
+	if err != nil {
+		t.Fatal(err)
+	}
+	baked, err := io.ReadAll(tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := info.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hdr.Name != "bundle.json" || hdr.Mode&0o777 != 0o644 || !bytes.Equal(baked, want) {
+		t.Fatalf("baked %s (%o):\n%s\nwant:\n%s", hdr.Name, hdr.Mode, baked, want)
+	}
+	parsed, err := bundle.Parse(baked)
+	if err != nil || parsed.Image != info.Image {
+		t.Fatalf("parse the baked info: %+v %v", parsed, err)
+	}
+}
+
+// TestIntegrationBundlePull bundles a revision image whose local tag is gone (the built-in node's image
+// GC): the step pulls it by digest from a throwaway registry, reached on a loopback port the way the
+// platform registry is reached at localhost:${SCANTOR_REGISTRY_PORT}, and bundles the pulled image.
+func TestIntegrationBundlePull(t *testing.T) {
+	c := dockerClient(t)
+	const registryImage = "registry:3.1.2"
+	ctx := context.Background()
+	if _, err := c.ImageInspect(ctx, registryImage); err != nil {
+		t.Skipf("%s is not available locally: %v", registryImage, err)
+	}
+	port := 40000 + time.Now().Nanosecond()%10000
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	created, err := c.ContainerCreate(ctx, client.ContainerCreateOptions{
+		Name:       *namePrefix + "registry-" + uuid.NewString()[:8],
+		Config:     &containertypes.Config{Image: registryImage, Env: []string{"REGISTRY_HTTP_ADDR=" + addr}, Labels: map[string]string{"scantor.test": "true"}},
+		HostConfig: &containertypes.HostConfig{NetworkMode: "host"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if _, err := c.ContainerRemove(context.Background(), created.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil {
+			t.Errorf("remove the registry: %v", err)
+		}
+	})
+	if _, err := c.ContainerStart(ctx, created.ID, client.ContainerStartOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	waitForLog(t, c, created.ID, "listening on")
+
+	taskID := uuid.NewString()
+	tag := addr + "/tasks/" + taskID + ":" + uuid.NewString()
+	cfg := pipelineConfig(plainBase(t, c, ""))
+	cfg.RegistryPushPassword = "derived-password"
+	rt := stubRuntime(t, c)
+	r := build(t, c, cfg, rt, writeTask(t, plainDockerfile), taskpipe.BuildOptions{Tag: tag, Push: true})
+	if !r.res.OK {
+		t.Fatalf("errors %+v", r.res.Errors)
+	}
+	pull := addr + "/tasks/" + taskID + "@" + r.res.Image.Digest
+	removeImage(t, c, pull)
+	if _, err := c.ImageRemove(ctx, tag, client.ImageRemoveOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ImageInspect(ctx, tag); !container.IsNotFound(err) {
+		t.Fatalf("the local tag must be gone: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join("..", "bundle", "testdata", "bundle.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := bundle.Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := bundleTaskName(t)
+	info.Task, info.Image, info.Ref, info.Platform = task, bundle.ImageName(task, 3), bundle.RevisionRef(task, 3), r.res.Image.Platform
+	run := bundleTo(t, c, cfg, rt, info, taskpipe.BundleOptions{Image: tag, Pull: pull})
+	if !strings.Contains(run.events, "does not exist; pulling "+pull) {
+		t.Errorf("events:\n%s", run.events)
+	}
+	checkTemporaryTagsRemoved(t, c, run.events)
+	loadBundle(t, c, run, taskID, addr, "derived-password")
+	if img, err := c.ImageInspect(ctx, info.Image); err != nil || !slices.Equal(img.RepoTags, []string{info.Image}) {
+		t.Fatalf("loaded image %v %v", img.RepoTags, err)
 	}
 }

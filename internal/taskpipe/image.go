@@ -60,7 +60,7 @@ func (b *builder) build(ctx context.Context) bool {
 	if !b.checkExternal(ctx) {
 		return false
 	}
-	built := b.imageBuild(ctx, pinned)
+	built := b.imageBuild(ctx, b.pack.Tar(), DockerfileName, b.buildArgs(pinned))
 	if built {
 		built = b.inspect(ctx)
 	}
@@ -271,21 +271,28 @@ func (b *builder) checkExternal(ctx context.Context) bool {
 	return ok
 }
 
-// imageBuild runs the BuildKit build of the pack with the timeout SCANTOR_BUILD_TIMEOUT. No registry
-// credentials, no labels and no parent pulls are passed (docs/security.md BLD-8).
-func (b *builder) imageBuild(ctx context.Context, pinned string) bool {
-	buildCtx, cancel := context.WithTimeout(ctx, b.p.cfg.BuildTimeout)
-	defer cancel()
+// buildArgs returns the build arguments of a task or script build: SCANTOR_BASE=<pinned base>, plus
+// SCANTOR_GCFLAGS for debug builds.
+func (b *builder) buildArgs(pinned string) map[string]*string {
 	args := map[string]*string{dockerfile.BaseArg: &pinned}
 	if b.opts.DebugBuild {
 		gc := DebugGCFlags
 		args[GCFlagsArg] = &gc
 	}
+	return args
+}
+
+// imageBuild runs the BuildKit build of buildContext (a tar holding the Dockerfile at the path
+// dockerfilePath) as b.tag with the timeout SCANTOR_BUILD_TIMEOUT. No registry credentials, no labels
+// and no parent pulls are passed (docs/security.md BLD-8); args are the only build arguments (nil: none).
+func (b *builder) imageBuild(ctx context.Context, buildContext io.Reader, dockerfilePath string, args map[string]*string) bool {
+	buildCtx, cancel := context.WithTimeout(ctx, b.p.cfg.BuildTimeout)
+	defer cancel()
 	buildID := uuid.NewString()
 	b.log(api.BuildPhaseBuild, "building %s", b.tag)
-	resp, err := b.p.docker.ImageBuild(buildCtx, b.pack.Tar(), client.ImageBuildOptions{
+	resp, err := b.p.docker.ImageBuild(buildCtx, buildContext, client.ImageBuildOptions{
 		Tags:        []string{b.tag},
-		Dockerfile:  DockerfileName,
+		Dockerfile:  dockerfilePath,
 		BuildArgs:   args,
 		Remove:      true,
 		ForceRemove: true,

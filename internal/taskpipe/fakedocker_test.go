@@ -35,6 +35,8 @@ type fakeDocker struct {
 	// remote holds the images a pull can fetch.
 	remote map[string]image.InspectResponse
 	pulls  []string
+	// pullAuths records the X-Registry-Auth value of every pull ("" when anonymous).
+	pullAuths []string
 	// registry holds the digest references a distribution inspect finds; tags maps the tag references
 	// it finds (normalised) to the digest the registry serves for them.
 	registry           map[string]bool
@@ -57,6 +59,16 @@ type fakeDocker struct {
 
 	pushes   []fakePushCall
 	pushMsgs []jsonstream.Message
+
+	// daemonOS and daemonArch are what ServerVersion reports (default linux/arm64).
+	daemonOS, daemonArch string
+	// imageTags records every ImageTag call.
+	imageTags []client.ImageTagOptions
+	// save decides the outcome of ImageSave: the archive bytes or an error; saves records the saved
+	// references and saveOpts the number of options of each call.
+	save     func(refs []string) ([]byte, error)
+	saves    [][]string
+	saveOpts []int
 }
 
 type fakePushCall struct {
@@ -90,7 +102,10 @@ type fakeContainer struct {
 }
 
 func newFakeDocker() *fakeDocker {
-	return &fakeDocker{images: map[string]image.InspectResponse{}, remote: map[string]image.InspectResponse{}, registry: map[string]bool{}, tags: map[string]string{}}
+	return &fakeDocker{
+		images: map[string]image.InspectResponse{}, remote: map[string]image.InspectResponse{}, registry: map[string]bool{}, tags: map[string]string{},
+		daemonOS: "linux", daemonArch: "arm64",
+	}
 }
 
 // addImage registers a local image under refs (its id is added too).
@@ -140,10 +155,11 @@ func (s *fakeStream) JSONMessages(context.Context) iter.Seq2[jsonstream.Message,
 	}
 }
 
-func (f *fakeDocker) ImagePull(_ context.Context, ref string, _ client.ImagePullOptions) (client.ImagePullResponse, error) {
+func (f *fakeDocker) ImagePull(_ context.Context, ref string, opts client.ImagePullOptions) (client.ImagePullResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pulls = append(f.pulls, ref)
+	f.pullAuths = append(f.pullAuths, opts.RegistryAuth)
 	img, ok := f.remote[ref]
 	if !ok {
 		return &fakeStream{Reader: strings.NewReader(""), msgs: []jsonstream.Message{{Error: &jsonstream.Error{Message: "pull access denied for " + ref}}}}, nil
@@ -222,6 +238,45 @@ func (f *fakeDocker) ImageRemove(_ context.Context, ref string, _ client.ImageRe
 	f.removedImages = append(f.removedImages, ref)
 	delete(f.images, ref)
 	return client.ImageRemoveResult{}, nil
+}
+
+// ImageTag adds the reference Target to the local image Source (a reference or an id).
+func (f *fakeDocker) ImageTag(_ context.Context, opts client.ImageTagOptions) (client.ImageTagResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.imageTags = append(f.imageTags, opts)
+	img, ok := f.images[opts.Source]
+	if !ok {
+		return client.ImageTagResult{}, notFound("image " + opts.Source)
+	}
+	f.images[opts.Target] = img
+	return client.ImageTagResult{}, nil
+}
+
+func (f *fakeDocker) ImageSave(_ context.Context, refs []string, opts ...client.ImageSaveOption) (client.ImageSaveResult, error) {
+	f.mu.Lock()
+	f.saves = append(f.saves, refs)
+	f.saveOpts = append(f.saveOpts, len(opts))
+	save := f.save
+	for _, ref := range refs {
+		if _, ok := f.images[ref]; !ok {
+			f.mu.Unlock()
+			return nil, notFound("image " + ref)
+		}
+	}
+	f.mu.Unlock()
+	data, err := save(refs)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+// ServerVersion reports the daemon's platform.
+func (f *fakeDocker) ServerVersion(context.Context, client.ServerVersionOptions) (client.ServerVersionResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return client.ServerVersionResult{Os: f.daemonOS, Arch: f.daemonArch, APIVersion: "1.56"}, nil
 }
 
 func (f *fakeDocker) ImagePush(_ context.Context, ref string, opts client.ImagePushOptions) (client.ImagePushResponse, error) {
