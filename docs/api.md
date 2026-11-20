@@ -206,6 +206,7 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
 | `uploadInUse` | 409 | a scan references the upload |
 | `revisionNotReady` | 409 | revision is `queued`, `building` or `failed` |
 | `revisionUnavailable` | 409 | the scan's revision no longer exists |
+| `bundleUnsupported` | 409 | the revision cannot be bundled; `details.reason` (`privileged`) |
 | `nothingToRetry` | 409 | retry-failed with no `failed` or `lost` analysis that has a stored config |
 | `exportTooLarge` | 409 | inline export above `SCANTOR_EXPORT_INLINE_MAX`; use `exportScan` |
 | `staleEpoch` | 409 | scheduler fenced by a newer epoch; `details.currentEpoch` |
@@ -250,7 +251,7 @@ response header `Scantor-Wait: settled|timeout` tells which. A client disconnect
 orchestrator begins to stop, every wait returns the current representation at once with `timeout`, so the
 shutdown does not wait for it ([architecture](architecture.md) §4.1). Each user may hold at most
 `SCANTOR_MAX_CONCURRENT_WAITS` waits (429 `tooManyRequests`). `publishRevision`, `uploadTask`, `testTask`,
-`startScriptRun` and `restartScriptRun` take that slot before they create anything, so their 429 means nothing was created and a retry is safe.
+`startScriptRun`, `restartScriptRun` and `createRevisionBundle` take that slot before they create anything, so their 429 means nothing was created and a retry is safe.
 An open `streamTestRun` holds one of these slots too, until it ends. Changes wake a wait at once: each
 orchestrator process keeps one change stream per waited-on collection, shared by all of its waits and closed
 once the collection had no waits for 10 s, so the number of change streams (and of MongoDB connections they
@@ -264,6 +265,7 @@ the waits on its collection poll every second.
 | `getScan` | scan not in `creating` or `running` |
 | `startScriptRun`, `restartScriptRun`, `getScriptRun` | script run `completed`, `failed` or `cancelled`; a cancelled run whose container is still stopping (reported `cancelled` already) only once it stopped, so the run can be resumed |
 | `exportScan`, `getExport` | export `ready` or `failed` |
+| `createRevisionBundle`, `getRevisionBundle` | bundle `ready` or `failed` (a bundle replaced meanwhile is followed through its revision) |
 | `getJob` | job `succeeded`, `failed` or `cancelled` |
 | `getWorkerLogs` (max 30) | a log tail newer than the request arrived |
 
@@ -300,6 +302,7 @@ additions and omissions are listed for brevity; the JSON examples are normative 
 | `Worker` | `workers` | − `spec.specHash`; + `node {id, name}`, + `scan {id, name}` |
 | `Node` | `nodes` | − `tokenHash`, `instance.id`; + `activeWorkers` |
 | `Export` | `exports` | − `key`; + `download {url, expiresAt}` when `ready` |
+| `Bundle` | `bundles` | − `userId`, `taskId`, `taskName`, `key`, `fileName`, `jobId`, `updatedAt`; `revisionId`, `revisionNumber` → `revision {id, number, ref}`; + `download {url, expiresAt, fileName}` when `ready` (presigned anew on every representation), + `commands {load, run, describe}` |
 | `Upload`, `Credential`, `Event`, `Job`, `Condition` | same names | internal fields omitted |
 | `JobRef` | `jobs` | `{id, kind, state}` |
 | `User` | better-auth `user` | `{id, email, name, role, banned, banReason, canRunPrivileged, maxWorkers, createdAt, updatedAt, usage {activeWorkers, tasks, scans}}` |
@@ -687,6 +690,53 @@ A queued run: `settings` still hold only the explicit request (null = not given)
 ```
 
 
+`Bundle` (`createRevisionBundle`, `getRevisionBundle`; declared as `components.schemas.Bundle`, mirrored by the
+shared TS type and Go `api.Bundle`):
+
+```json
+{
+  "id": "5d0c7a4e-2b1f-4c3d-9e8a-7f6b5c4d3e2f",
+  "revision": {
+    "id": "c2a9e4b1-7d3f-4e5a-9b8c-1d2e3f4a5b6c",
+    "number": 3,
+    "ref": "echo@3"
+  },
+  "state": "ready",
+  "image": "localhost/scantor/echo:3",
+  "platform": {
+    "os": "linux",
+    "arch": "amd64"
+  },
+  "bytes": 61234567,
+  "sha256": "9f2c…e1",
+  "scantorVersion": "1.6.0",
+  "error": null,
+  "createdAt": "2026-11-20T09:00:00.000Z",
+  "startedAt": "2026-11-20T09:00:01.000Z",
+  "finishedAt": "2026-11-20T09:01:12.000Z",
+  "expiresAt": "2026-11-27T09:01:12.000Z",
+  "download": {
+    "url": "https://s3.example.org/…",
+    "expiresAt": "2026-11-20T09:11:12.000Z",
+    "fileName": "echo-3-linux-amd64.bundle.tar.gz"
+  },
+  "commands": {
+    "load": "docker load -i echo-3-linux-amd64.bundle.tar.gz",
+    "run": "docker run --rm -v \"$PWD:/work\" localhost/scantor/echo:3",
+    "describe": "docker run --rm localhost/scantor/echo:3 --describe"
+  }
+}
+```
+
+`bytes`, `sha256`, `scantorVersion` and `download` are null until the bundle is `ready`, and `finishedAt` is null
+until it is `ready` or `failed`; `error` is `{code, message}` once it `failed`: `bundleFailed` when the bundle step failed (at once for a content error such as
+an image above `SCANTOR_MAX_IMAGE_BYTES`, otherwise after its last attempt), `revisionUnavailable` when the
+revision or its task went away. `download` is a presigned GET valid 10
+minutes on the public S3 endpoint, an `application/gzip` attachment named `fileName`
+(`<task>-<number>-<os>-<arch>.bundle.tar.gz`), created anew for every representation; clients read the bundle
+again for a fresh URL. `commands` are the recipient's lines: load the archive once, run it with the working
+directory mounted at `/work`, describe it ([guide](guide/bundles.md)).
+
 ## 3. Better-auth endpoints (not in OpenAPI)
 
 better-auth is mounted at `/api/auth/*` (catch-all handler) with discovery at the origin root. Only these
@@ -859,6 +909,8 @@ With `revision`, the S3 snapshot is streamed into a `list --archive` / `read --a
 | `GET /api/tasks/{task}/revisions/{revision}` | `getRevision` | owner | **yes** | `?wait` | `Revision` |
 | `GET /api/tasks/{task}/revisions/{revision}/logs` | `getRevisionBuildLog` | owner | no | `?afterLine (0), limit (1000, max 5000)` | `{lines: [{line, at, phase, type: "log"\|"error"\|"result", stream?, level?, text?, error?, result?}], nextLine, complete}`: one entry per task-pipeline event ([tasks](tasks.md) §9.8), `line` = event `seq` + 1; `stream` (`pipeline`\|`build`\|`stdout`\|`stderr`\|`check`), `level` (`info`\|`warning`, default `info`) and `text` only for `log`; `error` (BuildError) only for `error`; `result` (BuildResult) only for `result`, always the last line |
 | `GET /api/tasks/{task}/revisions/{revision}/source` | `downloadRevisionSource` | owner | no | `?redirect (true)` | 302 to a presigned GET of the snapshot, or `{url, expiresAt}` |
+| `POST /api/tasks/{task}/revisions/{revision}/bundle` | `createRevisionBundle` | owner | no | `?wait (0–120), rebuild (false)` | 201 a new `Bundle` (`queued`), or 200 the existing one: a `queued` or `running` bundle, and a `ready`, unexpired one built with this orchestrator's `scantorVersion` unless `rebuild=true`; a failed, expired or outdated bundle is replaced ([data model](data-model.md) §4.21). 409 `revisionNotReady` (`details {state, allowed}`), 409 `bundleUnsupported` (`details.reason: "privileged"`); 404 for a task being deleted or another user's revision |
+| `GET /api/tasks/{task}/revisions/{revision}/bundle` | `getRevisionBundle` | owner | no | `?wait (0–120)` | `Bundle`; 404 `notFound` when the revision has no bundle or its `expiresAt` passed |
 
 ### 4.11 `test-runs`
 
@@ -882,7 +934,7 @@ With `revision`, the S3 snapshot is streamed into a `list --archive` / `read --a
 | `POST /api/templates/{template}/estimate` | `estimateTemplate` | owner | no (`x-read-only`) | `{scanConfig}` | `{expectedTotal: int\|null, exact: boolean, confirmationRequired: boolean, tooLarge: boolean}`; 422 `configInvalid` with `details.issues` when the template schema or its semantic validation rejects the scan config (§5.1 step 9) |
 | `GET /api/scaffolds` | `listScaffolds` | owner | no | – | `{items: [{language, templates: string[]}]}` (`templates` includes `"custom"`) |
 | `GET /api/guides/authoring/{language}` | `getAuthoringGuide` | owner | **yes** | `?kind=task\|script` (default `task`) | `text/markdown`: `task` the embedded `docs/guide/authoring-<language>.md`; `script` the scripts guide of a language with script support (`script.guide` of its row in `schemas/languages.json`: `docs/guide/scripts.md` for Python), else 404 `notFound` |
-| `GET /api/guides/{guide}` | `getGuide` | owner | no | – | `text/markdown` (`templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes`, `scripts`) |
+| `GET /api/guides/{guide}` | `getGuide` | owner | no | – | `text/markdown` (`templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes`, `scripts`, `bundles`) |
 
 ### 4.13 `scans`
 
@@ -1834,6 +1886,11 @@ also accepts scantor API keys (`Authorization: Bearer sk_scantor_…` or `x-api-
 | script runs | `get_script_run`, `get_script_run_logs`, `read_script_run_output` | `start_script_run`, `cancel_script_run`, `restart_script_run` |
 | admin | `list_nodes` | – |
 
+Not exposed: `createRevisionBundle` and `getRevisionBundle` (`x-mcp: false`). A bundle is an archive of hundreds
+of MB that an agent can neither use nor hand on, and 44 of the 45 tool slots are taken; the bundles guide is an
+MCP resource (`scantor://guide/bundles`), so an agent can explain bundles and ask the user to create one in the
+UI or with `scantor revisions bundle`.
+
 ## 11. Decisions made in this document
 
 The lead's round-1 rulings accepted items 1, 3, 11, 14 and 16 explicitly; the other items stand as written.
@@ -1880,6 +1937,11 @@ Item 18 records a round-1 ruling.
     NDJSON with checkpoint lines instead of pages, and output bytes move as presigned multipart uploads
     ([scripts](scripts.md) §15). MCP gets 13 script tools (44 of 45); a run over all analyses needs
     `confirm: true` through MCP, like a large scan.
+20. **A revision's bundle is a singular sub-resource** (`…/revisions/{revision}/bundle`) without a bundle id in
+    the path: one bundle per revision, created idempotently by `POST` and read by `GET`, replaced instead of
+    listed or deleted, and resolved like every revision route (`resolveTask` + `resolveTaskRevision`). Its
+    representation carries the recipient's `commands`, the single source of the copy-paste lines of the UI and
+    the CLI, and a download presigned on every read, like exports.
 
 ## 12. Future extensions
 

@@ -440,6 +440,32 @@ Mechanisms: [scripts](../docs/scripts.md) §5–§9, §11, [api](../docs/api.md)
 - **SRUN-018** [api] A run stores at most `SCANTOR_SCRIPT_RUN_MAX_OUTPUTS` outputs: the next `ctx.outputs` call fails, the run ends `failed` (`scriptError`), and the stored outputs stay readable.
 - **SRUN-019** [api] `startScriptRun?wait`, `getScriptRun?wait` and `restartScriptRun?wait` hold until the run is completed, failed or cancelled (a cancelled run only once its container stopped and its exit code is stored), with the `Scantor-Wait` semantics of API-012.
 
+## BUNDLE. Bundles
+
+Mechanisms: [api](../docs/api.md) §4.10, [architecture](../docs/architecture.md) §11.8, [data model](../docs/data-model.md) §4.21, [tasks](../docs/tasks.md) §9.11, [security](../docs/security.md) §6.21.
+
+- **BUNDLE-001** [api] `POST /api/tasks/{task}/revisions/{revision}/bundle` on a ready revision returns 201 with a `queued` bundle of image `localhost/scantor/<task>:<n>`, the revision's platform and the `commands` `load` (`docker load -i <fileName>`), `run` (`docker run --rm -v "$PWD:/work" <image>`) and `describe` (`docker run --rm <image> --describe`); it becomes `ready` with `bytes`, `sha256`, `scantorVersion`, `expiresAt` = `finishedAt` + `SCANTOR_BUNDLE_RETENTION_DAYS` and `download {url, expiresAt, fileName}`, where `fileName` is `<task>-<n>-linux-<arch>.bundle.tar.gz` and the URL serves a gzip attachment of that name with exactly `bytes` and `sha256`; `GET …/bundle?wait` holds until the bundle is ready or failed.
+- **BUNDLE-002** [api] A create while the revision's bundle is queued, running or ready returns that bundle with 200; `rebuild=true`, a failed bundle and an expired one are replaced by a new bundle (201, a new id), and an expired bundle is 404 for `GET` until then.
+- **BUNDLE-003** [api] A revision that is not ready returns 409 `revisionNotReady` with `details.state`, and a privileged revision returns 409 `bundleUnsupported` with `details.reason: "privileged"`.
+- **BUNDLE-004** [api] `GET …/bundle` returns 404 `notFound` while the revision has no bundle, and another user's revision returns 404 on both bundle routes.
+- **BUNDLE-005** [api] A bundle is created even after the master's local image of the revision was removed: the bundle step pulls the revision image by digest from the registry.
+- **BUNDLE-006** [api] Deleting the task removes its bundles and their archives, so a download URL issued before stops working.
+- **BUNDLE-007** [security] The archive holds no value derived from `SCANTOR_SECRET`, no API key, stack hostname, registry host or `tasks/` repository, and no id of the owner, the task or the revision in any layer; it names only `localhost/scantor/<task>:<n>` (`manifest.json`, `index.json`), carries no `scantor.*`, `com.docker.compose.*` or `traefik.*` label, has the entrypoint `/scantor/scantor runtime bundle`, the runtime healthcheck and the working directory `/work`, and its `/scantor/bundle.json` matches `schemas/bundle.schema.json`.
+
+## BRUN. Bundle runs
+
+Mechanisms: [runtime](../docs/runtime.md) §15.6–§15.9, [guide/bundles](../docs/guide/bundles.md), [security](../docs/security.md) §6.21. The remote node's Docker-in-Docker stands in for the recipient's machine ([testing](../docs/testing.md) §8.3).
+
+- **BRUN-001** [e2e] `docker load` of a downloaded bundle and `docker run --rm -v <dir>:/work <image>` with no flags run the revision with its defaults, write `run.json` (reason `done`, exit code 0), one `results.jsonl` line per analysis and `files/` into `results/<UTC yyyymmddThhmmssZ>/` of the mounted folder, owned by the owner of that folder, and exit 0.
+- **BRUN-002** [e2e] `--task-config`, `--scan-config @file`, `--settings`, `--processes` and `--limit` apply and are recorded in `run.json`; secret values are `***` in `run.json` and `results.jsonl` while the task received them; an invalid config or setting prints `path: message`, exits 2 and leaves the run directory empty.
+- **BRUN-003** [e2e] `--describe` (human and `-o json`) prints the revision, the effective configs with their defaults, the settings, the schemas, the secret and upload paths and the recommended `--cpus`, `--memory` and hardened `docker run` flags without a mount, and exits 2 with the issues for an invalid config.
+- **BRUN-004** [e2e] A `list` template reads the local file given as a path at its upload field (one analysis per line, the file recorded in `run.json` `uploads`); a UUID at the upload field exits 2.
+- **BRUN-005** [e2e] A retryable failure is retried with the settings' backoff and succeeds with its earlier attempt in `attempts`; a final failure gives a `failed` line and exit 1; by default only failed lines keep `logTail`, while `attempts[].logTail` stays; the files under `files/` match `files[].path`.
+- **BRUN-006** [e2e] SIGINT (`docker kill -s INT`) or `docker stop` during a run writes the in-flight analyses as `failed` lines of type `cancelled`, sets `reason: "interrupted"` in `run.json` and exits 3.
+- **BRUN-007** [e2e] Without a mount at `/work` the run exits 2 with the `-v "$PWD:/work"` hint and writes nothing; `--out` naming a non-empty directory exits 2.
+- **BRUN-008** [e2e] An unlimited schedule streams: `results.jsonl` gains lines while the schedule still produces items, and `-o json` prints `start`, `scheduled`, `result` and `end` events as NDJSON.
+- **BRUN-009** [e2e] A bundle of a task that needs no network runs under `docker run --network none` and exits 0.
+
 ## JOB. Jobs
 
 Mechanisms: [api](../docs/api.md) §4.16.
@@ -617,6 +643,7 @@ Mechanisms: [guide/cli](../docs/guide/cli.md), [architecture](../docs/architectu
 - **CLI-014** [cli] `scantor scripts runs list|get [--wait]|logs [--after-line]|source` and `scripts runs outputs get` show the runs of a script newest first, print a run's stored log (`-o json`: NDJSON `{line, at, stream, text}`), download its snapshot and download an output verified by size and SHA-256 (an existing file is replaced only with `--force`, `--file -` prints it).
 - **CLI-015** [cli] `scantor scripts runs cancel` cancels an active run (`runs get --wait` then exits 1, and cancelling a finished run exits 2 with `invalidState`); `scripts runs restart --resume [--config]` starts a new run of the current folder that continues after the checkpoint of the earlier run.
 - **CLI-016** [cli] `scantor scripts list [--search]|get|create|delete [--wait]` and `scripts files list|read|write|delete` manage scripts and the files of their folders; creating a taken name exits 2 with `alreadyExists`, and a path outside the folder exits 2.
+- **CLI-017** [cli] `scantor revisions bundle <task>@<n>` creates or reuses the revision's bundle, waits until it is ready, saves it as `<task>-<n>-linux-<arch>.bundle.tar.gz` verified by size and SHA-256 and prints the recipient's commands on stderr; an existing file is replaced only with `--force` (else exit 2), `--file` names another path, `--no-download` waits and prints the bundle without writing a file, `-o json` prints `{bundle, file}`, and an unknown revision exits 2.
 
 ## EDIT. Editor
 
@@ -834,6 +861,7 @@ Mechanisms: [ui](../docs/ui.md) §5.5–§5.7, §5.9.
 - **UI-TASK-026** [ui] The build log (`data-testid=build-log`) follows a running build, groups lines by phase with collapsible headers and counts, tints error lines, strips ANSI sequences, and with "Follow log" stays scrolled to the bottom until the user scrolls up.
 - **UI-TASK-027** [ui] The revision facts show source, pack hash, git origin, base image, image digest, size and platform, connector language and version, protocol and schedule.
 - **UI-TASK-028** [ui] A ready revision's describe section has Task config, Scan config, Analysis config and Result tabs with schema tables (path, type, required, default, constraints, description and secret, upload, file, deprecated and read-only badges) in source order, a "Raw JSON" toggle, and the settings defaults, warnings and manifest.
+- **UI-TASK-029** [ui] The revision page's "Bundle" button opens a dialog with the disclosure warning and "Create bundle", which shows the bundle's state and elapsed time until it is ready, then its platform, size, expiry, file name and "Download bundle" (a gzip attachment) with the copyable "Load once", "Run" and "Describe" commands; the button is disabled, with the reason as tooltip, for privileged revisions and for revisions that are building or failed.
 
 ## UI-TRUN. Test runs in the dashboard
 

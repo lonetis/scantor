@@ -10,13 +10,14 @@ test-index --check`); never edit it by hand.
 
 ## Playwright projects
 
-### api (278 tests)
+### api (284 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
 | `api/account.spec.ts` | account; credential invariant | 4 |
 | `api/analyses.spec.ts` | analyses of a finished scan | 9 |
 | `api/api-keys.spec.ts` | API keys; API key credentials | 7 |
+| `api/bundles.spec.ts` | create and get; the revision image and the task | 6 |
 | `api/catalog.spec.ts` | languages and scaffolds; templates; guides | 8 |
 | `api/credentials.spec.ts` | create; list; update and delete | 12 |
 | `api/editor.spec.ts` | idle stop; editor sessions; editor state; the editor key; inside the editor | 9 |
@@ -65,12 +66,13 @@ test-index --check`); never edit it by hand.
 | `authz/matrix.spec.ts` | authorization matrix | 31 |
 | `authz/openapi-lint.spec.ts` | OpenAPI lint | 10 |
 
-### security (199 tests)
+### security (200 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
 | `security/auth-endpoints.spec.ts` | better-auth endpoints; credential binding; sessions | 9 |
 | `security/banned.spec.ts` | banned users | 3 |
+| `security/bundles.spec.ts` | – | 1 |
 | `security/compose-lint.spec.ts` | lint-compose | 38 |
 | `security/cross-scan.spec.ts` | per-scan RabbitMQ users; result ingestion trust; event visibility; malformed analysis messages | 9 |
 | `security/csrf.spec.ts` | CSRF; CORS | 5 |
@@ -103,13 +105,14 @@ test-index --check`); never edit it by hand.
 | `mcp/smoke.spec.ts` | MCP plumbing; MCP transport | 5 |
 | `mcp/tools.spec.ts` | MCP tool catalogue; MCP tool calls | 13 |
 
-### e2e (184 tests)
+### e2e (195 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
 | `e2e/backpressure.spec.ts` | backpressure | 2 |
 | `e2e/breaker.spec.ts` | circuit breaker | 2 |
-| `e2e/cli.spec.ts` | scans and results; platform commands; task pipeline commands; templates estimate; node daemon command; local development loop; configuration and containers; task, revision and node commands; script commands | 37 |
+| `e2e/bundles.spec.ts` | – | 10 |
+| `e2e/cli.spec.ts` | scans and results; platform commands; task pipeline commands; templates estimate; node daemon command; local development loop; configuration and containers; task, revision and node commands; script commands | 38 |
 | `e2e/debug.spec.ts` | dev debug | 4 |
 | `e2e/examples.spec.ts` | example tasks; connectors and base images | 24 |
 | `e2e/files.spec.ts` | file references; file limits; storage quota | 4 |
@@ -125,7 +128,7 @@ test-index --check`); never edit it by hand.
 | `e2e/templates.spec.ts` | template single; template list; template range; template repeat; template tranco; template crux; template cidr; wrapped templates; resolution on resume; test runs and template data; data sources | 18 |
 | `e2e/workers.spec.ts` | crash loops and memory; drain and stop; process slots; image pulls | 11 |
 
-### ui (255 tests)
+### ui (257 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -143,7 +146,7 @@ test-index --check`); never edit it by hand.
 | `ui/navigation.spec.ts` | sidebar of a user; sidebar of an admin; Scans badge; errors and toasts; polling; copy buttons, ids, times, sizes and confirmations; UI preferences | 35 |
 | `ui/overview.spec.ts` | overview of a fresh user; overview of the tenant; overview of an admin | 4 |
 | `ui/passkeys.spec.ts` | passkeys | 2 |
-| `ui/revisions.spec.ts` | revision page | 7 |
+| `ui/revisions.spec.ts` | revision page; revision bundles | 9 |
 | `ui/scan-health.spec.ts` | scan health; crash loops of a user with a worker limit | 6 |
 | `ui/scan-results.spec.ts` | results of a finished scan; results of a running scan; results for admins; hostile task output | 20 |
 | `ui/scans.spec.ts` | scans list; scans list for admins; new scan form; privileged revisions; scan detail | 20 |
@@ -470,6 +473,22 @@ test-index --check`); never edit it by hand.
 | SRUN-017 | The run log is bounded: a line over 16 KiB is cut with  [line truncated], lines beyond 2000/s … | api/script-runs.spec.ts › limits › the log is bounded: long lines are cut, floods are dropped and the middle of a long log goes |
 | SRUN-018 | A run stores at most SCANTOR_SCRIPT_RUN_MAX_OUTPUTS outputs: the next ctx.outputs call fails, the … | api/script-runs.spec.ts › limits › a run stores at most SCANTOR_SCRIPT_RUN_MAX_OUTPUTS outputs |
 | SRUN-019 | startScriptRun?wait, getScriptRun?wait and restartScriptRun?wait hold until the run is completed, … | api/script-runs.spec.ts › stopping runs › cancelling a running run stops and removes its container and keeps the outputs stored so far<br>api/wait.spec.ts › wait on long-running operations › startScriptRun, getScriptRun and restartScriptRun wait for the script run |
+| BUNDLE-001 | POST /api/tasks/{task}/revisions/{revision}/bundle on a ready revision returns 201 with a queued … | api/bundles.spec.ts › create and get › a create on a ready revision returns 201 queued; it becomes ready with a presigned gzip attachment and the commands |
+| BUNDLE-002 | A create while the revision's bundle is queued, running or ready returns that bundle with 200; … | api/bundles.spec.ts › create and get › a create returns the active or ready bundle (200); rebuild, a failure or the expiry replace it (201) |
+| BUNDLE-003 | A revision that is not ready returns 409 revisionNotReady with details.state, and a privileged … | api/bundles.spec.ts › create and get › unready revisions answer 409 revisionNotReady and privileged ones 409 bundleUnsupported |
+| BUNDLE-004 | GET …/bundle returns 404 notFound while the revision has no bundle, and another user's revision … | api/bundles.spec.ts › create and get › a revision without a bundle answers 404, and another user’s revision is 404 on both routes |
+| BUNDLE-005 | A bundle is created even after the master's local image of the revision was removed: the bundle … | api/bundles.spec.ts › the revision image and the task › a bundle is created after the master lost its local revision image |
+| BUNDLE-006 | Deleting the task removes its bundles and their archives, so a download URL issued before stops … | api/bundles.spec.ts › the revision image and the task › deleting the task removes the bundle object, so an issued download URL stops working |
+| BUNDLE-007 | The archive holds no value derived from SCANTOR_SECRET, no API key, stack hostname, registry host … | security/bundles.spec.ts › a bundle archive holds no secrets, ids or stack names, names only localhost/scantor/<task>:<n> and has the bundle entrypoint, healthcheck and info |
+| BRUN-001 | docker load of a downloaded bundle and docker run --rm -v <dir>:/work <image> with no flags run the … | e2e/bundles.spec.ts › docker load and docker run with the defaults write run.json, results.jsonl and files/ in results/<stamp>/, owned by the owner of /work |
+| BRUN-002 | --task-config, --scan-config @file, --settings, --processes and --limit apply and are recorded in … | e2e/bundles.spec.ts › config, settings, --processes and --limit overrides apply, secrets are *** in every file, and invalid configs exit 2 without writing |
+| BRUN-003 | --describe (human and -o json) prints the revision, the effective configs with their defaults, the … | e2e/bundles.spec.ts › --describe prints the defaults, schemas, secret and upload paths and recommended limits, and exits 2 on invalid configs |
+| BRUN-004 | A list template reads the local file given as a path at its upload field (one analysis per line, … | e2e/bundles.spec.ts › a list template reads a local file given at an upload field; a platform upload id exits 2 |
+| BRUN-005 | A retryable failure is retried with the settings' backoff and succeeds with its earlier attempt in … | e2e/bundles.spec.ts › retryable failures are retried per the settings, a final failure exits 1, and logTail is kept only on failed lines |
+| BRUN-006 | SIGINT (docker kill -s INT) or docker stop during a run writes the in-flight analyses as failed … | e2e/bundles.spec.ts › SIGINT writes cancelled lines and reason interrupted, and exits 3<br>e2e/bundles.spec.ts › docker stop writes cancelled lines and reason interrupted, and exits 3 |
+| BRUN-007 | Without a mount at /work the run exits 2 with the -v "$PWD:/work" hint and writes nothing; --out … | e2e/bundles.spec.ts › without a mount the run exits 2 with the -v hint, and a non-empty --out exits 2 |
+| BRUN-008 | An unlimited schedule streams: results.jsonl gains lines while the schedule still produces items, … | e2e/bundles.spec.ts › an unlimited schedule streams: lines appear before it ends, and -o json emits NDJSON events |
+| BRUN-009 | A bundle of a task that needs no network runs under docker run --network none and exits 0. | e2e/bundles.spec.ts › a task without network needs runs under --network none |
 | JOB-001 | GET /api/jobs?kind&state returns Page<Job> (id, kind, subject, state, progress, attempts, error, … | api/jobs.spec.ts › jobs of the tenant › listJobs shows a user their own jobs; admins see all and filter by userId<br>api/jobs.spec.ts › jobs without a user › admins see jobs without a user and jobs of deleted users; users do not |
 | JOB-002 | GET /api/jobs/{id}?wait holds until the job is succeeded, failed or cancelled; another user's job, … | api/jobs.spec.ts › jobs of the tenant › getJob?wait holds until the job finished; another user’s job is 404<br>api/jobs.spec.ts › jobs without a user › admins see jobs without a user and jobs of deleted users; users do not |
 | ING-001 | Orchestrator boot ensures the vhost scantor, the topic exchanges scantor.analyses, scantor.results … | security/cross-scan.spec.ts › per-scan RabbitMQ users › orchestrator boot ensures the vhost, the topic exchanges and the global quorum queues |
@@ -603,6 +622,7 @@ test-index --check`); never edit it by hand.
 | CLI-014 | scantor scripts runs list\|get [--wait]\|logs [--after-line]\|source and scripts runs outputs get show … | e2e/cli.spec.ts › script commands › scripts run follows runs of a script on a scan; runs list, get, logs, source and outputs get show them; cancel and restart --resume |
 | CLI-015 | scantor scripts runs cancel cancels an active run (runs get --wait then exits 1, and cancelling a … | e2e/cli.spec.ts › script commands › scripts run follows runs of a script on a scan; runs list, get, logs, source and outputs get show them; cancel and restart --resume |
 | CLI-016 | scantor scripts list [--search]\|get\|create\|delete [--wait] and scripts files list\|read\|write\|delete … | e2e/cli.spec.ts › script commands › scripts init writes the scaffold; scripts push and push upload a script folder; the script and file commands manage it |
+| CLI-017 | scantor revisions bundle <task>@<n> creates or reuses the revision's bundle, waits until it is … | e2e/cli.spec.ts › task, revision and node commands › revisions bundle creates or reuses a bundle, downloads and verifies it and prints the commands |
 | EDIT-001 | POST /api/editor/session {open?, openScript?} returns 201 {url, expiresAt, editor} with a one-time … | api/editor.spec.ts › editor sessions › a session URL is a one-time code on the editor origin and starts the editor in the background |
 | EDIT-002 | createEditorSession returns 404 when open names a task the caller does not own, 400 when open is … | api/editor.spec.ts › editor sessions › refuses foreign, uuid-shaped and reserved task names and the editor key |
 | EDIT-003 | GET /api/editor returns {state, startedAt, lastActivityAt, idleTimeoutMs, error}: stopped for a … | api/editor.spec.ts › editor state › a failed start keeps its error until the next start; the origin shows starting and stopped pages |
@@ -770,6 +790,7 @@ test-index --check`); never edit it by hand.
 | UI-TASK-026 | The build log (data-testid=build-log) follows a running build, groups lines by phase with … | ui/revisions.spec.ts › revision page › a failed revision shows its errors first, each with phase, location and message<br>ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log<br>ui/revisions.spec.ts › revision page › the build log of a running build follows new lines, strips ANSI and stops following when scrolled up<br>ui/revisions.spec.ts › revision page › a build log read before the revision opens scrolled to the bottom |
 | UI-TASK-027 | The revision facts show source, pack hash, git origin, base image, image digest, size and platform, … | ui/revisions.spec.ts › revision page › a ready git revision shows its header, actions, facts and grouped build log |
 | UI-TASK-028 | A ready revision's describe section has Task config, Scan config, Analysis config and Result tabs … | ui/revisions.spec.ts › revision page › a ready revision describes its schemas in tables with badges, raw JSON, settings defaults and the manifest<br>ui/revisions.spec.ts › revision page › a nullable writeOnly property carries the "secret" badge |
+| UI-TASK-029 | The revision page's "Bundle" button opens a dialog with the disclosure warning and "Create bundle", … | ui/revisions.spec.ts › revision bundles › the Bundle button is enabled only for ready revisions that are not privileged<br>ui/revisions.spec.ts › revision bundles › the Bundle dialog creates a bundle, follows it until ready and offers the download and the commands |
 | UI-TRUN-001 | The Test tab offers "Schedule + run" (task and scan config forms, limit 1–50) and "One analysis" … | ui/test-run.spec.ts › test runs › the test tab offers both modes with their inputs, bounds and the manifest timeout |
 | UI-TRUN-002 | The forms use the latest known schemas; without any, "No schemas known yet" appears and the forms … | ui/test-run.spec.ts › test runs › without known schemas the inputs start as JSON; after runs the form follows the workspace and announces changed schemas |
 | UI-TRUN-003 | "Start test run" is disabled while a run is active, and start errors (for example an invalid limit) … | ui/test-run.spec.ts › test runs › start is disabled while a run is active, cancel cancels it, and start errors are shown |
@@ -916,6 +937,7 @@ None.
 
 - `.`
 - `internal/api`
+- `internal/bundle`
 - `internal/cli`
 - `internal/conformance`
 - `internal/container`
@@ -926,7 +948,9 @@ None.
 - `internal/node`
 - `internal/protocol`
 - `internal/redact`
+- `internal/runtime`
 - `internal/runtime/bootstrap`
+- `internal/runtime/bundlerun`
 - `internal/runtime/canonical`
 - `internal/runtime/check`
 - `internal/runtime/describe`
@@ -968,6 +992,10 @@ None.
 - `orchestrator/test/middleware/script-runtime-auth.test.ts`
 - `orchestrator/test/services/analyses/list.test.ts`
 - `orchestrator/test/services/analyses/representation.test.ts`
+- `orchestrator/test/services/bundles/info.test.ts`
+- `orchestrator/test/services/bundles/job.test.ts`
+- `orchestrator/test/services/bundles/mappers.test.ts`
+- `orchestrator/test/services/bundles/service.test.ts`
 - `orchestrator/test/services/catalog/catalog.test.ts`
 - `orchestrator/test/services/configs/settings.test.ts`
 - `orchestrator/test/services/configs/validate.test.ts`
@@ -1034,6 +1062,7 @@ None.
 - `orchestrator/test/services/pipeline/snapshot.test.ts`
 - `orchestrator/test/services/pipeline/task-build.integration.test.ts`
 - `orchestrator/test/services/pipeline/task-build.test.ts`
+- `orchestrator/test/services/pipeline/task-bundle.test.ts`
 - `orchestrator/test/services/placement/desired.test.ts`
 - `orchestrator/test/services/placement/place.test.ts`
 - `orchestrator/test/services/query/validator.test.ts`
@@ -1105,6 +1134,7 @@ None.
 - `orchestrator/test/shared/slug.test.ts`
 - `orchestrator/test/ui/analyses.test.ts`
 - `orchestrator/test/ui/ansi.test.ts`
+- `orchestrator/test/ui/bundles.test.ts`
 - `orchestrator/test/ui/cli-alias.test.ts`
 - `orchestrator/test/ui/clipboard.test.ts`
 - `orchestrator/test/ui/consent.test.ts`

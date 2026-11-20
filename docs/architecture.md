@@ -18,7 +18,8 @@ built into its own Docker image. Users author tasks in a browser editor, locally
 an LLM agent over MCP; they test them, publish immutable **revisions**, start **scans** that fan out into
 millions of **analyses**, and inspect, query and export the typed **results** through the web UI, the
 CLI, the REST API or MCP. **Scripts** evaluate the results and files of a user's scans on the master in one
-container per run (§11.7, [scripts](scripts.md)).
+container per run (§11.7, [scripts](scripts.md)). **Bundles** let a revision run outside the platform with only
+Docker (§11.8).
 
 Principles (in priority order when they conflict):
 
@@ -77,7 +78,7 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
 | **draft image** | An unpublished image built from the current workspace for test runs (`tasks/<taskId>:draft-<packSha256>`), never pushed, garbage-collected after a retention period. | |
 | **test run** | A platform-side execution of the current workspace in one container on the master with the runtime in local mode (schedule limited + run), returning results, errors, logs and files without publishing. | dry run |
 | **pack** | The deterministic tar of a task folder produced by `scantor task pack` (sorted entries, zeroed mtimes and owners, `.dockerignore` semantics, hard excludes `.git/` and `.scantor/`), stored and transferred gzip-compressed (`snapshots/<taskId>/<packSha256>.tar.gz`; its size is `packBytes`). The **pack hash** (`packSha256`) is the SHA-256 of the **uncompressed** tar stream, so a different gzip implementation in another binary version never changes it ([tasks](tasks.md) §9.2). | |
-| **task pipeline** | `scantor task pack \| check-static \| build`: the single implementation of static validation, Dockerfile policy, image build, describe, check and push, used by the orchestrator, `scantor validate`, `scantor push` and `scantor dev run`. | |
+| **task pipeline** | `scantor task pack \| check-static \| build \| bundle`: the single implementation of static validation, Dockerfile policy, image build, describe, check, push and the bundle image, used by the orchestrator, `scantor validate`, `scantor push` and `scantor dev run`. | |
 
 ### 2.3 Configuration and execution
 
@@ -102,8 +103,8 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
 | **workers** (setting) | Number of runner workers of a scan. | concurrency, replicas |
 | **processes** (setting) | Number of connector processes per worker; resizable live. | concurrency, threads |
 | **process** | One connector OS process inside a worker; handles one analysis at a time. | slot (internal runtime term only) |
-| **runtime** | The language-agnostic Go process `scantor runtime` inside every worker (and in test runs, `dev run`, describe and check). It is injected by the consumer (`CopyToContainer` of the consumer's own static binary), never baked into images. All retry, timeout, upload, publish and error classification logic lives here. | agent, language runtime |
-| **local mode** | The runtime mode without queue or platform (schedule limited, then run in-process), used by `scantor dev run` and test runs. | |
+| **runtime** | The language-agnostic Go process `scantor runtime` inside every worker (and in test runs, `dev run`, describe and check). It is injected by the consumer (`CopyToContainer` of the consumer's own static binary), never baked into images, with one exception: bundles (D24). All retry, timeout, upload, publish and error classification logic lives here. | agent, language runtime |
+| **local mode** | The runtime mode without queue or platform (schedule limited, then run in-process), used by `scantor dev run` and test runs; bundle mode runs on its streaming variant ([runtime](runtime.md) §15.6). | |
 | **worker token** | `swt_<workerId>.<mac>`: the credential of one worker, HMAC-derived, never stored, valid only while the worker is in an active state ([data model](data-model.md) §6.6). | scan token |
 | **scheduler checkpoint** | `{confirmed, tailHash, epoch}`: the contiguous prefix of published-and-confirmed analyses plus the SHA-256 of the canonical JSON of item `confirmed−1`. | progress |
 | **epoch** | A per-scan counter incremented for every new scheduler worker; fences duplicate schedulers. | generation |
@@ -117,7 +118,7 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
 |---|---|
 | **ingestor** | Orchestrator component that consumes `scantor.results.ingest` and `scantor.dead.ingest`, writes analysis docs with guarded upserts, maintains live counters, runs the circuit breaker and triggers completion. |
 | **reconciler** | Orchestrator component that converges infrastructure to recorded intent: scan topology in RabbitMQ, placement and node assignments, node liveness, scheduler supervision, recounts, completion, stall detection, conditions, garbage collection. Level-triggered every 10 s and on MongoDB change streams. |
-| **job** | A resumable, leased unit of background work in the `jobs` collection (revision build, test run, script run, scan delete, retry-failed, export, task delete, script delete, user purge, notification), executed by the jobs runner. |
+| **job** | A resumable, leased unit of background work in the `jobs` collection (revision build, test run, script run, scan delete, retry-failed, export, task delete, script delete, user purge, notification, bundle), executed by the jobs runner. |
 | **lock** | A lease document in the `locks` collection that makes a singleton loop safe if a second orchestrator ever runs. |
 | **recount** | The authoritative aggregation of analysis statuses for one scan; live counters are only hints. |
 | **completion** | The single idempotent conditional update that moves a scan from `running` to `completed` or `failed`. |
@@ -136,6 +137,15 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
 | **script-run token** | `ssr_<scriptRunId>.<mac>`: the credential of one script run, HMAC-derived (HKDF label `script-run-token`), never stored, valid only while its run is `running`. | script token |
 | **output** | A file a script run stores (`ctx.outputs`), in S3 under `script-runs/<id>/outputs/`. | artifact, result (that is the analysis output) |
 | **checkpoint** (script run) | JSON state a script run saves (`ctx.checkpoint`) so that a restart with `resume` continues from it; not the scheduler checkpoint. | |
+
+### 2.6 Bundles
+
+| Term | Definition | Not |
+|---|---|---|
+| **bundle** | A gzip Docker image archive of one ready revision with the runtime and the revision's defaults baked in. It runs with only Docker. One per revision (collection `bundles`, job `bundle`, S3 `bundles/<taskId>/<bundleId>.tar.gz`), image `localhost/scantor/<task>:<n>`, file `<task>-<n>-<os>-<arch>.bundle.tar.gz` (§11.8). | artifact, export, package, release, version, image archive |
+| **bundle run** | One `docker run` of a bundle outside the platform. It ends with plain result files (`results.jsonl`, `files/`, `run.json`) in a run directory under the recipient's mount `/work`. | scan, test run, job, execution, local run |
+| **bundle mode** | The runtime mode `scantor runtime bundle`, the bundle image's entrypoint ([runtime](runtime.md) §15.7); its flags are the recipient's interface. | — |
+| **bundle info** | `/scantor/bundle.json` inside a bundle image: the revision's describe output, its settings defaults and the platform limits, an allowlist validated by `schemas/bundle.schema.json` (Go `internal/bundle`). | |
 
 ## 3. System overview
 
@@ -174,9 +184,9 @@ until a shared store exists (§14), so they run in one process. Everything below
 | **MCP server** | `api` | `/mcp` (Streamable HTTP, stateless). Tools generated from the OpenAPI document (curated by `x-mcp`), executed by loopback calls to the REST API with a single-use internal capability ([mcp](mcp.md)). | – |
 | **auth** | `api` | better-auth (`/api/auth/*`, Mongo adapter, admin, passkey, api-key, jwt, mcp, cimd plugins) plus one global middleware that resolves the typed principal for every request and enforces route prefixes, the operation registry built from the runtime OpenAPI document (deny by default), scopes, bans, CSRF origin checks and body caps ([auth](auth.md) §5). | better-auth collections |
 | **ingestor** | `ingestor` | Consumes `scantor.results.ingest` (results and attempt events) and `scantor.dead.ingest` (dead-lettered analyses and poison results). Guarded upserts, duplicate handling, live counters, rate window, circuit breaker, completion trigger ([queue](queue.md)). | `analyses`, `scans`, `events` |
-| **reconciler** | `reconciler` | Level-triggered loops (10 s tick + change streams, under `locks`): scan topology ensure/remove, `creating → running`, placement and node assignment revisions, node offline detection and lost workers, scheduler supervision and epochs, periodic recount and completion, stall detection and gap fill, scan conditions, boot sweeps (orphan RabbitMQ users and queues, orphan helper/test-run/build/editor containers), GC (draft images after `SCANTOR_DRAFT_IMAGE_RETENTION`, tombstones, registry garbage collection every `SCANTOR_REGISTRY_GC_INTERVAL` under the `registryGc` lock, [deployment](deployment.md) §14.1), editor reaper (idle timeout and editor-key expiry). | `scans`, `workers`, `nodes`, `editors`, `locks` |
-| **jobs runner** | `api` (kinds `revisionBuild`, `testRun`, `scriptRun`) and `reconciler` (kinds `scanDelete`, `scanRetryFailed`, `export`, `taskDelete`, `scriptDelete`, `userPurge`, `notification`) | Claims queued jobs with a lease, executes them with a resumable cursor, retries with backoff, enforces per-kind concurrency (`SCANTOR_BUILD_CONCURRENCY`, `SCANTOR_TEST_RUN_CONCURRENCY`, `SCANTOR_SCRIPT_RUN_CONCURRENCY`) and per-user concurrency where a kind defines it (`SCANTOR_SCRIPT_RUN_CONCURRENCY_PER_USER`). | `jobs` |
-| **task-pipeline driver** | `api` (the publish request, `revisionBuild` / `testRun` jobs) | Stores the revision snapshot from a workspace helper in S3 synchronously at publish (§11.1 step 6); streams the stored snapshot (`revisionBuild`) or a live helper snapshot (`testRun`) into `scantor task build` (spawned as a subprocess of the orchestrator, talking to the host Docker daemon), stores NDJSON build events as the build log, records structured errors and the describe output. Drives `scantor script build` for script runs the same way. Never uses dockerode for builds. | `revisions`, `testRuns`, `scriptRuns`, S3 `snapshots/`, `build-logs/`, `script-runs/` |
+| **reconciler** | `reconciler` | Level-triggered loops (10 s tick + change streams, under `locks`): scan topology ensure/remove, `creating → running`, placement and node assignment revisions, node offline detection and lost workers, scheduler supervision and epochs, periodic recount and completion, stall detection and gap fill, scan conditions, boot sweeps (orphan RabbitMQ users and queues, orphan helper/test-run/build/editor containers), GC (draft images after `SCANTOR_DRAFT_IMAGE_RETENTION`, leftover `scantor-bundle/*` tags of stopped bundle steps, tombstones, registry garbage collection every `SCANTOR_REGISTRY_GC_INTERVAL` under the `registryGc` lock, [deployment](deployment.md) §14.1), editor reaper (idle timeout and editor-key expiry). | `scans`, `workers`, `nodes`, `editors`, `locks` |
+| **jobs runner** | `api` (kinds `revisionBuild`, `testRun`, `scriptRun`, `bundle`) and `reconciler` (kinds `scanDelete`, `scanRetryFailed`, `export`, `taskDelete`, `scriptDelete`, `userPurge`, `notification`) | Claims queued jobs with a lease, executes them with a resumable cursor, retries with backoff, enforces per-kind concurrency (`SCANTOR_BUILD_CONCURRENCY`, `SCANTOR_TEST_RUN_CONCURRENCY`, `SCANTOR_SCRIPT_RUN_CONCURRENCY`) and per-user concurrency where a kind defines it (`SCANTOR_SCRIPT_RUN_CONCURRENCY_PER_USER`; one `bundle` job per user). | `jobs` |
+| **task-pipeline driver** | `api` (the publish request, `revisionBuild` / `testRun` jobs) | Stores the revision snapshot from a workspace helper in S3 synchronously at publish (§11.1 step 6); streams the stored snapshot (`revisionBuild`) or a live helper snapshot (`testRun`) into `scantor task build` (spawned as a subprocess of the orchestrator, talking to the host Docker daemon), stores NDJSON build events as the build log, records structured errors and the describe output. Drives `scantor script build` for script runs the same way, and `scantor task bundle` for bundles (the `bundle` job, §11.8), streaming the archive from fd 3 into S3. Never uses dockerode for builds. | `revisions`, `testRuns`, `scriptRuns`, `bundles`, S3 `snapshots/`, `build-logs/`, `script-runs/`, `bundles/` |
 | **workspace helper runner** | `api` | Starts throwaway helper containers (`scantor workspace <op>`, ops in §4.2) as uid 1000:1000 with the user's workspace subpath only, `--network none` (git ops: `scantor-egress`), read-only rootfs, `--cap-drop ALL`, pids/memory/time limits (`SCANTOR_HELPER_PIDS_LIMIT`, `SCANTOR_HELPER_MEMORY_LIMIT`, `SCANTOR_HELPER_TIMEOUT`), at most `SCANTOR_HELPER_CONCURRENCY` at once and `SCANTOR_HELPER_CONCURRENCY_PER_USER` per user, a per-user read/write lock, managed labels; moves data over stdin/stdout only. Exceptions: `prepare` (root, §7), `init`/`purge` (whole volumes, §7) and `list`/`read --archive`, which read a revision snapshot from stdin and mount no volume ([editor](editor.md) §9). | volumes `scantor-workspaces`, `scantor-editor-home` |
 | **editor manager** | `api` | Starts, idles out and stops per-user editor containers; serves the editor origin on a **dedicated HTTP listener on container port 3001** that accepts only the `SCANTOR_EDITOR_URL` host (421 otherwise) and relays HTTP and WebSocket bytes to the user's code-server unix socket; mints a new per-user `editor` API key (`sk_scantor_editor_…`, lifetime `SCANTOR_EDITOR_API_KEY_TTL`) at every editor start and revokes it at every stop (the reaper stops an editor 5 minutes before `editors.apiKeyExpiresAt`); one-time-code cookie handoff ([editor](editor.md) §6–§8). | `editors`, better-auth `apikey` |
 | **registry token server** | `api` | `/api/registry/token` (GET+Basic and POST form flows), ES256 JWTs from an HKDF-derived key; writes the public JWKS file and the registry HTTP secret the registry reads; grants nodes `pull` only on repositories of their current assignments and the orchestrator credential `pull`/`push`/`delete` on `tasks/*` plus catalog ([nodes](nodes.md) §10, [api](api.md) §6). | `nodes`, `workers` |
@@ -263,8 +273,8 @@ binaries (darwin/linux × amd64/arm64), and injected into every container that n
 |---|---|---|---|
 | CLI | `scantor <command>` (`init`, `validate`, `dev run`, `dev debug`, `push`, `tasks …`, `revisions …`, `scripts …`, `scans …`, `analyses …`, `export`, `exports …`, `files get`, `uploads …`, `jobs …`, `nodes …`, `templates list \| estimate`, `whoami`, `instance`, `version`) | users, CI, agents | host (native binary or docker shim `scantor.sh`), editor container |
 | node daemon | `scantor node` | operators | built-in node service on the master; `docker run … ghcr.io/lonetis/scantor node` on remote nodes |
-| runtime | `scantor runtime` (hidden; modes `worker`, `local`, `describe`, `check`, `script`) | node daemon (workers), task pipeline (describe/check), CLI `dev run` and test runs (local), `scriptRun` job (script) | inside task and script-run containers at `/scantor/scantor` |
-| task pipeline | `scantor task pack \| check-static \| build` (hidden; NDJSON events, structured errors `{phase, file?, line?, message}`) | orchestrator (subprocess), CLI `validate`/`push`/`dev run` | orchestrator container; user host |
+| runtime | `scantor runtime` (hidden; modes `worker`, `local`, `describe`, `check`, `script`, `bundle`) | node daemon (workers), task pipeline (describe/check), CLI `dev run` and test runs (local), `scriptRun` job (script); `bundle` is the entrypoint of bundle images, the one runtime command users start themselves (through `docker run`, §11.8) | inside task and script-run containers at `/scantor/scantor`; baked into bundle images at the same path |
+| task pipeline | `scantor task pack \| check-static \| build \| bundle` (hidden; NDJSON events, structured errors `{phase, file?, line?, message}`; `bundle` derives the bundle image of a revision image and writes its archive to a file descriptor, [tasks](tasks.md) §9.11) | orchestrator (subprocess; `bundle` only from the `bundle` job), CLI `validate`/`push`/`dev run` | orchestrator container; user host |
 | script pipeline | `scantor script build` (hidden; pack → static → build of a script folder, same events and exit codes, never pushed; [scripts](scripts.md) §4) | orchestrator (subprocess of the `scriptRun` job) | orchestrator container |
 | workspace helpers | `scantor workspace` (hidden) `prepare \| init \| purge \| list \| read \| write-files \| delete-files \| scaffold \| extract \| git-clone \| git-pull \| commit \| discard \| snapshot` (`list` and `read` also with `--archive`: a tar.gz on stdin, no volume, used for revision snapshots). `extract` and `git-*` stage into `<userId>/.scantor-staging/<id>`; `commit` replaces a task folder atomically from staging ([editor](editor.md) §9). Folder operations address a task (`--task <name>`) or a script (`--script <name>`, folder `.scripts/<name>`); `extract --kind task\|script` | workspace helper runner | throwaway helper containers (scantor image) |
 | template tools | `scantor templates list \| estimate` | orchestrator (scan-size estimate), CLI | orchestrator container; user host |
@@ -275,7 +285,9 @@ The binary contains no per-language switch: everything language-specific comes f
 `SCANTOR_CHECK_CMD`, `SCANTOR_DEBUG_CMD`, `SCANTOR_DEBUG_PORT`, `SCANTOR_SCRIPT_CMD`, `WORKDIR /task`).
 
 Runtime injection: every consumer creates the task container with entrypoint `/scantor/scantor runtime …`,
-copies its own binary to `/scantor/scantor` with `CopyToContainer`, then starts it. A consumer that is not
+copies its own binary to `/scantor/scantor` with `CopyToContainer`, then starts it. Bundles are the exception
+(D24): the bundle step builds the runtime binary into a layer of the bundle image, because a recipient has
+nothing that could inject it. A consumer that is not
 a linux binary of the Docker daemon's architecture (a native CLI on macOS, a cross-architecture daemon)
 extracts the linux binary for the daemon's architecture once from the scantor image (below) and caches it
 in the user cache directory ([tasks](tasks.md) §9.6). The connector protocol version is negotiated in
@@ -329,7 +341,9 @@ reload. A Go change is picked up by `just up` (a cached rebuild); host-built bin
 Task images live in the master registry as `tasks/<taskId>:<revisionId>` and are always referenced by
 digest (`tasks/<taskId>@sha256:…`). Build arg `SCANTOR_BASE` is the base image pinned by digest at build
 time and recorded on the revision. Script images `scripts/<scriptId>:<packSha256>` exist only in the master's
-Docker daemon and are never pushed ([scripts](scripts.md) §4).
+Docker daemon and are never pushed ([scripts](scripts.md) §4). Bundle images exist on the master only under the
+temporary tags `scantor-bundle/<uuid>:src|build` of a running bundle step; their public name
+`localhost/scantor/<task>:<n>` is written only into the archive (§11.8).
 
 ### 4.4 Infrastructure services (master)
 
@@ -388,13 +402,15 @@ Flat layout; Go module at the repo root.
 ├── internal/
 │   ├── cli/                    CLI commands (cobra), output formats (-o json), exit codes
 │   ├── node/                   node daemon: hello, assignments long-poll, container reconcile, status, egress helper
-│   ├── runtime/                worker/local/describe/check runtime; shared types at the root, sub-packages
-│   │                           bootstrap, amqpx, pool, runner, scheduler, worker, local, describe, check, pipeline,
-│   │                           scerr, logtail, upload, canonical, dind, script ([runtime](runtime.md) §1.3)
+│   ├── runtime/                worker/local/describe/check/script/bundle runtime; shared types at the root,
+│   │                           sub-packages bootstrap, amqpx, pool, runner, scheduler, worker, local, describe, check,
+│   │                           pipeline, scerr, logtail, upload, canonical, dind, script, bundlerun ([runtime](runtime.md) §1.3)
+│   ├── bundle/                 the bundle format: bundle info (schemas/bundle.schema.json), image and file names
 │   ├── templates/              registry.go, core/ (interface, definitions), fetch/ (HTTP policy), one package per
 │   │                           template (single, list, range, repeat, tranco, crux, cidr), templatestest/ (fakes)
 │   ├── taskpipe/               pack, check-static (manifest + Dockerfile policy in taskpipe/dockerfile via the
-│   │                           BuildKit parser), build, describe, check, push, local mode for dev run, script builds
+│   │                           BuildKit parser), build, describe, check, push, local mode for dev run, script builds,
+│   │                           the bundle step (derived image, `docker save` name rewrite, gzip)
 │   ├── workspace/              workspace helper operations (init, extract, write-files, scaffold, git-*, commit, snapshot, ...)
 │   ├── protocol/               connector protocol message types and codec
 │   ├── conformance/            connector conformance harness and testdata/<language>/<fixture>/ task folders
@@ -421,6 +437,7 @@ Flat layout; Go module at the repo root.
 │   ├── task-manifest.schema.json
 │   ├── script-manifest.schema.json
 │   ├── describe.schema.json    describe output (revisions.description)
+│   ├── bundle.schema.json      bundle info /scantor/bundle.json (allowlist, strict)
 │   ├── languages.json          the language table
 │   ├── managed-labels.json     managed label key set shared by Go internal/container and TS server/utils/labels.ts
 │   ├── protocol/*.json         connector protocol message schemas
@@ -433,12 +450,12 @@ Flat layout; Go module at the repo root.
 │   ├── server/middleware/      request id and client IP, security headers, body caps, principal resolution
 │   ├── server/plugins/         00.boot (foundation boot steps, §4.1), 10.components, 20–89 domain plugins (their
 │   │                           boot steps and component tasks; 20.editor-listener on port 3001, 30.tasks,
-│   │                           35.scripts, 40.scans, 50.results, 60.nodes, 70.editor, 80.notifications), 99.start (runs the boot, starts
+│   │                           35.scripts, 36.bundles, 40.scans, 50.results, 60.nodes, 70.editor, 80.notifications), 99.start (runs the boot, starts
 │   │                           SCANTOR_COMPONENTS), csp.ts (CSP render hook, [ui](ui.md) §13)
 │   ├── server/services/        domain logic per area: scans, tasks, revisions, test-runs, analyses, exports,
 │   │                           ingestor, reconciler, placement, nodes, runtime, registry, jobs, pipeline, helpers,
 │   │                           editor, tools, query, metrics, mcp, notifications, scripts, script-runs,
-│   │                           script-runtime, … ([development](development.md) §7)
+│   │                           script-runtime, bundles, … ([development](development.md) §7)
 │   ├── server/utils/           config, errors, zod helpers, pagination, principal, operations, authz (ownership
 │   │                           helpers), keys, secrets, redact, startup-guard, mongo, s3, amqp, labels, boot, jobs,
 │   │                           locks, event-sinks, …
@@ -461,7 +478,7 @@ Flat layout; Go module at the repo root.
 │   │                           check-terms.mjs, lint-compose.mjs, lint-env.mjs)
 │   └── FEATURES.md, TESTS.md
 ├── docs/                       internal docs (this file); linked from CLAUDE.md
-│   └── guide/                  user guides (authoring per language, templates, manifest, scripts, errors & retries, CLI, MCP, remote nodes); linked from README
+│   └── guide/                  user guides (authoring per language, templates, manifest, scripts, errors & retries, CLI, MCP, remote nodes, bundles); linked from README
 ├── brand/                      logos, marks, favicons, README artwork and colors (brand/README.md), used in place by
 │                               the README header and the orchestrator ([ui](ui.md) §1)
 ├── skills/                     thin agent skills
@@ -595,8 +612,9 @@ scantor set **and** their name prefix.
 
 Healthchecks: every long-running container has one. Compose services define theirs in the compose files
 (`lint-compose` fails on a service without one, [deployment](deployment.md)); workers, test runs and script runs run the
-injected runtime's `scantor runtime healthcheck` against its heartbeat file ([runtime](runtime.md) §5.3), and
-editors probe code-server's `/healthz` ([editor](editor.md) §4). The one-shot `build` containers set
+injected runtime's `scantor runtime healthcheck` against its heartbeat file ([runtime](runtime.md) §5.3), bundle
+images declare the same check in their image config ([tasks](tasks.md) §9.11), and editors probe code-server's
+`/healthz` ([editor](editor.md) §4). The one-shot `build` containers set
 `NONE`, so a task image's `HEALTHCHECK` never runs; helpers and the egress helper use the scantor image, which
 declares none. Health is reported by Docker only; no component restarts a container because of it.
 
@@ -651,7 +669,7 @@ TS (orchestrator) and Go (`internal/keys`) implement exactly this function.
 |---|---|
 | `better-auth` | better-auth `secret` (hex-encoded) |
 | `registry-signing` | ES256 registry token signing key: P-256 private scalar `d = (k mod (n − 1)) + 1`, with `k` the 32-byte HKDF output read as a big-endian integer and `n` the order of P-256; JWKS `kid` = `scantor-` + first 16 hex chars of SHA-256 of the uncompressed public point |
-| `registry-push` | password of the registry `orchestrator` credential (base64url); handed to `scantor task build --push` as `SCANTOR_REGISTRY_PUSH_PASSWORD` (§10) |
+| `registry-push` | password of the registry `orchestrator` credential (base64url); handed to `scantor task build --push`, and to `scantor task bundle` to pull a revision image again, as `SCANTOR_REGISTRY_PUSH_PASSWORD` (§10) |
 | `registry-http` | `REGISTRY_HTTP_SECRET` of the registry (hex), written to `scantor-registry-auth/http-secret` and exported by the registry's wrapper entrypoint |
 | `worker-token` | `swt_<workerId>.base64url(HMAC-SHA256(key, workerId + "\n" + scanId + "\n" + role + "\n" + nodeId))` |
 | `script-run-token` | `ssr_<scriptRunId>.base64url(HMAC-SHA256(key, scriptRunId + "\n" + scriptId + "\n" + userId))` |
@@ -699,9 +717,9 @@ secret (API keys and node tokens are stored as hashes and survive); it is a disa
 | Role | Variables |
 |---|---|
 | CLI | credentials `SCANTOR_URL`, `SCANTOR_TOKEN` (the only credential source: no login command, no credentials file); `SCANTOR_CA_CERT` (custom CA for `SCANTOR_URL`); mode selectors `SCANTOR_DEV_MODE` (`local`\|`remote`) and `SCANTOR_WORKSPACE` (set in the editor: inside this tree `scantor push` only publishes); for local builds and runs (`validate`, `dev run`, `dev debug`) the optional overrides `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL`, `SCANTOR_CRUX_CACHE_URL` (template data sources), `SCANTOR_IMAGE_PREFIX` + `SCANTOR_IMAGE_TAG` (image references, §4.2) and `SCANTOR_MAX_WORKERS_PER_SCAN`, `SCANTOR_MAX_PROCESSES_PER_WORKER` (manifest rule M8, [tasks](tasks.md) §3.2). The CLI section of `.env.example` lists them all |
-| task pipeline (`scantor task …`, `scantor script build`, `scantor templates …`) | the CLI overrides above plus the pipeline limits of [tasks](tasks.md) §9.10, `SCANTOR_PUBLIC_URL` and `SCANTOR_REGISTRY_PUBLIC_HOST` (registry hosts rejected by Dockerfile rule D5, [tasks](tasks.md) §8.2; a native CLI leaves them unset and the server re-checks on publish) and, for `--push` only, `SCANTOR_REGISTRY_PUSH_PASSWORD`: the derived password of the registry `orchestrator` credential (HKDF label `registry-push`, §9). The subprocess never receives `SCANTOR_SECRET` (least privilege). `SCANTOR_REGISTRY_PUSH_PASSWORD` is an internal contract set only by the orchestrator, like `SCANTOR_WORKER_TOKEN`, and is not configuration. The orchestrator passes its own values to every subprocess; a native CLI leaves them unset and the binary uses compiled-in defaults equal to the `.env.example` defaults |
+| task pipeline (`scantor task …`, `scantor script build`, `scantor templates …`) | the CLI overrides above plus the pipeline limits of [tasks](tasks.md) §9.10, `SCANTOR_PUBLIC_URL` and `SCANTOR_REGISTRY_PUBLIC_HOST` (registry hosts rejected by Dockerfile rule D5, [tasks](tasks.md) §8.2; a native CLI leaves them unset and the server re-checks on publish) and, for `build --push` and for the pull of `bundle --pull` only, `SCANTOR_REGISTRY_PUSH_PASSWORD`: the derived password of the registry `orchestrator` credential (HKDF label `registry-push`, §9), which the bundle step sends only to the registry host of `--pull` and never writes into an image. The subprocess never receives `SCANTOR_SECRET` (least privilege). `SCANTOR_REGISTRY_PUSH_PASSWORD` is an internal contract set only by the orchestrator, like `SCANTOR_WORKER_TOKEN`, and is not configuration. The orchestrator passes its own values to every subprocess; a native CLI leaves them unset and the binary uses compiled-in defaults equal to the `.env.example` defaults |
 | node daemon | `SCANTOR_URL`, `SCANTOR_NODE_TOKEN` or (built-in node) `SCANTOR_NODE_BUILTIN=true` + `SCANTOR_SECRET`, the daemon variables of [nodes](nodes.md) §2 (`SCANTOR_NODE_MAX_WORKERS`, `_DIND`, `_EGRESS_DENY`, `_PIDS_LIMIT`, `_SHM_SIZE`, `_NOFILE`, `_WORKER_LOG_MAX_SIZE`, `_WORKER_LOG_MAX_FILES`, `_IMAGE_RETENTION`, `_PULL_TIMEOUT`; `SCANTOR_NODE_OFFLINE_AFTER`, `_STATUS_INTERVAL`, `_ASSIGNMENTS_WAIT` and `_MIN_FREE_DISK` are orchestrator variables delivered in the hello `config`), `SCANTOR_CA_CERT`, `SCANTOR_ALLOW_INSECURE_TRANSPORT`, `SCANTOR_LOG_LEVEL`, `SCANTOR_LOG_FORMAT` ([nodes](nodes.md) §2); everything else comes from the hello response and the assignments |
-| runtime | only what the node daemon puts into the worker environment (`SCANTOR_URL`, `SCANTOR_WORKER_TOKEN`, optional `SCANTOR_CA_CERT` and `SCANTOR_ALLOW_INSECURE_TRANSPORT`, and `SCANTOR_DIND=1` on DinD workers) plus the base-image ENV contract; everything else comes from `/api/runtime/bootstrap` (worker mode) or the local spec (local mode). Script mode reads only `SCANTOR_SCRIPT_CMD` and passes the container environment (`SCANTOR_URL`, `SCANTOR_SCRIPT_TOKEN`) unchanged to the script |
+| runtime | only what the node daemon puts into the worker environment (`SCANTOR_URL`, `SCANTOR_WORKER_TOKEN`, optional `SCANTOR_CA_CERT` and `SCANTOR_ALLOW_INSECURE_TRANSPORT`, and `SCANTOR_DIND=1` on DinD workers) plus the base-image ENV contract; everything else comes from `/api/runtime/bootstrap` (worker mode) or the local spec (local mode). Script mode reads only `SCANTOR_SCRIPT_CMD` and passes the container environment (`SCANTOR_URL`, `SCANTOR_SCRIPT_TOKEN`) unchanged to the script. Bundle mode reads its configuration from `/scantor/bundle.json` and its flags, plus the optional `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL`, `SCANTOR_CRUX_CACHE_URL` and `SCANTOR_CA_CERT` that a recipient passes with `docker run -e` ([runtime](runtime.md) §3.2) |
 
 ## 11. Flows
 
@@ -1053,6 +1071,45 @@ exit → completed (0) │ failed (reported error, crash, OOM, timeout) → even
    grace; the reconciler's `scripts-gc` fails runs without a job, removes orphan containers and old images, and
    deletes runs after `SCANTOR_SCRIPT_RUN_RETENTION_DAYS` ([scripts](scripts.md) §6).
 
+### 11.8 Bundles
+
+```
+createRevisionBundle (revision page "Bundle", CLI revisions bundle)          (owner, x-mcp false)
+  → resolveTask + resolveTaskRevision; ready and not privileged (409 revisionNotReady / bundleUnsupported)
+  → an active, or ready + unexpired + same scantorVersion bundle is returned (200)
+  → otherwise: old job cancelled, object and document deleted → bundles.insert (queued) + job bundle → 201
+jobs runner (api, SCANTOR_BUILD_CONCURRENCY build slots shared with builds, 1 per user)
+  → running: scantor task bundle - --image <revision tag> --pull localhost:<port>/tasks/<taskId>@<digest>
+             --output-fd 3 --events ndjson                (stdin: bundle info, env: + push password)
+       → inspect --image, else pull --pull → check linux/<arch> of image, info and daemon
+       → tag scantor-bundle/<uuid>:src → BuildKit: FROM src + /scantor/{scantor,bundle.json}, ENTRYPOINT
+         runtime bundle → tag scantor-bundle/<uuid>:build → size and label checks
+       → docker save → names rewritten to localhost/scantor/<task>:<n> → gzip → fd 3 → temporary tags removed
+  → fd 3 → SHA-256 + byte count → S3 bundles/<taskId>/<bundleId>.tar.gz (multipart)
+  → ready (bytes and sha256 equal the step's result) │ failed (content error, or the last attempt): object deleted
+getRevisionBundle → Bundle with a presigned 10-minute application/gzip download and the recipient's commands
+recipient: docker load -i <file> → docker run --rm -v "$PWD:/work" localhost/scantor/<task>:<n> [flags]
+  → runtime bundle (PID 1 reaper) → bundle.json → flags, uploads, effective configs, settings → local mode
+    streaming → results/<stamp>/{results.jsonl, files/, run.json} under /work
+```
+
+1. The bundle info is built in the orchestrator as an allowlist from the revision (describe output, settings
+   defaults without `workers`, `nodeSelector` and `privileged`, the test-run limits plus
+   `SCANTOR_MAX_PROCESSES_PER_WORKER`) and parsed again strictly by the Go step, which writes only its own
+   re-marshalled form into the image. It holds no secrets, credentials, master URLs, ids or operator data-source
+   overrides ([security](security.md) §6.21).
+2. The image is derived with BuildKit from the revision image the scans run, so the bundle holds exactly those
+   layers plus one; the master never tags the public name, so two users' `echo:3` bundles cannot collide. The
+   step pulls the revision by digest when the built-in node's image GC removed the local tag.
+3. A bundle is single-architecture: the baked runtime is the daemon's native binary, so the revision image, the
+   bundle info and the daemon must share one `linux/<arch>`.
+4. One bundle per revision: a failed, expired or outdated (`scantorVersion`) bundle, or `rebuild=true`, replaces
+   it. Bundles expire after `SCANTOR_BUNDLE_RETENTION_DAYS` (TTL index and the `bundles/` lifecycle rule); task
+   deletion and user purge remove them with their objects; the tasks GC removes leftover temporary tags.
+5. The recipient needs only Docker. Bundle mode validates and fills the configs with the baked schema defaults,
+   turns files named at upload fields into local uploads, and runs the schedule and the analyses in one container
+   on local mode's streaming run path, without any API client ([runtime](runtime.md) §15.6–§15.9).
+
 ## 12. Key decisions
 
 | # | Decision | Rationale |
@@ -1080,6 +1137,7 @@ exit → completed (0) │ failed (reported error, crash, OOM, timeout) → even
 | D21 | All platform JSON is camelCase; ids are uuid v4 strings except analysis ids. | One convention across TS, Go, Python and Mongo. |
 | D22 | Environment-only configuration, documented only in `.env.example`; insecure dev secrets refused in public deployments. | Project rule; secure by default. |
 | D23 | Scripts are revision-less folders run on the master in one container per run, on an internal network with a run-scoped token, reading scans through a dedicated streaming API. | Evaluations iterate quickly on large data sets at internal bandwidth; the container can read only its owner's chosen scans and reach nothing else ([scripts](scripts.md) §15). |
+| D24 | Bundles bake the runtime into a derived revision image, a deliberate exception to D2. | A recipient has only Docker, so nothing could inject the runtime; the bundle records `scantorVersion`, a create rebuilds when it differs from the orchestrator's, and runtime fixes reach a bundle only when it is recreated ([runtime](runtime.md) §15.7). |
 
 ## 13. Decisions made in this document
 
@@ -1142,6 +1200,12 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
     and scope bound to the prefix `/api/script-runtime/` and to peers of that network, the HKDF label
     `script-run-token`, and `scantor runtime script` as the container's entrypoint. The jobs runner gains
     `refundAttemptOnStop`, so orchestrator restarts never use up the attempts of a days-long run.
+20. **Bundles** (§11.8, D24): a `bundles` collection with one document per revision, a `bundle` job kind in the
+    `api` component that shares the build slots, the hidden pipeline step `scantor task bundle` driven like
+    `task build` but with the archive on fd 3, and `scantor runtime bundle` as the entrypoint of bundle images.
+    No new container kind exists: the bundle image is built by BuildKit on the master and never runs there. The
+    two routes are not MCP tools (44 of 45 tool slots are used, and an archive of hundreds of MB is useless to an
+    agent); the guide `bundles` is an MCP resource.
 
 ## 14. Future extensions
 
@@ -1162,4 +1226,5 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
 | Additional languages | Add a connector + base image, a `languages.json` row, a scaffold, toolchain in the editor stage ([development](development.md)). |
 | Workspace and editor-home quotas | Helpers already measure workspace sizes and enforce `SCANTOR_WORKSPACE_MAX_BYTES`; per-user volumes or XFS project quotas on the `<userId>` directories would add hard limits. |
 | Script extensions (scheduled scripts, local runs, more languages, opt-in egress) | [scripts](scripts.md) §16: runs are created by one service function, the SDK reads only two variables, languages are rows of `languages.json`, and the container's network list is one field of its spec. |
+| Bundle extensions (configs chosen at creation, for example from a test run; `scantor dev bundle <dir>` without the platform; `--resume` from `run.json`; a retry heap and schedule restarts; multi-arch and DinD bundles; a bundle list and a DELETE route) | The bundle info has a version (`v`) and an allowlist schema, `run.json` keeps the template resolutions, the bundle step takes the info on stdin from any producer, and bundles are a singular sub-resource whose documents already carry ids ([runtime](runtime.md) §19, [data model](data-model.md) §12). |
 | Revision retention | Task images are tagged per revision and referenced by digest; a retention job could delete manifests of revisions no scan references, and registry GC already reclaims blobs. |

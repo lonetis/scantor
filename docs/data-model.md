@@ -48,6 +48,7 @@ system context is in [architecture](architecture.md).
 | `scripts` | `userId` | script identity, workspace cache, describe, latest run | until script delete |
 | `scriptRuns` | `userId` | one doc per script run: input, sealed secrets, source, image, container, outcome, outputs, log state | `scripts-gc` sweep after `expiresAt` |
 | `scriptRunLogs` | – (via `scriptRunId`) | log chunks of script runs | deleted with the run |
+| `bundles` | `userId` | one bundle per revision: state, image name, platform, archive key, size and hash | TTL `expiresAt` |
 | `meta` | – | schema version | permanent |
 
 ## 3. better-auth collections
@@ -737,7 +738,7 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 | `_id` | uuid | ✓ | |
 | `kind` | JobKind | ✓ | below |
 | `userId` | uuid \| null | ✓ | owner of the subject |
-| `subject` | `{kind: "revision"\|"testRun"\|"scan"\|"export"\|"task"\|"user"\|"notification"\|"scriptRun"\|"script", id}` | ✓ | `notification`: a fresh delivery id per job, so deliveries never meet in the one-active-job index |
+| `subject` | `{kind: "revision"\|"testRun"\|"scan"\|"export"\|"task"\|"user"\|"notification"\|"scriptRun"\|"script"\|"bundle", id}` | ✓ | `notification`: a fresh delivery id per job, so deliveries never meet in the one-active-job index |
 | `state` | `queued`\|`running`\|`succeeded`\|`failed`\|`cancelled` | ✓ | §6.8 |
 | `active` | boolean | ✓ | true while `queued` or `running` (partial unique index) |
 | `params` | object | ✓ | kind-specific input |
@@ -762,6 +763,7 @@ Indexes: `{scanId: 1, at: -1}` (partial: `scanId` exists), `{userId: 1, at: -1}`
 | `scriptDelete` | reconciler | script | `{}` | `{phase: "stop"\|"runs"\|"images"\|"workspace"\|"script"}`; `stop` cancels the active runs and defers itself (20 s after cancelling, then every 5 s while a run job of the script is active); a run inserted after `stop` sends the job back to it before the document goes | 2 |
 | `userPurge` | reconciler | user | `{}` | `{phase, scanId?}` | 1 |
 | `notification` | reconciler | notification | `{trigger, event: {id, type, level, message, scanId?, taskId?, revisionId?, nodeId?, data?}}`; `userId` = the recipient; created by the notifications event sink, one per subscribed recipient ([architecture](architecture.md) §11.6) | `{}`; delivers to the recipient's current channel or succeeds as skipped (channel disabled, trigger unsubscribed, admin power lost); 408, 429, 5xx and unreachable servers retry with backoff 10 s … 10 min (5 attempts), other answers fail at once with `notificationRejected` | 4 |
+| `bundle` | api | bundle | `{bundleId}` | none: the handler restarts the bundle step from scratch ([tasks](tasks.md) §9.11, §4.21); `maxAttempts` 3, backoff 10 s … 60 s; a content error (exit 2, phase `build`) fails at once with `bundleFailed`, a gone revision or a task being deleted with `revisionUnavailable`; `onFailed` fails the bundle with the job's error, `onRequeued` puts a `running` bundle back to `queued` | `SCANTOR_BUILD_CONCURRENCY` (the job holds one of the build slots shared with revision and test-run builds while the step runs), 1 per user |
 
 ```json
 {
@@ -1051,11 +1053,68 @@ keeps the head chunks (the first 1 MiB) and the newest ones up to `SCANTOR_SCRIP
 between are deleted and counted in `scriptRuns.log.droppedLines`. Chunks are deleted with their run (retention,
 `scriptDelete`, user purge).
 
+### 4.21 `bundles`
+
+One bundle per revision ([architecture](architecture.md) §11.8): the gzip `docker save` archive of the revision
+image plus the runtime and the bundle info, stored in S3 by the `bundle` job.
+
+| Field | Type | Req | Meaning |
+|---|---|---|---|
+| `_id`, `userId`, `taskId`, `revisionId` | uuid | ✓ | `userId` and `taskId` copied from the revision |
+| `taskName`, `revisionNumber` | string, int | ✓ | the revision's ref `<taskName>@<revisionNumber>` |
+| `state` | `queued`\|`running`\|`ready`\|`failed` | ✓ | §6.12 |
+| `image` | string | ✓ | `localhost/scantor/<taskName>:<revisionNumber>`, the name `docker load` gives the image |
+| `platform` | `{os, arch, variant?}` | ✓ | the revision image's platform; `variant` once the archive reported one |
+| `key` | string | ✓ | *internal*; `bundles/<taskId>/<bundleId>.tar.gz` |
+| `fileName` | string | ✓ | `<taskName>-<revisionNumber>-<os>-<arch>.bundle.tar.gz`, the download's attachment name |
+| `bytes`, `sha256` | int \| null, string \| null | ✓ | size and SHA-256 (hex) of the archive; set when `ready` |
+| `scantorVersion` | string \| null | ✓ | version of the runtime baked into the image; set when `ready` |
+| `jobId` | uuid \| null | ✓ | *internal*; set right after the job is created |
+| `error` | `{code, message}` \| null | ✓ | set when `failed` (the job's error) |
+| `createdAt`, `updatedAt`, `startedAt`, `finishedAt` | Date \| null | ✓ | `startedAt` when the job got a build slot, `finishedAt` when ready or failed |
+| `expiresAt` | Date | ✓ | `createdAt + SCANTOR_BUNDLE_RETENTION_DAYS` on insert, `finishedAt + SCANTOR_BUNDLE_RETENTION_DAYS` once ready (TTL; the `bundles/` lifecycle rule uses the same days) |
+
+```json
+{
+  "_id": "5d0c7a4e-2b1f-4c3d-9e8a-7f6b5c4d3e2f",
+  "userId": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
+  "taskId": "7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c",
+  "taskName": "echo",
+  "revisionId": "c2a9e4b1-7d3f-4e5a-9b8c-1d2e3f4a5b6c",
+  "revisionNumber": 3,
+  "state": "ready",
+  "image": "localhost/scantor/echo:3",
+  "platform": { "os": "linux", "arch": "amd64" },
+  "key": "bundles/7f3b2c1a-9d4e-4f6a-8b2c-1d3e5f7a9b0c/5d0c7a4e-2b1f-4c3d-9e8a-7f6b5c4d3e2f.tar.gz",
+  "fileName": "echo-3-linux-amd64.bundle.tar.gz",
+  "bytes": 61234567,
+  "sha256": "9f2c…e1",
+  "scantorVersion": "1.6.0",
+  "jobId": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+  "error": null,
+  "createdAt": { "$date": "2026-11-20T09:00:00.000Z" },
+  "updatedAt": { "$date": "2026-11-20T09:01:12.000Z" },
+  "startedAt": { "$date": "2026-11-20T09:00:01.000Z" },
+  "finishedAt": { "$date": "2026-11-20T09:01:12.000Z" },
+  "expiresAt": { "$date": "2026-11-27T09:01:12.000Z" }
+}
+```
+
+Indexes: `{revisionId: 1}` unique (one bundle per revision; a duplicate key on create means a concurrent request
+won and its bundle is returned), `{taskId: 1}`, `{userId: 1, createdAt: -1}`, `{expiresAt: 1}` with
+`expireAfterSeconds: 0`. A document whose `expiresAt` passed counts as absent before the TTL monitor removes it
+(`getRevisionBundle` answers 404, a create replaces it).
+
+Bundles are not counted toward `SCANTOR_USER_STORAGE_QUOTA_BYTES`, like exports. A create replaces an existing
+bundle that is `failed`, expired, `ready` with another `scantorVersion` than the orchestrator's, or `ready` with
+`rebuild=true`, and a `queued` or `running` one without an active job that was not updated for 5 minutes: its job is cancelled and
+its object and document are deleted before the new document is inserted ([api](api.md) §4.10).
+
 ## 5. Ownership rules
 
 | Collection | Visible to | Mutable by |
 |---|---|---|
-| `tasks`, `revisions`, `testRuns`, `testRunAnalyses`, `scans`, `analyses`, `workers`, `uploads`, `exports`, `credentials`, `scripts`, `scriptRuns` | owner and admins (`credentials` and `scriptRuns` never expose secrets) | owner and admins through the API; system components; a script run's own container through the script runtime API (its run only) |
+| `tasks`, `revisions`, `testRuns`, `testRunAnalyses`, `scans`, `analyses`, `workers`, `uploads`, `exports`, `credentials`, `scripts`, `scriptRuns`, `bundles` | owner and admins (`credentials` and `scriptRuns` never expose secrets) | owner and admins through the API; system components; a script run's own container through the script runtime API (its run only) |
 | `scriptRunLogs` | through the run (owner and admins) | the run's job |
 | `events` | owner (rows with their `userId`) and admins (all, including `userId: null`) | system only |
 | `jobs` | owner and admins (`GET /api/jobs/{id}`) | system only |
@@ -1067,12 +1126,14 @@ between are deleted and counted in `scriptRuns.log.droppedLines`. Chunks are del
 - Not owned → 404, never 403 ([api](api.md) §ownership).
 - Derived documents copy `userId` from their parent: revisions and test runs from the task, analyses and
   workers from the scan, a restart clone from the original scan, exports from the scan, script runs from the
-  script (`scriptRuns.userId = script.userId`, whoever starts the run; the run's scans must belong to that owner).
+  script (`scriptRuns.userId = script.userId`, whoever starts the run; the run's scans must belong to that owner),
+  bundles from the revision (`bundles.userId = revision.userId`; the routes resolve the revision through
+  `resolveTask` and `resolveTaskRevision`, so another user's revision is 404).
 - Top-level creates (`tasks`, `scripts`, `scans`, `uploads`, `credentials`, API keys) are owned by the caller and may
   reference only the caller's own documents (revision, uploads, credential).
 - User deletion (`userPurge` job) cancels the user's scans and active script runs, then deletes in order: editors
-  and editor API key, exports, scans (scan-delete logic, including analyses and files), test runs, revisions and
-  task images, script runs (S3 `script-runs/<id>/`, log chunks), script images and scripts, tasks, the user's workspace and editor-home directories (helper `purge`), uploads, credentials,
+  and editor API key, exports, scans (scan-delete logic, including analyses and files), test runs, revisions,
+  bundles and task images, script runs (S3 `script-runs/<id>/`, log chunks), script images and scripts, tasks, the user's workspace and editor-home directories (helper `purge`), uploads, credentials,
   notification settings, events, jobs; finally the better-auth user.
 
 ## 6. State machines
@@ -1247,6 +1308,19 @@ every stop, and every start mints a new one.
 
 Terminal states are final; each sets `finishedAt` and `expiresAt` and updates `scripts.latestRun`.
 
+### 6.12 Bundle state
+
+| From | To | Trigger |
+|---|---|---|
+| – | `queued` | `createRevisionBundle` inserted it and created its `bundle` job |
+| `queued` | `running` | the job got a build slot (`startedAt`) |
+| `running` | `queued` | the job was requeued (the orchestrator stopped, the lease expired or a retryable error; `onRequeued`) |
+| `running` | `ready` | the step succeeded and the stored archive's size and SHA-256 equal its result (`bytes`, `sha256`, `platform`, `scantorVersion`, `finishedAt`, `expiresAt = finishedAt + retention`) |
+| `queued`, `running` | `failed` | the job failed for good (`onFailed`: `error {code, message}`, the object deleted), or the task is being deleted (`stopTaskWork`: "the task was deleted") |
+
+`ready` and `failed` are final; a create replaces such a bundle with a new document (§4.21). Every bundle
+disappears by TTL (`expiresAt`), its object by the `bundles/` lifecycle rule, or both with the task or the user.
+
 ## 7. Invariants
 
 1. `analyses._id == scanId + "-" + seq`, with `scanId` taken only from the AMQP `user_id` (`scan-<scanId>`)
@@ -1332,6 +1406,7 @@ All limits are enforced at the earliest point listed. Values come from the named
 | script-run log | `SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES` (head 1 MiB + tail); lines ≤ 16 KiB; ingestion ≤ 1 MiB/s and 2000 lines/s per 10 s window | log writer |
 | script-run outputs | `SCANTOR_SCRIPT_RUN_MAX_OUTPUTS` files, `SCANTOR_SCRIPT_RUN_MAX_OUTPUT_BYTES` in total; parts 1 B–5 GiB, ≤ 10 000 | script runtime API |
 | script-run checkpoint / result | 1 MiB of JSON / `SCANTOR_MAX_RESULT_BYTES`; nesting ≤ 64 levels | script runtime API |
+| bundles | one per revision; one `bundle` job per user at a time, in the shared build slots (`SCANTOR_BUILD_CONCURRENCY`); the bundle image ≤ `SCANTOR_MAX_IMAGE_BYTES`; the step's wall-clock limit `SCANTOR_BUILD_TIMEOUT` + 30 min; kept `SCANTOR_BUNDLE_RETENTION_DAYS`; not counted toward `SCANTOR_USER_STORAGE_QUOTA_BYTES`; bundle info ≤ 4 MiB | `createRevisionBundle`, `bundle` job, task pipeline |
 
 ## 9. S3 layout
 
@@ -1350,10 +1425,11 @@ as a sanitised last segment (`safeName`: NFC, characters outside `[A-Za-z0-9._-]
 | `uploads/<userId>/<sha256>` | uploaded list files (immutable) | `createUpload` | `deleteUpload`, `userPurge` |
 | `script-runs/<scriptRunId>/source.tar.gz` | the script folder's pack at run start | `startScriptRun` / `restartScriptRun` (copied from `tmp/snapshots/`) | `scripts-gc` after `expiresAt`, `scriptDelete`, `userPurge` |
 | `script-runs/<scriptRunId>/outputs/<outputId>/<safeName>` | outputs; metadata `output-id`, `name` (`encodeURIComponent` of the name) | the script through presigned UploadPart URLs (multipart) | same as the source (whole `script-runs/<id>/` prefix) |
+| `bundles/<taskId>/<bundleId>.tar.gz` | bundle archives (gzip `docker save` of the bundle image), downloaded through presigned `application/gzip` attachments named `fileName` | `bundle` job (multipart upload of the step's fd 3) | lifecycle rule after `SCANTOR_BUNDLE_RETENTION_DAYS`; a create that replaces the bundle; a failed job attempt; `taskDelete` (whole `bundles/<taskId>/` prefix) |
 
 Bucket configuration (ensured at boot): private ACL, CORS allowing `GET`/`HEAD` from the dashboard origin
-only, lifecycle rules for `test-runs/`, `exports/` and `tmp/` (1 day), and `AbortIncompleteMultipartUpload`
-after 1 day (which also cleans output uploads whose abort failed). `script-runs/` has no lifecycle rule: its
+only, lifecycle rules for `test-runs/`, `exports/` and `bundles/` (their retention days), `tmp/` (1 day), and
+`AbortIncompleteMultipartUpload` after 1 day (which also cleans output uploads whose abort failed). `script-runs/` has no lifecycle rule: its
 retention is the run's `expiresAt`.
 
 ## 10. RabbitMQ objects (summary)
@@ -1417,6 +1493,11 @@ written. Item 14 records a round-1 ruling.
     bounded (outputs ≤ the limit, checkpoint ≤ 1 MiB, errors ≤ 200), while the log of a days-long run lives in
     idempotent chunks with head + tail retention. Retention is a GC sweep, not a TTL index, so S3 objects and
     log chunks go before the document.
+16. **One `bundles` document per revision** (unique `revisionId`) instead of bundle ids under the revision: the
+    routes are a singular sub-resource, a create is idempotent while a bundle is active or current, and
+    replacing one is delete-then-insert. Retention is a TTL index plus the `bundles/` lifecycle rule with the
+    same days, like exports; `expiresAt` restarts when the bundle becomes ready, so a slow build does not shorten
+    its life.
 
 ## 12. Future extensions
 
@@ -1433,4 +1514,5 @@ written. Item 14 records a round-1 ruling.
 | Additional upload kinds (CIDR files, seeds) | `uploads.kind` enum; templates reference them through `"x-scantor": "upload"`. |
 | Editor kinds (JupyterLab, terminal) | an `editors.kind` field selecting image and flags; the cookie already binds `startedAt`. |
 | Scheduled scripts, queue reasons on runs | A schedule document calling the run start service; an optional `scriptRuns.queuedReason` ([scripts](scripts.md) §16). |
+| Bundle list, DELETE route, bundles with configs chosen at creation | Bundle documents already carry ids, owner and task indexes; a `bundles` list route and `DELETE` need no data-model change, and configs baked at creation would be a field of the bundle info, not of the document. |
 | Idempotent output part reservations | `outputs[].parts: [{partNumber, bytes}]` replacing the single `reservedBytes` counter. |

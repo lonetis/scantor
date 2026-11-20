@@ -22,8 +22,6 @@ describe('extractInstructions', () => {
   })
 })
 
-
-
 describe('guide catalogue', () => {
   it('serves an authoring guide for every row of schemas/languages.json and the named guides', async () => {
     const table = JSON.parse(readRepoFile('schemas/languages.json')) as { languages: Record<string, unknown> }
@@ -33,7 +31,7 @@ describe('guide catalogue', () => {
     expect(await authoringGuide('cobol', read)).toBeNull()
     expect(await namedGuide('errors-and-retries', read)).toBe('contents of errors-and-retries.md')
     expect(await namedGuide('../secrets', read)).toBeNull()
-    expect(GUIDE_NAMES).toEqual(['templates', 'manifest', 'errors-and-retries', 'cli', 'mcp', 'remote-nodes', 'scripts'])
+    expect(GUIDE_NAMES).toEqual(['templates', 'manifest', 'errors-and-retries', 'cli', 'mcp', 'remote-nodes', 'scripts', 'bundles'])
   })
 
   it("serves a language row's script.guide for kind script and nothing for a language without scripts", async () => {

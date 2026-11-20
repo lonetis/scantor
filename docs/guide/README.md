@@ -10,6 +10,7 @@
 | [CLI reference](cli.md) | look up every `scantor` command and flag (generated from the CLI) |
 | [MCP](mcp.md) | connect Claude Code or another MCP client, and let an agent author, run and analyse scans and write and run scripts |
 | [Remote nodes](remote-nodes.md) | add Docker hosts as nodes, also behind firewalls: tokens, TLS, private networks, egress rules, Docker-in-Docker and troubleshooting |
+| [Bundles](bundles.md) | share a revision as one file that runs with only Docker: create and download a bundle, then load and run it anywhere, with configs, local files, settings, the results directory, exit codes and a hardened command |
 
 These guides are embedded into the `scantor` binary and the orchestrator image. The MCP server serves
 them as resources (`scantor://guide/…`) and through `get_authoring_guide`.

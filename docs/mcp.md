@@ -486,6 +486,7 @@ wait for the resource to settle (0–50). Call again if it has not settled yet."
 |---|---|
 | uploads, task and script upload (tar.gz), git import/pull, workspace archives | binary or multi-step flows; agents use the file tools; git import needs credentials the user manages in the UI |
 | revision list, build log, source download | `get_revision` (with `latest`) carries the structured errors |
+| revision bundles (`createRevisionBundle`, `getRevisionBundle`) | a bundle is a Docker image archive of hundreds of MB for a human recipient, useless to an agent, and 44 of 45 slots are taken; the resource `scantor://guide/bundles` lets an agent explain bundles and ask the user to create one in the UI or with `scantor revisions bundle` |
 | test-run list, stream, cancel, presigned file download | `test_task`/`get_test_run` with `wait` cover the loop; `read_test_run_file` returns file content inline |
 | analyses list, inline export, presigned file downloads | `query_analyses` (projection, `afterSeq`), `read_analysis_file` (file content inline) and `export_scan` (presigned URL) |
 | inflight, conditions, events, workers, worker logs | `get_scan` carries conditions and progress; the rest is operator detail for the UI/CLI |
@@ -505,7 +506,7 @@ copied into the image at build time, [deployment](deployment.md) §4.1).
 | MCP `instructions` (sent at initialisation) | the agent overview: what scantor is, core terms, the agent loop of §7 with tool names, rules (untrusted data, `wait` ≤ 50, confirm destructive operations with the user, use `name@latest` references, 404 means "not found or not yours", errors are JSON with `code`), pointers to the resources | the section of `docs/guide/mcp.md` between `<!-- scantor:mcp-instructions:start -->` and `<!-- scantor:mcp-instructions:end -->` (≤ 8 KiB; a test enforces the size) |
 | resource `scantor://guide` | the same text | as above |
 | resource template `scantor://guide/authoring/{language}` | authoring guide per language (`list` enumerates `schemas/languages.json`) | `docs/guide/authoring-<language>.md` |
-| resource template `scantor://guide/{name}` | `templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes`, `scripts` | `docs/guide/<name>.md` |
+| resource template `scantor://guide/{name}` | `templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes`, `scripts`, `bundles` | `docs/guide/<name>.md` |
 | tool `get_authoring_guide` | the per-language task guide, and with `kind: "script"` the scripts guide of a language with script support (for clients that do not surface resources) | REST `getAuthoringGuide` (same assets) |
 
 Resources have `mimeType: "text/markdown"` and are read-only and public to every authenticated level. A drift

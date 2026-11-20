@@ -36,7 +36,7 @@ together with its test.
 | Infrastructure root credentials (MongoDB app/root, RabbitMQ admin, RustFS root keys) | orchestrator env, infra containers | read and write all tenant data |
 | Docker sockets | orchestrator and built-in node on the master; node daemons on nodes | root on that host |
 | Sessions, API keys, OAuth tokens | browsers, CLI env, MCP clients; hashed in better-auth collections | act as the user |
-| Task source and images | workspaces volume, `snapshots/` in S3, registry | intellectual property and baked-in secrets |
+| Task source and images | workspaces volume, `snapshots/` and `bundles/` in S3, registry | intellectual property and baked-in secrets |
 | `writeOnly` config values, git tokens, script-run secrets | encrypted in `scans.secrets`, `testRuns.secrets`, `credentials`, `scriptRuns.secrets` | third-party credentials of users |
 | Results, files, logs, exports, script-run outputs and logs | MongoDB `analyses`, `scriptRuns`, `scriptRunLogs`, S3 | potentially sensitive data collected from targets |
 | Node tokens, worker tokens, per-scan AMQP credentials, script-run tokens | nodes, worker and script-run container env, bootstrap responses | impersonate nodes or workers; inject results; read a run's scans |
@@ -111,6 +111,7 @@ together with its test.
 | T18 | Clickjacking of consent and setup pages; MIME sniffing; XSS through rendered results | A1, A3 | HDR-1…6 |
 | T19 | Push notifications turned into SSRF against internal services, leak a token or another user's scans, or flood a public server | A2 | NTF-1…4 |
 | T20 | A script run reads scans of other users, reaches platform services, workers or the internet, keeps or leaks its token, or floods logs and storage | A2, A3, A4 | SCR-1…10 |
+| T21 | A bundle leaks secrets, credentials, master internals or another user's task; bundle creation exhausts master resources; a bundle run is mistaken for a hardened worker | A2, A3 | BDL-1…7 |
 
 ## 6. Mitigations catalogue
 
@@ -429,6 +430,23 @@ A script run executes A2's code (or A3 content that exploits it) on the master f
 | SCR-9 | Lifecycle: a run is cancelled when a scan it reads is deleted, its script is deleted, or its owner is banned, deleted or purged; the job stops its container (60 s grace) and removes it; the reconciler's GC fails runs that have no job or passed `startedAt + timeout + 10 min` and removes orphan `scantor-s-*` containers. | `services/script-runs/cleanup.ts`, `job.ts`, `register.ts`, `services/scripts/{delete,purge,gc}.ts`, `services/scans/delete.ts` | `orchestrator/test/services/script-runs/{cleanup,job}.test.ts`, `orchestrator/test/services/scripts/delete.test.ts`; `tests/api/scripts.spec.ts` (cascades) |
 | SCR-10 | Builds: script builds run the task pipeline's static and build steps (Dockerfile policy D1–D11 including D5 for `scripts/`, LBL-3, image size cap, build timeout, the shared build slots and cache pruning) and are never pushed: script images exist only in the master's daemon, so no node and no registry token can reach them. | `internal/taskpipe` (`BuildScript`), `services/pipeline/script-build.ts` | `internal/taskpipe/script_test.go`, `TestIntegrationBuildScript`; corpus `tests/corpora/dockerfile-policy/d5-*-script*` |
 
+### 6.21 Bundles (T21)
+
+A bundle ([architecture](architecture.md) §11.8) is built on the master from a user's revision image and leaves
+the platform: anyone with the file runs it with Docker alone. The master must put nothing into it but the
+revision's own image and the allowlisted bundle info, must not let one user obtain or exhaust another's, and the
+recipient must know that a bundle run has none of a worker's protections.
+
+| Id | Mitigation | Implementation | Test |
+|---|---|---|---|
+| BDL-1 | `/scantor/bundle.json` is an allowlist with no secrets, tokens, URLs, ids or data-source overrides: the orchestrator builds it field by field from the revision (describe output without secret defaults, settings defaults without `workers`, `nodeSelector` and `privileged`, the test-run limits); the Go step parses it again against `schemas/bundle.schema.json` (`additionalProperties: false`), decodes it strictly and writes only its own re-marshalled form | `orchestrator/server/services/bundles/info.ts`, `internal/bundle` | `tests/security/bundles.spec.ts` unpacks every layer and greps it for the HKDF-derived values of `tests/helpers/keys.ts`, `sk_scantor_`, the stack hostnames, the registry host and `localhost:<port>/tasks`, and the owner, task and revision ids; `internal/bundle/bundle_test.go`, `orchestrator/test/services/bundles/info.test.ts` |
+| BDL-2 | Neutral names: the master tags only random temporary names (`scantor-bundle/<uuid>:src\|build`), the `docker save` stream is renamed to `localhost/scantor/<task>:<n>` (`manifest.json`, `index.json` without the containerd distribution-source annotations, `repositories`), the build adds only the OCI title label and takes no build arguments, auth or `config.json`; the `localhost` registry domain keeps a recipient who forgot `docker load` from pulling a squatted public image | `internal/taskpipe/bundle.go`, `savetar.go` | the same spec (`RepoTags`, index annotations, entrypoint, healthcheck, no `scantor.*`, `com.docker.compose.*` or `traefik.*` label); `internal/taskpipe/{bundle,savetar}_test.go` |
+| BDL-3 | Owner only: both routes resolve the revision with `resolveTask` and `resolveTaskRevision`, so another user's revision is 404 (G1); the download is a presigned `application/gzip` attachment named by the server, valid 10 minutes, on the S3 origin, with a server-generated key (extends DL-1, DL-3, DL-5) | `server/api/tasks/[task]/revisions/[revision]/bundle.{get,post}.ts`, `services/bundles/mappers.ts` (`presignGet`) | `tests/authz/matrix.spec.ts`; `tests/api/bundles.spec.ts` (BUNDLE-001, BUNDLE-004) |
+| BDL-4 | Resource bounds: bundle jobs share the build slots (`SCANTOR_BUILD_CONCURRENCY`) with one job per user, the step's wall-clock limit is `SCANTOR_BUILD_TIMEOUT` + 30 min, the image is capped by `SCANTOR_MAX_IMAGE_BYTES`, one bundle exists per revision, bundles expire (`SCANTOR_BUNDLE_RETENTION_DAYS`, TTL index and the `bundles/` lifecycle rule), task deletion and user purge remove them with their objects, and the tasks GC removes leftover temporary tags | `services/bundles/job.ts`, `utils/s3.ts`, `services/tasks/{delete,purge,gc}.ts` | `tests/api/bundles.spec.ts` (BUNDLE-002, BUNDLE-006); `orchestrator/test/services/bundles/*.test.ts`, `test/services/tasks/{delete,gc}.test.ts`, `test/utils/s3.test.ts` |
+| BDL-5 | Privileged revisions are refused (409 `bundleUnsupported`, `details.reason: "privileged"`), and bundle mode never starts a `dockerd` | `services/bundles/service.ts`, `internal/runtime/bundlerun` | `tests/api/bundles.spec.ts` (BUNDLE-003) |
+| BDL-6 | The pipeline subprocess receives the registry push password only to pull a revision image again, sends it only in `X-Registry-Auth` to the explicit registry host of `--pull` (never Docker Hub), and never writes it into the context or the image | `services/pipeline/binary.ts` (`pipelineEnv`), `services/pipeline/task-bundle.ts`, `internal/taskpipe/bundle.go` | BDL-1's grep; `internal/taskpipe/bundle_test.go` |
+| BDL-7 | Bundle mode has no API client, masks the values at `secretPaths` as `"***"` in `run.json`, `results.jsonl`, the console, the `-o json` events and `--describe`, never quotes them in config issues (a failed `pattern` or `format` names only the keyword), refuses `"***"` as a secret value, makes task output terminal-safe, and names the hardened `docker run` flags in `--describe` and the guide | `internal/runtime/bundlerun` | `internal/runtime/bundlerun/*_test.go`; `tests/e2e/bundles.spec.ts` (BRUN-002 masks secrets; BRUN-009 runs under `--network none`) |
+
 ## 7. Authorization matrix test
 
 `tests/authz/matrix.spec.ts` ([testing](testing.md) §8.5) is generated at run time from
@@ -485,7 +503,10 @@ Additional generated cases:
    requested.
 7. **Ordering**: reads run first; destructive operations (`DELETE`, `x-destructive`, cancel, retry,
    ban, rotate) run last against throwaway copies created per case.
-8. **Script runs**: as B, `startScriptRun` of B's script with A's scan (alone or next to B's own) → 404; as admin,
+8. **Bundles**: `createRevisionBundle` and `getRevisionBundle` on A's seeded ready revision (`{task}`,
+   `{revision}` of the parameter map): B gets 404 on both, so B can neither build nor read A's bundle or obtain a
+   download URL of it.
+9. **Script runs**: as B, `startScriptRun` of B's script with A's scan (alone or next to B's own) → 404; as admin,
    `startScriptRun` of A's script with B's or the admin's scan → 404 (no admin bypass for the run binding); as B,
    `{script}` = `alpha` is B's script. A running run's token reaches only its own scans (another scan → 404,
    `tests/security/script-runs.spec.ts`).
@@ -514,6 +535,7 @@ Locations follow [testing](testing.md) §2. This table is the inventory of secur
 | Editor isolation | `tests/security/editor-isolation.spec.ts`; `orchestrator/test/services/editor/{proxy,socket,manager}.test.ts` | ED-1…10: 421 host checks, single-use codes, cookies invalid after stop, stripped headers and `Set-Cookie`, foreign-Origin upgrade, symlinked socket |
 | Sandbox | `tests/security/sandbox.spec.ts` (`netprobe` fixture task on the built-in and the remote node) | SB-1…5, MC-3, GUI-6, BLD-11 |
 | Script runs | `tests/security/script-runs.spec.ts`; `tests/authz/matrix.spec.ts` (`scriptRun` scope); `orchestrator/test/services/script-runs/*`, `script-runtime/*`, `orchestrator/test/middleware/script-runtime-auth.test.ts` | SCR-1…10: no reach to RabbitMQ, the internet or workers, empty `CapAdd`, token outside the network → 403, ended run → 401, another scan → 404, admin binding another user's scan → 404, D5 `scripts/` |
+| Bundles | `tests/security/bundles.spec.ts`; `tests/api/bundles.spec.ts`; `tests/e2e/bundles.spec.ts` (`--network none`, masking); `tests/authz/matrix.spec.ts`; `internal/bundle`, `internal/taskpipe/{bundle,savetar}_test.go`, `internal/runtime/bundlerun` | BDL-1…7: no derived secret, API key, hostname, registry host or id in any layer; names and labels neutral; bundle entrypoint and healthcheck; privileged revisions refused; another user's revision → 404 |
 | Others | `tests/security/{downloads,secrets-masking,auth-endpoints,csrf,compose-lint,env-example}.spec.ts`; `tests/api/{tools,git,errors,wait,exports}.spec.ts`; `tests/e2e/{limits,privileged,files,breaker,backpressure,remote-node}.spec.ts`; `tests/ui/{headers,scan-results,setup,consent,admin-tools}.spec.ts`; `tests/authz/{matrix,openapi-lint}.spec.ts`; `tests/mcp/*.spec.ts` | as listed in §6 |
 
 All of these run in `just test` and in the CI workflow, are idempotent, and clean up after themselves
@@ -545,6 +567,7 @@ All of these run in `just test` and in the CI workflow, are idempotent, and clea
 | R18 | In the dev stack the peer restriction of the script runtime API trusts `X-Forwarded-For`, which a client can forge (SCR-4). | The dev stack binds to loopback; production builds and the test stack check the socket peer. |
 | R19 | Script-run containers have no disk quota: the writable layer can fill the master disk within the run's timeout. | Monitor the master disk ([deployment](deployment.md) §9); keep `SCANTOR_SCRIPT_RUN_TIMEOUT` and the concurrency moderate; `StorageOpt` quotas are a future extension. |
 | R20 | The output SHA-256 is the one the script reports; the server checks only the size. | Treat outputs like results: data produced by user code. |
+| R23 | A bundle run executes the task's code on the recipient's machine without the worker hardening profile or the egress deny list, and the code can read and change everything in `/work`; the owner discloses the whole task image, every file of the task folder included, to everyone who gets the file. | The revision page warns before a bundle is created; the guide and `--describe` give the hardened command (`--cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --security-opt no-new-privileges --pids-limit 4096`, `--cpus`, `--memory`, `--network none` where possible) and advise to run only bundles one trusts, in a dedicated folder, after checking the SHA-256. |
 
 ## 10. Credential rotation and incident response
 
@@ -588,6 +611,10 @@ Made in this document and flagged for lead review:
     only the two services a script needs, a token that dies with the run, and an API that refuses peers outside
     that network; runtime egress stays off (R19 lists what remains). Their presigned GETs live 1 h because they
     are internal-only (DL-7).
+13. **Bundles bake the runtime** ([architecture](architecture.md) D24) and leave the platform: the bundle info is
+    an allowlist checked twice (Node and Go), the archive carries only neutral names, privileged revisions are
+    refused, and the recipient's exposure is documented rather than enforced (R23), because the platform cannot
+    control a machine it never sees.
 
 ## 12. Future extensions
 

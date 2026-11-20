@@ -1293,7 +1293,8 @@ restart ([auth](auth.md)).
 | MongoDB cache | `SCANTOR_MONGO_CACHE_GB` | WiredTiger cache (it otherwise sizes itself from host RAM) |
 | MongoDB / orchestrator memory | `SCANTOR_MONGO_MEMORY_LIMIT`, `SCANTOR_ORCHESTRATOR_MEMORY_LIMIT` | hard caps |
 | workers on the master | `SCANTOR_BUILTIN_NODE_MAX_WORKERS` | at most N workers share the master with the infrastructure |
-| builds | `SCANTOR_BUILD_CONCURRENCY`, `SCANTOR_BUILD_TIMEOUT`, `SCANTOR_MAX_IMAGE_BYTES`, `SCANTOR_BUILD_CACHE_MAX_BYTES` | [tasks](tasks.md) |
+| builds | `SCANTOR_BUILD_CONCURRENCY`, `SCANTOR_BUILD_TIMEOUT`, `SCANTOR_MAX_IMAGE_BYTES`, `SCANTOR_BUILD_CACHE_MAX_BYTES` | [tasks](tasks.md); bundle jobs share the build slots, one per user ([tasks](tasks.md) §9.11) |
+| bundles | `SCANTOR_BUNDLE_RETENTION_DAYS` | archives in RustFS under `bundles/` (one per revision, the whole task image gzip-compressed) expire by the TTL index and the `bundles/` lifecycle rule ([data model](data-model.md) §4.21, §9); they do not count toward `SCANTOR_USER_STORAGE_QUOTA_BYTES` |
 | test runs | `SCANTOR_TEST_RUN_CONCURRENCY`, `SCANTOR_TEST_RUN_TIMEOUT` | [tasks](tasks.md) |
 | script runs | `SCANTOR_SCRIPT_RUN_CONCURRENCY`, `SCANTOR_SCRIPT_RUN_CONCURRENCY_PER_USER`, `SCANTOR_SCRIPT_RUN_TIMEOUT`, `SCANTOR_SCRIPT_RUN_MAX_CPUS`, `SCANTOR_SCRIPT_RUN_MAX_MEMORY`, `SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES`, `SCANTOR_SCRIPT_RUN_MAX_OUTPUTS`, `SCANTOR_SCRIPT_RUN_MAX_OUTPUT_BYTES`, `SCANTOR_SCRIPT_RUN_RETENTION_DAYS` | [scripts](scripts.md) §13 |
 | editors | `SCANTOR_EDITOR_MAX_RUNNING`, `SCANTOR_EDITOR_MEMORY_LIMIT`, `SCANTOR_EDITOR_CPUS`, `SCANTOR_EDITOR_PIDS_LIMIT`, `SCANTOR_EDITOR_IDLE_TIMEOUT` | [editor](editor.md) |
@@ -1413,7 +1414,7 @@ Plaintext is accepted automatically only for loopback, RFC 1918, CGNAT and ULA a
 |---|---|---|
 | `.env` | **critical**: without `SCANTOR_SECRET`, encrypted git credentials and config secrets cannot be recovered and every derived credential changes | keep an encrypted copy off the host |
 | MongoDB | **yes** | `(umask 077; docker exec scantor-mongo sh -c 'exec mongodump --username "$MONGO_INITDB_ROOT_USERNAME" --password "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin --oplog --archive --gzip' > mongo-$(date +%F).archive.gz)` (consistent while running; the credentials are the container's own environment, which compose sets from `SCANTOR_MONGO_USER`/`SCANTOR_MONGO_PASSWORD`: the host shell does not have them) |
-| RustFS (`scantor-rustfs-data`, or the directory of `SCANTOR_RUSTFS_DATA`, §5.1; includes script-run sources and outputs) | **yes** | stop `rustfs`, then `docker run --rm -v scantor-rustfs-data:/data:ro -v "$PWD:/backup" alpine:3.24 tar -czf /backup/rustfs.tgz -C /data .` (with a host directory, mount it instead of the volume) (the justfile's pinned `alpine_image`, [development](development.md) §3), then start it again; or mirror the bucket to external S3 with `rustfs/rc` (`rc mirror`) while it runs |
+| RustFS (`scantor-rustfs-data`, or the directory of `SCANTOR_RUSTFS_DATA`, §5.1; includes script-run sources and outputs, and bundles, which can be created again) | **yes** | stop `rustfs`, then `docker run --rm -v scantor-rustfs-data:/data:ro -v "$PWD:/backup" alpine:3.24 tar -czf /backup/rustfs.tgz -C /data .` (with a host directory, mount it instead of the volume) (the justfile's pinned `alpine_image`, [development](development.md) §3), then start it again; or mirror the bucket to external S3 with `rustfs/rc` (`rc mirror`) while it runs |
 | registry (`scantor-registry-data`) | **yes**: without it, ready revisions cannot be pulled again and must be republished | volume tar while no build is pushing (stop the orchestrator briefly, or accept a crash-consistent copy) |
 | workspaces (`scantor-workspaces`, including the script folders under `.scripts/`), editor homes (`scantor-editor-home`) | **yes** / optional | volume tar; stop editors first for consistency (`DELETE /api/editor` per user, or stop all editor containers) |
 | RabbitMQ | no | It holds only in-flight messages. After a restore with an empty broker, the reconciler recreates the topology. Analyses that were queued are detected by stall detection and recorded as `lost`. |
@@ -1523,7 +1524,7 @@ rebuilt from its snapshot after the restart ([data model](data-model.md) §6.4).
 | Where | What | How |
 |---|---|---|
 | master, automatic | BuildKit cache | after builds, prune to `SCANTOR_BUILD_CACHE_MAX_BYTES` ([tasks](tasks.md)) |
-| master, automatic | draft images, stale test-run containers | orchestrator GC ([tasks](tasks.md)) |
+| master, automatic | draft images, stale test-run containers, leftover `scantor-bundle/<uuid>:src\|build` tags of stopped bundle steps (older than `SCANTOR_BUILD_TIMEOUT` + 30 min + a margin, while no bundle step is running) | orchestrator GC ([tasks](tasks.md) §9.11) |
 | every node, automatic | unreferenced task and base images, removed containers | node daemon ([nodes](nodes.md) §8) |
 | manual, safe | dangling images | `docker image prune -f` |
 | manual, safe | stopped scantor-managed containers | `docker container prune -f --filter label=scantor.managed=true` |

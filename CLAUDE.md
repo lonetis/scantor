@@ -17,7 +17,7 @@ This file is the index for agents developing this repository. `README.md` is use
 | `connectors/` | per-language connector libraries (`python`, `js` = `@scantor/connector` for TS and JS, `go`); each Dockerfile builds a base image; `python` also holds the script SDK `scantor.script` |
 | `scaffolds/` | task starters per language (rendered by `scantor init`; Go `go.mod`/`go.sum` stored as `*.tmpl`) and the script starter `python-script/` (`scantor scripts init`, `createScript`) |
 | `tasks/` | example tasks; together they cover every language and every template |
-| `schemas/` | canonical JSON: manifest, script manifest, describe output, `languages.json`, `managed-labels.json`, protocol, AMQP messages, templates (+ fixtures) |
+| `schemas/` | canonical JSON: manifest, script manifest, describe output, bundle info, `languages.json`, `managed-labels.json`, protocol, AMQP messages, templates (+ fixtures) |
 | `editor/` | `scantor-editor` image (code-server); its `toolchain` stage is also the devcontainer |
 | `tests/` | dockerized Playwright suites, shared corpora, fixture tasks and scripts (`fixtures/tasks/`, `fixtures/scripts/`; `files-report` is the end-to-end script the scripts guide quotes), `FEATURES.md`, generated `TESTS.md` |
 | `docs/`, `docs/guide/` | internal specifications; user guides (embedded into the binary and the orchestrator image, served over MCP) |
@@ -48,13 +48,14 @@ README. The most important terms:
 | runtime / connector | the Go process injected into every task container / the per-language library the task code imports |
 | script / script run | a user-owned Python folder `.scripts/<name>` (`scantor-script.yaml`, `Dockerfile`, entry) that evaluates the results and files of the owner's scans, without revisions / one execution of a snapshot of it in one container `scantor-s-<id>` on the master, ending `completed`, `failed` or `cancelled`; never "notebook", "job", "plugin" or "evaluation" |
 | script runtime API / output / checkpoint | `/api/script-runtime/*`, the only API a script-run container calls (run-scoped `ssr_…` token) / a file a script run stores (never "artifact") / JSON state a restart with resume continues from |
+| bundle / bundle run | a gzip Docker image archive of one ready revision with the runtime and the revision's defaults baked in (`localhost/scantor/<task>:<n>`, file `<task>-<n>-<os>-<arch>.bundle.tar.gz`), created per revision by the `bundle` job / one `docker run` of it outside the platform in bundle mode (`scantor runtime bundle`), ending with plain result files under `/work`; never "artifact", "export", "package", "release" or "version" / never "scan", "test run", "job" or "local run" |
 
 ## Architecture in ten lines
 
-1. One static Go binary is the CLI, the node daemon, the runtime (`scantor runtime`), the task pipeline (`scantor task pack | check-static | build`, and `scantor script build`) and the workspace helpers.
+1. One static Go binary is the CLI, the node daemon, the runtime (`scantor runtime`), the task pipeline (`scantor task pack | check-static | build | bundle`, and `scantor script build`) and the workspace helpers.
 2. The orchestrator is one Node process; `SCANTOR_COMPONENTS` selects `api`, `ingestor`, `reconciler`. Infra: MongoDB (rs0), RabbitMQ, RustFS (S3), registry, optional Traefik.
-3. Handlers only record intent; the level-triggered reconciler converges (topology, placement, assignments, completion); leased jobs do long work (builds, test runs, deletes, retries, exports).
-4. Nodes connect outbound only: they long-poll their desired workers and reconcile local containers; every consumer injects the runtime binary into task containers (never baked into images).
+3. Handlers only record intent; the level-triggered reconciler converges (topology, placement, assignments, completion); leased jobs do long work (builds, test runs, deletes, retries, exports, bundles).
+4. Nodes connect outbound only: they long-poll their desired workers and reconcile local containers; every consumer injects the runtime binary into task containers (never baked into images, except into bundles, D24).
 5. Workers run the task image; the runtime speaks NDJSON over fd 3/4 with connector processes. Templates and all retry, timeout, upload and error logic live once in Go.
 6. The scheduler streams `schedule` output into a per-scan quorum queue (confirms, backpressure, checkpoints); runners consume with prefetch 1 per process and retry through delayed delivery.
 7. The ingestor writes analyses with guarded upserts keyed `<scanId>-<seq>`; the recount is authoritative and completion is one conditional update.
@@ -172,6 +173,7 @@ model, api) wins and the other doc is fixed.
 | [docs/guide/cli.md](docs/guide/cli.md) | generated CLI reference (`just docs`; never edit by hand) |
 | [docs/guide/mcp.md](docs/guide/mcp.md) | connecting agents; its marked section is the MCP server instructions (≤ 8 KiB) |
 | [docs/guide/remote-nodes.md](docs/guide/remote-nodes.md) | operator view of remote nodes |
+| [docs/guide/bundles.md](docs/guide/bundles.md) | user view of bundles: creating one, then loading and running it with only Docker (flags, uploads, settings, results directory, exit codes, hardening) |
 
 ## When you change X, update Y
 
@@ -212,6 +214,8 @@ model, api) wins and the other doc is fixed.
 - Script images (`scripts/<scriptId>:<packSha256>`) exist only in the master's Docker and are never pushed. A script-run job detaches on SIGTERM and adopts its `scantor-s-<runId>` container on the next claim, so restarting the orchestrator does not stop runs; the scripts GC removes orphan containers and old images.
 - `docs/guide/scripts.md` quotes the fixture script with `<!-- scantor:excerpt -->` blocks checked by the Python suite, not with `scantor:include`: the drift test accepts includes only from `tasks/`.
 - The dev built-in node allows only `SCANTOR_BUILTIN_NODE_MAX_WORKERS` workers (a scheduler counts), and placement reserves `cpus × processes`; parallel scans wait with `workersPending`.
+- Bundles are single-architecture: the bundle step (`scantor task bundle`) bakes the master daemon's native runtime binary and fails with a `platform` error when the revision image or the daemon has another architecture. The runtime is baked into a bundle (D24), so a runtime fix reaches recipients only through a recreated bundle (a create rebuilds when `scantorVersion` differs).
+- `scantor-bundle/<uuid>:src|build` image tags on the master are temporary: the bundle step removes them, and the tasks GC removes leftovers of a stopped step. The public name `localhost/scantor/<task>:<n>` exists only inside the archive (rewritten in the `docker save` stream) and is never tagged on the master.
 - Hint counters only increase (progress can briefly exceed 100 % after a cancel); the recount is authoritative. Do not "fix" the hints.
 - Push notifications see only events written through `writeEvent`/`writeEvents` (`services/scans/events.ts`) or `recordEvents` (`services/nodes/events.ts`), which hand them to the event sinks (`server/utils/event-sinks.ts`); a direct `events` insert notifies nobody. A sink's `accept` runs inline in the writer, so keep it synchronous and free of I/O.
 - A job handler that has to wait (a settle delay) throws `JobDeferredError` (`server/utils/jobs.ts`) instead of sleeping: a sleeping handler holds one of its kind's few slots, and every other job of that kind queues behind it.

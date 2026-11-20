@@ -102,14 +102,15 @@ errors.
 
 Not available through MCP, by design: uploads, task and script folder uploads, git imports, deleting
 scripts, downloads of script-run outputs and sources (`read_script_run_output` reads an output inline),
-credentials, API keys and node management. Use the web UI or the CLI for those (for example
+bundles, credentials, API keys and node management. Use the web UI or the CLI for those (for example
 `scantor uploads create` for a list file, then pass its id to `start_scan`).
 
 **Resources.** `scantor://guide` is the server instructions below. `scantor://guide/authoring/{language}`
 serves the authoring guide of `python`, `typescript`, `javascript` and `go`, and `scantor://guide/{name}`
-the guides `templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes` and `scripts`.
-For clients that do not read resources, the tool `get_authoring_guide` returns the authoring guides of
-tasks (`{"language": "python"}`) and the scripts guide (`{"language": "python", "kind": "script"}`).
+the guides `templates`, `manifest`, `errors-and-retries`, `cli`, `mcp`, `remote-nodes`, `scripts` and
+`bundles`. For clients that do not read resources, the tool `get_authoring_guide` returns the authoring
+guides of tasks (`{"language": "python"}`) and the scripts guide
+(`{"language": "python", "kind": "script"}`).
 
 ## Conventions
 
@@ -279,5 +280,5 @@ Other tools: `list_tasks`, `get_task`, `delete_task_file`, `list_scans`, `cancel
 
 `scantor://guide` (this text), `scantor://guide/authoring/{language}` (`python`, `typescript`,
 `javascript`, `go`) and `scantor://guide/{name}` with `templates`, `manifest`, `errors-and-retries`,
-`cli`, `mcp`, `remote-nodes` and `scripts`.
+`cli`, `mcp`, `remote-nodes`, `scripts` and `bundles`.
 <!-- scantor:mcp-instructions:end -->

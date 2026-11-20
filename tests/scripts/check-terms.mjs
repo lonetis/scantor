@@ -22,6 +22,7 @@ export const FORBIDDEN_TERMS = [
   [/\bscan templates?\b/i, 'template'],
   [/\bworker machines?\b/i, 'node'],
   [/\bscan tokens?\b/i, 'worker token'],
+  [/\bartifacts?\b/i, 'file, output or bundle'],
 ]
 
 /** Removes code from Markdown: fenced blocks (keeping line numbers) and inline code spans. */

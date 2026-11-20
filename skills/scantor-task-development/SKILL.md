@@ -1,6 +1,6 @@
 ---
 name: scantor-task-development
-description: This skill should be used when the user asks to "write a scantor task", "create a task", "scaffold a task", "change the task code", "wrap a template", "test the task", "fix the test run", "fix the failed revision", "fix the build errors" or "publish a revision", or otherwise develops, tests or publishes scantor task code (scantor.yaml, Dockerfile, schedule and run) through the scantor MCP tools or the scantor CLI.
+description: This skill should be used when the user asks to "write a scantor task", "create a task", "scaffold a task", "change the task code", "wrap a template", "test the task", "fix the test run", "fix the failed revision", "fix the build errors", "publish a revision" or "bundle a revision", or otherwise develops, tests or publishes scantor task code (scantor.yaml, Dockerfile, schedule and run) through the scantor MCP tools or the scantor CLI.
 ---
 
 # Developing scantor tasks
@@ -189,6 +189,22 @@ get_revision {"task": "http-title", "revision": "latest", "wait": 50}   # while 
 
 Then hand over to the `scantor-scans` skill to start a scan of `<task>@latest`. To change a task that
 already has scans, edit, test and publish a new revision; running scans keep their revision.
+
+## 9. Share a revision as a bundle
+
+To let someone run a ready revision without the platform, create a **bundle**: one file with the
+revision's image, the runtime and the revision's defaults, which runs with only Docker. There is no MCP
+tool for it; the user creates it on the revision page (**Bundle**) or with the CLI:
+
+```
+scantor revisions bundle http-title@3        # waits, then saves http-title-3-linux-amd64.bundle.tar.gz
+```
+
+The recipient runs `docker load -i <file>` once, then
+`docker run --rm -v "$PWD:/work" localhost/scantor/http-title:3 [--scan-config …] [--limit N]` and
+finds the results in `results/<time>/`. Privileged revisions cannot be bundled. A bundle contains the
+complete task image, so it is shared only with people who may see the code. Details:
+`scantor://guide/bundles` (`docs/guide/bundles.md`).
 
 ## Conventions of the MCP tools
 

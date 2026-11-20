@@ -1153,10 +1153,11 @@ by `SCANTOR_DIND=1`.
 | `scantor task pack <dir> [-o <file\|->]` | folder | deterministic tar.gz (§9.2); prints the pack summary |
 | `scantor task check-static <dir\|tgz\|-> [--expect-name <n>] [--allow-privileged]` | folder or pack | pack (if a folder), manifest rules (§3.2), required files (§2), Dockerfile policy (§8.2) |
 | `scantor task build <dir\|tgz\|-> --tag <ref> [--push [--push-gate <fd>]] [--expect-name <n>] [--allow-privileged] [--skip-check] [--reuse-existing] [--debug-build] [--events ndjson\|text]` | folder or pack | pack → static → build → describe → check → push; `--reuse-existing` skips the image build when an image tagged `--tag` already exists locally and was built on the current base image (its layers start with the base image's layers; otherwise it is rebuilt, so an upgrade that changes the base image also rebuilds drafts of unchanged tasks), used for content-addressed draft tags; the base image is resolved and recorded in `baseImage` either way; `--push-gate` makes the push wait for a go-ahead (§9.7) |
+| `scantor task bundle <info\|-> --image <ref> [--pull <host>/<repo>@sha256:<digest>] (--output-fd <fd> \| --output <file>) [--events ndjson\|text]` | the bundle info (`/scantor/bundle.json`) of a ready revision | derives the bundle image of the revision image and writes its gzip `docker save` archive (§9.11) |
 
-All three write events (§9.8) to stdout (`--events text` renders them for humans; the CLI default when
-stdout is a terminal) and exit with §9.9 codes. They need no platform credentials except `--push`
-(§9.7). Consumers:
+All four write events (§9.8) to stdout (`--events text` renders them for humans; the CLI default when
+stdout is a terminal) and exit with §9.9 codes. They need no platform credentials except `--push` (§9.7) and
+the pull of `bundle --pull` (§9.11). Consumers:
 
 | Consumer | Invocation |
 |---|---|
@@ -1165,10 +1166,11 @@ stdout is a terminal) and exit with §9.9 codes. They need no platform credentia
 | `scantor validate [dir]` | `task build --allow-privileged` with tag `scantor-dev/<name>:<packSha256[0:12]>`, no push, local Docker (local builds run on the user's own Docker; publish re-checks the manifest with the owner's `canRunPrivileged` on the server) |
 | `scantor dev run` / `scantor dev debug` | as validate (including `--allow-privileged`) with `--skip-check` (`dev debug` adds `--debug-build`), then local mode (§11.4) |
 | `scantor push [dir]` | `task pack` locally, then `POST /api/tasks/upload` (the server runs the full pipeline); inside the editor (`SCANTOR_WORKSPACE` set and the folder inside it) only `POST …/revisions`. A folder with `scantor-script.yaml` is uploaded as a script instead (`POST /api/scripts/upload`, [scripts](scripts.md) §12) |
+| orchestrator `bundle` job | `scantor task bundle - --image localhost:${SCANTOR_REGISTRY_PORT}/tasks/<taskId>:<revisionId> --pull localhost:${SCANTOR_REGISTRY_PORT}/tasks/<taskId>@<digest> --output-fd 3 --events ndjson` with the bundle info on stdin and `SCANTOR_REGISTRY_PUSH_PASSWORD` in the environment; fd 3 is a pipe whose bytes the job streams into `bundles/<taskId>/<bundleId>.tar.gz` (§9.11, [data model](data-model.md) §4.21) |
 | orchestrator `scriptRun` job | the run's stored `script-runs/<runId>/source.tar.gz` streamed into `scantor script build - --tag scripts/<scriptId>:<packSha256> --expect-name <script> --reuse-existing --events ndjson`: the same pack, static step (with `scantor-script.yaml` and rules S1–S6 instead of the task manifest) and build, no describe, check or push ([scripts](scripts.md) §4) |
 
 Hidden commands of the binary (omitted from `--help` and from the generated CLI reference
-`docs/guide/cli.md`): `scantor task pack | check-static | build` (this section), `scantor script build`
+`docs/guide/cli.md`): `scantor task pack | check-static | build | bundle` (this section), `scantor script build`
 ([scripts](scripts.md) §4), `scantor workspace …`
 (the workspace helpers, [editor](editor.md) §9), `scantor runtime …` ([runtime](runtime.md)), `scantor
 node egress-apply` (run inside the egress helper container, [nodes](nodes.md) §9), `scantor conformance
@@ -1267,7 +1269,8 @@ is the connector protocol, negotiated in `hello` ([protocol](protocol.md) §4).
 `ImagePush`, authenticating as the registry `orchestrator` credential (Basic `orchestrator:<password>`,
 [auth](auth.md) §10.4). Least privilege: the orchestrator derives the password itself (HKDF label
 `registry-push`, [architecture](architecture.md) §9) and passes only that value to the subprocess, in
-the environment variable `SCANTOR_REGISTRY_PUSH_PASSWORD` (never on the command line). `SCANTOR_SECRET`
+the environment variable `SCANTOR_REGISTRY_PUSH_PASSWORD` (never on the command line). The bundle step receives
+it too, only to pull a revision image again (§9.11). `SCANTOR_SECRET`
 is never passed to the task pipeline. The variable is internal to this subprocess call and is not a
 deployment setting; `--push` without it fails at start with a `platform` error (exit 3).
 
@@ -1339,6 +1342,9 @@ fields to the revision.
 | 2 | the task content is invalid: `pack`, `static`, `build` (including build timeout and image size), `describe` or `check` errors |
 | 3 | platform failure: `push`, `platform` (Docker unreachable, internal error) |
 
+`task bundle` uses the same codes: 2 for content errors of the bundle image (phase `build`: build timeout, image
+size, forbidden labels, ONBUILD triggers, a failing build step), 3 for everything else (phase `platform`).
+
 These are the CLI's global exit codes (0 ok, 1 analysis failures, 2 validation, 3 platform); `1` is used
 by `dev run` and by the commands that wait for a scan (`scans start --wait`, `scans get --wait`, `scans
 watch`) when the scan failed or was cancelled, the circuit breaker paused it, or it completed with failed
@@ -1360,6 +1366,83 @@ or lost analyses.
 | schema size / describe output | 256 KiB per schema / 1 MiB total |
 | describe / check errors reported | 200 each (later error events are counted in one log line) |
 | event text | 16 KiB per event; build log 10 MiB (then one truncation event, later log events dropped, errors and the result kept) |
+
+### 9.11 `bundle`
+
+`scantor task bundle` (`taskpipe.(*Pipeline).Bundle`, `internal/taskpipe/bundle.go` and `savetar.go`) builds the
+bundle of a ready revision ([architecture](architecture.md) §11.8): the revision image plus one layer with the
+runtime binary and the bundle info, saved, renamed and gzip-compressed. Only the orchestrator's `bundle` job runs
+it.
+
+| Flag | Meaning |
+|---|---|
+| `<info\|->` | the bundle info: a file or `-` for stdin (≤ 4 MiB) |
+| `--image <ref>` | the local revision image (required) |
+| `--pull <host>/<repository>@sha256:<digest>` | the revision image by digest on an explicit registry host (never Docker Hub); pulled with the `orchestrator` credential when the local image is absent or does not carry that digest |
+| `--output-fd <fd>` \| `--output <file>` | exactly one: an inherited file descriptor ≥ 3, or a file written only when the step succeeds (`-` is refused, stdout carries the events) |
+| `--events ndjson\|text` | as for `build` |
+
+Steps:
+
+1. **Parse the info** with `bundle.Parse` (`schemas/bundle.schema.json`, `additionalProperties: false` at every
+   level it defines; then a strict decode; `image == localhost/scantor/<task>:<revision>` and
+   `ref == <task>@<revision>`). An invalid info is a platform error. Only `Info.Marshal()` of the parsed value is
+   written into the image, so no key outside the allowlist can reach it.
+2. **Find the source image.** Inspect `--image` and use it when it exists and, with `--pull`, its `RepoDigests`
+   contain the pulled digest. Otherwise pull `--pull` with `container.Pull` and
+   `RegistryAuth("orchestrator", SCANTOR_REGISTRY_PUSH_PASSWORD, <host of --pull>)` and inspect it: the built-in
+   node's image GC may have removed the local tag. The credential is sent only in `X-Registry-Auth` to that host.
+3. **Check the platform.** The image must be `linux` with the architecture of `info.platform` (and its variant
+   when both name one), and the Docker daemon (`container.DaemonPlatform`) must be `linux` with the same
+   architecture, because the runtime binary comes from the runtime resolver (§9.6) and is the daemon's native
+   one. An image with `ONBUILD` triggers is refused (phase `build`), since they would run in the bundle build.
+4. **Tag the source** `scantor-bundle/<uuid>:src`. A deferred cleanup removes it and the build tag with
+   `context.WithoutCancel`, before the result event; the tasks GC removes tags a killed step left behind.
+5. **Build** `scantor-bundle/<uuid>:build` with BuildKit (`ImageBuild`, `Dockerfile: scantor/Dockerfile`,
+   `PullParent: false`, no build arguments, no auth configs, no labels) from a context written by
+   `container.InjectionArchive` with `scantor/scantor` (the runtime binary), `scantor/bundle.json` and
+   `scantor/Dockerfile`. The context is built in memory and sent with its length: a streamed (chunked) context of
+   about 1 MiB or more stalls at "load remote build context" on Docker Desktop with Engine 29. The generated
+   Dockerfile:
+
+   ```
+   FROM scantor-bundle/<uuid>:src
+   COPY scantor/scantor scantor/bundle.json /scantor/
+   WORKDIR /work
+   ENTRYPOINT ["/scantor/scantor", "runtime", "bundle"]
+   CMD []
+   HEALTHCHECK --interval=30s --timeout=10s --start-period=2m --start-interval=5s --retries=3 CMD ["/scantor/scantor", "runtime", "healthcheck"]
+   STOPSIGNAL SIGTERM
+   LABEL org.opencontainers.image.title="echo@3"
+   ```
+
+   `STOPSIGNAL SIGTERM` overrides a task Dockerfile's `STOPSIGNAL`, which the policy ignores for workers (W1).
+   The build shares the code of task builds (§9.4): BuildKit trace decoding into `build` log events, the
+   `SCANTOR_BUILD_TIMEOUT` cancel, the post-build `ImageInspect` (size ≤ `SCANTOR_MAX_IMAGE_BYTES`, no
+   forbidden label key, [security](security.md) LBL-3) and the cache prune to `SCANTOR_BUILD_CACHE_MAX_BYTES`.
+6. **Save and compress.** `ImageSave([buildTag])`, for the image's platform when the client's API version is 1.48
+   or later (so no attestation manifest is included). The tar stream passes `RewriteSaveNames(info.image)`, which
+   changes only the name entries: `manifest.json` `RepoTags` become `[localhost/scantor/<task>:<n>]`; in
+   `index.json`, every `manifests[]` entry gets `io.containerd.image.name` = the name and
+   `org.opencontainers.image.ref.name` = the tag and loses the `containerd.io/distribution.source.*` annotations
+   (they name the master's registry and repository); `repositories` becomes `{repo: {tag: <id>}}`. Every other
+   entry, the blobs included, is copied byte for byte; a name entry over 1 MiB, not a regular file or not valid
+   JSON is an error. The stream then goes through gzip (default level) and a SHA-256 and byte counter into the
+   output. The master never tags the public name, so bundles of two users' `echo@3` cannot collide.
+7. **Report** the final `result` event: `BundleResult {ok, bundle: {image, platform {os, arch, variant?},
+   imageBytes, bytes, sha256, scantorVersion} | null, errors, warnings, durationsMs}` (`durationsMs.save` covers
+   save, rewrite and compression). `bundle` is set only when the archive was written completely. Errors use the
+   phases `build` (content errors, exit 2) and `platform` (everything else, exit 3).
+
+The `bundle` job runs the step inside a build slot with a wall-clock limit of `SCANTOR_BUILD_TIMEOUT` + 30 min,
+pipes fd 3 through its own SHA-256 and byte counter into a multipart S3 upload (`uploadStream`,
+`application/gzip`), and marks the bundle `ready` only on exit 0 with `result.ok` and equal counts and hashes;
+otherwise it deletes the object and fails the bundle (exit 2) or retries ([data model](data-model.md) §4.12).
+`runPipelineCommand` (`services/pipeline/task-build.ts`) opens fd 3 as a readable pipe when given an `output`
+consumer (never together with `--push`), kills the subprocess when the consumer rejects, and reports that as the
+outcome's `outputError`. The wall-clock limit and a stop of the job also abort the consumer's signal, even after
+the subprocess ended, and `uploadStream` aborts the upload on it: an S3 request that hangs (the client sets no
+request timeout) cannot hold the build slot and the job beyond the limit.
 
 ## 10. Revisions
 

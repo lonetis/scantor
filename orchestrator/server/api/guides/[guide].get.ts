@@ -3,11 +3,16 @@ defineRouteMeta({
     tags: ['catalog'],
     operationId: 'getGuide',
     summary: 'Get a user guide',
-    description: 'Returns a user guide as Markdown: templates, manifest, errors-and-retries, cli, mcp, remote-nodes or scripts.',
+    description: 'Returns a user guide as Markdown: templates, manifest, errors-and-retries, cli, mcp, remote-nodes, scripts or bundles.',
     'x-scantor-scope': 'owner',
     'x-mcp': false,
     parameters: [
-      { name: 'guide', in: 'path', required: true, schema: { type: 'string', enum: ['templates', 'manifest', 'errors-and-retries', 'cli', 'mcp', 'remote-nodes', 'scripts'] } },
+      {
+        name: 'guide',
+        in: 'path',
+        required: true,
+        schema: { type: 'string', enum: ['templates', 'manifest', 'errors-and-retries', 'cli', 'mcp', 'remote-nodes', 'scripts', 'bundles'] },
+      },
     ],
     responses: {
       200: { description: 'The guide', content: { 'text/markdown': { schema: { type: 'string' } } } },

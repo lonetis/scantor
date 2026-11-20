@@ -85,7 +85,7 @@ orchestrator/app/
 └── utils/                        auto-imported pure helpers: status.ts, format.ts, errors.ts,
                                   json-pointer.ts, ansi.ts, navigation.ts, schema-subset.ts, download.ts,
                                   clipboard.ts, consent.ts (OAuth consent access levels), dialog.ts (modal
-                                  focus), ui-prefs.ts (§14 store shape)
+                                  focus), ui-prefs.ts (§14 store shape), bundles.ts (§5.9 bundle helpers)
 ```
 
 Types and validation schemas are shared with the server, never duplicated in `app/`:
@@ -109,7 +109,7 @@ Pages call their composables directly; there is no event relaying through layout
 | Shell | `AppSidebar`, `AppLogo`, `ThemeToggle`, `UserMenu`, `RefreshButton`, `SidebarCollapseButton` |
 | Common | `StatusBadge` (kind + state → color/icon/label from `utils/status.ts`), `IdChip` (short id + copy), `CopyButton`, `RelativeTime`, `DurationText`, `BytesText`, `JsonView` (text-only, collapsible, long-string truncation), `InlineCodeText` (template and schema descriptions with Markdown code spans as `<code>`, everything else plain text), `CodeBlock`, `LogView` (ANSI-stripped, follow toggle), `EmptyState`, `ConfirmModal`, `SecretRevealModal` (token/key shown once), `KeyValueEditor`, `FileDropZone`, `LoadMoreButton`, `NumberInput` (`UInputNumber` whose increment and decrement buttons have tooltips; used instead of it everywhere), `CloseButton` (the `#close` slot of every `UModal` and `USlideover`, with its tooltip) |
 | Schema forms | `SchemaForm`, `SchemaField` (dispatcher), `StringField`, `NumberField`, `BooleanField`, `EnumField`, `ArrayField`, `ObjectField`, `MapField`, `UnionField` (discriminated unions), `UploadField`, `JsonField`, `SchemaTable` (read-only schema viewer) |
-| Tasks | `TaskTable`, `TaskHeader`, `TaskWorkspaceCard`, `TaskFilesBrowser`, `RevisionTable`, `RevisionFacts`, `BuildLog`, `BuildErrors`, `DescribeView`, `PublishModal`, `TestRunPanel`, `TestRunAnalysisSlideover`, `WizardSourceStep`, `WizardLanguageStep`, `WizardTemplateStep`, `WizardNameStep`, `WizardGitStep`, `WizardUploadStep` |
+| Tasks | `TaskTable`, `TaskHeader`, `TaskWorkspaceCard`, `TaskFilesBrowser`, `RevisionTable`, `RevisionFacts`, `BuildLog`, `BuildErrors`, `DescribeView`, `PublishModal`, `BundleModal`, `TestRunPanel`, `TestRunAnalysisSlideover`, `WizardSourceStep`, `WizardLanguageStep`, `WizardTemplateStep`, `WizardNameStep`, `WizardGitStep`, `WizardUploadStep` |
 | Scans | `ScanTable`, `ScanHeader`, `ScanControls`, `ScanProgress`, `ScanStats`, `ScanHealth`, `ConditionItem`, `ScanSettingsCard`, `ScanResultsTable`, `ResultsFilterBar`, `AnalysisSlideover`, `AttemptsTable`, `FileChip`, `QueryConsole`, `ExportsPanel`, `ExportModal`, `ScaleModal`, `RestartModal`, `WorkersTable`, `InflightTable`, `WorkerLogsModal`, `EventTimeline`, `NewScanForm`, `RevisionPicker`, `SettingsFields`, `EstimateBadge` |
 | Scripts | `ScriptTable`, `ScriptRunsTable`, `ScriptRunForm`, `ScriptScanPicker`, `ScriptSecretsField`, `ScriptRunRestartModal`, `RunScriptModal`, `FilesBrowser` (shared with `TaskFilesBrowser`) |
 | Admin | `NodeTable`, `NodeFormModal`, `NodeJoinModal`, `UserTable`, `UserFormModal`, `BanUserModal`, `ToolCard`, `JobsTable` |
@@ -190,7 +190,7 @@ again). Layout `auth` for the three public pages, `default` everywhere else.
 | `/tasks` | `pages/tasks/index.vue` | | `listTasks` |
 | `/tasks/new` | `pages/tasks/new.vue` | | `listLanguages`, `listScaffolds`, `listTemplates`, `createTask`, `importGitTask`, `uploadTask`, `listCredentials` |
 | `/tasks/:taskId` | `pages/tasks/[taskId]/index.vue` | | `getTask`, `getTaskWorkspace`, `listRevisions`, `listTaskFiles`, `readTaskFile`, `testTask`, `streamTestRun`, `listTestRuns`, `getTestRun`, `cancelTestRun`, `publishRevision`, `pullGitTask`, `deleteTask`, `listScans` |
-| `/tasks/:taskId/revisions/:revision` | `pages/tasks/[taskId]/revisions/[revision].vue` | | `getRevision`, `getRevisionBuildLog`, `downloadRevisionSource` |
+| `/tasks/:taskId/revisions/:revision` | `pages/tasks/[taskId]/revisions/[revision].vue` | | `getRevision`, `getRevisionBuildLog`, `downloadRevisionSource`, `getRevisionBundle`, `createRevisionBundle` |
 | `/scripts` | `pages/scripts/index.vue` | | `listScripts` |
 | `/scripts/new` | `pages/scripts/new.vue` | | `createScript` |
 | `/scripts/:scriptId` | `pages/scripts/[scriptId]/index.vue` | | `getScript`, `listScriptFiles`, `readScriptFile`, `listScriptRuns`, `startScriptRun`, `listScans`, `getScan`, `deleteScript`, `downloadScriptWorkspace` (link) |
@@ -406,7 +406,19 @@ Tabs (`?tab=`):
 
 - Header: ref `echo@3`, state badge, message, created/started/finished and build duration, privileged
   badge; actions "Start scan" (ready only, → `/scans/new?revision=<taskId>@<number>`), "Download source"
-  (anchor `downloadRevisionSource?redirect=true`), "View files" (→ task `files` tab with `revision`).
+  (anchor `downloadRevisionSource?redirect=true`), "Bundle" (opens `BundleModal`; enabled for ready revisions
+  that are not privileged, otherwise disabled with the reason as tooltip, `canBundle` in `utils/bundles.ts`),
+  "View files" (→ task `files` tab with `revision`).
+- **Bundle** (`BundleModal`, "Bundle of `<ref>`", mounted only while open): the warning "A bundle contains the
+  complete task image, including every file of the task folder. Anyone with the file can run and inspect it."
+  first; without a bundle (404) a short explanation and "Create bundle" (`createRevisionBundle`); while the
+  bundle is `queued` or `running` its state badge (`StatusBadge` kind `bundle`) in a `role="status"` element and
+  the elapsed time next to it, which ticks every second and is therefore outside the live region (not
+  announced); when `ready` the platform, size, expiry, file name, SHA-256 and runtime version, "Download
+  bundle" (navigates to `download.url`, read again with `getRevisionBundle` when the link expires within 30 s)
+  and the recipient's `commands` as copyable `CodeBlock`s titled "Load once", "Run" and "Describe"; when `failed`
+  the error (`message (code)`) and "Try again" (`createRevisionBundle?rebuild=true`). Errors of the create are
+  shown inline, not as a toast.
 - Facts (`dl` grid): source kind, pack hash, files, packed bytes, git `{url, ref, path, commit, dirty}`,
   base image ref and digest, image repository, digest, size, platform `os/arch`, connector language and
   version, protocol version, schedule (`template:<name>` or `custom`).
@@ -903,6 +915,7 @@ field, on the nearest rendered ancestor, or as a form-level alert when no field 
 | `useScripts()`, `useScript(id)`, `useScriptChoices()`, `useScriptActions()` | script lists, one script polled (§9), the searchable script select of "Run script", create and delete with toasts |
 | `useScriptRuns(scriptId)`, `useScriptRun(runId)`, `useScriptRunLog(run)`, `useScanChoices()`, `useScriptRunActions()` | run history, one run polled while active, the incremental log reader (`afterLine`, last 5000 lines), the scan picker's choices, start, cancel and restart |
 | `useBuildLog(taskId, revision)` | incremental build-log reader (`afterLine`) |
+| `useBundle(taskId, revision)` | the revision's bundle: `getRevisionBundle` (404 = none), polled while `queued`/`running`; `create(rebuild)` and `download()` (a fresh presigned link when the current one expires within 30 s) |
 | `useSchemaForm(schema)` | subset detection, validator cache (`@cfworker/json-schema`), error mapping |
 | `useUiPrefs()` | versioned localStorage store (§14) |
 | `useFollowScroll(container, lineCount)` | "Follow log" of `LogView` and `BuildLog`: scrolls to the end on mount and on new lines while following, pauses when scrolled up |
@@ -964,6 +977,7 @@ per consumer; stops on unmount.
 | Tasks list | 30 s | page visible |
 | Task detail (`getTask`) | 10 s; 2 s while `latestRevision.state` is `queued`/`building` | page visible |
 | Revision + build log | 1 s | `queued`/`building` until the log is `complete` |
+| Bundle (`getRevisionBundle`) | 2 s | `BundleModal` open, until the first answer and while the bundle is `queued`/`running` |
 | Test run | SSE (`streamTestRun`); fallback 2 s polling | until settled |
 | Scripts list | 30 s | page visible |
 | Script detail (`getScript`) | 10 s; 3 s while `latestRun` is active | page visible |
@@ -1002,6 +1016,7 @@ per consumer; stops on unmount.
 | worker | `pending` warning · `assigned`/`pulling`/`starting` info · `running` success · `backoff` error · `draining` warning · `stopped` neutral · `lost` error |
 | node | `pending` neutral · `online` success · `offline` error · `revoked` neutral; cordoned → extra warning badge |
 | export / job | `queued` neutral · `running` info · `ready`/`succeeded` success · `failed` error · `cancelled` neutral |
+| bundle | `queued` neutral · `running` info · `ready` success · `failed` error (as exports) |
 | editor | `starting` info · `running` success · `stopping` warning · `stopped` neutral |
 | condition severity | `info` info · `warning` warning · `error` error |
 
@@ -1028,7 +1043,8 @@ of the contract:
    query", "Show worker logs", "Follow log", "Edit as JSON", "Show value", "Add item", "Copy to clipboard",
    "Add node", "Node actions", "Rotate token", "Revoke token", "Create key", "Stop editor", "Approve",
    "Deny", "Run script", "Download script", "Delete script", "Cancel script run", "Run again", "Resume",
-   "Download source", "Try on 100 analyses", "Run on all", "Add secret", "Back to the script", "Back to the scripts"; radio labels on the consent page: "Read only", "Read and write", "Admin". Where the same
+   "Download source", "Try on 100 analyses", "Run on all", "Add secret", "Back to the script", "Back to the scripts",
+   "Bundle", "Create bundle", "Download bundle", "Try again"; radio labels on the consent page: "Read only", "Read and write", "Admin". Where the same
    control repeats within a region, the canonical name is followed by its context ("Add item to
    <field>", "Remove item <n> from <field>", "Show value of <field>", "User actions for <email>"), so
    tests match these names by their canonical prefix.

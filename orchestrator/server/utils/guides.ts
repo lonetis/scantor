@@ -16,7 +16,7 @@ export type AuthoringGuideKind = (typeof AUTHORING_GUIDE_KINDS)[number]
 const GUIDE_DIR = 'docs/guide/'
 
 /** Guides served by name (`docs/guide/<name>.md`). */
-export const GUIDE_NAMES = ['templates', 'manifest', 'errors-and-retries', 'cli', 'mcp', 'remote-nodes', 'scripts'] as const
+export const GUIDE_NAMES = ['templates', 'manifest', 'errors-and-retries', 'cli', 'mcp', 'remote-nodes', 'scripts', 'bundles'] as const
 export type GuideName = (typeof GUIDE_NAMES)[number]
 
 export type GuideReader = (file: string) => Promise<string | null>

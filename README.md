@@ -44,6 +44,8 @@ Python scripts.
   parallel threads and processes, stores output files such as CSV reports and returns a summary. Runs
   can last days, report progress and resume from checkpoints; sample runs try a new script on a few
   analyses first.
+- **Bundles**: share a revision as one file that anyone with Docker can run without the platform: the
+  schedule and every analysis run in one container and write plain result files.
 - **Push notifications**: get a [ntfy](https://ntfy.sh) push on your phone or desktop when a scan
   finishes, the platform pauses it, an error condition appears, a revision build ends or a script run
   completes or fails; each user picks their own topic on the account page, and admins can also follow
@@ -218,6 +220,8 @@ public ports to a reachable address.
 | **node** | A Docker host that runs workers. The master has a built-in node; remote nodes add more. |
 | **script** | A Python folder with a manifest `scantor-script.yaml`, a `Dockerfile` and an entry file that evaluates the results and files of your scans. Scripts have no revisions. |
 | **script run** | One execution of a script on up to 20 of your scans: the folder as it was at the start is built and run in one container on the master. It ends `completed` with a result and output files, `failed` or `cancelled`. |
+| **bundle** | One file that holds a ready revision as a Docker image, with the runtime and the revision's defaults. It runs with only Docker, without the platform. |
+| **bundle run** | One `docker run` of a bundle outside the platform. It ends with plain result files in the folder mounted at `/work`. |
 
 A task has three config levels, each a typed object whose fields should all have defaults:
 
@@ -456,6 +460,27 @@ scan's page with **Run script**), follow their progress and logs, and download t
 do it with the MCP tools. Long runs checkpoint their position and continue with a restart with resume.
 The [scripts guide](docs/guide/scripts.md) covers the whole API.
 
+## Sharing a task as a bundle
+
+A bundle is one file with a ready revision, the runtime and the revision's defaults. Create it on the
+revision page (**Bundle**) or with the CLI, and hand it to anyone with Docker:
+
+```sh
+scantor revisions bundle my-task@3        # create the bundle, wait, download my-task-3-linux-amd64.bundle.tar.gz
+```
+
+The recipient needs no account and no CLI. They load the file once and run it in a folder of its own; the
+results land in `results/<time>/` of that folder as `results.jsonl`, `run.json` and the analyses' files:
+
+```sh
+docker load -i my-task-3-linux-amd64.bundle.tar.gz
+docker run --rm -v "$PWD:/work" localhost/scantor/my-task:3 --scan-config '{"count": 100}' --processes 4
+```
+
+A bundle contains the complete task image, so share it only with people who may see your code. The
+[bundles guide](docs/guide/bundles.md) covers configs, local files, settings, results, platforms and a
+hardened `docker run`.
+
 ## Using scantor with LLM agents
 
 scantor has a built-in MCP server at `<your scantor URL>/mcp`. With it an agent such as Claude Code
@@ -500,3 +525,4 @@ MCP clients.
 | [CLI reference](docs/guide/cli.md) | look up every command and flag |
 | [MCP](docs/guide/mcp.md) | connect agents |
 | [Remote nodes](docs/guide/remote-nodes.md) | add Docker hosts as nodes |
+| [Bundles](docs/guide/bundles.md) | run a revision anywhere with only Docker |

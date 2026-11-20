@@ -1,12 +1,12 @@
 # Runtime
 
 This document specifies the **runtime**: the language-agnostic Go process `scantor runtime` that runs inside
-every worker container, every test-run and `scantor dev run` container, and every describe/check container
-of the task pipeline. It defines the runtime's modes, how it is injected and configured, how it bootstraps
+every worker container, every test-run and `scantor dev run` container, every describe/check container
+of the task pipeline, every script-run container and, baked in, every bundle image. It defines the runtime's modes, how it is injected and configured, how it bootstraps
 and polls the orchestrator, how it consumes and publishes on RabbitMQ (one channel per process slot plus a
 shared confirm publisher), how it manages connector processes, the exact run and schedule paths, the unified
 error model, the retry policy, platform-error handling, logging, all limits and timers, graceful shutdown,
-and the local-mode output format. All retry, timeout, upload, publish and error-classification logic of
+the local-mode output format, and bundle mode with its results directory. All retry, timeout, upload, publish and error-classification logic of
 scantor lives here and nowhere else. The broker topology and the ingestor that consumes what the runtime
 publishes are in [queue](queue.md); the wire format between the runtime and connector processes is in
 [protocol](protocol.md); the HTTP routes it calls are in [api](api.md) §8; persistent state is in
@@ -18,7 +18,7 @@ publishes are in [queue](queue.md); the wire format between the runtime and conn
 
 | Concern | The runtime does | It does not |
 |---|---|---|
-| Configuration | reads the variables the node daemon sets (§3.2) and the base-image ENV contract; gets everything else from `GET /api/runtime/bootstrap` | read `.env`, config files or flags for behaviour |
+| Configuration | reads the variables the node daemon sets (§3.2) and the base-image ENV contract; gets everything else from `GET /api/runtime/bootstrap` (bundle mode: from `/scantor/bundle.json` and the recipient's flags, §15.7) | read `.env` or config files; take flags for behaviour (except bundle mode, whose flags are the recipient's interface) |
 | Queue | consumes the scan queue (runners), publishes analyses (scheduler, retries), results and attempt events, with publisher confirms and `mandatory` | declare queues or exchanges (its RabbitMQ user has configure `^$`) |
 | Connector processes | spawns, supervises, recycles and resizes them; enforces timeouts by killing process groups | parse user-code types (the connector is the authoritative validator) |
 | Templates | runs unwrapped templates natively (`internal/templates/<name>`) and serves wrapped template calls | — |
@@ -59,11 +59,14 @@ path), `scheduler` (schedule path, checkpoints), `worker` (worker-mode wiring: t
 inner `dockerd`, AMQP, role, signals, exit code), `local`, `describe`, `check`, `pipeline` (the task-pipeline
 events of describe and check, §16), `scerr` (the error model, truncation and retry policy), `logtail`,
 `upload`, `canonical` (RFC 8785 JSON), `dind` (the inner `dockerd`, §4.4), `health` (the heartbeat file and
-the container healthcheck, §5.3), `script` (script mode, §16); `internal/runtime/internal/`
-holds the test fakes (`fakeapi` orchestrator, `fakebroker`, `fakeconn` scripted connector). The hidden
-`scantor runtime worker|local|describe|check|script|healthcheck` commands are registered in `internal/cli/runtime.go`. Shared
-code: `internal/protocol` (connector messages), `internal/templates` (native templates), `internal/api`
-(wire types and the transport policy check shared with the node daemon, §4.2), `internal/languages`.
+the container healthcheck, §5.3), `script` (script mode, §16), `bundlerun` (bundle mode: flags, prepare, upload
+files, settings, the results-directory sink, the console, `--describe`, the PID 1 reaper, §15.7–§15.9);
+`internal/runtime/internal/` holds the test fakes (`fakeapi` orchestrator, `fakebroker`, `fakeconn` scripted
+connector). The hidden `scantor runtime worker|local|bundle|describe|check|script|healthcheck` commands are
+registered in `internal/cli/runtime.go`. Shared code: `internal/protocol` (connector messages),
+`internal/templates` (native templates and the compiled-in data-source URLs), `internal/api` (wire types and the
+transport policy check shared with the node daemon, §4.2), `internal/bundle` (the bundle info and names),
+`internal/schema` (effective configs), `internal/languages`.
 
 ## 2. Modes
 
@@ -75,19 +78,23 @@ code: `internal/protocol` (connector messages), `internal/templates` (native tem
 | **describe** | `/scantor/scantor runtime describe --entry <entry>` | task pipeline (`scantor task build`) | none | none | 1 | NDJSON task-pipeline events on stdout (§16) |
 | **check** | `/scantor/scantor runtime check --entry <entry>` | task pipeline | none | none | 0 (runs `SCANTOR_CHECK_CMD`) | NDJSON task-pipeline events on stdout (§16) |
 | **script** | `/scantor/scantor runtime script --entry <entry>` | `scriptRun` job (orchestrator) | none | none itself; the script calls `/api/script-runtime/*` | 0 (runs `SCANTOR_SCRIPT_CMD` as one process group) | the script's own stdout and stderr, unframed (the job stores them as the run log) |
+| **bundle** | `/scantor/scantor runtime bundle [flags]` (the image `ENTRYPOINT`, baked in) | the recipient of a bundle (`docker run`) | none | none | 1 (describe; a custom schedule keeps it) plus `processes`, streaming | human progress or NDJSON events (`-o json`) on stdout; `run.json`, `results.jsonl` and `files/` in a run directory under `/work` (§15.7–§15.9) |
 
 The role of a worker is not a command-line choice: it comes from the worker token and is returned by
 bootstrap (`worker.role`). "Scheduler mode" and "runner mode" in other documents mean worker mode with that
-role. Flags exist only on `local`, `describe`, `check` and `script`, which are invoked by scantor's own code, never by
-users; they carry inputs (paths, the entry), not configuration. `/scantor/scantor runtime healthcheck` is no
-mode: Docker runs it inside worker, local-mode and script-run containers as their healthcheck (§5.3).
+role. Flags exist only on `local`, `describe`, `check`, `script` and `bundle`. The first four are invoked by
+scantor's own code, never by users; they carry inputs (paths, the entry), not configuration. Bundle mode is the
+one documented exception: it is the entrypoint of bundle images, so a recipient passes its flags to `docker run`
+and they are a user interface ([guide](guide/bundles.md)). `/scantor/scantor runtime healthcheck` is no mode:
+Docker runs it inside worker, local-mode, script-run and bundle containers as their healthcheck (§5.3).
 
 ## 3. Injection and environment
 
 ### 3.1 Injection
 
-The runtime is never part of an image. Every consumer injects its own static binary (`CGO_ENABLED=0`,
-linux, the consumer's architecture) into the task container:
+The runtime is never part of an image, with one exception: a bundle image carries it at `/scantor/scantor`,
+because its recipient has nothing to inject it with (§15.7, [architecture](architecture.md) D24). Every consumer
+injects its own static binary (`CGO_ENABLED=0`, linux, the consumer's architecture) into the task container:
 
 1. `ContainerCreate` with `Entrypoint: ["/scantor/scantor", "runtime", "<mode>", …flags]`, `Cmd: []`,
    `WorkingDir` unset (the image's `WORKDIR /task` applies), managed labels and the hardening profile
@@ -121,7 +128,7 @@ the handshake (`hello`/`welcome`, §7.2).
 |---|---|---|---|
 | `SCANTOR_URL` | node daemon (from the endpoint profile: `SCANTOR_INTERNAL_URL` on the built-in node, `SCANTOR_PUBLIC_URL` on remote nodes) | worker | orchestrator base URL |
 | `SCANTOR_WORKER_TOKEN` | node daemon (from the assignment) | worker | `swt_<workerId>.<mac>`; read once at start, then removed from the runtime's own environment |
-| `SCANTOR_CA_CERT` | node daemon (passthrough of its own value) | worker | optional PEM bundle appended to the system roots for HTTPS, AMQPS and S3 |
+| `SCANTOR_CA_CERT` | node daemon (passthrough of its own value); the recipient of a bundle (`docker run -e`) | worker, local, bundle | optional PEM bundle appended to the system roots for HTTPS, AMQPS and S3 (worker) and for the template data sources (local, bundle) |
 | `SCANTOR_ALLOW_INSECURE_TRANSPORT` | node daemon (passthrough) | worker | `true` permits plaintext to public hosts (§4.2) |
 | `SCANTOR_DIND` | node daemon (sysbox and privileged DinD workers only, [nodes](nodes.md) §6.9) | worker | `1` = start the inner `dockerd` before any connector process (§4.4); absent otherwise |
 | `SCANTOR_LANGUAGE` | base image ENV | all | the image's language names (`typescript javascript` in `scantor-base-js`); informational (logs; fallback of the `start` event's `language`, §15.3) |
@@ -131,6 +138,7 @@ the handshake (`hello`/`welcome`, §7.2).
 | `SCANTOR_CHECK_CMD` | base image ENV | check | static type-check command template; empty = skipped |
 | `SCANTOR_SCRIPT_CMD` | base image ENV (only images of a language with scripts) | script | command template that starts a script (`python -m scantor.script {entry}`); missing = exit 2 |
 | `SCANTOR_URL`, `SCANTOR_SCRIPT_TOKEN` | the `scriptRun` job (container env) | script (passed through, never read) | the orchestrator's internal URL and the run's `ssr_` token, read by the script SDK ([scripts](scripts.md) §9.2) |
+| `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL`, `SCANTOR_CRUX_CACHE_URL` | the recipient of a bundle (`docker run -e`, optional) | bundle | template data-source URLs (`http` or `https`; an invalid value ends the run with exit 3); unset means the compiled-in public URLs of `internal/templates`, never the master's overrides |
 | `TMPDIR` | image (optional) | all | parent of the work root; default `/tmp` |
 
 Operator-facing variables (`SCANTOR_CA_CERT`, `SCANTOR_ALLOW_INSECURE_TRANSPORT`) are documented only in
@@ -138,7 +146,10 @@ Operator-facing variables (`SCANTOR_CA_CERT`, `SCANTOR_ALLOW_INSECURE_TRANSPORT`
 configuration: the node daemon sets `SCANTOR_URL`, `SCANTOR_WORKER_TOKEN` and `SCANTOR_DIND`
 ([nodes](nodes.md) §6.3), and the base-image variables belong to the base image contract ([tasks](tasks.md)
 §4.2). Everything else (limits, intervals, credentials, data-source URLs) comes from bootstrap (worker mode)
-or the local spec (local mode).
+or the local spec (local mode). Bundle mode reads its limits and defaults from the bundle info and lets the
+recipient set the data-source URLs and the CA bundle; the data-source variables are documented in the data-source
+section of `.env.example` (where they configure the master) and in the bundles guide. The variables a recipient
+passes reach connector processes like the rest of the environment, except `SCANTOR_CA_CERT` (§3.4).
 
 ### 3.3 Command templates
 
@@ -347,6 +358,7 @@ configuration; it derives the work root from the same `TMPDIR` as the runtime.
 | worker | after every answered state poll (§5.1; not a 401), with `intervalMs` = the `nextPollMs` in use | the role runs and the orchestrator answers its polls |
 | local | at start (after the work root is prepared) and every 10 s until the run ends | the runtime is alive |
 | script | `Mode: "script"` at start and every 10 s while the script runs | the supervisor is alive |
+| bundle | as local (the run is local mode's); the image config declares the check with the values below, since no consumer creates the container | the run is alive |
 | describe, check | none; the container spec sets `Healthcheck: {Test: ["NONE"]}` | — (one-shot) |
 
 The container spec (Go `internal/container.RuntimeHealthcheck`, used by the node daemon for workers and by
@@ -1192,6 +1204,9 @@ backoff for non-zero exits ([nodes](nodes.md)).
 
 Local mode runs a task without queue or platform: `schedule` (limited) and then `run`, in one container. It
 backs `scantor dev run`, `scantor dev debug` and platform test runs ([architecture](architecture.md) §11.1).
+Bundle mode (§15.7) runs on the same code path in its streaming variant (§15.6): one run path, whose options
+(`local.Options`: `Events`, `Stream`, `UncappedRetryDelay`, `FileOwner`, `Stop`) only bundle mode sets, so dev runs
+and test runs keep their behaviour and event order.
 
 ### 15.1 Invocation and spec
 
@@ -1275,7 +1290,7 @@ json`); `ScantorError.at` uses the same format.
 | `attempt` | `at, seq, attempt, error, nextAttemptAt` | a retryable failure with attempts left |
 | `result` | `at, seq, status: "succeeded"\|"failed", attempt, config, result (or null), error (or null), files: [{id, name, size, sha256, contentType, path}], logTail, attempts: Attempt[], timings: {scheduledAt, startedAt, finishedAt, durationMs}` | the analysis is final; `path` is relative to `outDir` |
 | `error` | `at, error` | a failure not tied to an analysis (connector start, describe, resolution, schedule) |
-| `end` | `at, reason: "done"\|"limit"\|"scheduleFailed"\|"startFailed"\|"timeout"\|"interrupted", summary: {analyses, succeeded, failed}, exitCode` | last line |
+| `end` | `at, reason: "done"\|"limit"\|"scheduleFailed"\|"startFailed"\|"timeout"\|"interrupted"\|"outputFailed", summary: {analyses, succeeded, failed}, exitCode` (`outputFailed` only in bundle mode, §15.9) | last line |
 
 Example:
 
@@ -1310,6 +1325,163 @@ With `debug: true`: connector processes are started with `SCANTOR_DEBUG_CMD` ins
 the `start` event reports
 `debugPort = SCANTOR_DEBUG_PORT`. Publishing the port (bound to 127.0.0.1) and Go debug builds are the CLI's
 job ([development](development.md)).
+
+### 15.6 Streaming runs
+
+`local.Run` with `Stream: true` (bundle mode only) runs the analyses while the schedule produces them, instead of
+collecting `limit` items first (§15.2 step 2–3):
+
+1. A producer goroutine takes items from the schedule (native template, connector schedule or the single
+   `analysisConfig` item) and sends them into a queue of `2 × processes` items; `processes` lanes consume it from
+   the start. Backpressure therefore reaches native template iterators and the connector's schedule stream on
+   fd 4, and the schedule's item timer runs only inside `Next`.
+2. `limit` 0 means no limit; otherwise the `limit + 1` pull of §15.2 stays (a stream of exactly `limit` items ends
+   with `done`, a longer one with `limit`). The JSON spec of `runtime local --spec` still requires `limit ≥ 1`;
+   bundle mode builds its spec in Go.
+3. A custom schedule keeps the describe process (`first`) until the schedule ends and then retires it, so the run
+   uses `processes + 1` connector processes, as a scan does (one scheduler process beside the runners). For
+   native templates and analysis-config runs, `first` becomes the process of lane 0.
+4. `scheduled` events interleave with `attempt` and `result` events.
+5. A schedule error stops production: the items already produced finish, then the run ends `scheduleFailed`
+   (exit 1, or 2 for a validation error).
+6. Spawn failures: a failed spawn fails its item with a `platform` error (`bootstrap` phase) as in §15.2; the
+   lane then waits 1 s before its next item, doubling up to 60 s, and the wait ends early on an abort. Three
+   consecutive failed spawns across the lanes, without a successful spawn in between, abort the run with
+   `startFailed` (exit 3), so an unbounded stream does not turn into an endless series of platform failures.
+7. Retries stay inline on their lane. `UncappedRetryDelay` sets the policy's `MaxDelay` to 0, so the backoff of
+   the settings applies as in scans (§10) instead of the 2 s cap of dev runs; a waiting retry holds its process.
+8. `FileOwner {UID, GID}` gives `outDir/files` and every directory and file `copyFiles` creates to that owner
+   (best effort, errors ignored).
+9. `Events` (a `local.Sink`: `Emit(event)`, `Err()`) receives the events instead of an NDJSON emitter on stdout;
+   a sink error ends the run with exit 3. `Stop`, when closed, aborts the run like a signal with reason
+   `outputFailed` (exit 3); the message of the cancelled analyses names the run (`the run stopped: its output could
+   not be written`), not "the local run".
+
+Total timeout and signals behave as in §15.2: process groups are killed, in-flight analyses end `failed` with
+type `cancelled`, queued items are dropped, and `end` carries `timeout` or `interrupted`.
+
+### 15.7 Bundle mode
+
+`/scantor/scantor runtime bundle [flags]` (package `internal/runtime/bundlerun`, hidden cobra command with its own
+signal handling) is the `ENTRYPOINT` of a bundle image ([tasks](tasks.md) §9.11). Its flags are the recipient's
+interface ([guide](guide/bundles.md)); `docker run <image> --help` prints the real `docker run` lines with the
+image's name instead of the hidden command's help.
+
+| Flag | Meaning |
+|---|---|
+| `--task-config`, `--scan-config`, `--analysis-config` | JSON, `@file` (relative to the work directory `/work`; absolute paths allowed) or `-` (stdin; at most one flag may use it), ≤ 16 MiB, a JSON object. The value is the whole config; schema defaults fill the rest, as in scans. `--analysis-config` runs `run` once (seq 0) without `schedule`; the scan config is then `{}` unless given |
+| `--settings` | partial settings in the same forms: `processes`, `timeoutMs`, `maxAttempts`, `backoff` (merged field by field), `maxAnalysesPerProcess` |
+| `--processes N` | overrides `settings.processes`; 0 = not given |
+| `--limit N` | at most N items from the schedule; 0 or absent = the whole schedule (§15.6) |
+| `--total-timeout <duration>` | `totalTimeoutMs` of the run; 0 = none |
+| `--out DIR` | the run directory, relative to `/work`; default `results/<UTC yyyymmddThhmmssZ>` with a `-2`, `-3`, … (≤ 1000) suffix when it exists (claimed when the run starts, step 4) |
+| `--log-tails failed\|all\|none` | which `results.jsonl` lines keep `logTail` (default `failed`) |
+| `--describe` | print and exit (below) |
+| `-o human\|json` | the root output flag: `json` prints the masked events as NDJSON (§15.3), and `--describe` one JSON document |
+
+Sequence:
+
+1. **PID 1.** A bundle image runs without `docker run --init`. When the process is PID 1, `Reap` re-executes
+   `/proc/self/exe` with the same arguments as its child, forwards SIGINT, SIGTERM, SIGHUP and SIGQUIT to it,
+   reaps every orphan the connectors leave (on SIGCHLD and every second) and exits with the child's code, or
+   128 + signal when a signal ended the child. The child is not PID 1 and runs normally; with `--init` nothing
+   is re-executed.
+2. **Bundle info.** Read `/scantor/bundle.json` with `bundle.Parse` (schema `schemas/bundle.schema.json`, strict
+   decode, image and ref equal to the task and revision). A failure exits 3 (`not a scantor bundle image`).
+   `runtime.LoadConfig` reads the environment (§3.2); an invalid value exits 3.
+3. **Prepare** (every issue is a usage error: `path: message` lines on stderr, or with `-o json` an `error` event
+   with `details.issues` and an `end` event `startFailed`; exit 2, nothing is written):
+   - parse the flag values and reject a negative `--limit` or `--total-timeout` and an unknown `--log-tails`;
+   - substitute the files at upload fields (below);
+   - fill and check each config with `schema.Effective` against the baked schema (ajv-identical defaults);
+     a value `"***"` at a secret path is refused (a config copied from masked output), and so is a value at an
+     upload path that is not a file of this run (for example a default naming a platform upload). An issue at or
+     below a secret path names only the failing keyword (`does not satisfy the schema's pattern (secret values
+     are not shown)`), because the messages of `pattern`, `format` and others quote the value; only `type`,
+     `required` and the length and count bounds keep their message;
+   - for an unwrapped template, `templates.Lookup` and the template's own `Effective` (as the scheduler does
+     before it resolves);
+   - merge the settings over the baked defaults and check the bounds of scans (`settingsIssues`, [data
+     model](data-model.md) §4.5.1): `processes` 1 to `limits.maxProcesses`, `timeoutMs` and
+     `backoff.initialMs`/`maxMs` 1 000–86 400 000 with `initialMs ≤ maxMs`, `maxAttempts` 1–20,
+     `backoff.factor` 1–10, `maxAnalysesPerProcess` 1–1 000 000. `workers`, `nodeSelector`, `privileged` and
+     `resources` are usage errors that name the reason (`resources` names `docker run --cpus/--memory`);
+   - resolve and check the run directory: the nearest existing ancestor must lie on a mount (a bind mount or a
+     volume), otherwise the issue names `-v "$PWD:/work"`. A mount is another device than `/`, or else a mount
+     point of `/proc/self/mountinfo` other than `/` at or above the ancestor whose file system is not virtual
+     (`proc`, `sysfs`, `tmpfs`, `devpts`, `cgroup2`, …): the `vfs` storage driver keeps the root file system and
+     the volumes on one device. Without `mountinfo` only the device counts. A `--out` directory must not exist or
+     must be empty.
+4. **Create** the run directory and its missing parents. The default run directory is claimed with an exclusive
+   `mkdir` of `results/<stamp>`, then `-2`, `-3`, … (≤ 1000), so runs that start in the same second in one
+   folder never share a directory; a `--out` directory is created with its parents, and when another run created
+   `results.jsonl` in it after the checks, the run stops with the usage issue `… is not empty` (exit 2). When the
+   runtime runs as uid 0, the owner is the owner of `/work` (or of the nearest existing ancestor of a directory
+   outside it), and every directory and file the run creates is chowned to it (best effort); otherwise nothing
+   is chowned.
+5. **Run** `local.Run` with the spec `{runId: "bundle", entry: info.entry, configs, limit, settings,
+   totalTimeoutMs, dataSources (the variables, else the compiled-in defaults), uploads, resolved: {}, limits:
+   info.limits, outDir}` and the options `Stream`, `UncappedRetryDelay`, `Events` = the sink (§15.8),
+   `FileOwner` and `Stop` = the sink's failure channel.
+
+**Files at upload fields.** A string at a described `uploadPaths` pointer of the task or scan config is the path
+of a file (relative to `/work`, absolute allowed, a regular file). Before validation the runtime hashes it and
+substitutes the upload id `uuid.NewSHA1(UploadNamespace, <sha256 hex>)`, so equal content always has the same id,
+and adds a `spec.uploads` entry, which local mode serves to templates on loopback (§15.1). A UUID-shaped value
+names a platform upload and is a usage error. `run.json` records `{pointer, path, sha256, id}` per file.
+
+**Secrets.** Bundles have no secret defaults (describe strips them, [tasks](tasks.md) §7); the recipient passes
+secrets in the configs. Everything bundle mode writes masks the values at `secretPaths` as `"***"`: `run.json`,
+`results.jsonl`, the console, the `-o json` events (`scheduled` and `result` configs, `result` results, the
+resolved scan config) and `--describe`; the config issues at secret paths never quote the value (step 3). Bundle mode has no API client and never starts a `dockerd`
+([security](security.md) BDL-5, BDL-7).
+
+**`--describe`** needs no mount and writes nothing. It prints the ref, image, language, platform and schedule;
+the effective task, scan and analysis configs with secrets masked; the effective settings; the secret and upload
+paths; the task-config and scan-config schemas; the recommended limits, `container.WorkerResources(processes (+1
+for a custom schedule), settings.resources)` as `--cpus` and `--memory`, inside the hardened command
+`--cap-drop ALL --cap-add CHOWN --cap-add DAC_OVERRIDE --security-opt no-new-privileges --pids-limit 4096`
+(plus the note on `NET_RAW` and `--network none`); and the issues of the given flags. It exits 2 when there are
+issues, else 0. `-o json` prints `{bundle {image, ref, language, platform, schedule, scantorVersion}, taskConfig,
+scanConfig, analysisConfig, settings, schemas {taskConfig, scanConfig}, secretPaths, uploadPaths, recommended
+{cpus, memoryBytes, dockerFlags}, issues}`.
+
+**Console.** Human output on stdout: a start line (ref, platform, schedule, processes, limit, run directory),
+one line per resolution, a progress line every 10 s (elapsed time, done, ok, failed, running, rate, and the share
+of `expectedTotal` when known), the first 10 failures (seq, type, attempt, message) and a final summary with the
+paths and the exit code. Connector output outside analyses and `error` events go to stderr; per-analysis `log`
+events are dropped (`logTail` keeps the end of each log). Every line is terminal-safe (control characters and
+invalid UTF-8 escaped). With `-o json` stdout carries the masked local-mode events (§15.3) and nothing else.
+
+### 15.8 Results directory
+
+The bundle sink writes the run directory (`internal/runtime/bundlerun/sink.go`):
+
+| Path | Content |
+|---|---|
+| `results.jsonl` | one line per final analysis in completion order, created `O_EXCL` and opened `O_APPEND`, each line written with one `write` under a mutex, fsynced and closed at the end. A line is the local-mode `result` event without `type`: `{at, seq, status, attempt, config, result, error, files [{id, name, size, sha256, contentType, path}], logTail, attempts, timings}`, with `config` masked at `secretPaths.analysisConfig` and `result` at `secretPaths.result`. `logTail` follows `--log-tails` (`failed` empties it on succeeded lines, `none` on every line); `attempts[].logTail` is kept |
+| `files/<seq>/<fileId>/<safeName>` | as in local mode (§15.2 step 4); `files[].path` is relative to the run directory |
+| `run.json` | replaced atomically (temporary file, fsync, rename) at start, on each `resolved` event, every 30 s and at the end: `{v: 1, bundle {image, ref, language, platform}, scantorVersion, startedAt, finishedAt, taskConfig, scanConfig, analysisConfig, settings, limit, totalTimeoutMs, uploads [{pointer, path, sha256, id}], resolved {<key>: {template, scanConfig, provenance, expectedTotal}}, summary {analyses, succeeded, failed}, reason, exitCode}`. Configs are the effective ones with secrets masked; `finishedAt`, `reason` and `exitCode` are null while the run runs. `resolved` is kept for a future `--resume` (§19) |
+
+A failed write of `results.jsonl` or `run.json` closes the sink's failure channel: the run aborts with reason
+`outputFailed` and exit 3, the error is printed on stderr in both output formats, and `run.json` keeps the last
+state it could write. Every run writes a new directory; nothing is resumed.
+
+### 15.9 Exit codes and interruption (bundle mode)
+
+Bundle mode exits with local mode's codes (§15.4), the highest applicable winning:
+
+| Code | Condition |
+|---|---|
+| 0 | every analysis succeeded, including zero analyses |
+| 1 | analysis failures, or a schedule failure |
+| 2 | invalid flags, configs, settings or run directory, a run directory that cannot be created, or a `--out` directory another run took meanwhile (nothing is run); a connector that does not start or describe; `--describe` with issues |
+| 3 | not a bundle image or an invalid environment; three consecutive spawn failures (`startFailed`); total timeout; interrupt; `results.jsonl` or `run.json` cannot be written (`outputFailed`) |
+
+The first SIGINT or SIGTERM (Ctrl-C, `docker stop`, forwarded by the PID 1 reaper) aborts the run as local mode
+does: process groups are killed without `cancel`, in-flight analyses become `failed` lines of type `cancelled`,
+queued items are dropped, `run.json` gets `reason: "interrupted"`, and the exit code is 3. `docker stop`'s grace
+period is enough: nothing waits for a connector.
 
 ## 16. Describe, check and script modes
 
@@ -1408,6 +1580,8 @@ the orchestrator's bootstrap response.
 | error reports | ≤ 1 per (type, phase) per 10 s | – |
 | connector output mirrored to runtime log | ≤ 64 KiB/s, lines ≤ 16 KiB | – |
 | local mode | backoff capped at 2 s; ≤ 1 MiB of `log` events per analysis | – |
+| streaming runs (bundle mode) | queue of 2 × `processes` items; spawn wait 1 s → 60 s per lane; 3 consecutive spawn failures abort; backoff uncapped | – |
+| bundle mode | config and settings values ≤ 16 MiB; bundle info ≤ 4 MiB; `run.json` every 30 s; progress line every 10 s; 10 failures shown; default run directory suffixes ≤ 1000; limits from the bundle info | bundle info `limits` |
 
 ## 18. Decisions
 
@@ -1465,6 +1639,16 @@ Made in this document (item 7 in part and items 14–16 implement lead rulings):
     analyses. The scheduler reads the ready count (a passive declare, cheap and exact) instead of relying on
     nacks; the broker's limit and §8.11 remain for the rest. A separate retry queue or retries republished by
     the orchestrator would need new topology, permissions and consumers.
+19. **One run path for local and bundle runs** (§15.6): bundle mode drives `local.Run` with a streaming switch and
+    a sink instead of a second run loop, so timeouts, retries, crash handling, file registration and the event
+    format stay identical; the switch keeps dev runs and test runs exactly as before (collect, then run, 2 s
+    backoff cap, NDJSON on stdout).
+20. **Bundle mode is a runtime mode baked into the image** (§15.7, [architecture](architecture.md) D24) with the
+    recipient's flags as its interface, `/work` as the single mount and plain files as its output: no
+    resume (every run writes a new directory; `run.json` keeps `resolved` for later), no retry heap (a waiting
+    retry holds its process), no `--set` layering of configs, and a PID 1 reaper instead of requiring
+    `docker run --init`. Data-source URLs come from the recipient's environment or the compiled-in public
+    defaults, never from the master.
 
 ## 19. Future extensions
 
@@ -1481,4 +1665,5 @@ Made in this document (item 7 in part and items 14–16 implement lead rulings):
 | Per-analysis resource accounting | Process groups and cgroup files already exist; CPU time and peak memory could be added to `timings`. |
 | Live log streaming for scans | The per-analysis capture is a ring buffer; it could be forwarded on demand like worker log tails. |
 | Script modes for more languages | Script mode is language-agnostic (`SCANTOR_SCRIPT_CMD`); a base image and an SDK are all a new language needs. |
+| Bundle extensions (`--resume`, a retry heap, schedule restarts, configs baked at creation, `scantor dev bundle <dir>`, multi-arch bundles) | `run.json` keeps the template resolutions and the uploads, the spec already takes `resolved`, the bundle info is versioned (`v`), and the bundle step takes the info from any producer on stdin ([tasks](tasks.md) §9.11). |
 | DinD in test runs and `dev run` | Local mode could honour `SCANTOR_DIND=1` with the same `dockerd` start (§4.4) once consumers can run privileged local-mode containers. |

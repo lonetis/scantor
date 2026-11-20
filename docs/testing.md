@@ -43,7 +43,7 @@ tests/
 ├── fixtures.ts                  test.extend: the only `test`/`expect` export specs import
 ├── helpers/                     env, limiter, unique, api-client, openapi, users, webauthn, mcp, tasks, scans,
 │                                docker, amqp, keys, tar, ui, cli, fixtures-server (debug: with debug.spec.ts),
-│                                scripts, security-scripts
+│                                scripts, security-scripts, api-bundles, bundles
 ├── api/*.spec.ts                REST API behaviour per tag
 ├── ui/*.spec.ts                 browser tests
 ├── e2e/*.spec.ts                real scans, examples in every language, remote node, CLI, debug, scaffold matrix
@@ -62,7 +62,7 @@ tests/
 │   ├── keys-vectors.json        HKDF test vectors shared by Go and TypeScript
 │   └── hostile-labels/Dockerfile
 ├── fixtures/tasks/<name>/       test-only Python tasks (schema-zoo, netprobe, nondeterministic, big-result,
-│                                crashy, no-hello, hostile-label, hostile-output)
+│                                crashy, no-hello, hostile-label, hostile-output, bundle-probe)
 ├── fixtures/scripts/<name>/     test scripts (files-report)
 ├── docker/
 │   ├── Dockerfile               runner image (+ Dockerfile.dockerignore)
@@ -134,13 +134,16 @@ project dependencies (§7.5).
 
 | Package | Covers |
 |---|---|
-| `internal/taskpipe` | script builds (`script_test.go`: pack → static → build, the missing-manifest messages, `--expect-name`); Dockerfile policy over the whole `tests/corpora/dockerfile-policy` corpus (including the D5 `scripts/` cases); forbidden `LABEL` keys (the managed key set of `schemas/managed-labels.json`); deterministic pack (same tree → same `packSha256`, `.dockerignore` semantics, hard excludes); structured errors `{phase, file, line, message}` |
+| `internal/taskpipe` | the bundle step against the fake Docker engine (`bundle_test.go`: local image or pull by digest, platform checks, ONBUILD, temporary tags removed also on failure and interrupt, a context of only `scantor/{scantor,bundle.json,Dockerfile}`, the `BundleResult`) and `RewriteSaveNames` over legacy and OCI `docker save` archives (`savetar_test.go`); script builds (`script_test.go`: pack → static → build, the missing-manifest messages, `--expect-name`); Dockerfile policy over the whole `tests/corpora/dockerfile-policy` corpus (including the D5 `scripts/` cases); forbidden `LABEL` keys (the managed key set of `schemas/managed-labels.json`); deterministic pack (same tree → same `packSha256`, `.dockerignore` semantics, hard excludes); structured errors `{phase, file, line, message}` |
 | `internal/container` | `ManagedLabels` against `schemas/managed-labels.json` (every kind, including `network`, `scriptRun` and the helper label `scantor.op`); hardening profile |
 | `internal/workspace` | extract/write-files path rules over `tests/corpora/tar-slip` and `tests/corpora/paths`; caps; snapshot never dereferences symlinks; script folders (`script_test.go`: the `.scripts/<name>` mapping, `extract --kind script`, the script scaffold) |
 | `internal/templates/<name>` | every case of `schemas/templates/<name>.fixtures.json`; determinism (same resolved config → same stream and tail hash); estimate |
 | `internal/runtime` | retry classification and backoff (jitter uniform in [delay/2, delay]), clock-offset-corrected delivery times, resume skip/verify (hash mismatch → "schedule() is not deterministic"), size limits, process-slot resizing; with a scripted fake connector and fake AMQP: outcome classification, recycling, termination of the process group, credit accounting ([protocol](protocol.md) §12) |
 | `internal/api` | transport policy table (plaintext only to loopback, RFC 1918, CGNAT `100.64.0.0/10` and ULA `fc00::/7`, after resolving the host), `SCANTOR_CA_CERT` trust |
 | `internal/redact` | redaction of headers, token shapes (including `ssr_`) and URLs ([security](security.md) MC-10) |
+| `internal/bundle` | `Parse` of `testdata/bundle.json` and every rejection (unknown keys at each level, names that do not match, oversize), `Marshal` round trips, the image and file names |
+| `internal/runtime/local` | streaming runs (`stream_test.go`: results before the schedule ends, `limit` 0 and `limit + 1`, `processes + 1` for a custom schedule, schedule failure, uncapped retry delay, three spawn failures → `startFailed`, `Stop` → `outputFailed`, `FileOwner`) besides the collected runs of dev runs and test runs |
+| `internal/runtime/bundlerun` | bundle mode with the scripted fake connector: the run directory (`run.json`, `results.jsonl`, `files/`, masking, `--log-tails`), `-o json` events, files at upload fields, invalid configs and settings writing nothing, interrupt, a missing mount, `--describe` (human and JSON, recommended limits), the settings bounds, the PID 1 check and `--help` |
 | `internal/runtime/script` | `runtime script` with a fake command: process group, signal forwarding, the 50 s kill, exit codes (128 + signal), the missing `SCANTOR_SCRIPT_CMD`, the heartbeat |
 | `internal/protocol` | codec round trips against `schemas/protocol/*.json` |
 | `internal/manifest`, `internal/languages` | strict manifest schema (fallback defaults of [data model](data-model.md) §4.5.1); script manifest rules S1–S6 (`script_test.go`, the schema's `default` annotations equal the Go fallbacks); languages table loading with the optional `script` object |
@@ -155,7 +158,9 @@ project dependencies (§7.5).
     hostile image the test builds, the worker hardening profile, and extraction of the linux runtime
     binary from a local scantor image;
   - `internal/taskpipe`: `task build` of `tasks/echo` on the Python base image (real BuildKit build and
-    check, describe and local run), `script build` of a script folder (`TestIntegrationBuildScript`), inherited forbidden labels (LBL-3), ONBUILD images (BLD-7), the build
+    check, describe and local run), its bundle (`TestIntegrationBundle`: loaded into the daemon under
+    `localhost/scantor/<task>:<n>` only, temporary tags gone; `TestIntegrationBundlePull`: the revision image
+    pulled by digest after its local tag was removed), `script build` of a script folder (`TestIntegrationBuildScript`), inherited forbidden labels (LBL-3), ONBUILD images (BLD-7), the build
     timeout and image size cap, and the push gate against `registry:3.1.2`; the base image comes from
     `-base-image-prefix`/`-base-image-tag`, and `-runtime=auto|real|stub` selects the injected runtime;
   - `internal/conformance`: the conformance suite of every language, the examples described and run in
@@ -194,7 +199,12 @@ retention, cleanup, and the `scriptRun` job against a fake Docker daemon includi
 cancel), the script runtime API (`test/services/script-runtime/`: bootstrap, NDJSON stream with checkpoints and
 error lines, throttled progress and checkpoints, outputs), `presignInternalGet` byte-identical to the SDK
 presigner (`test/utils/s3.test.ts`), the runner's `refundAttemptOnStop`, and the run pages' pure helpers
-(`test/ui/script-runs.test.ts`).
+(`test/ui/script-runs.test.ts`); bundles ([tasks](tasks.md) §9.11): the bundle info against
+`schemas/bundle.schema.json` and the allowlist (`test/services/bundles/info.test.ts`), the create rules
+(`service.test.ts`), the `bundle` job with its verdicts, hooks and cleanup (`job.test.ts`), the representation
+(`mappers.test.ts`), the pipeline driver with a fake `scantor task bundle` writing to fd 3
+(`test/services/pipeline/task-bundle.test.ts`, `fake-task-bundle.mjs`, including an output that rejects and kills
+the child), the task-delete and GC cascades, and the modal's pure helpers (`test/ui/bundles.test.ts`).
 
 Integration tests are `*.integration.test.ts` files next to the unit tests. They skip themselves unless
 their gate holds, so `just test-orchestrator` (no Docker socket, non-root) runs only unit tests. `just
@@ -602,6 +612,8 @@ choose (git imports of the fixture repositories, `git-*`) repeat within a worker
 | `helpers/ui.ts` | `gotoWithRetry` (retries only on `net::ERR_NETWORK_CHANGED`), `expectToast(page, text)` (an open item of the "Notifications" region), `openTab(page, name)` |
 | `helpers/cli.ts` | `scantor(args, {token, cwd, env, image, input})`: the runner's own `scantor` binary (built from the checkout into the runner image) against the stack and the inner dockerd, or with `image: true` the `scantor:dev` image through the shim pattern (working directory mounted at the same path, the inner Docker socket); always with `SCANTOR_URL`, the empty image prefix and tag `dev`, the test CA and the fixture data sources (`FIXTURE_DATA_SOURCES`); returns `{exitCode, stdout, stderr, json}` (`json` = parsed JSON or NDJSON output) |
 | `helpers/fixtures-server.ts` | `FIXTURES_URL`, `GIT_URL`, `GIT_REPOS` (`single`, `multi`, `private`, `diverge`), `PRIVATE_GIT_CREDENTIAL`, `copyGitRepo(request, from)` and `moveGitMain(request, url, branch)` for per-test pull scenarios (§7.9), `fixturesRequests(since)` (the server's request log since a time, through `docker logs --since`) |
+| `helpers/api-bundles.ts` | `createBundle(api, task, revision, {wait, rebuild})` and `getBundle(api, task, revision, wait)` (`createRevisionBundle`, `getRevisionBundle`), waiting until a bundle settled, and fetching a presigned archive without credentials, streamed and hashed (optionally a byte range); shared by the api, e2e and security specs |
+| `helpers/bundles.ts` | the recipient side of bundle runs: `ensureBundle(api, task, revision)` (create or reuse the bundle and wait until it is ready), `downloadArchive(bundle)`/`removeArchive` (the presigned URL into a temporary file, SHA-256 verified), `loadIntoRecipient(path, image)` (streams the archive into `docker exec -i scantor-remote-node docker load`: the remote node's DinD stands in for the recipient's machine) and `removeFromRecipient(images)`, `RecipientFolder` (a fresh directory inside the DinD owned by the recipient's uid, with `write`, `read`, `names`, `entries`, `hashes`, `filesContaining`), `Recipient` (`folder()`, `start`/`run(BundleRunOptions {image, args, mount, env, network, user, timeoutMs})` → `BundleRun` = `docker exec scantor-remote-node docker run --rm … -v <dir>:/work localhost/scantor/<task>:<n> …` with `kill(signal)`, `stop()` and `remove()`, and `cleanup()`), `until`, `readRunDir`/`currentLines`/`parseLines` (`run.json`, the lines of `results.jsonl`, files and their owners), `parseEvents` (the `-o json` events) and `readArchive` (the layers of an archive); argument arrays only, never shell strings |
 | `helpers/debug.ts` | (added with `e2e/debug.spec.ts`) minimal attach clients that resume a debuggee waiting for its debugger: DAP for debugpy (`initialize`, `attach`, `configurationDone`), the Chrome DevTools protocol for Node (`Runtime.runIfWaitingForDebugger`), delve's JSON-RPC API v2 (`RPCServer.Command {name: "continue"}`) |
 
 ### 7.9 Fixture tasks and fixtures server
@@ -618,7 +630,11 @@ choose (git imports of the fixture repositories, `git-*`) repeat within a worker
   SCANTOR_CONNECTOR_CMD` whose process never sends `hello`: the revision fails at describe), `hostile-label`
   (Dockerfile with forbidden `LABEL`s, literal and ARG-expanded: the revision fails at static), `hostile-output`
   (results, logs and an error with HTML/script strings, ANSI sequences and a `javascript:` link; files
-  `x.html`, `x.svg`, `x.png` and a name with CR/LF and quotes).
+  `x.html`, `x.svg`, `x.png` and a name with CR/LF and quotes), `bundle-probe` (unwrapped `list` template; a
+  task config with a `writeOnly` token without default and `failOn`, `retryOn`, `sleepMs`, `writeFile`; `run`
+  returns the item, whether a token was given and the token in a `writeOnly` result field, sleeps, raises a
+  retryable error for `retryOn` on attempt 1 and a fatal error for `failOn`, and stores one text file: the
+  recipient-side cases of the bundle specs).
 - `tests/fixtures/scripts/files-report/` (Python script): reads every succeeded analysis of a scan of the `files`
   example task with `ctx.map`, reads their files, writes `files.csv` (one row per analysis in seq order) and
   `summary.json`, reports progress `<n> files read`, checkpoints `{after_seq, analyses, files, bytes}`, and on
@@ -688,7 +704,11 @@ the scaffold, upload with the `workspaceDirty` rule, files, archive, describe, d
 and `script-runs` (end to end with `files-report` on a scan of the `files` task: streaming, file reads, outputs,
 checkpoint, result, logs and `logTail`; a sample run with `limit`; cancel with the container removed, outputs kept
 and `.partial`; restart with `resume`; secrets returned by name and masked in the log; build failures with
-BuildErrors; manifest defaults above the caps (phase `config`); timeout and OOM; the waits; downloads).
+BuildErrors; manifest defaults above the caps (phase `config`); timeout and OOM; the waits; downloads). `bundles`
+covers `createRevisionBundle` and `getRevisionBundle`: 201 `queued` then `ready` with a presigned gzip attachment
+and the commands; reuse (200) and replacement (`rebuild`, failure, expiry: 201); 409 `revisionNotReady` and
+`bundleUnsupported`; 404 without a bundle and for another user's revision; a bundle after the master lost its local
+revision image (removed through `helpers/docker.ts`); task deletion removing the object.
 
 ### 8.2 UI (`ui/`)
 
@@ -701,7 +721,7 @@ BuildErrors; manifest defaults above the caps (phase `config`); timeout and OOM;
 | `navigation.spec.ts` | sidebar items per role, collapse and theme persisted, mobile drawer, Scans badge |
 | `overview.spec.ts` | overview page: first-run empty state, active scans, needs attention, recent scans and tasks, platform health for admins |
 | `tasks.spec.ts` | list filters, wizard (scaffold, git with candidates, upload with `workspaceDirty`), task tabs, unpublished badge, publish → live build log, git pull with divergence, delete with `taskInUse` |
-| `revisions.spec.ts` | build log phases, errors of a failed revision, describe view (schema tables, raw JSON) |
+| `revisions.spec.ts` | build log phases, errors of a failed revision, describe view (schema tables, raw JSON); the "Bundle" button (enabled only for ready, unprivileged revisions, the reason as tooltip) and `BundleModal` (warning, create, state and elapsed time until ready, platform, size, expiry, file, the copyable commands, the download as a gzip attachment) |
 | `test-run.spec.ts` | schema-driven forms, SSE log and analyses, cancel, files, schema-changed banner |
 | `schema-form.spec.ts` | every widget of [ui](ui.md) §6.2 on `schema-zoo`, JSON fallback, "Edit as JSON" round trip, server `configInvalid` mapping |
 | `templates.spec.ts` | templates catalog: cards, schema tables, estimates (`cidr` gives "8 analyses (exact)") |
@@ -734,7 +754,8 @@ BuildErrors; manifest defaults above the caps (phase `config`); timeout and OOM;
 | `remote-node.spec.ts` | `nodeSelector.pool = "remote"`: image pulled from the public registry host with a node token over TLS with the test CA (`SCANTOR_CA_CERT`), AMQPS and presigned S3 through Traefik (the public endpoint profile), results ingested, worker logs on demand |
 | `backpressure.spec.ts` | 20 000-analysis `power`-style scan with `SCANTOR_SCAN_QUEUE_MAX_READY=500` completes with exact counts |
 | `limits.spec.ts` | oversized result → non-retryable `validation`; too many files; analysis config over the limit fails scheduling; workers/processes above the instance caps → 400; test-run `limit`/`maxAttempts` bounds; concurrent waits and queries above their caps → 429. The build timeout and image-size cap are covered by vitest (pipeline driver with a fake `scantor task build`, §4.2) and `internal/taskpipe` integration tests, because a short build timeout on the shared stack would break every other build |
-| `cli.spec.ts` | CLI through the shim: `validate`, `push`, `dev run` (local) and `dev run --remote`, `scans start/watch/pause/resume/cancel`, `uploads create` with a list-template scan, `analyses query`, `export`, `files get`, `scripts init/push/run --follow/runs …` and `scantor push` of a script folder; `-o json` NDJSON; exit codes 0/1/2/3; `localhost` rewrite |
+| `cli.spec.ts` | CLI through the shim: `validate`, `push`, `dev run` (local) and `dev run --remote`, `scans start/watch/pause/resume/cancel`, `uploads create` with a list-template scan, `analyses query`, `export`, `files get`, `scripts init/push/run --follow/runs …` and `scantor push` of a script folder; `revisions bundle` (download verified against the API's SHA-256, the commands on stderr, reuse, `--force`, `--no-download`, `-o json`); `-o json` NDJSON; exit codes 0/1/2/3; `localhost` rewrite |
+| `bundles.spec.ts` | the recipient side of bundles ([runtime](runtime.md) §15.7–§15.9): a bundle of `tasks/echo` and of the `bundle-probe` fixture is downloaded, loaded into the remote node's DinD, which stands in for a machine with only Docker, and run there: defaults, results directory and file owners; config, settings, `--processes` and `--limit` overrides with secrets masked; `--describe` (human and `-o json`); a local file at an upload field; retries, failures and log tails; SIGINT and `docker stop`; a missing mount and a non-empty `--out`; streaming of an unlimited schedule and `-o json` events; a run under `--network none` |
 | `debug.spec.ts` | `scantor dev debug` for every language: the debug port opens, `helpers/debug.ts` attaches and resumes, the analysis completes. For Go this proves that `dlv exec` passes fds 3/4 to the debuggee (otherwise the connector must use `SCANTOR_PROTOCOL_IN_FD`/`SCANTOR_PROTOCOL_OUT_FD`, [protocol](protocol.md) §10) |
 | `scaffold-matrix.spec.ts` | §6 |
 
@@ -805,6 +826,7 @@ security.md cites (`tests/security/<name>.spec.ts`); the other mitigations are c
 | `sandbox.spec.ts` | `netprobe` on the built-in node and the remote node | the worker's `HostConfig` matches the hardening profile; master workers cannot reach mongo, mongo-express, the registry or the RabbitMQ management API (which rejects the scan user) without credentials; mode `env` shows no `SCANTOR_WORKER_TOKEN`; a test run of `netprobe` (network `scantor-egress`) reaches no platform service either; `169.254.169.254` unreachable where `egressDenyApplied` is true (skipped with a warning otherwise) |
 | `script-runs.spec.ts` | the `probe` script ([security](security.md) §6.20) | the script-run container's `HostConfig` (no added capability, no mounts, the network `scantor-scripts` only, the runtime healthcheck); from inside it RabbitMQ, a public address and a worker are unreachable; its token works only on its own scans (another scan → 404), not from outside the network (403) and not after the run ended (401); an admin cannot bind another user's scan (404); its secrets are masked in the log |
 | `downloads.spec.ts` | `hostile-output` files `x.html`, `x.svg`, `x.png` and a name with CR/LF/quotes | html/svg served as attachment with `application/octet-stream`; png inline as `image/png`; the name sanitised in `Content-Disposition`; unsigned GET → 403; a foreign-origin preflight refused; revision source downloads are `application/gzip` attachments; links expire; inline file reads (`readAnalysisFile`) answer only JSON, html/svg as `utf8` strings and png as `base64` |
+| `bundles.spec.ts` | a ready bundle of `tasks/echo`, unpacked with every layer ([security](security.md) §6.21) | no HKDF-derived value of `helpers/keys.ts`, `sk_scantor_`, stack hostname, `SCANTOR_REGISTRY_PUBLIC_HOST`, `localhost:<registry port>/tasks` or owner, task or revision id in any byte; `manifest.json` `RepoTags` and the `index.json` annotations name only `localhost/scantor/<task>:<n>`; the image config has the entrypoint `/scantor/scantor runtime bundle`, the runtime healthcheck, `WorkingDir` `/work` and no `scantor.*`, `com.docker.compose.*` or `traefik.*` label; `/scantor/bundle.json` validates against `schemas/bundle.schema.json` |
 
 The test-created orchestrator containers (`helpers/orchestrator.ts`) never run the reconciler
 (`SCANTOR_COMPONENTS=api`), so their boot sweep cannot delete the main stack's per-scan RabbitMQ users. They
@@ -1091,6 +1113,10 @@ job passes.
     `tests/docker/stack.env`), and requests that must come from the scripts network are sent from a throwaway
     container attached to `scantor-scripts` (label `scantor.test=true`), because the script runtime API answers
     no other peer.
+15. **The remote node's Docker-in-Docker is the bundle recipient** (`tests/e2e/bundles.spec.ts`): a bundle is
+    downloaded through its presigned URL and loaded and run in `scantor-remote-node`, a separate Docker daemon on
+    its own network, where a bundle run has no stack service, volume or credential at hand (and BRUN-009 runs
+    under `--network none`), so the specs prove that a bundle needs nothing but Docker.
 
 ## 15. Future extensions
 
