@@ -143,7 +143,9 @@ function forbidden(ids: { owner: string; apiKey: string; task: string; revision:
   add("the scan's secret", ids.scanSecret)
 
   const shapes: Shape[] = [
-    { label: 'an API key', prefix: Buffer.from('sk_scantor_'), rest: /^(editor_)?[A-Za-z0-9_-]{20,}/ },
+    // The exact key format (docs/auth.md §8.1): the runtime binary holds the bare prefix next to other string
+    // constants, so a looser pattern would match the linker's string table.
+    { label: 'an API key', prefix: Buffer.from('sk_scantor_'), rest: /^(editor_)?[A-Za-z]{64}(?![A-Za-z0-9_-])/ },
     { label: 'a temporary tag of the bundle step', prefix: Buffer.from('scantor-bundle/'), rest: new RegExp(`^${UUID}`) },
   ]
   return { needles, shapes }
