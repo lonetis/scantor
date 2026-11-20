@@ -10,7 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/lonetis/scantor/internal/bundle"
 	"github.com/lonetis/scantor/internal/runtime"
+	"github.com/lonetis/scantor/internal/runtime/bundlerun"
 	"github.com/lonetis/scantor/internal/runtime/check"
 	"github.com/lonetis/scantor/internal/runtime/describe"
 	"github.com/lonetis/scantor/internal/runtime/health"
@@ -20,15 +22,18 @@ import (
 )
 
 // The runtime commands are hidden: scantor's own consumers start them inside task and script-run
-// containers (docs/runtime.md §2); users never call them. Flags carry inputs, never configuration. They
-// keep their own signal handling (annotationOwnSignals): worker and local mode receive SIGTERM and SIGINT
-// on a channel and shut down as docs/runtime.md §14 and §15.2 describe, script mode forwards them to the
-// script; describe and check keep the default disposition. `runtime healthcheck` is the container
-// healthcheck of workers, test runs and script runs (§5.3).
+// containers (docs/runtime.md §2); users never call them, with one documented exception: `runtime bundle` is
+// the entrypoint of bundle images, so its flags are the interface of the bundle's recipient (§15.7), who
+// passes them to docker run. Flags carry inputs, never configuration. The commands keep their own signal
+// handling (annotationOwnSignals): worker, local and bundle mode receive SIGTERM and SIGINT on a channel and
+// shut down as docs/runtime.md §14, §15.2 and §15.9 describe, script mode forwards them to the script;
+// describe and check keep the default disposition. `runtime healthcheck` is the container healthcheck of
+// workers, test runs, script runs and bundle images (§5.3).
 func init() {
 	registerGroup("", "runtime", "Run the scantor runtime inside a task container", true)
 	registerCommand("runtime", newRuntimeWorkerCommand)
 	registerCommand("runtime", newRuntimeLocalCommand)
+	registerCommand("runtime", newRuntimeBundleCommand)
 	registerCommand("runtime", newRuntimeDescribeCommand)
 	registerCommand("runtime", newRuntimeCheckCommand)
 	registerCommand("runtime", newRuntimeScriptCommand)
@@ -110,6 +115,74 @@ func newRuntimeLocalCommand(app *App) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&specPath, "spec", "", "path of the local-mode spec (/scantor/in/spec.json)")
+	return cmd
+}
+
+// Seams of `runtime bundle` for tests: the bundle info file and the run.
+var (
+	bundleInfoPath = bundle.InfoPath
+	runBundle      = bundlerun.Run
+)
+
+// readImageBundleInfo reads and checks the bundle info of the image.
+func readImageBundleInfo() (*bundle.Info, error) {
+	data, err := os.ReadFile(bundleInfoPath) //nolint:gosec // the fixed bundle.InfoPath (a variable for tests)
+	if err != nil {
+		return nil, err
+	}
+	return bundle.Parse(data)
+}
+
+func newRuntimeBundleCommand(app *App) *cobra.Command {
+	var flags bundlerun.Flags
+	cmd := &cobra.Command{
+		Use:         "bundle",
+		Short:       "Run a bundle (the entrypoint of bundle images)",
+		Hidden:      true,
+		Annotations: runtimeAnnotations(),
+		Args:        cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			// Without docker run --init the runtime is PID 1: a child runs the bundle while this process
+			// forwards signals and reaps orphans.
+			if code, handled := bundlerun.Reap(os.Args[1:]); handled {
+				return runtimeExit(code)
+			}
+			info, err := readImageBundleInfo()
+			if err != nil {
+				return PlatformError(fmt.Errorf("not a scantor bundle image: %w", err))
+			}
+			cfg, err := runtimeConfig(app)
+			if err != nil {
+				return WithExit(local.ExitPlatform, err)
+			}
+			signals, stop := runtimeSignals()
+			defer stop()
+			return runtimeExit(runBundle(cmd.Context(), bundlerun.Options{
+				Info: info, Flags: flags, Config: cfg, JSON: app.Output().JSON(),
+				Stdin: app.Stdin, Stdout: app.Stdout, Stderr: app.Stderr, Signals: signals,
+			}))
+		},
+	}
+	f := cmd.Flags()
+	f.StringVar(&flags.TaskConfig, bundlerun.FlagTaskConfig, "", bundlerun.FlagHelp(bundlerun.FlagTaskConfig))
+	f.StringVar(&flags.ScanConfig, bundlerun.FlagScanConfig, "", bundlerun.FlagHelp(bundlerun.FlagScanConfig))
+	f.StringVar(&flags.AnalysisConfig, bundlerun.FlagAnalysisConfig, "", bundlerun.FlagHelp(bundlerun.FlagAnalysisConfig))
+	f.StringVar(&flags.Settings, bundlerun.FlagSettings, "", bundlerun.FlagHelp(bundlerun.FlagSettings))
+	f.IntVar(&flags.Processes, bundlerun.FlagProcesses, 0, bundlerun.FlagHelp(bundlerun.FlagProcesses))
+	f.IntVar(&flags.Limit, bundlerun.FlagLimit, 0, bundlerun.FlagHelp(bundlerun.FlagLimit))
+	f.DurationVar(&flags.TotalTimeout, bundlerun.FlagTotalTimeout, 0, bundlerun.FlagHelp(bundlerun.FlagTotalTimeout))
+	f.StringVar(&flags.Out, bundlerun.FlagOut, "", bundlerun.FlagHelp(bundlerun.FlagOut))
+	f.StringVar(&flags.LogTails, bundlerun.FlagLogTails, bundlerun.LogTailsFailed, bundlerun.FlagHelp(bundlerun.FlagLogTails))
+	f.BoolVar(&flags.Describe, bundlerun.FlagDescribe, false, bundlerun.FlagHelp(bundlerun.FlagDescribe))
+	// `docker run <image> --help` shows the recipient's docker run lines instead of the hidden command.
+	cmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		info, err := readImageBundleInfo()
+		if err != nil {
+			c.Root().HelpFunc()(c, args)
+			return
+		}
+		_, _ = fmt.Fprint(c.OutOrStdout(), bundlerun.Usage(info))
+	})
 	return cmd
 }
 

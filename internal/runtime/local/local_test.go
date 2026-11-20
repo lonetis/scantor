@@ -142,6 +142,28 @@ func TestCustomScheduleWithLimit(t *testing.T) {
 	}
 }
 
+// Without Stream (dev runs, test runs) the schedule is collected first: every scheduled event comes before
+// the first result.
+func TestCollectedScheduleOrder(t *testing.T) {
+	spec := baseSpec(t)
+	spec.ScanConfig = json.RawMessage(`{"count":4}`)
+	spec.Processes = 2
+	code, events := runLocal(t, spec, "ok", "custom")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	var types []string
+	for _, e := range events {
+		if typ := e.str("type"); typ == EventScheduled || typ == EventResult {
+			types = append(types, typ)
+		}
+	}
+	want := []string{EventScheduled, EventScheduled, EventScheduled, EventScheduled, EventResult, EventResult, EventResult, EventResult}
+	if strings.Join(types, ",") != strings.Join(want, ",") {
+		t.Fatalf("event order %v", types)
+	}
+}
+
 func TestNativeTemplateEmitsResolved(t *testing.T) {
 	spec := baseSpec(t)
 	spec.ScanConfig = json.RawMessage(`{"end":3}`)

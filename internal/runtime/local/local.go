@@ -40,27 +40,53 @@ const (
 	ExitPlatform   = 3
 )
 
-// Local-mode constants (docs/runtime.md §15.2, §15.3, §17).
+// Local-mode constants (docs/runtime.md §15.2, §15.3, §15.6, §17).
 const (
-	// MaxDelay caps every retry delay so the dev loop stays fast.
+	// MaxDelay caps every retry delay so the dev loop stays fast (unless Options.UncappedRetryDelay).
 	MaxDelay = 2 * time.Second
 	// MaxLogBytes bounds the log events of one analysis.
 	MaxLogBytes = 1 << 20
 	// logTruncated is the line emitted when MaxLogBytes is reached.
 	logTruncated = "[log output truncated]"
+	// maxSpawnFailures consecutive failed spawns across the lanes of a streaming run abort it (startFailed).
+	maxSpawnFailures = 3
 )
 
-// Options configure Run.
+// The wait of a streaming lane after a failed spawn: the initial delay, doubled after each further failure
+// of the lane up to the maximum (variables for tests).
+var (
+	spawnBackoffInitial = time.Second
+	spawnBackoffMax     = 60 * time.Second
+)
+
+// Options configure Run. Without Events, Stream, UncappedRetryDelay, FileOwner and Stop a run behaves as dev
+// runs and test runs need it (docs/runtime.md §15.2); bundle mode sets them (§15.6, §15.7).
 type Options struct {
 	Spec   *Spec
 	Config runtime.Config
-	// Stdout receives the NDJSON events; Stderr the runtime's own diagnostics.
+	// Stdout receives the NDJSON events (unless Events is set); Stderr the runtime's own diagnostics.
 	Stdout io.Writer
 	Stderr io.Writer
 	// Signals delivers SIGTERM and SIGINT.
 	Signals <-chan os.Signal
 	// TaskDir is the working directory of connector processes (runtime.TaskDir when empty; tests).
 	TaskDir string
+	// Events receives the events instead of an NDJSON Emitter on Stdout.
+	Events Sink
+	// Stream runs the analyses while the schedule produces them, through a queue of 2 × processes items,
+	// instead of collecting the schedule first; Spec.Limit 0 then means no limit (docs/runtime.md §15.6).
+	Stream bool
+	// UncappedRetryDelay applies the backoff of the settings as scans do, without the cap of MaxDelay.
+	UncappedRetryDelay bool
+	// FileOwner owns outDir/files and every directory and file the run writes below it (best effort).
+	FileOwner *FileOwner
+	// Stop aborts the run with reason outputFailed (exit 3) when it is closed.
+	Stop <-chan struct{}
+}
+
+// FileOwner is the numeric owner of the files a run writes.
+type FileOwner struct {
+	UID, GID int
 }
 
 // item is one analysis to run.
@@ -74,7 +100,7 @@ type run struct {
 	opts   Options
 	spec   *Spec
 	cfg    runtime.Config
-	events *Emitter
+	events Sink
 	log    *slog.Logger
 	policy scerr.Policy
 	limits runner.Limits
@@ -85,9 +111,11 @@ type run struct {
 	mu        sync.Mutex
 	exitCode  int
 	summary   Summary
-	abortWhy  string // ReasonTimeout or ReasonInterrupted once aborted
+	abortWhy  string // the end reason once aborted (timeout, interrupted, startFailed, outputFailed)
 	abortCh   chan struct{}
 	executing map[*lane]bool
+	// spawnFails counts the consecutive failed spawns of a streaming run across its lanes.
+	spawnFails int
 }
 
 // Run runs local mode and returns the exit code; it always ends with an `end` event.
@@ -96,8 +124,12 @@ func Run(ctx context.Context, opts Options) int {
 	if stderr == nil {
 		stderr = os.Stderr
 	}
+	events := opts.Events
+	if events == nil {
+		events = NewEmitter(opts.Stdout)
+	}
 	r := &run{
-		opts: opts, spec: opts.Spec, cfg: opts.Config, events: NewEmitter(opts.Stdout),
+		opts: opts, spec: opts.Spec, cfg: opts.Config, events: events,
 		log:     slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo})).With("component", "runtime"),
 		abortCh: make(chan struct{}), executing: map[*lane]bool{},
 	}
@@ -145,8 +177,9 @@ func (r *run) aborted() (string, bool) {
 	return r.abortWhy, r.abortWhy != ""
 }
 
-// abort ends the run on the total timeout or a signal: every process group is killed (no cancel) and
-// in-flight analyses end failed with type cancelled (docs/runtime.md §15.2).
+// abort ends the run on the total timeout, a signal, Options.Stop or repeated spawn failures of a streaming
+// run: every process group is killed (no cancel) and in-flight analyses end failed with type cancelled
+// (docs/runtime.md §15.2).
 func (r *run) abort(reason string) {
 	r.mu.Lock()
 	if r.abortWhy != "" {
@@ -172,7 +205,11 @@ func (r *run) abort(reason string) {
 
 func (r *run) run(ctx context.Context) int {
 	s := r.spec
-	r.policy = scerr.Policy{Backoff: s.Backoff, MaxAttempts: s.MaxAttempts, MaxDelay: MaxDelay}
+	maxDelay := MaxDelay
+	if r.opts.UncappedRetryDelay {
+		maxDelay = 0
+	}
+	r.policy = scerr.Policy{Backoff: s.Backoff, MaxAttempts: s.MaxAttempts, MaxDelay: maxDelay}
 	r.limits = runner.Limits{MaxResultBytes: s.Limits.MaxResultBytes, MaxFileBytes: s.Limits.MaxFileBytes, MaxFilesPerAnalysis: s.Limits.MaxFilesPerAnalysis, StackBytes: scerr.MaxStackBytes}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -210,6 +247,13 @@ func (r *run) run(ctx context.Context) int {
 	}
 	r.start(first, desc)
 
+	if r.opts.Stream {
+		reason := r.stream(ctx, first, desc.Schedule)
+		if why, ok := r.aborted(); ok {
+			return r.end(why)
+		}
+		return r.end(reason)
+	}
 	items, reason := r.collect(ctx, first, desc.Schedule)
 	if why, ok := r.aborted(); ok {
 		first.Kill()
@@ -222,7 +266,7 @@ func (r *run) run(ctx context.Context) int {
 	return r.end(reason)
 }
 
-// watch aborts on the total timeout (disabled in debug mode) or a signal.
+// watch aborts on the total timeout (disabled in debug mode), a signal or Options.Stop.
 func (r *run) watch(ctx context.Context) {
 	var timeout <-chan time.Time
 	if r.spec.TotalTimeoutMs > 0 && !r.spec.Debug {
@@ -236,6 +280,8 @@ func (r *run) watch(ctx context.Context) {
 	case sig := <-r.opts.Signals:
 		r.log.Info("signal received", "signal", fmt.Sprint(sig))
 		r.abort(ReasonInterrupted)
+	case <-r.opts.Stop:
+		r.abort(ReasonOutputFailed)
 	case <-ctx.Done():
 	}
 }
@@ -246,6 +292,7 @@ func (r *run) prepare() error {
 	if err := os.MkdirAll(filepath.Join(s.OutDir, "files"), 0o755); err != nil { //nolint:gosec // the consumer copies outDir out
 		return fmt.Errorf("the output directory %s is not writable: %w", s.OutDir, err)
 	}
+	r.chown(filepath.Join(s.OutDir, "files"))
 	probe, err := os.CreateTemp(s.OutDir, ".probe-*")
 	if err != nil {
 		return fmt.Errorf("the output directory %s is not writable: %w", s.OutDir, err)
@@ -401,11 +448,24 @@ func (r *run) unattributed() pool.Sink {
 // collect takes at most limit items from the schedule (docs/runtime.md §15.2 step 2) and returns them
 // with the end reason.
 func (r *run) collect(ctx context.Context, p *pool.Process, sched protocol.ScheduleInfo) ([]item, string) {
+	var items []item
+	reason := r.produce(ctx, p, sched, func(it item) bool {
+		items = append(items, it)
+		return true
+	})
+	return items, reason
+}
+
+// produce takes the items of the schedule (or the single analysis config item), emits their scheduled
+// events and hands each to push, until the stream ends, limit items were taken (Spec.Limit 0: no limit),
+// the schedule fails or push reports that nobody takes items any more. It returns the end reason.
+func (r *run) produce(ctx context.Context, p *pool.Process, sched protocol.ScheduleInfo, push func(item) bool) string {
 	s := r.spec
 	if s.HasAnalysisConfig() {
 		it := item{seq: 0, config: s.AnalysisConfig, scheduledAt: time.Now()}
 		r.events.Emit(ScheduledEvent{Type: EventScheduled, At: at(it.scheduledAt), Seq: 0, Config: it.config})
-		return []item{it}, ReasonDone
+		push(it)
+		return ReasonDone
 	}
 	resolutions := scheduler.NewResolutions(r.env, s.Resolved, func(_ context.Context, key string, res api.Resolution) (api.Resolution, error) {
 		provenance := res.Provenance
@@ -434,14 +494,14 @@ func (r *run) collect(ctx context.Context, p *pool.Process, sched protocol.Sched
 		tmp := filepath.Join(execDir, "tmp")
 		if err := os.MkdirAll(tmp, 0o700); err != nil {
 			r.fail(scerr.Newf(api.ErrorPlatform, api.PhaseSchedule, "cannot create the schedule directory: %v", err), ExitPlatform)
-			return nil, ReasonScheduleFailed
+			return ReasonScheduleFailed
 		}
 		server := scheduler.NewTemplateServer(pullCtx, resolutions, func(msg string, args ...any) { r.log.Warn(msg, args...) })
 		var err error
 		conn, err = scheduler.StartConnector(p, protocol.Ctx{ScanID: s.RunID, Attempt: 1, TmpDir: tmp}, s.ScanConfig, s.TaskConfig, r.itemTimeout(), server)
 		if err != nil {
 			r.fail(scerr.Newf(api.ErrorCrash, api.PhaseSchedule, "cannot send the schedule request: %v", err), ExitFailures)
-			return nil, ReasonScheduleFailed
+			return ReasonScheduleFailed
 		}
 		src = conn
 	} else {
@@ -452,7 +512,7 @@ func (r *run) collect(ctx context.Context, p *pool.Process, sched protocol.Sched
 		def, ok := templates.Lookup(name)
 		if !ok {
 			r.fail(scerr.Newf(api.ErrorValidation, api.PhaseSchedule, "unknown template %q", name), ExitValidation)
-			return nil, ReasonScheduleFailed
+			return ReasonScheduleFailed
 		}
 		effective, err := scheduler.Effective(def, s.ScanConfig)
 		if err == nil {
@@ -463,12 +523,12 @@ func (r *run) collect(ctx context.Context, p *pool.Process, sched protocol.Sched
 		}
 		if err != nil {
 			r.scheduleFailed(err)
-			return nil, ReasonScheduleFailed
+			return ReasonScheduleFailed
 		}
 	}
 	defer src.Close()
 
-	var items []item
+	var n int64
 	reason := ReasonDone
 	for {
 		cfg, ok, err := src.Next(pullCtx)
@@ -482,11 +542,12 @@ func (r *run) collect(ctx context.Context, p *pool.Process, sched protocol.Sched
 		if !ok {
 			break
 		}
-		if len(items) == s.Limit {
+		// The item after the limit was already pulled: a stream of exactly limit items ends with done.
+		if s.Limit > 0 && n == int64(s.Limit) {
 			reason = ReasonLimit
 			break
 		}
-		seq := int64(len(items))
+		seq := n
 		compact, err := scheduler.Limits{MaxAnalysisConfigBytes: s.Limits.MaxAnalysisConfigBytes}.CheckItem(seq, cfg)
 		if err != nil {
 			r.scheduleFailed(err)
@@ -494,15 +555,18 @@ func (r *run) collect(ctx context.Context, p *pool.Process, sched protocol.Sched
 			break
 		}
 		it := item{seq: seq, config: compact, scheduledAt: time.Now()}
-		items = append(items, it)
 		r.events.Emit(ScheduledEvent{Type: EventScheduled, At: at(it.scheduledAt), Seq: seq, Config: compact})
+		if !push(it) {
+			break
+		}
+		n++
 	}
 	if conn != nil && !conn.Ended() {
 		conn.Close()
 		p.Kill() // the schedule is abandoned; the process is recycled
 		<-p.Done()
 	}
-	return items, reason
+	return reason
 }
 
 func (r *run) scheduleFailed(err error) {
@@ -526,9 +590,11 @@ type lane struct {
 	handled int
 	capture *logtail.Buffer
 	ctl     chan runner.Control
+	// spawnDelay is the lane's wait after its last failed spawn (streaming runs); 0 after a success.
+	spawnDelay time.Duration
 }
 
-// runItems runs the items with `processes` lanes; the first lane reuses the describe process.
+// runItems runs the collected items with `processes` lanes; the first lane reuses the describe process.
 func (r *run) runItems(ctx context.Context, items []item, first *pool.Process) {
 	queue := make(chan item, len(items))
 	for _, it := range items {
@@ -536,10 +602,55 @@ func (r *run) runItems(ctx context.Context, items []item, first *pool.Process) {
 	}
 	close(queue)
 	n := min(r.spec.Processes, max(len(items), 1))
+	r.startLanes(ctx, n, queue, first)()
+	if !first.Usable() {
+		<-first.Done()
+	}
+}
+
+// stream runs the analyses while the schedule produces them (docs/runtime.md §15.6): the producer sends
+// into a queue of 2 × processes items that `processes` lanes consume from the start, so backpressure
+// reaches native iterators and the connector's schedule stream. A custom schedule keeps the describe
+// process until it ends and retires it then (processes + 1 processes, as a scan); native templates and
+// analysis-config runs hand it to lane 0 at once. It returns the end reason of the schedule.
+func (r *run) stream(ctx context.Context, first *pool.Process, sched protocol.ScheduleInfo) string {
+	queue := make(chan item, 2*r.spec.Processes)
+	scheduleKeeps := sched.Kind == api.ScheduleKindCustom && !r.spec.HasAnalysisConfig()
+	lane0 := first
+	if scheduleKeeps {
+		lane0 = nil
+	}
+	wait := r.startLanes(ctx, r.spec.Processes, queue, lane0)
+	reason := r.produce(ctx, first, sched, func(it item) bool {
+		if _, ok := r.aborted(); ok {
+			return false
+		}
+		select {
+		case queue <- it:
+			return true
+		case <-r.abortCh:
+			return false
+		}
+	})
+	close(queue)
+	if scheduleKeeps {
+		retire(first)
+	}
+	wait()
+	if !first.Usable() {
+		<-first.Done()
+	}
+	return reason
+}
+
+// startLanes starts n lanes that run the items of queue until it is closed or the run aborts (queued
+// items are then dropped); lane 0 starts with first when it is usable. The returned function waits for
+// the lanes.
+func (r *run) startLanes(ctx context.Context, n int, queue <-chan item, first *pool.Process) func() {
 	var wg sync.WaitGroup
 	for i := range n {
 		l := &lane{index: i, gen: 1, capture: logtail.NewBuffer(r.spec.Limits.LogTailBytes), ctl: make(chan runner.Control, 4)}
-		if i == 0 && first.Usable() {
+		if i == 0 && first != nil && first.Usable() {
 			l.proc = first
 		}
 		wg.Go(func() {
@@ -552,23 +663,25 @@ func (r *run) runItems(ctx context.Context, items []item, first *pool.Process) {
 			}
 		})
 	}
-	wg.Wait()
-	if !first.Usable() {
-		<-first.Done()
-	}
+	return wg.Wait
 }
 
 func (l *lane) retire() {
 	if l.proc == nil {
 		return
 	}
-	if l.proc.Usable() {
-		l.proc.Shutdown(protocol.ShutdownGrace)
-	} else {
-		l.proc.Kill()
-		<-l.proc.Done()
-	}
+	retire(l.proc)
 	l.proc = nil
+}
+
+// retire ends a process: a graceful shutdown when it is usable, otherwise a kill.
+func retire(p *pool.Process) {
+	if p.Usable() {
+		p.Shutdown(protocol.ShutdownGrace)
+	} else {
+		p.Kill()
+		<-p.Done()
+	}
 }
 
 // ensure gives the lane a usable process.
@@ -583,7 +696,39 @@ func (r *run) ensure(ctx context.Context, l *lane) error {
 		return err
 	}
 	l.proc, l.handled = p, 0
+	if r.opts.Stream {
+		l.spawnDelay = 0
+		r.mu.Lock()
+		r.spawnFails = 0
+		r.mu.Unlock()
+	}
 	return nil
+}
+
+// spawnBackoff follows a failed spawn of a streaming run: maxSpawnFailures consecutive failures across the
+// lanes abort the run (startFailed, exit 3); otherwise the lane waits 1 s, doubling up to 60 s, before it
+// takes its next item, so an unbounded stream does not turn every item into a platform failure at once.
+func (r *run) spawnBackoff(l *lane) {
+	r.mu.Lock()
+	r.spawnFails++
+	fails := r.spawnFails
+	r.mu.Unlock()
+	if fails >= maxSpawnFailures {
+		r.log.Error("the connector failed to start repeatedly", "failures", fails)
+		r.abort(ReasonStartFailed)
+		return
+	}
+	if l.spawnDelay == 0 {
+		l.spawnDelay = spawnBackoffInitial
+	} else {
+		l.spawnDelay = min(2*l.spawnDelay, spawnBackoffMax)
+	}
+	t := time.NewTimer(l.spawnDelay)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-r.abortCh:
+	}
 }
 
 // analyse runs one item with retries until it is final and emits its events.
@@ -594,15 +739,14 @@ func (r *run) analyse(ctx context.Context, l *lane, it item) {
 		if err := r.ensure(ctx, l); err != nil {
 			e := scerr.Newf(api.ErrorPlatform, api.PhaseBootstrap, "the connector did not start: %v", err)
 			r.final(it, attempt, nil, &e, nil, "", history, time.Now(), time.Now(), 0)
+			if r.opts.Stream {
+				r.spawnBackoff(l)
+			}
 			return
 		}
 		x := r.execute(ctx, l, it, attempt, logs)
 		if why, ok := r.aborted(); ok && (x.Aborted || !x.Succeeded()) {
-			msg := "the local run was interrupted"
-			if why == ReasonTimeout {
-				msg = fmt.Sprintf("the local run exceeded its total timeout of %d ms", r.spec.TotalTimeoutMs)
-			}
-			e := scerr.New(api.ErrorCancelled, api.PhaseRun, msg)
+			e := scerr.New(api.ErrorCancelled, api.PhaseRun, r.abortMessage(why))
 			r.final(it, attempt, nil, &e, nil, l.capture.Tail(r.spec.Limits.LogTailBytes), history, x.StartedAt, x.FinishedAt, x.Duration)
 			_ = x.Cleanup()
 			return
@@ -637,6 +781,25 @@ func (r *run) analyse(ctx context.Context, l *lane, it item) {
 		case <-time.After(delay):
 		case <-r.abortCh:
 		}
+	}
+}
+
+// abortMessage is the error message of the analyses an abort cancels. Dev runs and test runs keep their
+// wording; a streaming run (a bundle run) is not called local.
+func (r *run) abortMessage(why string) string {
+	subject := "the local run"
+	if r.opts.Stream {
+		subject = "the run"
+	}
+	switch why {
+	case ReasonTimeout:
+		return fmt.Sprintf("%s exceeded its total timeout of %d ms", subject, r.spec.TotalTimeoutMs)
+	case ReasonStartFailed:
+		return fmt.Sprintf("%s stopped: the connector failed to start %d times in a row", subject, maxSpawnFailures)
+	case ReasonOutputFailed:
+		return subject + " stopped: its output could not be written"
+	default:
+		return subject + " was interrupted"
 	}
 }
 
@@ -736,14 +899,25 @@ func (r *run) final(it item, attempt int, result json.RawMessage, e *scerr.Scant
 func (r *run) copyFiles(seq int64, files []upload.File) ([]File, error) {
 	out := make([]File, 0, len(files))
 	for _, f := range files {
-		rel := path.Join("files", strconv.FormatInt(seq, 10), f.ID, SafeName(f.Name))
+		seqDir := path.Join("files", strconv.FormatInt(seq, 10))
+		rel := path.Join(seqDir, f.ID, SafeName(f.Name))
 		dst := filepath.Join(r.spec.OutDir, filepath.FromSlash(rel))
 		if err := copyFile(f.Path, dst); err != nil {
 			return nil, err
 		}
+		r.chown(filepath.Join(r.spec.OutDir, filepath.FromSlash(seqDir)))
+		r.chown(filepath.Dir(dst))
+		r.chown(dst)
 		out = append(out, File{ID: f.ID, Name: f.Name, Size: f.Size, SHA256: f.SHA256, ContentType: f.ContentType, Path: rel})
 	}
 	return out, nil
+}
+
+// chown gives a directory or file the run created to Options.FileOwner; errors are ignored.
+func (r *run) chown(name string) {
+	if o := r.opts.FileOwner; o != nil {
+		_ = os.Lchown(name, o.UID, o.GID)
+	}
 }
 
 func copyFile(src, dst string) error {

@@ -30,7 +30,18 @@ const (
 	ReasonStartFailed    = "startFailed"
 	ReasonTimeout        = "timeout"
 	ReasonInterrupted    = "interrupted"
+	// ReasonOutputFailed ends a run whose output could not be written (Options.Stop, bundle mode).
+	ReasonOutputFailed = "outputFailed"
 )
+
+// Sink receives the events of a run, from several goroutines at once. *Emitter writes them as NDJSON to
+// stdout (dev runs, test runs); bundle mode writes the results directory (docs/runtime.md §15.8).
+type Sink interface {
+	// Emit handles one event (one of the *Event types of this package).
+	Emit(ev any)
+	// Err returns the first write error; a run whose sink failed ends with exit code 3.
+	Err() error
+}
 
 // ConnectorRef identifies the connector in the start event.
 type ConnectorRef struct {
@@ -158,7 +169,7 @@ type EndEvent struct {
 	ExitCode int      `json:"exitCode"`
 }
 
-// Emitter writes events as NDJSON lines; it is safe for concurrent use.
+// Emitter writes events as NDJSON lines; it is safe for concurrent use and implements Sink.
 type Emitter struct {
 	mu  sync.Mutex
 	w   io.Writer

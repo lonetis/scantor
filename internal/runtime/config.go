@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/lonetis/scantor/internal/api"
 	"github.com/lonetis/scantor/internal/envconf"
 	"github.com/lonetis/scantor/internal/protocol"
 )
@@ -13,6 +14,7 @@ import (
 // Environment contract of the runtime (docs/runtime.md §3.2). The node daemon sets SCANTOR_URL,
 // SCANTOR_WORKER_TOKEN, SCANTOR_DIND and passes SCANTOR_CA_CERT and SCANTOR_ALLOW_INSECURE_TRANSPORT
 // through; the base image sets the SCANTOR_LANGUAGE … SCANTOR_SCRIPT_CMD contract (docs/tasks.md §4.2).
+// The recipient of a bundle may set the data-source URLs with `docker run -e` (bundle mode, §15.7).
 // Everything else comes from bootstrap (worker mode) or the local spec (local mode).
 const (
 	EnvURL           = "SCANTOR_URL"
@@ -27,6 +29,9 @@ const (
 	EnvCheckCmd      = "SCANTOR_CHECK_CMD"
 	EnvScriptCmd     = "SCANTOR_SCRIPT_CMD"
 	EnvTmpDir        = "TMPDIR"
+	EnvTrancoURL     = "SCANTOR_TRANCO_URL"
+	EnvCruxURL       = "SCANTOR_CRUX_URL"
+	EnvCruxCacheURL  = "SCANTOR_CRUX_CACHE_URL"
 )
 
 // TaskDir is the working directory of every connector, check and script process (the base image
@@ -34,6 +39,9 @@ const (
 const TaskDir = "/task"
 
 const defaultTmpParent = "/tmp"
+
+// dataSourceSchemes are the URL schemes of the data-source variables.
+var dataSourceSchemes = []string{"http", "https"}
 
 // Config is the environment of the runtime. Environ is the complete environment of the runtime process
 // (the image ENV plus the variables above), from which connector environments are derived
@@ -52,14 +60,18 @@ type Config struct {
 	// ScriptCmd is the command template of script mode; empty when the base image does not support
 	// scripts.
 	ScriptCmd string
+	// DataSources are the template data-source URLs of bundle runs, without a trailing slash; a field is
+	// empty when its variable is unset, and bundle mode then uses the compiled-in default of
+	// internal/templates (which cannot be imported here: internal/templates/core imports this package).
+	DataSources api.DataSources
 	// WorkRoot is <TMPDIR or /tmp>/scantor (docs/runtime.md §7.1).
 	WorkRoot string
 	Environ  []string
 }
 
 // LoadConfig reads the runtime environment. Worker-mode variables (SCANTOR_URL, SCANTOR_WORKER_TOKEN) are
-// validated by RequireWorker, because the other modes do not need them. An invalid CA bundle or
-// transport flag is an error (security-relevant).
+// validated by RequireWorker, because the other modes do not need them. An invalid CA bundle, transport
+// flag or data-source URL (http or https) is an error.
 func LoadConfig(getenv envconf.Getenv, environ []string) (Config, error) {
 	r := envconf.NewReader(getenv)
 	cfg := Config{
@@ -74,8 +86,15 @@ func LoadConfig(getenv envconf.Getenv, environ []string) (Config, error) {
 		DebugPort:     strings.TrimSpace(r.String(EnvDebugPort, "")),
 		CheckCmd:      r.String(EnvCheckCmd, ""),
 		ScriptCmd:     r.String(EnvScriptCmd, ""),
-		WorkRoot:      WorkRoot(getenv),
-		Environ:       environ,
+		// An invalid data-source URL aborts (as a security-relevant variable does) instead of falling back
+		// to the default without a word: the runtime has no warning channel.
+		DataSources: api.DataSources{
+			Tranco:    r.URL(EnvTrancoURL, "", dataSourceSchemes, envconf.Security()),
+			Crux:      r.URL(EnvCruxURL, "", dataSourceSchemes, envconf.Security()),
+			CruxCache: r.URL(EnvCruxCacheURL, "", dataSourceSchemes, envconf.Security()),
+		},
+		WorkRoot: WorkRoot(getenv),
+		Environ:  environ,
 	}
 	if err := r.Err(); err != nil {
 		return cfg, fmt.Errorf("invalid runtime environment: %w", err)
