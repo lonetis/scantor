@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lonetis/scantor/main/schemas/task-manifest.schema.json
+scantor: 1
+name: bundle-probe
+language: python
+description: "Test fixture: list items for bundle runs, with a secret, a retryable and a fatal item, a sleep and a file."
+defaults:
+  timeout: 1m
+  maxAttempts: 3
+  backoff:
+    initial: 1s
+    factor: 2
+    max: 2s
+    jitter: false
+  resources:
+    cpus: 0.5
+    memory: 256MiB
