@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test'
+import type { Bundle } from '#shared/types/bundles'
 import type { BuildLogLine, Revision } from '#shared/types/revisions'
 import { ApiClient, ok } from '../helpers/api-client'
 import { GIT_REPOS } from '../helpers/fixtures-server'
@@ -12,6 +13,7 @@ import {
   nodeRoutedContext,
   openPage,
   patchJsonResponse,
+  reloadPage,
   workerTenant,
 } from '../helpers/ui-shell-tasks'
 import { newApiContext } from '../helpers/users'
@@ -374,4 +376,121 @@ test.describe('revision page', () => {
     await expect(rowOf('api_token')).toBeVisible()
     await expect(rowOf('api_token').getByText('secret', { exact: true })).toBeVisible({ timeout: 5_000 })
   })
+})
+
+// The "Bundle" action of the revision page and its dialog (docs/ui.md §5.9; docs/api.md createRevisionBundle,
+// getRevisionBundle): a ready, unprivileged revision gets a bundle that runs with only Docker.
+
+function bundleButton(page: Page) {
+  return page.getByRole('button', { name: 'Bundle', exact: true })
+}
+
+/** Hovers the "Bundle" button's tooltip trigger (the wrapper, because a disabled button takes no pointer events). */
+async function expectBundleTooltip(page: Page, text: string): Promise<void> {
+  await page.mouse.move(0, 0)
+  await bundleButton(page).locator('xpath=..').hover()
+  await expect(page.getByRole('tooltip')).toHaveText(text)
+}
+
+test.describe('revision bundles', () => {
+  test('the Bundle button is enabled only for ready revisions that are not privileged', { tag: ['@UI-TASK-029'] }, async ({ page, zoo }) => {
+    const { task, revision } = zoo
+    const revisionPath = `/api/tasks/${task.id}/revisions/${revision.number}`
+    let patch: Partial<Revision> = {}
+    await page.route(
+      (url) => url.pathname === revisionPath,
+      (route) => patchJsonResponse<Revision>(route, (body) => ({ ...body, ...patch })),
+    )
+    await openPage(page, `/tasks/${task.id}/revisions/${revision.number}`)
+    await expect(bundleButton(page)).toBeEnabled()
+    await expectBundleTooltip(page, 'Create or download a bundle that runs with only Docker')
+
+    const cases: [Partial<Revision>, string][] = [
+      [{ privileged: true }, 'Privileged revisions cannot be bundled'],
+      [{ state: 'building', finishedAt: null }, 'Only ready revisions can be bundled; this one is still building'],
+      [{ state: 'failed', errors: [] }, 'Failed revisions cannot be bundled'],
+    ]
+    for (const [next, reason] of cases) {
+      patch = next
+      await reloadPage(page)
+      await expect(bundleButton(page), reason).toBeDisabled()
+      await expectBundleTooltip(page, reason)
+    }
+  })
+
+  test(
+    'the Bundle dialog creates a bundle, follows it until ready and offers the download and the commands',
+    { tag: ['@UI-TASK-029'] },
+    async ({ page, api, request, tasks }) => {
+      test.setTimeout(480_000)
+      const { task, revision } = await tasks.example('echo')
+      await openPage(page, `/tasks/${task.id}/revisions/${revision.number}`)
+      await bundleButton(page).click()
+      const dialog = page.getByRole('dialog', { name: `Bundle of ${revision.ref}` })
+      await expect(dialog).toBeVisible()
+      await expect(dialog).toContainText(
+        'A bundle contains the complete task image, including every file of the task folder. Anyone with the file can run and inspect it.',
+      )
+      await expect(dialog.getByText(/This revision has no bundle yet\./)).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Download bundle' })).toHaveCount(0)
+
+      // Create: the dialog shows the state and the elapsed time while the bundle job runs, then the ready bundle. Only
+      // the state is a live region; the elapsed time, which changes every second, is not.
+      await dialog.getByRole('button', { name: 'Create bundle' }).click()
+      const status = dialog.getByRole('status')
+      await expect(status.locator('[data-state="queued"], [data-state="running"]')).toBeVisible()
+      await expect(dialog.getByText(/^building for /)).toBeVisible()
+      await expect(status).not.toContainText('building for')
+      await expect(status.locator('[data-state="ready"]')).toBeVisible({ timeout: 420_000 })
+      await expect(dialog.getByText(/^ready after /)).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Create bundle' })).toHaveCount(0)
+
+      const bundle = ok(await api.call<Bundle>('getRevisionBundle', { path: { task: task.id, revision: revision.number } }), 'getRevisionBundle')
+      expect(bundle.state).toBe('ready')
+      const fileName = `${task.name}-${revision.number}-linux-${bundle.platform.arch}.bundle.tar.gz`
+      expect(bundle.download?.fileName).toBe(fileName)
+      const fact = (label: string) => dialog.locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]')
+      await expect(fact('Platform')).toHaveText([bundle.platform.os, bundle.platform.arch, bundle.platform.variant].filter(Boolean).join('/'))
+      await expect(fact('Size')).toHaveText(/^\d+(\.\d)? (KiB|MiB|GiB)$/)
+      await expect(fact('Size').locator('span[title]')).toHaveAttribute('title', `${bundle.bytes!.toLocaleString('en-US')} bytes`)
+      await expect(fact('Expires')).toHaveText(/^(in \d+ (min|h|days?)|\d{4}-\d{2}-\d{2})$/)
+      await expect(fact('File')).toHaveText(fileName)
+
+      // The recipient's commands, each copyable.
+      for (const [title, key] of [
+        ['Load once', 'load'],
+        ['Run', 'run'],
+        ['Describe', 'describe'],
+      ] as const) {
+        await expect(dialog.getByRole('region', { name: `${title} command`, exact: true })).toHaveText(bundle.commands[key])
+        await expect(dialog.getByRole('button', { name: `Copy ${key} command`, exact: true })).toBeVisible()
+      }
+      expect(bundle.commands).toEqual({
+        load: `docker load -i ${fileName}`,
+        run: `docker run --rm -v "$PWD:/work" ${bundle.image}`,
+        describe: `docker run --rm ${bundle.image} --describe`,
+      })
+      expect(bundle.image).toBe(`localhost/scantor/${task.name}:${revision.number}`)
+
+      // Download: a presigned gzip attachment named after the file.
+      const downloaded = page.waitForEvent('download')
+      await dialog.getByRole('button', { name: 'Download bundle' }).click()
+      const download = await downloaded
+      expect(download.suggestedFilename()).toBe(fileName)
+      const head = await request.get(download.url(), { headers: { Range: 'bytes=0-1' } })
+      await download.cancel()
+      expect([200, 206]).toContain(head.status())
+      expect(head.headers()['content-type']).toBe('application/gzip')
+      expect(head.headers()['content-disposition']).toMatch(new RegExp(`^attachment;.*${fileName.replace(/[.]/g, '\\.')}`))
+      expect([...(await head.body()).subarray(0, 2)]).toEqual([0x1f, 0x8b])
+
+      // Reopened, the dialog shows the same ready bundle instead of creating one.
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(dialog).toHaveCount(0)
+      await bundleButton(page).click()
+      await expect(dialog.getByRole('status').locator('[data-state="ready"]')).toBeVisible()
+      await expect(dialog.getByRole('button', { name: 'Download bundle' })).toBeVisible()
+      expect(ok(await api.call<Bundle>('getRevisionBundle', { path: { task: task.id, revision: revision.number } }), 'getRevisionBundle').id).toBe(bundle.id)
+    },
+  )
 })

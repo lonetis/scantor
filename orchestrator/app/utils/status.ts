@@ -13,6 +13,7 @@ export type StatusKind =
   | 'worker'
   | 'node'
   | 'export'
+  | 'bundle'
   | 'job'
   | 'editor'
   | 'conditionSeverity'
@@ -104,6 +105,12 @@ const STATUS_STYLES = {
     ready: { color: 'success', icon: 'i-lucide-circle-check' },
     failed: { color: 'error', icon: 'i-lucide-circle-x' },
     cancelled: { color: 'neutral', icon: 'i-lucide-ban' },
+  },
+  bundle: {
+    queued: { color: 'neutral', icon: 'i-lucide-clock' },
+    running: { color: 'info', icon: 'i-lucide-loader-circle' },
+    ready: { color: 'success', icon: 'i-lucide-circle-check' },
+    failed: { color: 'error', icon: 'i-lucide-circle-x' },
   },
   job: {
     queued: { color: 'neutral', icon: 'i-lucide-clock' },
