@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 import tar from 'tar-stream'
 import { parse as parseYaml } from 'yaml'
+import type { Bundle } from '#shared/types/bundles'
 import type { Scan } from '#shared/types/scans'
 import type { Script, ScriptRun } from '#shared/types/scripts'
 import { ok } from '../helpers/api-client'
@@ -1929,6 +1930,73 @@ test.describe('task, revision and node commands', () => {
       await removeTree(dir)
     }
   })
+
+  test(
+    'revisions bundle creates or reuses a bundle, downloads and verifies it and prints the commands',
+    { tag: ['@CLI-017'] },
+    async ({ user, api, shared }) => {
+      test.setTimeout(600_000)
+      const { task, revision } = await shared.example('echo')
+      const ref = `${task.name}@${revision.number}`
+      const root = await tempDir('bundle-cmd')
+      const token = user.apiKey
+      const cli = (args: string[], cwd = root) => scantor(args, { token, cwd, timeoutMs: 540_000 })
+      try {
+        // The first call creates (or reuses) the bundle, waits until it is ready and saves it under its file name.
+        const created = await cli(['revisions', 'bundle', ref])
+        expect(created.exitCode, describeRun(created)).toBe(0)
+        const bundle = ok(await api.call<Bundle>('getRevisionBundle', { path: { task: task.id, revision: revision.number } }), 'getRevisionBundle')
+        expect(bundle.state).toBe('ready')
+        const fileName = `${task.name}-${revision.number}-linux-${bundle.platform.arch}.bundle.tar.gz`
+        expect(bundle.download?.fileName).toBe(fileName)
+        expect(created.stdout).toContain(`saved ${fileName}`)
+        const archive = await readFile(join(root, fileName))
+        expect(archive.length).toBe(bundle.bytes)
+        expect(createHash('sha256').update(archive).digest('hex')).toBe(bundle.sha256)
+        expect([...archive.subarray(0, 2)]).toEqual([0x1f, 0x8b])
+
+        // The recipient's commands go to stderr, so stdout carries only the result.
+        for (const line of [bundle.commands.load, bundle.commands.run, bundle.commands.describe]) {
+          expect(created.stderr).toContain(line)
+          expect(created.stdout).not.toContain(line)
+        }
+        expect(bundle.commands.run).toBe(`docker run --rm -v "$PWD:/work" localhost/scantor/${task.name}:${revision.number}`)
+
+        // An existing file is kept without --force; a second call reuses the ready bundle.
+        const existing = await cli(['revisions', 'bundle', ref])
+        expect(existing.exitCode, describeRun(existing)).toBe(2)
+        const reused = await cli(['revisions', 'bundle', ref, '--file', 'copy.tar.gz', '-o', 'json'])
+        expect(reused.exitCode, describeRun(reused)).toBe(0)
+        const output = reused.json as { bundle: Bundle; file: { path: string; bytes: number; sha256: string } | null }
+        expect(output.bundle).toMatchObject({ id: bundle.id, state: 'ready', sha256: bundle.sha256 })
+        expect(output.file).toEqual({ path: 'copy.tar.gz', bytes: bundle.bytes, sha256: bundle.sha256 })
+        const copy = await readFile(join(root, 'copy.tar.gz'))
+        expect(createHash('sha256').update(copy).digest('hex')).toBe(bundle.sha256)
+        expect(reused.stderr).not.toContain('docker load')
+
+        // --no-download waits for the bundle and prints it without writing a file.
+        const empty = await tempDir('bundle-none')
+        try {
+          const shown = await cli(['revisions', 'bundle', ref, '--no-download', '-o', 'json'], empty)
+          expect(shown.exitCode, describeRun(shown)).toBe(0)
+          expect(shown.json).toMatchObject({ bundle: { id: bundle.id, state: 'ready', commands: bundle.commands }, file: null })
+          const human = await cli(['revisions', 'bundle', ref, '--no-download'], empty)
+          expect(human.exitCode, describeRun(human)).toBe(0)
+          expect(human.stdout).toContain(bundle.image)
+          expect(human.stderr).toContain(bundle.commands.load)
+          expect(await readdir(empty)).toEqual([])
+        } finally {
+          await removeTree(empty)
+        }
+
+        // An unknown revision is a client error.
+        const missing = await cli(['revisions', 'bundle', `${task.name}@${revision.number + 100}`])
+        expect(missing.exitCode, describeRun(missing)).toBe(2)
+      } finally {
+        await removeTree(root)
+      }
+    },
+  )
 
   test('nodes commands manage a node and print its token once', { tag: ['@CLI-010'] }, async ({ adminApi, openapi }) => {
     const admin = await createAdminWithKey(adminApi, openapi, 'cli-nodes')

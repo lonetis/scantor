@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -212,4 +214,51 @@ func apiScanFixture(state string, succeeded, failed int64, extra map[string]any)
 		scan[k] = v
 	}
 	return scan
+}
+
+// apiBundlePath is the path of the createRevisionBundle and getRevisionBundle routes of a revision.
+func apiBundlePath(task, revision string) string {
+	return "/api/tasks/" + task + "/revisions/" + revision + "/bundle"
+}
+
+// apiBundleS3Path is the path of the fake's presigned bundle download.
+const apiBundleS3Path = "/s3/bundles/echo-3.tar.gz"
+
+// bundleFixture is a bundle of echo@3 in state. A ready bundle carries the size and digest of archive and
+// a presigned download on the fake (serve it with serveBundle).
+func (f *apiFake) bundleFixture(state string, archive []byte, extra map[string]any) map[string]any {
+	bundle := map[string]any{
+		"id":       "5d0c7a4e-2b1f-4c3d-9e8a-7f6b5c4d3e2f",
+		"revision": map[string]any{"id": "c2a9e4b1-7d3f-4e5a-9b8c-1d2e3f4a5b6c", "number": 3, "ref": "echo@3"},
+		"state":    state, "image": "localhost/scantor/echo:3", "platform": map[string]any{"os": "linux", "arch": "amd64"},
+		"bytes": nil, "sha256": nil, "scantorVersion": nil, "error": nil,
+		"createdAt": "2026-11-20T09:00:00.000Z", "startedAt": nil, "finishedAt": nil, "expiresAt": "2026-11-27T09:00:00.000Z",
+		"download": nil,
+		"commands": map[string]any{
+			"load":     "docker load -i echo-3-linux-amd64.bundle.tar.gz",
+			"run":      `docker run --rm -v "$PWD:/work" localhost/scantor/echo:3`,
+			"describe": "docker run --rm localhost/scantor/echo:3 --describe",
+		},
+	}
+	if state == "ready" {
+		sum := sha256.Sum256(archive)
+		bundle["bytes"], bundle["sha256"], bundle["scantorVersion"] = len(archive), hex.EncodeToString(sum[:]), "1.6.0"
+		bundle["startedAt"], bundle["finishedAt"] = "2026-11-20T09:00:01.000Z", "2026-11-20T09:01:12.000Z"
+		bundle["download"] = map[string]any{
+			"url":       f.srv.URL + apiBundleS3Path + "?X-Amz-Signature=abc",
+			"expiresAt": "2026-11-20T09:11:12.000Z", "fileName": "echo-3-linux-amd64.bundle.tar.gz",
+		}
+	}
+	for k, v := range extra {
+		bundle[k] = v
+	}
+	return bundle
+}
+
+// serveBundle answers the presigned bundle download with archive.
+func (f *apiFake) serveBundle(archive []byte) {
+	f.on("GET", apiBundleS3Path, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/gzip")
+		_, _ = w.Write(archive)
+	})
 }

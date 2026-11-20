@@ -52,6 +52,29 @@ type apiExpect struct {
 	sha256 string
 }
 
+// check fails when write would refuse the file: it exists without --force, or its directory does not
+// exist. Commands that wait before they download call it first, so the user learns it before the wait;
+// write checks again.
+func (t apiOutputTarget) check() error {
+	if t.stdout() {
+		return nil
+	}
+	if _, err := os.Lstat(t.path); err == nil && !t.force {
+		return ValidationError(fmt.Errorf("%s already exists; use --force to overwrite it", t.path))
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return ValidationError(err)
+	}
+	if dir := filepath.Dir(t.path); !apiIsDir(dir) {
+		return ValidationError(fmt.Errorf("create %s: directory %s does not exist", t.path, dir))
+	}
+	return nil
+}
+
+func apiIsDir(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
 // write streams r to the target. Files are written to a temporary file next to the destination and
 // renamed only after verification, so a failed or interrupted transfer never leaves a partial file.
 func (t apiOutputTarget) write(app *App, r io.Reader, expect apiExpect) (*apiSavedFile, error) {
@@ -64,10 +87,8 @@ func (t apiOutputTarget) write(app *App, r io.Reader, expect apiExpect) (*apiSav
 		saved := &apiSavedFile{Path: "-", Bytes: n, SHA256: hex.EncodeToString(hash.Sum(nil))}
 		return saved, expect.verify(saved)
 	}
-	if _, err := os.Lstat(t.path); err == nil && !t.force {
-		return nil, ValidationError(fmt.Errorf("%s already exists; use --force to overwrite it", t.path))
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return nil, ValidationError(err)
+	if err := t.check(); err != nil {
+		return nil, err
 	}
 	dir := filepath.Dir(t.path)
 	tmp, err := os.CreateTemp(dir, ".scantor-download-*")

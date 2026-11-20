@@ -1535,10 +1535,55 @@ scantor revisions [flags]
 ### SEE ALSO
 
 * [scantor](#scantor)	 - Run scanning tasks at scale
+* [scantor revisions bundle](#scantor-revisions-bundle)	 - Create and download a bundle of a revision
 * [scantor revisions get](#scantor-revisions-get)	 - Show a revision
 * [scantor revisions list](#scantor-revisions-list)	 - List the revisions of a task
 * [scantor revisions logs](#scantor-revisions-logs)	 - Print the build log of a revision
 * [scantor revisions publish](#scantor-revisions-publish)	 - Publish the task's workspace as a new revision
+
+
+## scantor revisions bundle
+
+Create and download a bundle of a revision
+
+### Synopsis
+
+Create a bundle of a ready revision and download it. A bundle is a gzip Docker image archive of the revision with the runtime and the revision's defaults baked in; it runs on any machine with only Docker, without the platform. A queued, running or ready bundle of the revision is reused; --rebuild replaces a ready one. The command waits until the bundle is ready (at most --timeout), then saves it under its file name &lt;task&gt;-&lt;number&gt;-&lt;os&gt;-&lt;arch&gt;.bundle.tar.gz in the current directory unless --file names another path (- writes to stdout), verifying its size and SHA-256; an existing file is only replaced with --force. A failed bundle exits with code 3. Privileged revisions cannot be bundled.
+
+The recipient loads the archive once with 'docker load -i &lt;file&gt;' and runs it with 'docker run --rm -v "$PWD:/work" localhost/scantor/&lt;task&gt;:&lt;number&gt;'; the command prints these lines on stderr. A revision is addressed as &lt;task&gt;@&lt;number&gt;, &lt;task&gt;@latest (the newest ready revision), &lt;task&gt;@&lt;revisionId&gt; or &lt;task&gt; (= &lt;task&gt;@latest).
+
+```
+scantor revisions bundle <task>[@<revision>] [flags]
+```
+
+### Examples
+
+```
+  scantor revisions bundle echo@3
+  scantor revisions bundle echo@latest --rebuild --file echo.bundle.tar.gz
+  scantor revisions bundle echo@3 --file - | docker load
+```
+
+### Options
+
+```
+  -f, --file string        write the bundle to this file (- = stdout)
+      --force              overwrite an existing file
+  -h, --help               help for bundle
+      --no-download        wait until the bundle is ready, but do not download it
+      --rebuild            replace a ready bundle with a new one
+      --timeout duration   give up waiting for the bundle after this duration (0 = no limit) (default 30m0s)
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor revisions](#scantor-revisions)	 - Publish and inspect task revisions
 
 
 ## scantor revisions get
