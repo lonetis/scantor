@@ -31,6 +31,7 @@ const (
 	CodeUploadInUse          = "uploadInUse"
 	CodeRevisionNotReady     = "revisionNotReady"
 	CodeRevisionUnavailable  = "revisionUnavailable"
+	CodeBundleUnsupported    = "bundleUnsupported"
 	CodeNothingToRetry       = "nothingToRetry"
 	CodeExportTooLarge       = "exportTooLarge"
 	CodeStaleEpoch           = "staleEpoch"

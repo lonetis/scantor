@@ -299,22 +299,19 @@ func writeOutFile(root *os.Root, rel string, r io.Reader) error {
 }
 
 // EffectiveConfig validates a config (nil means {}) against a described schema with defaults filled
-// (docs/tasks.md §6.3) and returns it. Validation failures are BuildErrors of phase config, for example
-// "taskConfig /greeting: must be string".
+// (docs/tasks.md §6.3, schema.Effective) and returns it. Validation failures are BuildErrors of phase
+// config, for example "taskConfig /greeting: must be string".
 func EffectiveConfig(name string, schemaDoc, raw json.RawMessage) (json.RawMessage, []api.BuildError, error) {
-	if len(raw) == 0 {
-		raw = json.RawMessage(`{}`)
-	}
-	s, err := schema.Compile(schemaDoc)
+	filled, issues, err := schema.Effective(schemaDoc, raw)
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s schema: %w", name, err)
 	}
-	filled, issues, err := s.Fill(raw)
-	if err != nil {
-		return nil, []api.BuildError{{Phase: api.BuildPhaseConfig, Message: fmt.Sprintf("%s: %v", name, err)}}, nil
-	}
 	errs := make([]api.BuildError, 0, len(issues))
 	for _, is := range issues {
+		if is.Keyword == schema.KeywordInstance {
+			errs = append(errs, api.BuildError{Phase: api.BuildPhaseConfig, Message: fmt.Sprintf("%s: %s", name, is.Message)})
+			continue
+		}
 		p := is.Path
 		if p == "" {
 			p = "/"
@@ -336,7 +333,7 @@ func ReferencedUploads(uploadPaths []string, config json.RawMessage) []string {
 	}
 	var out []string
 	for _, p := range uploadPaths {
-		walkPointer(doc, splitPointer(p), "", func(at string, v any) {
+		schema.WalkPointer(doc, p, func(at string, v any) {
 			if v != nil {
 				out = append(out, at)
 			}
@@ -344,46 +341,3 @@ func ReferencedUploads(uploadPaths []string, config json.RawMessage) []string {
 	}
 	return out
 }
-
-func splitPointer(p string) []string {
-	if p == "" {
-		return nil
-	}
-	parts := strings.Split(strings.TrimPrefix(p, "/"), "/")
-	for i, s := range parts {
-		parts[i] = strings.NewReplacer("~1", "/", "~0", "~").Replace(s)
-	}
-	return parts
-}
-
-func walkPointer(v any, segs []string, at string, fn func(at string, v any)) {
-	if len(segs) == 0 {
-		fn(at, v)
-		return
-	}
-	seg, rest := segs[0], segs[1:]
-	switch node := v.(type) {
-	case map[string]any:
-		if seg == "*" {
-			for k, child := range node {
-				walkPointer(child, rest, at+"/"+escapePointer(k), fn)
-			}
-			return
-		}
-		if child, ok := node[seg]; ok {
-			walkPointer(child, rest, at+"/"+escapePointer(seg), fn)
-		}
-	case []any:
-		if seg == "*" {
-			for i, child := range node {
-				walkPointer(child, rest, at+"/"+strconv.Itoa(i), fn)
-			}
-			return
-		}
-		if i, err := strconv.Atoi(seg); err == nil && i >= 0 && i < len(node) {
-			walkPointer(node[i], rest, at+"/"+seg, fn)
-		}
-	}
-}
-
-func escapePointer(s string) string { return strings.NewReplacer("~", "~0", "/", "~1").Replace(s) }

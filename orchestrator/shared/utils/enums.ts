@@ -55,6 +55,7 @@ export const JOB_KINDS = [
   'notification',
   'scriptRun',
   'scriptDelete',
+  'bundle',
 ] as const
 export type JobKind = (typeof JOB_KINDS)[number]
 
@@ -62,7 +63,7 @@ export const JOB_STATES = ['queued', 'running', 'succeeded', 'failed', 'cancelle
 export type JobState = (typeof JOB_STATES)[number]
 export const TERMINAL_JOB_STATES = ['succeeded', 'failed', 'cancelled'] as const satisfies readonly JobState[]
 
-export const JOB_SUBJECT_KINDS = ['revision', 'testRun', 'scan', 'export', 'task', 'user', 'notification', 'scriptRun', 'script'] as const
+export const JOB_SUBJECT_KINDS = ['revision', 'testRun', 'scan', 'export', 'task', 'user', 'notification', 'scriptRun', 'script', 'bundle'] as const
 export type JobSubjectKind = (typeof JOB_SUBJECT_KINDS)[number]
 
 export const EXPORT_STATES = ['queued', 'running', 'ready', 'failed'] as const
@@ -70,6 +71,9 @@ export type ExportState = (typeof EXPORT_STATES)[number]
 
 export const EXPORT_FORMATS = ['jsonl', 'csv'] as const
 export type ExportFormat = (typeof EXPORT_FORMATS)[number]
+
+export const BUNDLE_STATES = ['queued', 'running', 'ready', 'failed'] as const
+export type BundleState = (typeof BUNDLE_STATES)[number]
 
 export const EDITOR_STATES = ['starting', 'running', 'stopping', 'stopped'] as const
 export type EditorState = (typeof EDITOR_STATES)[number]

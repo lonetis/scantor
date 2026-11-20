@@ -1,0 +1,387 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scantor.dev/schemas/bundle.schema.json",
+  "title": "scantor bundle info (/scantor/bundle.json)",
+  "description": "The file baked into every bundle image at /scantor/bundle.json: the revision's describe output, its settings defaults and the platform limits, read by bundle mode (`scantor runtime bundle`). Strict: unknown keys are rejected at every level this schema defines; the JSON Schemas of the task types stay opaque objects. Built as an allowlist by the orchestrator (services/bundles/info.ts) and parsed again by internal/bundle before it is written into the image. It never holds secrets, credentials, master URLs, ids or data-source overrides. See docs/runtime.md §15.7 and docs/tasks.md §9.11.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "v",
+    "image",
+    "ref",
+    "task",
+    "revision",
+    "language",
+    "entry",
+    "platform",
+    "description",
+    "settings",
+    "limits"
+  ],
+  "properties": {
+    "v": {
+      "description": "Format version. Always 1 for this schema.",
+      "const": 1
+    },
+    "image": {
+      "description": "Image name of the bundle: localhost/scantor/<task>:<revision>. The localhost registry domain keeps a missing `docker load` from pulling a public image of the same name.",
+      "type": "string",
+      "maxLength": 96,
+      "pattern": "^localhost/scantor/[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?:[1-9][0-9]{0,9}$",
+      "examples": [
+        "localhost/scantor/echo:3"
+      ]
+    },
+    "ref": {
+      "description": "Revision reference <task>@<revision>.",
+      "type": "string",
+      "maxLength": 75,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?@[1-9][0-9]{0,9}$",
+      "examples": [
+        "echo@3"
+      ]
+    },
+    "task": {
+      "description": "Task name (the slug of the manifest's `name`).",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+    },
+    "revision": {
+      "description": "Revision number.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647
+    },
+    "language": {
+      "description": "Task language: a key of schemas/languages.json.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32
+    },
+    "entry": {
+      "description": "Entry point of the manifest, passed to the connector processes.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "platform": {
+      "description": "Platform of the image; bundles are single-architecture.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "os",
+        "arch"
+      ],
+      "properties": {
+        "os": {
+          "const": "linux"
+        },
+        "arch": {
+          "description": "Image architecture, for example amd64 or arm64.",
+          "type": "string",
+          "pattern": "^[a-z0-9]{1,32}$"
+        },
+        "variant": {
+          "description": "Architecture variant, for example v8.",
+          "type": "string",
+          "pattern": "^[a-z0-9]{1,32}$"
+        }
+      }
+    },
+    "description": {
+      "description": "The revision's describe output (schemas/describe.schema.json). Secret defaults are already stripped by describe.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "protocolVersion",
+        "connector",
+        "schemas",
+        "schedule",
+        "secretPaths",
+        "uploadPaths",
+        "fileRefPaths"
+      ],
+      "properties": {
+        "protocolVersion": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "connector": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "language",
+            "version"
+          ],
+          "properties": {
+            "language": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32
+            },
+            "version": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            }
+          }
+        },
+        "schemas": {
+          "description": "JSON Schemas of the four task types, opaque to this schema.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "taskConfig",
+            "scanConfig",
+            "analysisConfig",
+            "result"
+          ],
+          "properties": {
+            "taskConfig": {
+              "type": "object"
+            },
+            "scanConfig": {
+              "type": "object"
+            },
+            "analysisConfig": {
+              "type": "object"
+            },
+            "result": {
+              "type": "object"
+            }
+          }
+        },
+        "schedule": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "custom"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "template"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "template"
+                },
+                "template": {
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]{0,31}$"
+                }
+              }
+            }
+          ]
+        },
+        "secretPaths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "taskConfig",
+            "scanConfig",
+            "analysisConfig",
+            "result"
+          ],
+          "properties": {
+            "taskConfig": {
+              "$ref": "#/$defs/pointers"
+            },
+            "scanConfig": {
+              "$ref": "#/$defs/pointers"
+            },
+            "analysisConfig": {
+              "$ref": "#/$defs/pointers"
+            },
+            "result": {
+              "$ref": "#/$defs/pointers"
+            }
+          }
+        },
+        "uploadPaths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "taskConfig",
+            "scanConfig"
+          ],
+          "properties": {
+            "taskConfig": {
+              "$ref": "#/$defs/pointers"
+            },
+            "scanConfig": {
+              "$ref": "#/$defs/pointers"
+            }
+          }
+        },
+        "fileRefPaths": {
+          "$ref": "#/$defs/pointers"
+        },
+        "warnings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      }
+    },
+    "settings": {
+      "description": "The revision's settings defaults without workers, nodeSelector and privileged (docs/data-model.md §4.5.1).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "processes",
+        "timeoutMs",
+        "maxAttempts",
+        "backoff",
+        "resources",
+        "maxAnalysesPerProcess"
+      ],
+      "properties": {
+        "processes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024
+        },
+        "timeoutMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 86400000
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        },
+        "backoff": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "initialMs",
+            "factor",
+            "maxMs",
+            "jitter"
+          ],
+          "properties": {
+            "initialMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 86400000
+            },
+            "factor": {
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "maxMs": {
+              "type": "integer",
+              "minimum": 1000,
+              "maximum": 86400000
+            },
+            "jitter": {
+              "type": "boolean"
+            }
+          }
+        },
+        "resources": {
+          "description": "Resources per process; advisory in a bundle run (the recipient's docker run --cpus/--memory decide).",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "cpus",
+            "memoryMiB"
+          ],
+          "properties": {
+            "cpus": {
+              "type": "number",
+              "minimum": 0.1,
+              "maximum": 64
+            },
+            "memoryMiB": {
+              "type": "integer",
+              "minimum": 64,
+              "maximum": 65536
+            }
+          }
+        },
+        "maxAnalysesPerProcess": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
+      }
+    },
+    "limits": {
+      "description": "Platform limits of the run: the test-run limits of the master, plus the processes bound (SCANTOR_MAX_PROCESSES_PER_WORKER).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxAnalysisConfigBytes",
+        "maxResultBytes",
+        "maxFileBytes",
+        "maxFilesPerAnalysis",
+        "logTailBytes",
+        "logTailEarlierBytes",
+        "maxProcesses"
+      ],
+      "properties": {
+        "maxAnalysisConfigBytes": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "maxResultBytes": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "maxFileBytes": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "maxFilesPerAnalysis": {
+          "description": "SCANTOR_MAX_FILES_PER_ANALYSIS of the master; 0 means that an analysis stores no files, as on the master.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "logTailBytes": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "logTailEarlierBytes": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "maxProcesses": {
+          "$ref": "#/$defs/positiveInteger"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "pointers": {
+      "description": "Instance JSON pointers (RFC 6901); the segment `*` matches any array index or property name.",
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "maxLength": 1024,
+        "pattern": "^(/([^/~]|~[01])*)*$"
+      }
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    }
+  }
+}

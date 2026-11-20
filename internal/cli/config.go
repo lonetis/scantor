@@ -11,6 +11,7 @@ import (
 	"github.com/lonetis/scantor/internal/api"
 	"github.com/lonetis/scantor/internal/envconf"
 	"github.com/lonetis/scantor/internal/manifest"
+	"github.com/lonetis/scantor/internal/templates"
 	"github.com/lonetis/scantor/internal/version"
 )
 
@@ -26,9 +27,9 @@ const (
 // Compiled-in defaults, equal to the .env.example defaults (docs/architecture.md §10).
 const (
 	DefaultURL                = "http://localhost:3000"
-	DefaultTrancoURL          = "https://tranco-list.eu"
-	DefaultCruxURL            = "https://raw.githubusercontent.com/zakird/crux-top-lists/main"
-	DefaultCruxCacheURL       = "https://raw.githubusercontent.com/lonetis/crux-cache/main"
+	DefaultTrancoURL          = templates.DefaultTrancoURL
+	DefaultCruxURL            = templates.DefaultCruxURL
+	DefaultCruxCacheURL       = templates.DefaultCruxCacheURL
 	DefaultBuildTimeout       = 30 * time.Minute
 	DefaultMaxImageBytes      = 10 * envconf.GiB
 	DefaultDescribeTimeout    = 10 * time.Minute

@@ -1276,5 +1276,37 @@
     "content": "domain,policy\ngoogle.com,\"script-src 'report-sample' 'nonce-…' 'unsafe-inline'\"\n…",
     "truncated": true,
     "nextOffset": 98304
+  },
+  "Bundle": {
+    "id": "5d0c7a4e-2b1f-4c3d-9e8a-7f6b5c4d3e2f",
+    "revision": {
+      "id": "c2a9e4b1-7d3f-4e5a-9b8c-1d2e3f4a5b6c",
+      "number": 3,
+      "ref": "echo@3"
+    },
+    "state": "ready",
+    "image": "localhost/scantor/echo:3",
+    "platform": {
+      "os": "linux",
+      "arch": "amd64"
+    },
+    "bytes": 61234567,
+    "sha256": "9f2c…e1",
+    "scantorVersion": "1.6.0",
+    "error": null,
+    "createdAt": "2026-11-20T09:00:00.000Z",
+    "startedAt": "2026-11-20T09:00:01.000Z",
+    "finishedAt": "2026-11-20T09:01:12.000Z",
+    "expiresAt": "2026-11-27T09:01:12.000Z",
+    "download": {
+      "url": "https://s3.example.org/…",
+      "expiresAt": "2026-11-20T09:11:12.000Z",
+      "fileName": "echo-3-linux-amd64.bundle.tar.gz"
+    },
+    "commands": {
+      "load": "docker load -i echo-3-linux-amd64.bundle.tar.gz",
+      "run": "docker run --rm -v \"$PWD:/work\" localhost/scantor/echo:3",
+      "describe": "docker run --rm localhost/scantor/echo:3 --describe"
+    }
   }
 }

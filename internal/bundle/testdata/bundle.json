@@ -1,0 +1,105 @@
+{
+  "v": 1,
+  "image": "localhost/scantor/echo:3",
+  "ref": "echo@3",
+  "task": "echo",
+  "revision": 3,
+  "language": "python",
+  "entry": "main.py",
+  "platform": {
+    "os": "linux",
+    "arch": "amd64"
+  },
+  "description": {
+    "protocolVersion": 1,
+    "connector": {
+      "language": "python",
+      "version": "1.4.0"
+    },
+    "schemas": {
+      "taskConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "title": "TaskConfig",
+        "properties": {
+          "text": {
+            "type": "string",
+            "default": "Hello, World!"
+          }
+        },
+        "additionalProperties": false
+      },
+      "scanConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "title": "ScanConfig",
+        "description": "No parameters.",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "analysisConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "title": "AnalysisConfig",
+        "description": "No parameters.",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "title": "Result",
+        "properties": {
+          "echo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "echo"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "schedule": {
+      "kind": "template",
+      "template": "single"
+    },
+    "secretPaths": {
+      "taskConfig": [],
+      "scanConfig": [],
+      "analysisConfig": [],
+      "result": []
+    },
+    "uploadPaths": {
+      "taskConfig": [],
+      "scanConfig": []
+    },
+    "fileRefPaths": [],
+    "warnings": []
+  },
+  "settings": {
+    "processes": 1,
+    "timeoutMs": 300000,
+    "maxAttempts": 3,
+    "backoff": {
+      "initialMs": 5000,
+      "factor": 2,
+      "maxMs": 600000,
+      "jitter": true
+    },
+    "resources": {
+      "cpus": 1,
+      "memoryMiB": 512
+    },
+    "maxAnalysesPerProcess": 1000
+  },
+  "limits": {
+    "maxAnalysisConfigBytes": 65536,
+    "maxResultBytes": 1048576,
+    "maxFileBytes": 1073741824,
+    "maxFilesPerAnalysis": 100,
+    "logTailBytes": 32768,
+    "logTailEarlierBytes": 4096,
+    "maxProcesses": 64
+  }
+}

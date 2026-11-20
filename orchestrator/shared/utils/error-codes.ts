@@ -24,6 +24,7 @@ export const ERROR_CODES = {
   uploadInUse: { status: 409, title: 'Upload is in use' },
   revisionNotReady: { status: 409, title: 'Revision is not ready' },
   revisionUnavailable: { status: 409, title: 'Revision no longer exists' },
+  bundleUnsupported: { status: 409, title: 'Bundle not supported' },
   nothingToRetry: { status: 409, title: 'Nothing to retry' },
   exportTooLarge: { status: 409, title: 'Export too large' },
   staleEpoch: { status: 409, title: 'Stale scheduler epoch' },

@@ -61,6 +61,7 @@ func TestDocExamplesRoundTrip(t *testing.T) {
 		"RestartScriptRunRequest":      func() any { return &RestartScriptRun{} },
 		"ScriptRunConfirmationDetails": func() any { return &ScriptRunConfirmationDetails{} },
 		"FileContent":                  func() any { return &FileContent{} },
+		"Bundle":                       func() any { return &Bundle{} },
 	}
 	for name, raw := range examples {
 		if strings.HasPrefix(name, "$") {
