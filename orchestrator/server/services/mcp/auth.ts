@@ -1,3 +1,4 @@
+import type { RequestOrigin } from '#shared/utils/enums'
 import { useAuthContext } from '../../utils/auth'
 import { mcpLevelForScopes } from '../../utils/auth-policy'
 import { lookupSession } from '../../utils/credential-lookup'
@@ -35,12 +36,13 @@ export function mcpApiKeyOf(headers: Headers): string | null {
 }
 
 /**
- * Resolves an API key to an MCP principal, or null when invalid, expired or banned. A lookup that fails (database
- * outage) throws 503 `unavailable` (utils/credential-lookup.ts), which `/mcp` answers without an OAuth challenge.
+ * Resolves an API key to an MCP principal, or null when invalid, expired or banned; looked up on the instance of the
+ * request's `origin`. A lookup that fails (database outage) throws 503 `unavailable` (utils/credential-lookup.ts),
+ * which `/mcp` answers without an OAuth challenge.
  */
-export async function principalFromApiKey(key: string): Promise<UserPrincipal | null> {
+export async function principalFromApiKey(key: string, origin: RequestOrigin = 'public'): Promise<UserPrincipal | null> {
   if (!DEFAULT_API_KEY_PATTERN.test(key) && !EDITOR_API_KEY_PATTERN.test(key)) return null
-  const { result: session } = await lookupSession(new Headers({ 'x-api-key': key }))
+  const { result: session } = await lookupSession(new Headers({ 'x-api-key': key }), origin)
   if (!session || isUserBanned(toCachedUser(session.user))) return null
   const configId = apiKeyConfigIdOf(key)
   const role = toUserRole(session.user.role)

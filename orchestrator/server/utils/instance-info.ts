@@ -1,8 +1,9 @@
 import type { AdminToolItem, InstanceInfo } from '#shared/types/instance'
-import { TOOL_TARGETS, type ToolTarget } from '#shared/utils/enums'
+import { TOOL_TARGETS, type RequestOrigin, type ToolTarget } from '#shared/utils/enums'
 import { resolveMcpConfig, resolvePasskeyConfig } from './auth-policy'
 import type { Config } from './config'
 import type { UserPrincipal } from './principal'
+import { TUNNEL_WAIT_MAX_SECONDS } from './tunnel'
 import { clientImageTag, scantorVersion } from './version'
 
 // `GET /api/info` (docs/api.md §4.1): everything instance-specific the SPA and the CLI need. Secrets are never
@@ -33,20 +34,29 @@ export function toolUrl(config: Pick<Config, 'publicUrl' | 'domain'>, target: To
   return `${publicUrl.protocol}//${target}.${config.domain}${port}${TOOL_PATHS[target]}`
 }
 
-export function buildInstanceInfo(config: Config, principal: UserPrincipal): InstanceInfo {
-  const mcp = resolveMcpConfig(config)
+/**
+ * The info as seen through one origin: the MCP URL, MCP OAuth and passkeys follow the origin of the request; through
+ * the tunnel URL the editor and presigned downloads are off and `wait` stays below Cloudflare's 125 s Proxy Read
+ * Timeout. The admin tool links are the same for both origins: the UI sends admins to the public URL for them.
+ */
+export function buildInstanceInfo(config: Config, principal: UserPrincipal, origin: RequestOrigin = 'public'): InstanceInfo {
+  const mcp = resolveMcpConfig(config, origin)
+  const viaTunnel = origin === 'tunnel'
   const info: InstanceInfo = {
     version: scantorVersion,
+    origin,
     publicUrl: config.publicUrl,
+    tunnelUrl: config.tunnelUrl,
     editorUrl: config.editorUrl,
     mcpUrl: mcp.enabled ? mcp.resource : null,
     registryPublicHost: config.registryPublicHost,
     cliImage: `${config.imagePrefix}scantor:${clientImageTag(scantorVersion, config.imageTag)}`,
     features: {
-      passkeys: resolvePasskeyConfig(config).enabled,
+      passkeys: resolvePasskeyConfig(config, origin).enabled,
       mcp: mcp.enabled,
       mcpOAuth: mcp.oauth,
-      editor: config.components.includes('api'),
+      editor: config.components.includes('api') && !viaTunnel,
+      downloads: !viaTunnel,
     },
     limits: {
       maxWorkersPerScan: config.maxWorkersPerScan,
@@ -54,7 +64,7 @@ export function buildInstanceInfo(config: Config, principal: UserPrincipal): Ins
       maxResultBytes: config.maxResultBytes,
       maxFileBytes: config.maxFileBytes,
       scanConfirmThreshold: config.scanConfirmThreshold,
-      waitMaxSeconds: WAIT_MAX_SECONDS,
+      waitMaxSeconds: viaTunnel ? Math.min(WAIT_MAX_SECONDS, TUNNEL_WAIT_MAX_SECONDS) : WAIT_MAX_SECONDS,
     },
     user: { id: principal.user.id, role: principal.user.role },
   }

@@ -1,7 +1,8 @@
 import { toNodeListener } from 'h3'
 import { defineNitroPlugin } from 'nitropack/runtime'
 import { ensureGlobalTopology } from '../utils/amqp'
-import { deleteUndecryptableJwks, ensureAuthIndexes, useAuth } from '../utils/auth'
+import { deleteUndecryptableJwks, ensureAuthIndexes, linkOAuthClientsToMcpResources, useAuth } from '../utils/auth'
+import { configuredOrigins } from '../utils/auth-policy'
 import { BootAbortError, registerBootStep, resetBootRegistry, retryUntil } from '../utils/boot'
 import { loadBootConfiguration } from '../utils/config'
 import {
@@ -20,6 +21,7 @@ import { connectMongo, prepareDatabase } from '../utils/mongo'
 import { setOpenApiDocumentLoader, type OpenApiDocument, useOperationRegistry } from '../utils/operations'
 import { ensureBucket } from '../utils/s3'
 import { ensureFirstAdmin } from '../utils/setup'
+import { TUNNEL_PROFILE } from '../utils/tunnel'
 import { resetUserLockoutHooks } from '../utils/users'
 import { resetUserPurgeSteps } from '../utils/user-purge'
 
@@ -60,9 +62,17 @@ export default defineNitroPlugin((nitroApp) => {
       const { config, warnings, guard } = loadBootConfiguration()
       configureLogger({ level: config.logLevel, format: config.logFormat })
       for (const warning of warnings) log.warn('invalid configuration value', { variable: warning.variable, problem: warning.message })
-      if (config.trustProxy && !config.composeProfiles.includes('traefik')) {
-        log.warn('SCANTOR_TRUST_PROXY=true without the traefik profile: X-Forwarded-For counts only from the peers of SCANTOR_TRUSTED_PROXIES', {
-          trustedProxies: config.trustedProxies,
+      if (config.trustProxy && !config.composeProfiles.includes('traefik') && !config.composeProfiles.includes(TUNNEL_PROFILE)) {
+        log.warn(
+          `SCANTOR_TRUST_PROXY=true without the traefik or ${TUNNEL_PROFILE} profile: X-Forwarded-For counts only from the peers of SCANTOR_TRUSTED_PROXIES`,
+          { trustedProxies: config.trustedProxies },
+        )
+      }
+      // Only a warning: the orchestrator knows the profiles only from COMPOSE_PROFILES, and a cloudflared started
+      // another way (`--profile` on the command line, which bypasses the profile checks) still serves the tunnel URL.
+      if (config.tunnelUrl && !config.composeProfiles.includes(TUNNEL_PROFILE)) {
+        log.warn(`SCANTOR_TUNNEL_URL is set without the ${TUNNEL_PROFILE} profile: the tunnel URL works only while a cloudflared runs on the scantor-tunnel network`, {
+          tunnelUrl: config.tunnelUrl,
         })
       }
       switch (guard.outcome) {
@@ -77,7 +87,12 @@ export default defineNitroPlugin((nitroApp) => {
         case 'ok':
           break
       }
-      log.info('configuration loaded', { components: config.components, publicUrl: config.publicUrl, publicMode: guard.publicMode })
+      log.info('configuration loaded', {
+        components: config.components,
+        publicUrl: config.publicUrl,
+        tunnelUrl: config.tunnelUrl,
+        publicMode: guard.publicMode,
+      })
     },
   })
 
@@ -93,9 +108,13 @@ export default defineNitroPlugin((nitroApp) => {
   registerBootStep({
     name: 'auth',
     order: 300,
-    async run({ log }) {
-      await useAuth().$context
+    async run({ config, log }) {
+      // One better-auth instance per origin (docs/auth.md §2.2), all built now so that a broken one fails the boot. One
+      // after another: each instance seeds the oauthResource rows of every origin (mcpOAuthResources), and the unique
+      // index on `identifier` exists only after ensureAuthIndexes, so concurrent seeds would insert each row twice.
+      for (const origin of configuredOrigins(config)) await useAuth(origin).$context
       await ensureAuthIndexes(log)
+      await linkOAuthClientsToMcpResources(log)
       await deleteUndecryptableJwks(log)
       await ensureFirstAdmin(log)
     },

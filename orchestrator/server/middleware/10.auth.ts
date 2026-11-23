@@ -25,6 +25,7 @@ import { isScriptNetworkPeer } from '../utils/script-network'
 import { resolveScriptRunToken } from '../utils/script-run-tokens'
 import { checkSetupToken } from '../utils/setup'
 import { proxyTrust } from '../utils/trusted-proxy'
+import { requestOriginOf } from '../utils/tunnel'
 import { getCachedUser, isUserBanned, toCachedUser } from '../utils/user-cache'
 import { checkClientVersion, scantorVersion } from '../utils/version'
 import { resolveWorkerToken } from '../utils/worker-tokens'
@@ -33,7 +34,8 @@ import { resolveWorkerToken } from '../utils/worker-tokens'
 // route prefix (the script runtime API also checks the socket peer) → credential → operation registry (deny by
 // default) → scope, session-only and MCP level → ban → CSRF. It stores `event.context.principal` and
 // `event.context.operation`. `/mcp` authenticates itself. API keys are rejected wherever better-auth would answer,
-// judged on the raw path and on the path better-auth routes.
+// judged on the raw path and on the path better-auth routes. Credential lookups and the CSRF check use the better-auth
+// instance and the trusted origins of the request's origin (public URL or tunnel URL, server/utils/tunnel.ts).
 
 const log = useLogger('auth')
 
@@ -126,7 +128,7 @@ async function resolveUserPrincipal(event: H3Event, pathname: string): Promise<{
       return { principal, banned: isUserBanned(user) }
     }
     case 'apiKey': {
-      const { result } = await lookupSession(new Headers({ 'x-api-key': credential.key }))
+      const { result } = await lookupSession(new Headers({ 'x-api-key': credential.key }), requestOriginOf(event))
       if (!result) throw apiError('unauthorized', 'invalid or expired API key')
       const configId = apiKeyConfigIdOf(credential.key)
       const user = userRefOf(result.user)
@@ -142,7 +144,8 @@ async function resolveUserPrincipal(event: H3Event, pathname: string): Promise<{
       }
     }
     case 'session': {
-      const { result, headers } = await lookupSession(new Headers({ cookie: credential.cookie }))
+      // on the instance of the request's origin: the cookie names and a refreshed cookie's attributes depend on it
+      const { result, headers } = await lookupSession(new Headers({ cookie: credential.cookie }), requestOriginOf(event))
       if (!result) throw apiError('unauthorized', 'session expired or invalid')
       await forwardSessionCookies(event, headers)
       const user = userRefOf(result.user)
@@ -286,8 +289,9 @@ export default defineEventHandler(async (event) => {
   if (principal?.kind === 'user') {
     if (banned) throw apiError('banned', 'this account is banned')
     if (principal.via === 'session' && UNSAFE_METHODS.has(event.method)) {
+      // the trusted origins of the request's origin only, never of both (docs/auth.md §4.2), as better-auth checks them
       const origin = getRequestHeader(event, 'origin')
-      if (!origin || !trustedOrigins(useConfig()).includes(origin)) {
+      if (!origin || !trustedOrigins(useConfig(), requestOriginOf(event)).includes(origin)) {
         throw apiError('forbidden', 'untrusted request origin')
       }
     }

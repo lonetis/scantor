@@ -1,4 +1,5 @@
 import { defineEventHandler, sendWebResponse, toWebRequest } from 'h3'
+import type { RequestOrigin } from '#shared/utils/enums'
 import { createScantorMcpHandler, type McpRequestHandler, REQUEST_ID_HEADER } from '../services/mcp/server'
 import { resolveMcpConfig } from '../utils/auth-policy'
 import { isBootComplete } from '../utils/boot'
@@ -7,25 +8,35 @@ import { applyOpenCors, handleOpenCorsPreflight } from '../utils/cors'
 import { apiError } from '../utils/errors'
 import { readGuide } from '../utils/guide-assets'
 import { useLoopbackOrigin } from '../utils/loopback'
+import { requestOriginOf } from '../utils/tunnel'
 
-// `/mcp` (docs/mcp.md §2): not under /api, it authenticates itself. The request URL is canonicalised to
-// `${SCANTOR_PUBLIC_URL}/mcp`, because tokens and DPoP proofs are bound to the public URL while Traefik forwards
-// an internal one. CORS allows any origin without credentials.
+// `/mcp` (docs/mcp.md §2): not under /api, it authenticates itself. Each origin (public URL, tunnel URL) has its own
+// handler, bound to its better-auth instance and resource. The request URL is canonicalised to that resource
+// (`${SCANTOR_PUBLIC_URL}/mcp` or `${SCANTOR_TUNNEL_URL}/mcp`), because tokens and DPoP proofs are bound to it while
+// Traefik forwards an internal one. CORS allows any origin without credentials.
 
-let handler: Promise<McpRequestHandler> | null = null
+const handlers = new Map<RequestOrigin, Promise<McpRequestHandler>>()
 
-/** The handler of this process, created once the loopback listener for tool calls is up; a failure is not cached. */
-function mcpHandler(): Promise<McpRequestHandler> {
-  handler ??= (async () => createScantorMcpHandler(readGuide, await useLoopbackOrigin()))().catch((error: unknown) => {
-    handler = null
-    throw error
-  })
+/**
+ * The handler of an origin in this process, created once the loopback listener for tool calls is up; a failure is not
+ * cached.
+ */
+function mcpHandler(origin: RequestOrigin): Promise<McpRequestHandler> {
+  let handler = handlers.get(origin)
+  if (!handler) {
+    handler = (async () => createScantorMcpHandler(readGuide, await useLoopbackOrigin(), origin))().catch((error: unknown) => {
+      handlers.delete(origin)
+      throw error
+    })
+    handlers.set(origin, handler)
+  }
   return handler
 }
 
 export default defineEventHandler(async (event) => {
   if (!isBootComplete()) throw apiError('unavailable', 'the orchestrator is starting')
-  const config = resolveMcpConfig(useConfig())
+  const origin = requestOriginOf(event)
+  const config = resolveMcpConfig(useConfig(), origin)
   if (!config.enabled) throw apiError('notFound', 'MCP is disabled')
   if (handleOpenCorsPreflight(event, '/mcp')) return
   applyOpenCors(event)
@@ -40,6 +51,6 @@ export default defineEventHandler(async (event) => {
     // @ts-expect-error Node's fetch needs duplex for streamed request bodies
     duplex: 'half',
   })
-  const handle = await mcpHandler()
+  const handle = await mcpHandler(origin)
   return sendWebResponse(event, await handle(canonical))
 })

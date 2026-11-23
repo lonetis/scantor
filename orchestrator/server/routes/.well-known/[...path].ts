@@ -6,20 +6,23 @@ import { isBootComplete } from '../../utils/boot'
 import { useConfig } from '../../utils/config'
 import { applyOpenCors, handleOpenCorsPreflight } from '../../utils/cors'
 import { apiError } from '../../utils/errors'
+import { requestOriginOf } from '../../utils/tunnel'
 
 // OAuth and MCP discovery at the origin root (docs/api.md §3, docs/mcp.md §3.1), forwarded to better-auth:
 // `/.well-known/oauth-protected-resource/mcp` (with `resource_name` added), `/.well-known/oauth-authorization-server/
 // api/auth` and `/.well-known/openid-configuration/api/auth` (answered with better-auth's appended OpenID document,
-// services/mcp/discovery.ts). 404 while MCP OAuth is unavailable (docs/mcp.md §3.8), and for every other path or
-// method: nothing else reaches better-auth through this route (docs/auth.md §2.5).
+// services/mcp/discovery.ts). The instance of the request's origin answers, so issuer and resource name that origin.
+// 404 while MCP OAuth is unavailable on it (docs/mcp.md §3.8), and for every other path or method: nothing else
+// reaches better-auth through this route (docs/auth.md §2.5).
 
 export default defineEventHandler(async (event) => {
   if (!isBootComplete()) throw apiError('unavailable', 'the orchestrator is starting')
-  if (!resolveMcpConfig(useConfig()).oauth) throw apiError('notFound', 'OAuth discovery is not available')
+  const origin = requestOriginOf(event)
+  if (!resolveMcpConfig(useConfig(), origin).oauth) throw apiError('notFound', 'OAuth discovery is not available')
   const path = event.path.split('?')[0] ?? '/'
   if (handleOpenCorsPreflight(event, path)) return
   applyOpenCors(event)
-  const auth = useAuth()
+  const auth = useAuth(origin)
   const request = toWebRequest(event)
   // Judged on the path better-auth routes (dot segments resolved), not the raw one: middleware/01.path.ts already
   // refuses paths whose two forms differ, and this keeps the route closed without it.

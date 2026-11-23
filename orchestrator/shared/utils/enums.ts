@@ -171,6 +171,10 @@ export type McpLevel = (typeof MCP_LEVELS)[number]
 export const TOOL_TARGETS = ['rabbitmq', 'mongo-express', 'rustfs', 'traefik'] as const
 export type ToolTarget = (typeof TOOL_TARGETS)[number]
 
+/** The origin a request came through: SCANTOR_PUBLIC_URL or the tunnel URL (docs/architecture.md §11.9). */
+export const REQUEST_ORIGINS = ['public', 'tunnel'] as const
+export type RequestOrigin = (typeof REQUEST_ORIGINS)[number]
+
 export const ORCHESTRATOR_COMPONENTS = ['api', 'ingestor', 'reconciler'] as const
 export type OrchestratorComponent = (typeof ORCHESTRATOR_COMPONENTS)[number]
 

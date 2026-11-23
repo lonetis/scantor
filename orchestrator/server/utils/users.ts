@@ -1,6 +1,6 @@
 import type { ApiKeyConfigId, UserRole } from '#shared/utils/enums'
 import { useAuth, useAuthContext } from './auth'
-import { resolveMcpConfig } from './auth-policy'
+import { anyMcpOAuth } from './auth-policy'
 import { useConfig } from './config'
 import { apiError } from './errors'
 import { type Logger, useLogger } from './logger'
@@ -174,7 +174,7 @@ export async function revokeUserAccess(userId: string): Promise<void> {
   const ctx = await useAuthContext()
   await ctx.internalAdapter.deleteUserSessions(userId)
   await ctx.adapter.deleteMany({ model: 'apikey', where: [{ field: 'referenceId', value: userId }] })
-  if (resolveMcpConfig(useConfig()).oauth) {
+  if (anyMcpOAuth(useConfig())) {
     for (const model of ['oauthAccessToken', 'oauthRefreshToken', 'oauthConsent']) {
       await ctx.adapter.deleteMany({ model, where: [{ field: 'userId', value: userId }] })
     }
@@ -383,8 +383,9 @@ export interface OAuthAppRecord {
   createdAt: Date
 }
 
+/** The OAuth models exist while MCP OAuth is available on any origin (the instances share the rows). */
 function oauthAvailable(): boolean {
-  return resolveMcpConfig(useConfig()).oauth
+  return anyMcpOAuth(useConfig())
 }
 
 function scopeList(scopes: unknown): string[] {

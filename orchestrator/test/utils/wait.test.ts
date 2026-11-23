@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { H3Event } from 'h3'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetBootRegistry, stopComponents } from '../../server/utils/boot'
 import { type Config, parseConfig, setConfigForTesting } from '../../server/utils/config'
 import { useLogger } from '../../server/utils/logger'
@@ -19,9 +19,10 @@ class FakeResponse extends EventEmitter {
   }
 }
 
-function fakeEvent(): { event: H3Event; res: FakeResponse } {
+function fakeEvent(requestOrigin?: 'public' | 'tunnel'): { event: H3Event; res: FakeResponse } {
   const res = new FakeResponse()
-  return { event: { node: { res, req: {} } } as unknown as H3Event, res }
+  // utils/tunnel.ts memoizes the classification of a request on its context
+  return { event: { node: { res, req: {} }, context: requestOrigin ? { requestOrigin } : {} } as unknown as H3Event, res }
 }
 
 let config: Config
@@ -108,6 +109,50 @@ describe('loadWithWait', () => {
     expect(await pending).toBe('running 2')
     expect(res.headers['scantor-wait']).toBe('timeout')
     expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  describe('through the tunnel URL (Cloudflare answers 524 without a response within 125 s)', () => {
+    beforeEach(() => {
+      setConfigForTesting(parseConfig({ SCANTOR_MAX_CONCURRENT_WAITS: '1', SCANTOR_TUNNEL_URL: 'https://tunnel.example.org' }).config)
+      vi.useFakeTimers()
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    /** A wait for a resource that never settles, with whether it has answered yet. */
+    function neverSettling(requestOrigin: 'public' | 'tunnel', waitSeconds: number) {
+      const { event, res } = fakeEvent(requestOrigin)
+      const state = { done: false, res, pending: Promise.resolve() as Promise<unknown> }
+      state.pending = loadWithWait(event, { waitSeconds, userId: 'u', load: async () => 'running', settled: () => false }).finally(() => {
+        state.done = true
+      })
+      return state
+    }
+
+    it('answers a tunnel request after 90 s at most', async () => {
+      for (const waitSeconds of [91, 120, 3600]) {
+        const wait = neverSettling('tunnel', waitSeconds)
+        await vi.advanceTimersByTimeAsync(89_000)
+        expect(wait.done, `wait=${waitSeconds}`).toBe(false)
+        await vi.advanceTimersByTimeAsync(1_000)
+        expect(await wait.pending).toBe('running')
+        expect(wait.res.headers['scantor-wait']).toBe('timeout')
+      }
+    })
+
+    it('keeps shorter waits through the tunnel and the full wait of a public request', async () => {
+      const short = neverSettling('tunnel', 30)
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(await short.pending).toBe('running')
+      const full = neverSettling('public', 120)
+      await vi.advanceTimersByTimeAsync(90_000)
+      expect(full.done).toBe(false)
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(await full.pending).toBe('running')
+      expect(full.res.headers['scantor-wait']).toBe('timeout')
+    })
   })
 
   it('does not wait at all once the shutdown began', async () => {

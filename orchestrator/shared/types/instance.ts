@@ -1,4 +1,4 @@
-import type { ToolTarget, UserRole } from '../utils/enums'
+import type { RequestOrigin, ToolTarget, UserRole } from '../utils/enums'
 
 // Health, setup and instance information (docs/api.md §4.1, §4.2).
 
@@ -32,6 +32,8 @@ export interface InstanceFeatures {
   mcp: boolean
   mcpOAuth: boolean
   editor: boolean
+  /** Presigned S3 downloads; false through the tunnel URL, where S3 is unreachable. */
+  downloads: boolean
 }
 
 export interface InstanceLimits {
@@ -51,7 +53,11 @@ export interface AdminToolItem {
 
 export interface InstanceInfo {
   version: string
+  /** The origin this request came through; the URLs below stay canonical except `mcpUrl`, which follows it. */
+  origin: RequestOrigin
   publicUrl: string
+  /** SCANTOR_TUNNEL_URL, or null without a Cloudflare Tunnel. */
+  tunnelUrl: string | null
   editorUrl: string
   mcpUrl: string | null
   registryPublicHost: string

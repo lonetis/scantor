@@ -11,10 +11,15 @@ import { APIError, createAuthMiddleware, getSessionFromCtx } from 'better-auth/a
 import { symmetricDecrypt } from 'better-auth/crypto'
 import { admin, jwt } from 'better-auth/plugins'
 import type { CreateIndexesOptions, Db } from 'mongodb'
+import type { RequestOrigin } from '#shared/utils/enums'
 import {
+  anyMcpOAuth,
   AUTH_BASE_PATH,
   authHttpAllowlist,
+  configuredOrigins,
+  dataAuthOrigin,
   isAllowedMcpRedirect,
+  mcpOAuthResources,
   OAUTH_SCOPES,
   rateLimitConfig,
   resolveMcpConfig,
@@ -27,13 +32,17 @@ import { type Logger, useLogger } from './logger'
 import { type IndexSpec, useMongo } from './mongo'
 import { DEFAULT_API_KEY_PATTERN, EDITOR_API_KEY_PATTERN, bearerValue } from './principal'
 import { completePasskeySetupUser, resolvePasskeySetupUser } from './setup'
+import { originUrlOf } from './tunnel'
 import { invalidateCachedUser } from './user-cache'
 
-// The better-auth instance (docs/auth.md §2): MongoDB adapter on the shared client (transactions, plain uuid ids),
-// no self sign-up, the HTTP allowlist (§2.5), admin + api-key + passkey + jwt/mcp/cimd plugins, scantor cookie names,
-// rate limits and the client IP header set by middleware/00.request.ts. Built lazily and initialised eagerly in boot
-// step 3. The instance is typed `any` on purpose: the nested better-call/zod types make TypeScript unusably slow;
-// typed wrappers live in server/utils/users.ts.
+// The better-auth instances (docs/auth.md §2), one per origin (the public URL and, when set, the tunnel URL): each
+// has its own base URL (OAuth issuer), trusted origin, cookie prefix, passkey RP and MCP resource, and every plugin
+// object is created per instance, because cimd extends its own mcp plugin at init. They share the MongoDB adapter's
+// client (transactions, plain uuid ids), the secret, the signing keys and the in-memory rate limits. No self sign-up,
+// the HTTP allowlist (§2.5), admin + api-key + passkey + jwt/mcp/cimd plugins, scantor cookie names, rate limits and
+// the client IP header set by middleware/00.request.ts. Built lazily and initialised eagerly in boot step 3. An
+// instance is typed `any` on purpose: the nested better-call/zod types make TypeScript unusably slow; typed wrappers
+// live in server/utils/users.ts.
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type AuthInstance = any
@@ -84,13 +93,51 @@ function lowercaseEmail<T extends { email?: unknown }>(user: T) {
   return Promise.resolve({ data: typeof user.email === 'string' ? { ...user, email: user.email.toLowerCase() } : user })
 }
 
-function buildAuth(): AuthInstance {
+/** Every `resource` value of an OAuth request: query, body and the repeated fields of a form body (RFC 8707). */
+async function requestedResources(ctx: { query?: Record<string, unknown>; body?: unknown; request?: Request }): Promise<unknown[]> {
+  const values: unknown[] = []
+  const add = (value: unknown) => values.push(...(Array.isArray(value) ? value : value === undefined ? [] : [value]))
+  add(ctx.query?.resource)
+  add((ctx.body as { resource?: unknown } | undefined)?.resource)
+  // better-call keeps only the last value of a repeated form field; the token endpoint reads them all itself
+  if (ctx.request?.headers.get('content-type')?.toLowerCase().includes('application/x-www-form-urlencoded')) {
+    try {
+      add(new URLSearchParams(await ctx.request.clone().text()).getAll('resource'))
+    } catch {
+      // an unreadable body: the endpoint fails on it as well
+    }
+  }
+  return values
+}
+
+function buildAuth(origin: RequestOrigin): AuthInstance {
   const config = useConfig()
   const { db, client } = useMongo()
-  const passkeyConfig = resolvePasskeyConfig(config)
-  const mcpConfig = resolveMcpConfig(config)
+  const baseURL = originUrlOf(config, origin)
+  const passkeyConfig = resolvePasskeyConfig(config, origin)
+  const mcpConfig = resolveMcpConfig(config, origin)
+
+  // This origin's resources: its `/mcp` and the userinfo endpoint better-auth accepts as a resource of its own.
+  const ownResources = new Set([mcpConfig.resource, `${baseURL}${AUTH_BASE_PATH}/oauth2/userinfo`])
+  // The `/mcp` of the other origins with MCP OAuth: empty without a tunnel, where better-auth alone checks resources.
+  const foreignResources = new Set(mcpOAuthResources(config).filter((resource) => resource !== mcpConfig.resource))
 
   const beforeHook = createAuthMiddleware(async (ctx) => {
+    // The OAuth rows are shared between the origins, so a client linked to the other origin's resource would otherwise
+    // get a token with this issuer and that audience, which neither `/mcp` accepts. The authorize endpoint refuses only
+    // the other origins' resources (better-auth redirects any other unknown one to the client with invalid_target);
+    // the token endpoint, which answers JSON either way, anything but this origin's own. Empty values are better-auth's.
+    if (mcpConfig.oauth && foreignResources.size > 0 && (ctx.path === '/oauth2/authorize' || ctx.path === '/oauth2/token')) {
+      const refused =
+        ctx.path === '/oauth2/authorize'
+          ? (resource: unknown) => typeof resource === 'string' && foreignResources.has(resource)
+          : (resource: unknown) => typeof resource === 'string' && resource !== '' && !ownResources.has(resource)
+      const foreign = (await requestedResources(ctx)).find(refused)
+      if (foreign !== undefined) {
+        throw new APIError('BAD_REQUEST', { error: 'invalid_target', error_description: `${String(foreign)} is not a resource of this origin` })
+      }
+      return
+    }
     if (ctx.path === '/oauth2/register') {
       const uris = (ctx.body as { redirect_uris?: unknown } | undefined)?.redirect_uris
       const list = Array.isArray(uris) ? uris : []
@@ -119,7 +166,8 @@ function buildAuth(): AuthInstance {
   })
 
   const afterHook = createAuthMiddleware(async (ctx) => {
-    if (ctx.path === '/sign-out' && config.domain) {
+    // The admin tools cookie belongs to the public URL's domain; the tunnel never serves the admin tools.
+    if (ctx.path === '/sign-out' && origin === 'public' && config.domain) {
       ctx.setCookie('scantor_tools', '', {
         domain: config.domain,
         path: '/',
@@ -138,11 +186,11 @@ function buildAuth(): AuthInstance {
 
   return betterAuth({
     appName: 'scantor',
-    baseURL: config.publicUrl,
+    baseURL,
     basePath: AUTH_BASE_PATH,
     secret: useKeys().betterAuthSecret(),
     database: mongodbAdapter(db, { client, usePlural: false }),
-    trustedOrigins: trustedOrigins(config),
+    trustedOrigins: trustedOrigins(config, origin),
     telemetry: { enabled: false },
     emailAndPassword: {
       enabled: true,
@@ -168,8 +216,10 @@ function buildAuth(): AuthInstance {
     },
     rateLimit: rateLimitConfig(config.authRateLimitScale),
     advanced: {
+      // better-auth skips its origin check when NODE_ENV=test or TEST is set; scantor's never depends on the environment.
+      disableOriginCheck: false,
       cookiePrefix: 'scantor',
-      useSecureCookies: config.publicUrl.startsWith('https://'),
+      useSecureCookies: baseURL.startsWith('https://'),
       defaultCookieAttributes: { sameSite: 'lax', httpOnly: true },
       database: { generateId: () => randomUUID() },
       ipAddress: { ipAddressHeaders: ['x-scantor-client-ip'], ipv6Subnet: 64 },
@@ -206,6 +256,9 @@ function buildAuth(): AuthInstance {
             jwt(),
             mcp({
               resource: mcpConfig.resource,
+              // A client registered through either origin works on both (auth-policy.ts mcpOAuthResources).
+              resources: mcpOAuthResources(config),
+              clientRegistrationDefaultResources: mcpOAuthResources(config),
               loginPage: '/login',
               consentPage: '/oauth/consent',
               scopes: OAUTH_SCOPES,
@@ -230,26 +283,38 @@ function buildAuth(): AuthInstance {
   })
 }
 
-let instance: AuthInstance | null = null
+const instances = new Map<RequestOrigin, AuthInstance>()
 
-/** The better-auth instance (built on first use; boot step 3 builds it eagerly). */
-export function useAuth(): AuthInstance {
-  instance ??= buildAuth()
+/**
+ * The better-auth instance of an origin (built on first use; boot step 3 builds every configured origin's eagerly).
+ * Requests use the instance of their origin (requestOriginOf in server/utils/tunnel.ts); never call one instance's
+ * `auth.api.*` from inside another instance's endpoint or hook, which would run in the other's endpoint context.
+ */
+export function useAuth(origin: RequestOrigin = 'public'): AuthInstance {
+  let instance = instances.get(origin)
+  if (!instance) {
+    instance = buildAuth(origin)
+    instances.set(origin, instance)
+  }
   return instance
 }
 
-/** The better-auth context with `internalAdapter`, `adapter` and `password` helpers. */
+/**
+ * The better-auth context with `internalAdapter`, `adapter` and `password` helpers, for database work outside a
+ * request's origin: that of the instance whose schema has every model (dataAuthOrigin).
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function useAuthContext(): Promise<any> {
-  return useAuth().$context
+  return useAuth(dataAuthOrigin(useConfig())).$context
 }
 
 /**
  * Boot step 3 cleanup (docs/architecture.md §4.1): deletes `jwks` signing keys whose private key cannot be decrypted
- * with the current secret (after a SCANTOR_SECRET change), so the jwt plugin mints a new key.
+ * with the current secret (after a SCANTOR_SECRET change), so the jwt plugin mints a new key. The instances share
+ * the keys and the secret, so this runs once.
  */
 export async function deleteUndecryptableJwks(log: Logger = useLogger('auth')): Promise<number> {
-  if (!resolveMcpConfig(useConfig()).oauth) return 0
+  if (!anyMcpOAuth(useConfig())) return 0
   const ctx = await useAuthContext()
   const keys = (await ctx.adapter.findMany({ model: 'jwks' })) as { id: string; privateKey: string }[]
   let deleted = 0
@@ -266,6 +331,58 @@ export async function deleteUndecryptableJwks(log: Logger = useLogger('auth')): 
   }
   if (deleted > 0) log.warn('deleted OAuth signing keys that the current SCANTOR_SECRET cannot decrypt', { count: deleted })
   return deleted
+}
+
+// ── OAuth clients of every origin ───────────────────────────────────────────
+
+const CLIENT_PAGE_SIZE = 500
+
+function isDuplicateKey(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 11000 || /E11000|duplicate key/i.test(String((error as Error | null)?.message))
+}
+
+/** Every row of a better-auth model, page by page (findMany returns 100 rows unless told otherwise). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function findAllRows<T>(adapter: any, model: string): Promise<T[]> {
+  const rows: T[] = []
+  for (let offset = 0; ; offset += CLIENT_PAGE_SIZE) {
+    const page = (await adapter.findMany({ model, limit: CLIENT_PAGE_SIZE, offset, sortBy: { field: 'id', direction: 'asc' } })) as T[]
+    rows.push(...page)
+    if (page.length < CLIENT_PAGE_SIZE) return rows
+  }
+}
+
+/**
+ * Boot step 3 (docs/auth.md §2.2): links every stored OAuth client to every origin's `/mcp` resource it lacks, as
+ * `clientRegistrationDefaultResources` links a client at registration. better-auth issues a token only for a resource
+ * the client is linked to, so a client registered before SCANTOR_TUNNEL_URL was set (or before the public or tunnel URL
+ * changed) would otherwise get invalid_target through the new origin. Idempotent; a link another replica created
+ * meanwhile (duplicate key) is skipped. Links of an origin no longer configured stay: nothing requests them. Returns
+ * the number of links created.
+ */
+export async function linkOAuthClientsToMcpResources(log: Logger = useLogger('auth')): Promise<number> {
+  const resources = mcpOAuthResources(useConfig())
+  if (resources.length === 0) return 0
+  const { adapter } = await useAuthContext()
+  const clients = await findAllRows<{ clientId: string }>(adapter, 'oauthClient')
+  if (clients.length === 0) return 0
+  const linked = new Set(
+    (await findAllRows<{ clientId: string; resourceId: string }>(adapter, 'oauthClientResource')).map((link) => `${link.clientId}\n${link.resourceId}`),
+  )
+  let created = 0
+  for (const { clientId } of clients) {
+    for (const resourceId of resources) {
+      if (linked.has(`${clientId}\n${resourceId}`)) continue
+      try {
+        await adapter.create({ model: 'oauthClientResource', data: { clientId, resourceId, createdAt: new Date() } })
+        created++
+      } catch (error) {
+        if (!isDuplicateKey(error)) throw error
+      }
+    }
+  }
+  if (created > 0) log.info('linked existing OAuth clients to the MCP resources of every origin', { links: created, resources })
+  return created
 }
 
 // ── indexes of the better-auth collections ──────────────────────────────────
@@ -314,6 +431,21 @@ export function authIndexesFrom(tables: Record<string, AuthTableMeta>): { collec
 }
 
 /**
+ * The union of several instances' tables. Their plugin sets can differ (an http public URL without passkeys or MCP
+ * OAuth next to an https tunnel URL), so each instance knows only some models; fields of a model are merged.
+ */
+export function mergeAuthTables(tableSets: Record<string, AuthTableMeta>[]): Record<string, AuthTableMeta> {
+  const merged: Record<string, AuthTableMeta> = {}
+  for (const tables of tableSets) {
+    for (const [key, table] of Object.entries(tables)) {
+      const known = merged[key]
+      merged[key] = known ? { ...known, ...table, fields: { ...known.fields, ...table.fields } } : table
+    }
+  }
+  return merged
+}
+
+/**
  * Creates named indexes idempotently. An index with the same key pattern under another name (created by an earlier
  * boot, which used MongoDB's default names) is dropped and recreated under the better-auth name, because MongoDB
  * refuses a second index with the same key and a different name.
@@ -339,14 +471,15 @@ async function ensureNamedIndexes(db: Db, name: string, specs: AuthIndexSpec[], 
 }
 
 /**
- * Boot step 3: ensures the indexes of the better-auth collections. A failure (for example duplicate data under a
- * unique index) is logged and does not stop the boot: the indexes speed up lookups but correctness does not depend
- * on them.
+ * Boot step 3: ensures the indexes of the better-auth collections of every configured origin's instance. A failure
+ * (for example duplicate data under a unique index) is logged and does not stop the boot: the indexes speed up
+ * lookups but correctness does not depend on them.
  */
 export async function ensureAuthIndexes(log: Logger = useLogger('auth')): Promise<void> {
-  const ctx = await useAuthContext()
+  const contexts = await Promise.all(configuredOrigins(useConfig()).map((origin) => useAuth(origin).$context))
+  const tables = mergeAuthTables(contexts.map((ctx) => ctx.tables as Record<string, AuthTableMeta>))
   const { db } = useMongo()
-  for (const { collection, specs } of authIndexesFrom(ctx.tables as Record<string, AuthTableMeta>)) {
+  for (const { collection, specs } of authIndexesFrom(tables)) {
     try {
       await ensureNamedIndexes(db, collection, specs, log)
     } catch (error) {

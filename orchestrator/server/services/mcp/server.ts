@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { type AuthInfo, createMcpHandler, McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server'
 import { requireMcpAuth } from '@better-auth/mcp'
+import type { RequestOrigin } from '#shared/utils/enums'
 import { useAuth } from '../../utils/auth'
 import { MCP_CHALLENGE_SCOPES, type McpConfig, resolveMcpConfig } from '../../utils/auth-policy'
 import { PROTOCOL_BODY_LIMIT } from '../../utils/body-limits'
@@ -8,6 +9,7 @@ import { useConfig } from '../../utils/config'
 import { ApiError } from '../../utils/errors'
 import { useLogger } from '../../utils/logger'
 import type { UserPrincipal } from '../../utils/principal'
+import { originUrlOf } from '../../utils/tunnel'
 import { scantorVersion } from '../../utils/version'
 import { type AccessTokenClaims, mcpApiKeyOf, principalFromApiKey, principalFromToken, tokenClientId, tokenScopes } from './auth'
 import { callApiTool } from './bridge'
@@ -17,7 +19,8 @@ import { loadCatalogue, toolsForLevel } from './tools'
 
 // The `/mcp` endpoint (docs/mcp.md §2): Streamable HTTP, stateless, MCP SDK v2. Every request authenticates
 // (OAuth access token or API key), then a new McpServer bound to the caller is built with the tools of its level,
-// the guide resources and the instructions.
+// the guide resources and the instructions. One handler per origin: its tokens come from that origin's better-auth
+// instance (issuer and audience), and its challenges and icons name that origin's URL.
 
 const log = useLogger('mcp')
 
@@ -63,23 +66,23 @@ const CAPABILITIES = { tools: { listChanged: false }, resources: { listChanged: 
 
 /**
  * docs/mcp.md §2: the server info, with the app icon of brand/favicons that the dashboard serves on the origin of
- * `/mcp`, so clients can show it without fetching from another host.
+ * `/mcp` (`originUrl`), so clients can show it without fetching from another host.
  */
-function serverInfo(publicUrl: string) {
+function serverInfo(originUrl: string) {
   return {
     name: 'scantor',
     title: 'scantor',
     version: scantorVersion,
     icons: [
-      { src: new URL('/favicon.svg', publicUrl).href, mimeType: 'image/svg+xml', sizes: ['any'] },
-      { src: new URL('/android-chrome-192x192.png', publicUrl).href, mimeType: 'image/png', sizes: ['192x192'] },
+      { src: new URL('/favicon.svg', originUrl).href, mimeType: 'image/svg+xml', sizes: ['any'] },
+      { src: new URL('/android-chrome-192x192.png', originUrl).href, mimeType: 'image/png', sizes: ['192x192'] },
     ],
   }
 }
 
-async function buildServer(principal: UserPrincipal, requestId: string, readGuide: GuideReader, loopbackOrigin: string): Promise<McpServer> {
+async function buildServer(principal: UserPrincipal, requestId: string, readGuide: GuideReader, loopbackOrigin: string, originUrl: string): Promise<McpServer> {
   const [catalogue, instructions] = await Promise.all([loadCatalogue(), loadInstructions(readGuide)])
-  const server = new McpServer(serverInfo(useConfig().publicUrl), { instructions, capabilities: CAPABILITIES })
+  const server = new McpServer(serverInfo(originUrl), { instructions, capabilities: CAPABILITIES })
   const tools = toolsForLevel(catalogue, principal.mcp?.level ?? 'read')
   for (const tool of tools) {
     server.registerTool(tool.name, tool.config, (input: unknown) =>
@@ -103,16 +106,19 @@ export const REQUEST_ID_HEADER = 'x-request-id'
 export type McpRequestHandler = (request: Request) => Promise<Response>
 
 /**
- * Builds the request handler of `/mcp` (once per process). Tool calls and the JWKS fetch go to this process's
- * loopback listener at `loopbackOrigin` (server/utils/loopback.ts).
+ * Builds the request handler of `/mcp` for one origin (once per process and origin). Tool calls and the JWKS fetch go
+ * to this process's loopback listener at `loopbackOrigin` (server/utils/loopback.ts); the signing keys are shared, so
+ * one JWKS serves the instances of both origins.
  */
-export function createScantorMcpHandler(readGuide: GuideReader, loopbackOrigin: string): McpRequestHandler {
-  const config = resolveMcpConfig(useConfig())
+export function createScantorMcpHandler(readGuide: GuideReader, loopbackOrigin: string, origin: RequestOrigin = 'public'): McpRequestHandler {
+  const settings = useConfig()
+  const config = resolveMcpConfig(settings, origin)
+  const originUrl = originUrlOf(settings, origin)
   const handler = createMcpHandler(
     async (ctx) => {
       const extra = ctx.authInfo?.extra as McpAuthExtra | undefined
       if (!extra) throw new Error('MCP request reached the server factory without an authenticated principal')
-      return buildServer(extra.principal, extra.requestId, readGuide, loopbackOrigin)
+      return buildServer(extra.principal, extra.requestId, readGuide, loopbackOrigin, originUrl)
     },
     {
       legacy: 'stateless',
@@ -127,7 +133,7 @@ export function createScantorMcpHandler(readGuide: GuideReader, loopbackOrigin: 
 
   const oauth = config.oauth
     ? requireMcpAuth(
-          useAuth(),
+          useAuth(origin),
           async (request: Request, claims: AccessTokenClaims) => {
             const principal = await principalFromToken(claims)
             if (!principal) return revoked(config)
@@ -158,7 +164,7 @@ export function createScantorMcpHandler(readGuide: GuideReader, loopbackOrigin: 
     if (key) {
       let principal: UserPrincipal | null
       try {
-        principal = await principalFromApiKey(key)
+        principal = await principalFromApiKey(key, origin)
       } catch (error) {
         if (error instanceof ApiError && error.code === 'unavailable') return unavailable(error.message)
         throw error

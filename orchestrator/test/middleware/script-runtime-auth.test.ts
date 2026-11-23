@@ -11,6 +11,8 @@ import type { ScriptRunPrincipal } from '../../server/utils/principal'
 
 const peers = new Set<string>()
 const trustedProxies = new Set<string>()
+/** Socket peers taken for the tunnel's cloudflared (only while a tunnel URL is configured). */
+const tunnelPeers = new Set<string>()
 const tokens = new Map<string, ScriptRunPrincipal>()
 const lookups: string[] = []
 
@@ -23,7 +25,10 @@ vi.mock('../../server/utils/script-run-tokens', () => ({
     return tokens.get(token) ?? null
   },
 }))
-vi.mock('../../server/utils/trusted-proxy', () => ({ proxyTrust: () => (peer: string) => trustedProxies.has(peer) }))
+vi.mock('../../server/utils/trusted-proxy', () => ({
+  proxyTrust: () => (peer: string) => trustedProxies.has(peer),
+  useTrustedProxies: () => ({ isHostPeer: (host: string, peer: string) => host === 'cloudflared' && tunnelPeers.has(peer.replace(/^::ffff:/, '')) }),
+}))
 vi.mock('../../server/utils/operations', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../server/utils/operations')>()
   const op = (operationId: string, scope: string) => ({ operationId, tags: ['t'], 'x-scantor-scope': scope, 'x-mcp': false })
@@ -37,8 +42,10 @@ vi.mock('../../server/utils/operations', async (importOriginal) => {
   return { ...actual, useOperationRegistry: async () => registry }
 })
 
+const { default: tunnelMiddleware } = await import('../../server/middleware/01.tunnel')
 const { default: authMiddleware } = await import('../../server/middleware/10.auth')
 const { resetBootRegistry, runBoot } = await import('../../server/utils/boot')
+const { parseConfig, setConfigForTesting } = await import('../../server/utils/config')
 const { normalizeError } = await import('../../server/utils/errors')
 const { useLogger } = await import('../../server/utils/logger')
 
@@ -55,6 +62,7 @@ let port = 0
 beforeEach(async () => {
   peers.clear()
   trustedProxies.clear()
+  tunnelPeers.clear()
   tokens.clear()
   lookups.length = 0
   tokens.set(TOKEN, principal)
@@ -67,6 +75,7 @@ beforeEach(async () => {
       return send(event, JSON.stringify(normalized.body), 'application/json')
     },
   })
+  app.use(tunnelMiddleware)
   app.use(authMiddleware)
   app.use(defineEventHandler((event) => ({ principal: (event.context.principal as { kind?: string } | null)?.kind ?? null })))
   server = createServer(toNodeListener(app))
@@ -78,6 +87,7 @@ afterEach(async () => {
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()))
   server = null
   resetBootRegistry()
+  setConfigForTesting(null)
 })
 
 function get(path: string, headers: Record<string, string> = {}): Promise<{ status: number; body: { principal?: string; error?: { code: string } } }> {
@@ -140,6 +150,20 @@ describe('the script runtime API in the auth middleware', () => {
   it('answers 404 for an unknown script runtime path once authenticated', async () => {
     peers.add('127.0.0.1')
     expect((await get('/api/script-runtime/nope', bearer(TOKEN))).status).toBe(404)
+  })
+
+  it('answers 404 through the tunnel URL before the peer check, without looking at the token (security.md TUN-2)', async () => {
+    setConfigForTesting(parseConfig({ SCANTOR_TUNNEL_URL: 'https://tunnel.example.org' }).config)
+    // cloudflared is a trusted proxy: on the public origin the peer check refuses it with 403.
+    peers.add('127.0.0.1')
+    trustedProxies.add('127.0.0.1')
+    tunnelPeers.add('127.0.0.1')
+    expect(await get('/api/script-runtime/bootstrap', { ...bearer(TOKEN), host: 'tunnel.example.org' })).toEqual({
+      status: 404,
+      body: { error: { code: 'notFound', message: 'no operation at /api/script-runtime/bootstrap' } },
+    })
+    expect((await get('/api/script-runtime/bootstrap', bearer(TOKEN))).status).toBe(403)
+    expect(lookups).toEqual([])
   })
 
   it('never accepts a script-run token on worker or user routes', async () => {

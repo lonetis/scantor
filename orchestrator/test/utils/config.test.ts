@@ -184,6 +184,119 @@ describe('parseConfig', () => {
   })
 })
 
+describe('SCANTOR_TUNNEL_URL (docs/deployment.md §10.2, docs/auth.md §4.5)', () => {
+  const PUBLIC = { SCANTOR_PUBLIC_URL: 'https://scantor.example.com', SCANTOR_EDITOR_URL: 'https://editor.example.com' }
+
+  function issuesOf(env: Record<string, string>): { variable: string; message: string }[] {
+    try {
+      parseConfig(env)
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigError)
+      return (error as ConfigError).issues
+    }
+    return []
+  }
+
+  it('is off when empty and keeps only the origin of an https URL', () => {
+    expect(parseConfig({}).config.tunnelUrl).toBeNull()
+    expect(parseConfig({ SCANTOR_TUNNEL_URL: '  ' }).config.tunnelUrl).toBeNull()
+    expect(parseConfig({ ...PUBLIC, SCANTOR_TUNNEL_URL: 'https://Tunnel.Example.com/' }).config.tunnelUrl).toBe('https://tunnel.example.com')
+    expect(parseConfig({ ...PUBLIC, SCANTOR_TUNNEL_URL: 'https://tunnel.example.com:443' }).config.tunnelUrl).toBe('https://tunnel.example.com')
+    expect(parseConfig({ ...PUBLIC, SCANTOR_TUNNEL_URL: 'https://tunnel.example.com:8443' }).config.tunnelUrl).toBe('https://tunnel.example.com:8443')
+    // The token is read only by cloudflared, never by the orchestrator.
+    expect(CONFIG_VARIABLES).toContain('SCANTOR_TUNNEL_URL')
+    expect(CONFIG_VARIABLES).not.toContain('SCANTOR_CLOUDFLARE_TUNNEL_TOKEN')
+  })
+
+  it.each([
+    ['http://tunnel.example.com', 'must use https:'],
+    ['https://tunnel.example.com/scantor', 'must not contain a path'],
+    ['https://tunnel.example.com/?x=1', 'must not contain a query or fragment'],
+    ['https://tunnel.example.com/#x', 'must not contain a query or fragment'],
+    ['https://user:pw@tunnel.example.com', 'must not contain credentials'],
+    ['tunnel.example.com', '"tunnel.example.com" is not a valid URL'],
+  ])('aborts on %s, naming the reason', (value, message) => {
+    expect(issuesOf({ ...PUBLIC, SCANTOR_TUNNEL_URL: value })).toEqual([{ variable: 'SCANTOR_TUNNEL_URL', message }])
+  })
+
+  it.each([
+    ['localhost', 'https://localhost'],
+    ['localhost with a port', 'https://localhost:8443'],
+    ['an IPv4 address', 'https://127.0.0.1'],
+    ['an IPv6 address', 'https://[::1]:8443'],
+    ['a public IPv4 address', 'https://203.0.113.7'],
+  ])('aborts on %s: requests are told apart by a DNS host', (_name, value) => {
+    expect(issuesOf({ ...PUBLIC, SCANTOR_TUNNEL_URL: value })).toEqual([
+      { variable: 'SCANTOR_TUNNEL_URL', message: 'must name a DNS host, not localhost or an IP address' },
+    ])
+  })
+
+  it.each([
+    ['the public URL', { SCANTOR_TUNNEL_URL: 'https://scantor.example.com' }, 'SCANTOR_PUBLIC_URL'],
+    ['the public URL with the default port', { SCANTOR_TUNNEL_URL: 'https://scantor.example.com:443' }, 'SCANTOR_PUBLIC_URL'],
+    [
+      'an http public URL on the same host',
+      { SCANTOR_PUBLIC_URL: 'http://scantor.example.com', SCANTOR_TUNNEL_URL: 'https://scantor.example.com' },
+      'SCANTOR_PUBLIC_URL',
+    ],
+    [
+      'the public URL on port 443',
+      { SCANTOR_PUBLIC_URL: 'http://scantor.example.com:443', SCANTOR_TUNNEL_URL: 'https://scantor.example.com' },
+      'SCANTOR_PUBLIC_URL',
+    ],
+    ['the editor URL', { SCANTOR_TUNNEL_URL: 'https://editor.example.com' }, 'SCANTOR_EDITOR_URL'],
+  ])('aborts on a tunnel URL with the host of %s', (_name, env, other) => {
+    expect(issuesOf({ ...PUBLIC, ...env })).toEqual([{ variable: 'SCANTOR_TUNNEL_URL', message: `must have another host than ${other}` }])
+  })
+
+  it.each(['https://scantor.example.com', 'https://dash.scantor.example.com', 'https://s3.scantor.example.com', 'https://registry.scantor.example.com'])(
+    'aborts on %s, a host Traefik serves below SCANTOR_DOMAIN',
+    (value) => {
+      const env = { SCANTOR_PUBLIC_URL: 'https://dash.scantor.example.com', SCANTOR_EDITOR_URL: 'https://editor.scantor.example.com' }
+      const issues = issuesOf({ ...env, SCANTOR_DOMAIN: 'scantor.example.com', SCANTOR_DASHBOARD_SUBDOMAIN: 'dash', SCANTOR_TUNNEL_URL: value })
+      expect(issues.map((issue) => issue.variable)).toContain('SCANTOR_TUNNEL_URL')
+      expect(issues.map((issue) => issue.message)).toContain(`must not be one of Traefik's hosts below SCANTOR_DOMAIN (${new URL(value).hostname})`)
+    },
+  )
+
+  it('aborts when the cloudflare-tunnel profile runs without a tunnel URL', () => {
+    expect(issuesOf({ COMPOSE_PROFILES: 'traefik,cloudflare-tunnel' })).toEqual([
+      { variable: 'SCANTOR_TUNNEL_URL', message: 'must be set while COMPOSE_PROFILES contains cloudflare-tunnel' },
+    ])
+    expect(parseConfig({ COMPOSE_PROFILES: 'traefik', SCANTOR_TUNNEL_URL: '' }).config.tunnelUrl).toBeNull()
+  })
+
+  it.each([
+    ['another host', { ...PUBLIC, SCANTOR_TUNNEL_URL: 'https://tunnel.other.org' }],
+    ['the public host on another port', { ...PUBLIC, SCANTOR_TUNNEL_URL: 'https://scantor.example.com:8443' }],
+    [
+      'the test stack',
+      {
+        SCANTOR_PUBLIC_URL: 'https://scantor.localhost',
+        SCANTOR_EDITOR_URL: 'https://editor.scantor.localhost',
+        SCANTOR_DOMAIN: 'scantor.localhost',
+        SCANTOR_TUNNEL_URL: 'https://tunnel.scantor.localhost:8443',
+      },
+    ],
+    [
+      'a subdomain below SCANTOR_DOMAIN that Traefik does not serve',
+      { SCANTOR_PUBLIC_URL: 'https://scantor.example.com', SCANTOR_DOMAIN: 'scantor.example.com', SCANTOR_TUNNEL_URL: 'https://tunnel.scantor.example.com' },
+    ],
+    ['the profile', { ...PUBLIC, COMPOSE_PROFILES: 'cloudflare-tunnel', SCANTOR_TUNNEL_URL: 'https://tunnel.example.com' }],
+  ])('accepts %s', (_name, env) => {
+    expect(issuesOf(env)).toEqual([])
+    expect(parseConfig(env).config.tunnelUrl).toBe(env.SCANTOR_TUNNEL_URL)
+  })
+
+  it('checks SCANTOR_PASSKEY_RP_ID against the public host only; the tunnel falls back to its own host', () => {
+    const { config } = parseConfig({ ...PUBLIC, SCANTOR_PASSKEY_RP_ID: 'example.com', SCANTOR_TUNNEL_URL: 'https://tunnel.other.org' })
+    expect(config.passkeyRpId).toBe('example.com')
+    expect(issuesOf({ ...PUBLIC, SCANTOR_PASSKEY_RP_ID: 'other.org', SCANTOR_TUNNEL_URL: 'https://tunnel.other.org' }).map((issue) => issue.variable)).toEqual([
+      'SCANTOR_PASSKEY_RP_ID',
+    ])
+  })
+})
+
 describe('analyticsUserEnabled', () => {
   // docs/deployment.md §4.3: the read-only analytics user exists while the MongoDB TCP router or a read-only
   // mongo-express connects with it; mongo-express is read-only by default.

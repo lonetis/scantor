@@ -1,8 +1,9 @@
-import { defineEventHandler, getQuery, getRequestHeader } from 'h3'
+import { defineEventHandler, getQuery, getRequestHeader, type H3Event } from 'h3'
 import { useAuth } from '../utils/auth'
 import { apiError } from '../utils/errors'
 import { SESSION_COOKIE_NAMES } from '../utils/principal'
 import { routedPathname } from '../utils/request-path'
+import { requestOriginOf } from '../utils/tunnel'
 import { credentialSummary } from '../utils/users'
 
 // Credential invariant and passkey freshness guard (docs/auth.md §6.4):
@@ -11,7 +12,8 @@ import { credentialSummary } from '../utils/users'
 //   the passkey plugin runs with `requireSession: false` for the passkey-first setup flow;
 // - without a session, generate-register-options needs the `context` (spk_ setup token) that
 //   resolvePasskeySetupUser validates; verify-registration then completes the setup user.
-// The rules key on the path better-auth routes (dot segments resolved), never on the raw request path.
+// The rules key on the path better-auth routes (dot segments resolved), never on the raw request path. The session is
+// read by the better-auth instance of the request's origin, which knows that origin's cookie name.
 
 const FRESH_SESSION_MS = 24 * 3_600_000
 
@@ -20,10 +22,11 @@ interface SessionResult {
   user: { id: string }
 }
 
-async function currentSession(cookie: string | undefined): Promise<SessionResult | null> {
+async function currentSession(event: H3Event): Promise<SessionResult | null> {
+  const cookie = getRequestHeader(event, 'cookie')
   if (!cookie || !cookie.split(';').some((part) => SESSION_COOKIE_NAMES.includes(part.split('=')[0]!.trim()))) return null
   try {
-    return ((await useAuth().api.getSession({ headers: new Headers({ cookie }) })) as SessionResult | null) ?? null
+    return ((await useAuth(requestOriginOf(event)).api.getSession({ headers: new Headers({ cookie }) })) as SessionResult | null) ?? null
   } catch {
     return null
   }
@@ -35,7 +38,7 @@ export default defineEventHandler(async (event) => {
   const action = pathname.slice('/api/auth/passkey/'.length)
 
   if (action === 'delete-passkey' && event.method === 'POST') {
-    const session = await currentSession(getRequestHeader(event, 'cookie'))
+    const session = await currentSession(event)
     if (!session) return
     const summary = await credentialSummary(session.user.id)
     if (!summary.hasPassword && summary.passkeyCount <= 1) {
@@ -47,7 +50,7 @@ export default defineEventHandler(async (event) => {
   const registering =
     (action === 'generate-register-options' && event.method === 'GET') || (action === 'verify-registration' && event.method === 'POST')
   if (!registering) return
-  const session = await currentSession(getRequestHeader(event, 'cookie'))
+  const session = await currentSession(event)
   if (session) {
     if (Date.now() - new Date(session.session.createdAt).getTime() > FRESH_SESSION_MS) {
       throw apiError('sessionRequired', 'registering a passkey needs a session younger than 24 hours; sign in again')

@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'getSetupStatus',
     summary: 'Get setup status',
     description:
-      'Public. Tells whether the first admin still has to be created (needsSetup), whether passkeys are available on this deployment and the MCP URL (null when MCP is disabled). The web UI redirects to /setup while needsSetup is true.',
+      'Public. Tells whether the first admin still has to be created (needsSetup), whether passkeys are available and the MCP URL (null when MCP is disabled), both for the origin of the request (the public URL or the tunnel URL). The web UI redirects to /setup while needsSetup is true.',
     'x-scantor-scope': 'public',
     'x-mcp': false,
     responses: {
@@ -30,5 +30,6 @@ defineRouteMeta({
 
 import { defineEventHandler } from 'h3'
 import { setupStatus } from '../../services/setup'
+import { requestOriginOf } from '../../utils/tunnel'
 
-export default defineEventHandler(() => setupStatus())
+export default defineEventHandler((event) => setupStatus(requestOriginOf(event)))

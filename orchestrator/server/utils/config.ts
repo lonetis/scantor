@@ -2,6 +2,8 @@ import { isIP } from 'node:net'
 import { z } from 'zod'
 import { SCRIPT_RUN_MAX_TIMEOUT_MS } from '#shared/schemas/scripts'
 import { ORCHESTRATOR_COMPONENTS, type OrchestratorComponent } from '#shared/utils/enums'
+import { isRpIdFor } from './auth-policy'
+import { normalizeHost } from './client-ip'
 import { parseBoolean, parseByteSize, parseDuration, parseInteger, parseList } from './env-values'
 import { evaluateStartupGuard, type StartupGuardResult } from './startup-guard'
 
@@ -33,6 +35,8 @@ export interface Config {
   publicUrl: string
   editorUrl: string
   internalUrl: string
+  /** origin of the dashboard, API and MCP server through the Cloudflare Tunnel; null = no tunnel */
+  tunnelUrl: string | null
   // secrets
   secret: string
   allowInsecureDefaults: boolean
@@ -245,14 +249,15 @@ function parseUrl(value: string, protocols: string[]): URL {
   return url
 }
 
+function parseOrigin(value: string, protocols: string[]): string {
+  const url = parseUrl(value, protocols)
+  if (url.pathname !== '/' && url.pathname !== '') throw new Error('must not contain a path')
+  if (url.search || url.hash) throw new Error('must not contain a query or fragment')
+  return url.origin
+}
+
 /** An origin-only URL (no path other than `/`, no query, no fragment), returned without a trailing slash. */
-const originUrl = (protocols = ['http:', 'https:']) =>
-  fromParser((value) => {
-    const url = parseUrl(value, protocols)
-    if (url.pathname !== '/' && url.pathname !== '') throw new Error('must not contain a path')
-    if (url.search || url.hash) throw new Error('must not contain a query or fragment')
-    return url.origin
-  })
+const originUrl = (protocols = ['http:', 'https:']) => fromParser((value) => parseOrigin(value, protocols))
 
 /** A base URL that may carry a path (data sources, management API); returned without a trailing slash. */
 const baseUrl = (protocols = ['http:', 'https:']) =>
@@ -261,6 +266,10 @@ const baseUrl = (protocols = ['http:', 'https:']) =>
     if (url.search || url.hash) throw new Error('must not contain a query or fragment')
     return url.toString().replace(/\/+$/, '')
   })
+
+/** An optional origin-only URL: empty means off (null). One parser, so a refusal names its reason (a union would not). */
+const optionalOriginUrl = (protocols = ['http:', 'https:']) =>
+  fromParser((value): string | null => (value.trim() === '' ? null : parseOrigin(value, protocols)))
 
 /** An optional base URL: empty means off (null). */
 const optionalBaseUrl = (protocols = ['http:', 'https:']) =>
@@ -416,6 +425,7 @@ const VARIABLES = {
   publicUrl: v('SCANTOR_PUBLIC_URL', 'http://localhost:3000', originUrl(), true),
   editorUrl: v('SCANTOR_EDITOR_URL', 'http://localhost:3001', originUrl(), true),
   internalUrl: v('SCANTOR_INTERNAL_URL', 'http://orchestrator:3000', originUrl(), true),
+  tunnelUrl: v('SCANTOR_TUNNEL_URL', '', optionalOriginUrl(['https:']), true),
 
   secret: v('SCANTOR_SECRET', 'scantor-secret-insecure-dev', nonEmpty(), true),
   allowInsecureDefaults: v('SCANTOR_ALLOW_INSECURE_DEFAULTS', 'false', boolean(), true),
@@ -626,12 +636,42 @@ function crossValidate(config: Config): ConfigIssue[] {
   }
   if (config.passkeyRpId !== null) {
     const host = new URL(config.publicUrl).hostname
-    if (config.passkeyRpId !== host && !(host.endsWith(`.${config.passkeyRpId}`) && config.passkeyRpId.includes('.'))) {
+    if (!isRpIdFor(config.passkeyRpId, host)) {
       issues.push({
         variable: 'SCANTOR_PASSKEY_RP_ID',
         message: `must equal the host of SCANTOR_PUBLIC_URL (${host}) or be a registrable suffix of it`,
       })
     }
+  }
+  issues.push(...tunnelIssues(config))
+  return issues
+}
+
+/**
+ * The tunnel URL (docs/deployment.md §10.2) needs a DNS host of its own: utils/tunnel.ts tells tunnel requests apart by
+ * their Host, so it must differ from the public and editor origins (compared as Host headers) and from Traefik's hosts.
+ * Without a tunnel URL, requests from cloudflared count as public, so the profile alone would serve every route through
+ * the tunnel, the node and admin tool APIs included.
+ */
+function tunnelIssues(config: Config): ConfigIssue[] {
+  const variable = 'SCANTOR_TUNNEL_URL'
+  if (config.tunnelUrl === null) {
+    return config.composeProfiles.includes('cloudflare-tunnel') ? [{ variable, message: 'must be set while COMPOSE_PROFILES contains cloudflare-tunnel' }] : []
+  }
+  const url = new URL(config.tunnelUrl)
+  const hostname = url.hostname.replace(/^\[|\]$/g, '')
+  if (hostname === 'localhost' || isIP(hostname) !== 0) return [{ variable, message: 'must name a DNS host, not localhost or an IP address' }]
+  const issues: ConfigIssue[] = []
+  for (const [name, origin] of [
+    ['SCANTOR_PUBLIC_URL', config.publicUrl],
+    ['SCANTOR_EDITOR_URL', config.editorUrl],
+  ] as const) {
+    if (normalizeHost(new URL(origin).host, 'https:') === url.host) issues.push({ variable, message: `must have another host than ${name}` })
+  }
+  if (config.domain !== null) {
+    const subdomains = [...(config.dashboardSubdomain === null ? [] : [config.dashboardSubdomain]), ...FIXED_TRAEFIK_SUBDOMAINS]
+    const traefikHosts = [config.domain, ...subdomains.map((subdomain) => `${subdomain}.${config.domain}`)]
+    if (traefikHosts.includes(hostname)) issues.push({ variable, message: `must not be one of Traefik's hosts below SCANTOR_DOMAIN (${hostname})` })
   }
   return issues
 }
@@ -670,6 +710,7 @@ export function loadBootConfiguration(): BootConfiguration {
   const guard = evaluateStartupGuard({
     publicUrl: config.publicUrl,
     editorUrl: config.editorUrl,
+    tunnelUrl: config.tunnelUrl,
     bindAddress: config.bindAddress,
     adminBindAddress: config.adminBindAddress,
     composeProfiles: config.composeProfiles,

@@ -6,6 +6,7 @@ import {
   buildCsp,
   buildDocsCsp,
   cspOptionsFrom,
+  HSTS,
   isNoFramePage,
   securityHeadersFor,
   securityPoliciesFrom,
@@ -104,6 +105,44 @@ describe('securityHeadersFor', () => {
   })
 })
 
+describe('the policies of the tunnel origin (docs/ui.md §13)', () => {
+  it('frames no editor, admits no S3 images and always sends HSTS', () => {
+    for (const config of [HTTP, HTTPS]) {
+      const tunnel = securityPoliciesFrom(config, false, 'tunnel')
+      expect(tunnel.hsts).toBe(true)
+      expect(tunnel.csp).toEqual({ editorOrigin: null, s3PublicOrigin: null, dev: false })
+      for (const csp of [tunnel.normal, tunnel.noFrame]) {
+        expect(csp).toContain("frame-src 'none'")
+        expect(csp).toContain("img-src 'self' data: blob:;")
+        expect(csp).toContain("connect-src 'self';")
+        expect(csp).not.toContain(new URL(config.editorUrl).origin)
+        expect(csp).not.toContain(new URL(config.s3PublicUrl).origin)
+      }
+      expect(tunnel.normal).toBe(buildCsp(tunnel.csp))
+      expect(tunnel.noFrame).toContain("frame-ancestors 'none'")
+      expect(tunnel.docs).toBe(buildDocsCsp())
+      for (const path of ['/_nuxt/entry.js', '/', '/api/health', '/login']) {
+        expect(securityHeadersFor(path, tunnel).headers['Strict-Transport-Security'], path).toBe(HSTS)
+      }
+    }
+  })
+
+  it('builds the CSP sources without the public origins', () => {
+    expect(cspOptionsFrom(HTTPS, true, 'tunnel')).toEqual({ editorOrigin: null, s3PublicOrigin: null, dev: true })
+    expect(cspOptionsFrom(HTTPS, false, 'public')).toEqual({ editorOrigin: 'https://editor.example.com', s3PublicOrigin: 'https://s3.example.com', dev: false })
+    expect(buildCsp(cspOptionsFrom(HTTPS, true, 'tunnel'))).toContain("connect-src 'self' ws: wss:")
+  })
+
+  it('keeps the policies of the public origin as they were', () => {
+    const publicPolicies = securityPoliciesFrom(HTTPS, false)
+    expect(securityPoliciesFrom(HTTPS, false, 'public')).toEqual(publicPolicies)
+    expect(publicPolicies.csp).toEqual(cspOptionsFrom(HTTPS, false))
+    expect(publicPolicies.normal).toBe(buildCsp(publicPolicies.csp))
+    expect(publicPolicies.normal).toContain('frame-src https://editor.example.com')
+    expect(securityPoliciesFrom(HTTP, false, 'public').hsts).toBe(false)
+  })
+})
+
 describe('applySecurityHeaders', () => {
   // As in Nitro: the request hook runs before every handler, the public-asset handler first among them.
   function handler(policies: SecurityPolicies) {
@@ -145,6 +184,15 @@ describe('applySecurityHeaders', () => {
     const asset = await fetch(new Request('https://scantor.example.com/_nuxt/entry.js'))
     expect(asset.headers.get('content-type')).toBe('text/javascript')
     expect(await asset.text()).toBe('{}')
+  })
+
+  it('sends HSTS through the tunnel even when the public URL is http', async () => {
+    const fetch = handler(securityPoliciesFrom(HTTP, false, 'tunnel'))
+    for (const path of ['/_nuxt/entry.js', '/scans', '/api/no-such-route']) {
+      const response = await fetch(new Request(`https://tunnel.example.com${path}`))
+      expect(response.headers.get('strict-transport-security'), path).toBe('max-age=31536000')
+      expect(response.headers.get('content-security-policy'), path).toContain("frame-src 'none'")
+    }
   })
 
   it('hands the frame-ancestors source to the shell renderer', async () => {

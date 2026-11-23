@@ -44,6 +44,50 @@ describe('buildInstanceInfo', () => {
     })
   })
 
+  it('describes the public origin: no tunnel URL, downloads on, the full wait', () => {
+    const info = buildInstanceInfo(config, principal(false))
+    expect(info).toMatchObject({ origin: 'public', tunnelUrl: null, features: { downloads: true }, limits: { waitMaxSeconds: 120 } })
+    expect(buildInstanceInfo(config, principal(false), 'public')).toEqual(info)
+  })
+
+  it('describes the tunnel origin for a request through the tunnel URL (docs/api.md §4.1)', () => {
+    const tunnel = parseConfig({
+      SCANTOR_PUBLIC_URL: 'https://scantor.example.com',
+      SCANTOR_EDITOR_URL: 'https://editor.scantor.example.com',
+      SCANTOR_DOMAIN: 'scantor.example.com',
+      SCANTOR_TUNNEL_URL: 'https://tunnel.example.org',
+    }).config
+    const info = buildInstanceInfo(tunnel, principal(true), 'tunnel')
+    expect(info).toMatchObject({
+      origin: 'tunnel',
+      publicUrl: 'https://scantor.example.com',
+      tunnelUrl: 'https://tunnel.example.org',
+      editorUrl: 'https://editor.scantor.example.com',
+      mcpUrl: 'https://tunnel.example.org/mcp',
+      features: { passkeys: true, mcp: true, mcpOAuth: true, editor: false, downloads: false },
+      limits: { waitMaxSeconds: 90 },
+    })
+    // The admin tool links do not depend on the origin; the UI decides what to show through the tunnel.
+    expect(info.adminTools).toEqual(buildInstanceInfo(tunnel, principal(true), 'public').adminTools)
+
+    // The public origin of the same instance names the tunnel URL but keeps its own MCP URL and features.
+    expect(buildInstanceInfo(tunnel, principal(false), 'public')).toMatchObject({
+      origin: 'public',
+      tunnelUrl: 'https://tunnel.example.org',
+      mcpUrl: 'https://scantor.example.com/mcp',
+      features: { editor: true, downloads: true },
+      limits: { waitMaxSeconds: 120 },
+    })
+  })
+
+  it('has MCP OAuth and passkeys through an https tunnel even when the public URL is plain http', () => {
+    const tunnel = parseConfig({ SCANTOR_PUBLIC_URL: 'http://10.0.0.5:3000', SCANTOR_TUNNEL_URL: 'https://tunnel.example.org' }).config
+    expect(buildInstanceInfo(tunnel, principal(false), 'public').features).toMatchObject({ passkeys: false, mcpOAuth: false })
+    expect(buildInstanceInfo(tunnel, principal(false), 'tunnel').features).toMatchObject({ passkeys: true, mcpOAuth: true })
+    const off = parseConfig({ SCANTOR_TUNNEL_URL: 'https://tunnel.example.org', SCANTOR_MCP_ENABLED: 'false' }).config
+    expect(buildInstanceInfo(off, principal(false), 'tunnel')).toMatchObject({ mcpUrl: null, features: { mcp: false, mcpOAuth: false } })
+  })
+
   it('has no tool URLs without Traefik', () => {
     expect(toolUrl({ publicUrl: 'http://localhost:3000', domain: null }, 'rabbitmq')).toBeNull()
     expect(toolUrl({ publicUrl: 'https://scantor.localhost:8443', domain: 'scantor.localhost' }, 'traefik')).toBe(

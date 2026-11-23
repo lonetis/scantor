@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'createSetupPasskeyToken',
     summary: 'Create a passkey setup token',
     description:
-      'Starts the passkey-first creation of the first admin. Returns a single-use spk_ token (valid 5 minutes) that the browser passes as the passkey registration context; the admin is created only after a successful WebAuthn ceremony. Needs the setup token; 400 passkeysDisabled when passkeys are unavailable on this deployment.',
+      'Starts the passkey-first creation of the first admin. Returns a single-use spk_ token (valid 5 minutes) that the browser passes as the passkey registration context; the admin is created only after a successful WebAuthn ceremony. Needs the setup token; 400 passkeysDisabled when passkeys are unavailable on the origin of the request.',
     'x-scantor-scope': 'setup',
     'x-mcp': false,
     parameters: [
@@ -53,11 +53,13 @@ import { requireSetup } from '../../utils/authz'
 import { useConfig } from '../../utils/config'
 import { apiError } from '../../utils/errors'
 import { assertNoUsers, createPasskeySetupToken, withSetupMutex } from '../../utils/setup'
+import { requestOriginOf } from '../../utils/tunnel'
 import { validateBody } from '../../utils/zod'
 
 export default defineEventHandler(async (event) => {
   requireSetup(event)
-  if (!resolvePasskeyConfig(useConfig()).enabled) throw apiError('passkeysDisabled', 'passkeys are disabled on this deployment')
+  // the passkey is registered on the origin of this request, so that origin's passkey settings decide
+  if (!resolvePasskeyConfig(useConfig(), requestOriginOf(event)).enabled) throw apiError('passkeysDisabled', 'passkeys are disabled on this URL')
   const body = await validateBody(event, createSetupPasskeyTokenBody)
   const token = await withSetupMutex(async () => {
     await assertNoUsers()

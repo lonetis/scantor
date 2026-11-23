@@ -19,6 +19,8 @@ const CORE_SECRETS = [
 export interface StartupGuardInput {
   publicUrl: string
   editorUrl: string
+  /** SCANTOR_TUNNEL_URL; null = no tunnel */
+  tunnelUrl: string | null
   bindAddress: string
   adminBindAddress: string
   composeProfiles: string[]
@@ -85,6 +87,8 @@ export function evaluateStartupGuard(input: StartupGuardInput): StartupGuardResu
     !isLoopbackHost(publicUrl.hostname) ||
     !isLoopbackHost(editorUrl.hostname) ||
     input.composeProfiles.includes('traefik') ||
+    input.tunnelUrl !== null ||
+    input.composeProfiles.includes('cloudflare-tunnel') ||
     !isLoopbackAddress(input.bindAddress) ||
     !isLoopbackAddress(input.adminBindAddress)
 

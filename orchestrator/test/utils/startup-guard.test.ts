@@ -22,6 +22,7 @@ function input(overrides: Partial<StartupGuardInput> = {}): StartupGuardInput {
   return {
     publicUrl: 'http://localhost:3000',
     editorUrl: 'http://localhost:3001',
+    tunnelUrl: null,
     bindAddress: '127.0.0.1',
     adminBindAddress: '127.0.0.1',
     composeProfiles: [],
@@ -54,6 +55,8 @@ describe('evaluateStartupGuard', () => {
     ['public URL host', { publicUrl: 'https://scantor.example.com' }],
     ['editor URL host', { editorUrl: 'https://editor.example.com' }],
     ['traefik profile', { composeProfiles: ['traefik'] }],
+    ['tunnel URL', { tunnelUrl: 'https://tunnel.example.org' }],
+    ['cloudflare-tunnel profile', { composeProfiles: ['cloudflare-tunnel'] }],
     ['bind address', { bindAddress: '0.0.0.0' }],
     ['admin bind address', { adminBindAddress: '10.0.0.5' }],
   ]

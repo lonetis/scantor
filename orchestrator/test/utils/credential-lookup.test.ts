@@ -4,7 +4,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 // Session and API key lookups (docs/auth.md §5.2): a rejected credential is no session, a failed lookup is 503.
 
 const getSession = vi.fn()
-vi.mock('../../server/utils/auth', () => ({ useAuth: () => ({ api: { getSession } }) }))
+/** The origin of every useAuth call: each origin has its own better-auth instance (docs/auth.md §2.2). */
+const origins: unknown[] = []
+vi.mock('../../server/utils/auth', () => ({
+  useAuth: (origin?: unknown) => {
+    origins.push(origin)
+    return { api: { getSession } }
+  },
+}))
 
 const { isCredentialRejection, lookupSession } = await import('../../server/utils/credential-lookup')
 const { principalFromApiKey } = await import('../../server/services/mcp/auth')
@@ -13,6 +20,7 @@ const KEY = `sk_scantor_${'A'.repeat(64)}`
 
 beforeEach(() => {
   getSession.mockReset()
+  origins.length = 0
 })
 
 describe('isCredentialRejection', () => {
@@ -42,6 +50,14 @@ describe('lookupSession', () => {
     expect((await lookupSession(new Headers({ 'x-api-key': KEY }))).result).toBeNull()
   })
 
+  it('looks the credential up on the instance of the request origin, the public one by default', async () => {
+    getSession.mockResolvedValue({ response: null })
+    await lookupSession(new Headers({ cookie: 'c=1' }))
+    await lookupSession(new Headers({ cookie: 'c=1' }), 'public')
+    await lookupSession(new Headers({ cookie: '__Secure-scantor.session_token=x' }), 'tunnel')
+    expect(origins).toEqual(['public', 'public', 'tunnel'])
+  })
+
   it('answers 503 unavailable when the lookup itself fails', async () => {
     for (const failure of [new APIError('INTERNAL_SERVER_ERROR', { message: 'Failed to get session' }), new Error('not primary')]) {
       getSession.mockRejectedValueOnce(failure)
@@ -56,6 +72,16 @@ describe('principalFromApiKey (/mcp)', () => {
     expect(await principalFromApiKey(KEY)).toBeNull()
     getSession.mockRejectedValueOnce(new Error('server selection timed out'))
     await expect(principalFromApiKey(KEY)).rejects.toMatchObject({ code: 'unavailable' })
+  })
+
+  it('looks the key up on the instance of the /mcp origin', async () => {
+    getSession.mockResolvedValue({ response: null })
+    await principalFromApiKey(KEY)
+    await principalFromApiKey(KEY, 'tunnel')
+    expect(origins).toEqual(['public', 'tunnel'])
+    // A value that is no API key is never looked up.
+    await principalFromApiKey('not-a-key', 'tunnel')
+    expect(origins).toHaveLength(2)
   })
 
   it('resolves a valid key to a write principal', async () => {

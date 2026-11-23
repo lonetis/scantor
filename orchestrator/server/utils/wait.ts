@@ -2,6 +2,7 @@ import { type H3Event, setResponseHeader } from 'h3'
 import { shutdownSignal } from './boot'
 import { useConfig } from './config'
 import { apiError } from './errors'
+import { isTunnelRequest, TUNNEL_WAIT_MAX_SECONDS } from './tunnel'
 import { useWaitWatchers, type WaitWatch, type WatchedCollection } from './wait-watchers'
 
 // Long-polling with `wait` (docs/api.md §1.9): return at once when the resource is settled, otherwise hold the
@@ -11,7 +12,9 @@ import { useWaitWatchers, type WaitWatch, type WatchedCollection } from './wait-
 // stream of its collection (utils/wait-watchers.ts), polling every second while that stream is unavailable. When the
 // orchestrator begins to stop, waits answer at once with the current state (`timeout`), so the shutdown does not wait
 // for them. A route that creates the resource it then waits for reserves the wait first (reserveWait), so its 429
-// always means nothing was created; the test-run stream holds a reservation for as long as it is open.
+// always means nothing was created; the test-run stream holds a reservation for as long as it is open. Through the
+// tunnel URL a wait lasts at most TUNNEL_WAIT_MAX_SECONDS, because Cloudflare answers 524 when the origin sends no
+// response within its 125 s Proxy Read Timeout.
 
 const POLL_MS = 1000
 const activeWaits = new Map<string, number>()
@@ -67,8 +70,9 @@ function clientGone(event: H3Event): Promise<void> {
 /** Loads a resource, waiting up to `waitSeconds` for it to settle. */
 export async function loadWithWait<T>(event: H3Event, options: WaitOptions<T>): Promise<T> {
   let value = await options.load()
-  const waitSeconds = options.waitSeconds ?? 0
+  let waitSeconds = options.waitSeconds ?? 0
   if (waitSeconds <= 0) return value
+  if (isTunnelRequest(event)) waitSeconds = Math.min(waitSeconds, TUNNEL_WAIT_MAX_SECONDS)
   if (options.settled(value)) {
     setResponseHeader(event, 'Scantor-Wait', 'settled')
     return value

@@ -1,9 +1,11 @@
 import { isIP } from 'node:net'
 import type { BetterAuthPlugin } from 'better-auth'
+import type { RequestOrigin } from '#shared/utils/enums'
 import type { Config } from './config'
 
 // Pure authentication policy derived from the configuration (docs/auth.md §2.5, §2.7, §4, docs/mcp.md §3.4, §3.8).
-// server/utils/auth.ts builds better-auth from it; the middleware and the MCP endpoint use the same functions.
+// server/utils/auth.ts builds one better-auth instance per origin from it; the middleware and the MCP endpoint use
+// the same functions with the origin of the request. Origin-bound values default to the public origin.
 
 export const MCP_SCOPES = ['scantor:read', 'scantor:write', 'scantor:admin'] as const
 export const OAUTH_SCOPES = ['openid', 'profile', 'email', 'offline_access', ...MCP_SCOPES]
@@ -129,11 +131,42 @@ export function rateLimitConfig(scale: number): typeof RATE_LIMIT {
   return { ...RATE_LIMIT, max: RATE_LIMIT.max * scale, customRules }
 }
 
+// ── origins (docs/auth.md §4) ───────────────────────────────────────────────
+
+/** The variable that sets the URL of each origin. */
+const ORIGIN_VARIABLES = { public: 'SCANTOR_PUBLIC_URL', tunnel: 'SCANTOR_TUNNEL_URL' } as const satisfies Record<RequestOrigin, string>
+
 /**
- * The origins trusted for CSRF and better-auth (docs/auth.md §4.2): the public origin plus, when its host is
- * `localhost`, the `127.0.0.1` and `[::1]` aliases with the same scheme and port. Never the editor origin.
+ * The URL of an origin, as originUrlOf in server/utils/tunnel.ts; repeated so that this module, which config.ts
+ * imports, imports no other server module.
  */
-export function trustedOrigins(config: Pick<Config, 'publicUrl'>): string[] {
+function originUrl(config: Pick<Config, 'publicUrl' | 'tunnelUrl'>, origin: RequestOrigin): string {
+  if (origin === 'public') return config.publicUrl
+  if (!config.tunnelUrl) throw new Error('the tunnel origin needs SCANTOR_TUNNEL_URL')
+  return config.tunnelUrl
+}
+
+/** The origins the dashboard is served on (docs/auth.md §2.2): the public URL, plus the tunnel URL when set. */
+export function configuredOrigins(config: Pick<Config, 'tunnelUrl'>): RequestOrigin[] {
+  return config.tunnelUrl ? ['public', 'tunnel'] : ['public']
+}
+
+/**
+ * The origin whose better-auth instance does the database work no request selects (users, API keys, OAuth grants,
+ * signing keys): the tunnel's when set, because its plugins are a superset of the public origin's (an https host
+ * name always has passkeys, and MCP OAuth whenever MCP is on), so its schema knows every model.
+ */
+export function dataAuthOrigin(config: Pick<Config, 'tunnelUrl'>): RequestOrigin {
+  return config.tunnelUrl ? 'tunnel' : 'public'
+}
+
+/**
+ * The origins trusted for CSRF and by the better-auth instance of `origin` (docs/auth.md §4.2): the public origin
+ * plus, when its host is `localhost`, the `127.0.0.1` and `[::1]` aliases with the same scheme and port; the tunnel
+ * origin alone for the tunnel. Each origin trusts only itself, never the other one and never the editor origin.
+ */
+export function trustedOrigins(config: Pick<Config, 'publicUrl' | 'tunnelUrl'>, origin: RequestOrigin = 'public'): string[] {
+  if (origin === 'tunnel') return [new URL(originUrl(config, origin)).origin]
   const url = new URL(config.publicUrl)
   const origins = [url.origin]
   if (url.hostname === 'localhost') {
@@ -149,17 +182,25 @@ export interface PasskeyConfig {
   origin?: string
 }
 
+/** Whether `rpId` may be the WebAuthn RP ID of `host`: the host itself or a registrable suffix of it. */
+export function isRpIdFor(rpId: string, host: string): boolean {
+  return rpId === host || (host.endsWith(`.${rpId}`) && rpId.includes('.'))
+}
+
 /**
- * Passkeys need a secure context and a domain RP ID (docs/auth.md §4.4): enabled for https domain names and for
- * http on `localhost` / `*.localhost`; disabled for any other http host and for IP literals.
+ * Passkeys of an origin need a secure context and a domain RP ID (docs/auth.md §4.4): enabled for https domain names
+ * and for http on `localhost` / `*.localhost`; disabled for any other http host and for IP literals. The RP ID is
+ * SCANTOR_PASSKEY_RP_ID where it is a registrable suffix of the origin's host (config.ts checks the public host),
+ * otherwise the host itself, so passkeys registered on one RP ID work only on the origins sharing it.
  */
-export function resolvePasskeyConfig(config: Pick<Config, 'publicUrl' | 'passkeyRpId'>): PasskeyConfig {
-  const url = new URL(config.publicUrl)
+export function resolvePasskeyConfig(config: Pick<Config, 'publicUrl' | 'tunnelUrl' | 'passkeyRpId'>, origin: RequestOrigin = 'public'): PasskeyConfig {
+  const url = new URL(originUrl(config, origin))
   const host = url.hostname.replace(/^\[|\]$/g, '')
   if (isIP(host) !== 0) return { enabled: false }
   const local = host === 'localhost' || host.endsWith('.localhost')
   if (url.protocol !== 'https:' && !local) return { enabled: false }
-  return { enabled: true, rpID: config.passkeyRpId ?? host, origin: url.origin }
+  const rpID = config.passkeyRpId && isRpIdFor(config.passkeyRpId, host) ? config.passkeyRpId : host
+  return { enabled: true, rpID, origin: url.origin }
 }
 
 export interface McpConfig {
@@ -167,12 +208,11 @@ export interface McpConfig {
   enabled: boolean
   /** the OAuth authorization server (mcp, jwt, cimd plugins and discovery) is available */
   oauth: boolean
-  /** `${SCANTOR_PUBLIC_URL}/mcp` */
+  /** `<origin URL>/mcp` (SCANTOR_PUBLIC_URL or SCANTOR_TUNNEL_URL) */
   resource: string
   disabledReason?: string
 }
 
-/** docs/mcp.md §3.8. */
 /**
  * The loopback hosts @better-auth/mcp accepts for an http resource URL: exactly `localhost`, `[::1]` and
  * 127.0.0.0/8. Narrower than the startup guard's rule, which also counts `*.localhost`; with such a host the plugin
@@ -184,19 +224,38 @@ export function isMcpLoopbackHost(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '[::1]' || ipv4Loopback
 }
 
-export function resolveMcpConfig(config: Pick<Config, 'publicUrl' | 'mcpEnabled'>): McpConfig {
-  const resource = `${config.publicUrl}/mcp`
+/** `/mcp` and MCP OAuth on an origin (docs/mcp.md §3.8). */
+export function resolveMcpConfig(config: Pick<Config, 'publicUrl' | 'tunnelUrl' | 'mcpEnabled'>, origin: RequestOrigin = 'public'): McpConfig {
+  const base = originUrl(config, origin)
+  const resource = `${base}/mcp`
   if (!config.mcpEnabled) return { enabled: false, oauth: false, resource, disabledReason: 'SCANTOR_MCP_ENABLED=false' }
-  const url = new URL(config.publicUrl)
+  const url = new URL(base)
   if (url.protocol !== 'https:' && !isMcpLoopbackHost(url.hostname)) {
     return {
       enabled: true,
       oauth: false,
       resource,
-      disabledReason: `MCP OAuth needs an https SCANTOR_PUBLIC_URL (or a loopback host); /mcp accepts API keys only`,
+      disabledReason: `MCP OAuth needs an https ${ORIGIN_VARIABLES[origin]} (or a loopback host); /mcp accepts API keys only`,
     }
   }
   return { enabled: true, oauth: true, resource }
+}
+
+/** Whether MCP OAuth is available on any configured origin, so that the OAuth and signing-key models exist. */
+export function anyMcpOAuth(config: Pick<Config, 'publicUrl' | 'tunnelUrl' | 'mcpEnabled'>): boolean {
+  return configuredOrigins(config).some((origin) => resolveMcpConfig(config, origin).oauth)
+}
+
+/**
+ * The `/mcp` resources of every configured origin with MCP OAuth. The origins share their OAuth clients, and
+ * better-auth issues a token only for a resource its client is linked to, so every instance seeds all of them and links
+ * each new client to all of them; which resource an origin issues tokens for is the before hook's rule (auth.ts).
+ */
+export function mcpOAuthResources(config: Pick<Config, 'publicUrl' | 'tunnelUrl' | 'mcpEnabled'>): string[] {
+  return configuredOrigins(config)
+    .map((origin) => resolveMcpConfig(config, origin))
+    .filter((mcp) => mcp.oauth)
+    .map((mcp) => mcp.resource)
 }
 
 const FORBIDDEN_PRIVATE_SCHEMES = new Set(['http:', 'https:', 'javascript:', 'data:', 'file:', 'vbscript:', 'blob:', 'about:', 'ftp:', 'ws:', 'wss:'])

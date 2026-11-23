@@ -3,12 +3,17 @@ import { memoryAdapter } from 'better-auth/adapters/memory'
 import { admin } from 'better-auth/plugins'
 import { describe, expect, it } from 'vitest'
 import {
+  anyMcpOAuth,
   AUTH_BASE_PATH,
   authHttpAllowlist,
+  configuredOrigins,
+  dataAuthOrigin,
   isAllowedMcpRedirect,
   isAuthHttpEndpoint,
   isAuthRootDiscoveryEndpoint,
+  isRpIdFor,
   mcpLevelForScopes,
+  mcpOAuthResources,
   RATE_LIMIT,
   rateLimitConfig,
   resolveMcpConfig,
@@ -18,11 +23,57 @@ import {
 
 // Authentication policy derived from the configuration (docs/auth.md §2.5, §2.7, §4; docs/mcp.md §3.2, §3.4, §3.8).
 
+const TUNNEL = 'https://tunnel.example.org'
+
+describe('configuredOrigins and dataAuthOrigin', () => {
+  it('serves the public URL, plus the tunnel URL when set', () => {
+    expect(configuredOrigins({ tunnelUrl: null })).toEqual(['public'])
+    expect(configuredOrigins({ tunnelUrl: TUNNEL })).toEqual(['public', 'tunnel'])
+  })
+
+  it('does the database work on the tunnel instance when there is one, whose plugins are a superset', () => {
+    expect(dataAuthOrigin({ tunnelUrl: null })).toBe('public')
+    expect(dataAuthOrigin({ tunnelUrl: TUNNEL })).toBe('tunnel')
+  })
+})
+
 describe('trustedOrigins', () => {
   it('is the public origin, plus loopback aliases for localhost', () => {
-    expect(trustedOrigins({ publicUrl: 'https://scantor.example.com' })).toEqual(['https://scantor.example.com'])
-    expect(trustedOrigins({ publicUrl: 'http://localhost:3000' })).toEqual(['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000'])
-    expect(trustedOrigins({ publicUrl: 'https://localhost' })).toEqual(['https://localhost', 'https://127.0.0.1', 'https://[::1]'])
+    expect(trustedOrigins({ publicUrl: 'https://scantor.example.com', tunnelUrl: null })).toEqual(['https://scantor.example.com'])
+    expect(trustedOrigins({ publicUrl: 'http://localhost:3000', tunnelUrl: null })).toEqual([
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://[::1]:3000',
+    ])
+    expect(trustedOrigins({ publicUrl: 'https://localhost', tunnelUrl: null })).toEqual(['https://localhost', 'https://127.0.0.1', 'https://[::1]'])
+  })
+
+  it('trusts only its own origin per origin, never both (docs/auth.md §4.2)', () => {
+    const config = { publicUrl: 'http://localhost:3000', tunnelUrl: 'https://tunnel.example.org:8443' }
+    expect(trustedOrigins(config, 'tunnel')).toEqual(['https://tunnel.example.org:8443'])
+    expect(trustedOrigins(config, 'public')).toEqual(['http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000'])
+    expect(trustedOrigins(config)).toEqual(trustedOrigins(config, 'public'))
+    expect(trustedOrigins(config, 'public')).not.toContain('https://tunnel.example.org:8443')
+  })
+
+  it('has no tunnel origin without SCANTOR_TUNNEL_URL', () => {
+    expect(() => trustedOrigins({ publicUrl: 'https://scantor.example.com', tunnelUrl: null }, 'tunnel')).toThrow('SCANTOR_TUNNEL_URL')
+  })
+})
+
+describe('isRpIdFor', () => {
+  it.each([
+    ['scantor.example.com', 'scantor.example.com', true],
+    ['example.com', 'scantor.example.com', true],
+    ['example.com', 'a.b.example.com', true],
+    ['localhost', 'localhost', true],
+    ['com', 'scantor.example.com', false],
+    ['other.com', 'scantor.example.com', false],
+    ['ample.com', 'scantor.example.com', false],
+    ['scantor.example.com', 'example.com', false],
+    ['example.com', 'example.com.evil.org', false],
+  ])('%s for %s → %s', (rpId, host, expected) => {
+    expect(isRpIdFor(rpId, host)).toBe(expected)
   })
 })
 
@@ -37,26 +88,98 @@ describe('resolvePasskeyConfig', () => {
     ['http://127.0.0.1:3000', null, { enabled: false }],
     ['http://[::1]:3000', null, { enabled: false }],
   ])('%s (rpID %s)', (publicUrl, passkeyRpId, expected) => {
-    expect(resolvePasskeyConfig({ publicUrl, passkeyRpId })).toEqual(expected)
+    expect(resolvePasskeyConfig({ publicUrl, tunnelUrl: null, passkeyRpId })).toEqual(expected)
+  })
+
+  it.each([
+    // a shared RP ID where it is a registrable suffix of the tunnel host: passkeys work on both origins
+    ['https://tunnel.example.com', 'example.com', { enabled: true, rpID: 'example.com', origin: 'https://tunnel.example.com' }],
+    // otherwise the tunnel host: passkeys registered on one origin do not work on the other
+    ['https://tunnel.example.org', 'example.com', { enabled: true, rpID: 'tunnel.example.org', origin: 'https://tunnel.example.org' }],
+    ['https://tunnel.example.org:8443', null, { enabled: true, rpID: 'tunnel.example.org', origin: 'https://tunnel.example.org:8443' }],
+    [
+      'https://scantor.example.com.evil.org',
+      'example.com',
+      { enabled: true, rpID: 'scantor.example.com.evil.org', origin: 'https://scantor.example.com.evil.org' },
+    ],
+  ])('the tunnel origin %s (rpID %s)', (tunnelUrl, passkeyRpId, expected) => {
+    const config = { publicUrl: 'https://scantor.example.com', tunnelUrl, passkeyRpId }
+    expect(resolvePasskeyConfig(config, 'tunnel')).toEqual(expected)
+    // The public origin is unchanged by the tunnel.
+    expect(resolvePasskeyConfig(config, 'public')).toEqual(resolvePasskeyConfig({ ...config, tunnelUrl: null }))
+  })
+
+  it('enables passkeys on an https tunnel even when the public URL cannot have them', () => {
+    const config = { publicUrl: 'http://10.0.0.5:3000', tunnelUrl: TUNNEL, passkeyRpId: null }
+    expect(resolvePasskeyConfig(config)).toEqual({ enabled: false })
+    expect(resolvePasskeyConfig(config, 'tunnel')).toEqual({ enabled: true, rpID: 'tunnel.example.org', origin: TUNNEL })
   })
 })
 
 describe('resolveMcpConfig', () => {
   it('turns MCP off entirely', () => {
-    expect(resolveMcpConfig({ publicUrl: 'https://x.example.com', mcpEnabled: false })).toMatchObject({ enabled: false, oauth: false })
+    expect(resolveMcpConfig({ publicUrl: 'https://x.example.com', tunnelUrl: null, mcpEnabled: false })).toMatchObject({ enabled: false, oauth: false })
   })
 
   it('offers OAuth on https and loopback http only', () => {
-    expect(resolveMcpConfig({ publicUrl: 'https://x.example.com', mcpEnabled: true })).toEqual({
+    expect(resolveMcpConfig({ publicUrl: 'https://x.example.com', tunnelUrl: null, mcpEnabled: true })).toEqual({
       enabled: true,
       oauth: true,
       resource: 'https://x.example.com/mcp',
     })
-    expect(resolveMcpConfig({ publicUrl: 'http://localhost:3000', mcpEnabled: true }).oauth).toBe(true)
-    expect(resolveMcpConfig({ publicUrl: 'http://10.0.0.5:3000', mcpEnabled: true })).toMatchObject({ enabled: true, oauth: false })
+    expect(resolveMcpConfig({ publicUrl: 'http://localhost:3000', tunnelUrl: null, mcpEnabled: true }).oauth).toBe(true)
+    expect(resolveMcpConfig({ publicUrl: 'http://10.0.0.5:3000', tunnelUrl: null, mcpEnabled: true })).toMatchObject({ enabled: true, oauth: false })
     // @better-auth/mcp rejects http *.localhost resource URLs, so OAuth stays off there instead of failing the boot.
-    expect(resolveMcpConfig({ publicUrl: 'http://scantor.localhost:3000', mcpEnabled: true })).toMatchObject({ enabled: true, oauth: false })
-    expect(resolveMcpConfig({ publicUrl: 'http://127.0.0.1:3000', mcpEnabled: true }).oauth).toBe(true)
+    expect(resolveMcpConfig({ publicUrl: 'http://scantor.localhost:3000', tunnelUrl: null, mcpEnabled: true })).toMatchObject({ enabled: true, oauth: false })
+    expect(resolveMcpConfig({ publicUrl: 'http://127.0.0.1:3000', tunnelUrl: null, mcpEnabled: true }).oauth).toBe(true)
+  })
+
+  it('names the resource and the variable of each origin', () => {
+    const config = { publicUrl: 'http://10.0.0.5:3000', tunnelUrl: TUNNEL, mcpEnabled: true }
+    expect(resolveMcpConfig(config, 'tunnel')).toEqual({ enabled: true, oauth: true, resource: `${TUNNEL}/mcp` })
+    expect(resolveMcpConfig(config, 'public')).toEqual({
+      enabled: true,
+      oauth: false,
+      resource: 'http://10.0.0.5:3000/mcp',
+      disabledReason: 'MCP OAuth needs an https SCANTOR_PUBLIC_URL (or a loopback host); /mcp accepts API keys only',
+    })
+    // config.ts admits only https tunnel URLs; the policy still names the tunnel's variable for any other one.
+    expect(resolveMcpConfig({ ...config, tunnelUrl: 'http://tunnel.example.org' }, 'tunnel').disabledReason).toBe(
+      'MCP OAuth needs an https SCANTOR_TUNNEL_URL (or a loopback host); /mcp accepts API keys only',
+    )
+    expect(resolveMcpConfig({ ...config, mcpEnabled: false }, 'tunnel')).toEqual({
+      enabled: false,
+      oauth: false,
+      resource: `${TUNNEL}/mcp`,
+      disabledReason: 'SCANTOR_MCP_ENABLED=false',
+    })
+    expect(() => resolveMcpConfig({ ...config, tunnelUrl: null }, 'tunnel')).toThrow('SCANTOR_TUNNEL_URL')
+  })
+})
+
+describe('anyMcpOAuth', () => {
+  it.each([
+    ['an https public URL', { publicUrl: 'https://scantor.example.com', tunnelUrl: null, mcpEnabled: true }, true],
+    ['an http public URL alone', { publicUrl: 'http://10.0.0.5:3000', tunnelUrl: null, mcpEnabled: true }, false],
+    ['an http public URL with an https tunnel URL', { publicUrl: 'http://10.0.0.5:3000', tunnelUrl: TUNNEL, mcpEnabled: true }, true],
+    ['MCP turned off', { publicUrl: 'https://scantor.example.com', tunnelUrl: TUNNEL, mcpEnabled: false }, false],
+  ])('%s → %s', (_name, config, expected) => {
+    expect(anyMcpOAuth(config)).toBe(expected)
+  })
+})
+
+describe('mcpOAuthResources', () => {
+  it.each([
+    ['an https public URL', { publicUrl: 'https://scantor.example.com', tunnelUrl: null, mcpEnabled: true }, ['https://scantor.example.com/mcp']],
+    [
+      'an https public URL and a tunnel URL',
+      { publicUrl: 'https://scantor.example.com', tunnelUrl: TUNNEL, mcpEnabled: true },
+      ['https://scantor.example.com/mcp', `${TUNNEL}/mcp`],
+    ],
+    ['an http public URL with an https tunnel URL', { publicUrl: 'http://10.0.0.5:3000', tunnelUrl: TUNNEL, mcpEnabled: true }, [`${TUNNEL}/mcp`]],
+    ['MCP turned off', { publicUrl: 'https://scantor.example.com', tunnelUrl: TUNNEL, mcpEnabled: false }, []],
+  ])('%s → %j', (_name, config, expected) => {
+    expect(mcpOAuthResources(config)).toEqual(expected)
   })
 })
 

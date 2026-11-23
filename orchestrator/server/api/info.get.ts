@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'getInstanceInfo',
     summary: 'Get instance information',
     description:
-      'Returns the instance-specific settings a client needs: version, public, editor and MCP URLs, the registry host, the CLI image, enabled features, platform limits and the caller. Admins also get the admin tool links. Never contains secrets.',
+      'Returns the instance-specific settings a client needs: version, the origin of the request (public or tunnel), public, tunnel, editor and MCP URLs, the registry host, the CLI image, enabled features, platform limits and the caller. The MCP URL, features and limits follow the origin of the request. Admins also get the admin tool links. Never contains secrets.',
     'x-scantor-scope': 'owner',
     'x-mcp': false,
     responses: {
@@ -16,10 +16,12 @@ defineRouteMeta({
         schemas: {
           InstanceInfo: {
             type: 'object',
-            required: ['version', 'publicUrl', 'editorUrl', 'mcpUrl', 'registryPublicHost', 'cliImage', 'features', 'limits', 'user'],
+            required: ['version', 'origin', 'publicUrl', 'tunnelUrl', 'editorUrl', 'mcpUrl', 'registryPublicHost', 'cliImage', 'features', 'limits', 'user'],
             properties: {
               version: { type: 'string' },
+              origin: { type: 'string', enum: ['public', 'tunnel'] },
               publicUrl: { type: 'string' },
+              tunnelUrl: { type: ['string', 'null'] },
               editorUrl: { type: 'string' },
               mcpUrl: { type: ['string', 'null'] },
               registryPublicHost: { type: 'string' },
@@ -31,6 +33,7 @@ defineRouteMeta({
                   mcp: { type: 'boolean' },
                   mcpOAuth: { type: 'boolean' },
                   editor: { type: 'boolean' },
+                  downloads: { type: 'boolean' },
                 },
               },
               limits: {
@@ -74,8 +77,9 @@ import { defineEventHandler } from 'h3'
 import { requireUser } from '../utils/authz'
 import { useConfig } from '../utils/config'
 import { buildInstanceInfo } from '../utils/instance-info'
+import { requestOriginOf } from '../utils/tunnel'
 
 export default defineEventHandler((event) => {
   const principal = requireUser(event)
-  return buildInstanceInfo(useConfig(), principal)
+  return buildInstanceInfo(useConfig(), principal, requestOriginOf(event))
 })

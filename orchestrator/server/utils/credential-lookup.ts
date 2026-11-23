@@ -1,4 +1,5 @@
 import { isAPIError } from 'better-auth/api'
+import type { RequestOrigin } from '#shared/utils/enums'
 import { useAuth } from './auth'
 import { apiError } from './errors'
 import { useLogger } from './logger'
@@ -22,12 +23,12 @@ export function isCredentialRejection(error: unknown): boolean {
 
 /**
  * The session behind a cookie or `x-api-key` header, or `result: null` when better-auth rejects the credential;
- * `headers` are the response headers of the lookup (a refreshed session cookie). A failed lookup throws 503
- * `unavailable`.
+ * `headers` are the response headers of the lookup (a refreshed session cookie). `origin` is the request's origin: its
+ * instance reads that origin's cookie name and refreshes with its attributes. A failed lookup throws 503 `unavailable`.
  */
-export async function lookupSession(credential: Headers): Promise<{ result: SessionLookup | null; headers?: Headers }> {
+export async function lookupSession(credential: Headers, origin: RequestOrigin = 'public'): Promise<{ result: SessionLookup | null; headers?: Headers }> {
   try {
-    const response = (await useAuth().api.getSession({ headers: credential, returnHeaders: true })) as {
+    const response = (await useAuth(origin).api.getSession({ headers: credential, returnHeaders: true })) as {
       response: SessionLookup | null
       headers?: Headers
     }
