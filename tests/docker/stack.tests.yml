@@ -1,6 +1,7 @@
 # Override of docker-compose.prod.yml for the test stack inside the runner (docs/testing.md §7.3). It adds
-# the fixtures server and the simulated remote node and uses no relative paths: the runner starts the stack
-# with --project-directory /run/scantor-test, where the generated .env and Traefik's TLS files live.
+# the fixtures server, the simulated remote node and the stand-in Cloudflare Tunnel and uses no relative paths:
+# the runner starts the stack with --project-directory /run/scantor-test, where the generated .env and Traefik's
+# TLS files live.
 
 services:
   # Tranco and CrUX fakes on :8089 (plain HTTP, reached as fixtures.<domain>:8089) and git smart-HTTP
@@ -57,6 +58,70 @@ services:
     environment:
       - DOCKER_TLS_CERTDIR=
       - SCANTOR_REGISTRY_PUBLIC_HOST=${SCANTOR_REGISTRY_PUBLIC_HOST}
+
+  # A stand-in for the Cloudflare Tunnel (docs/testing.md §7.3): the stack's own Traefik image with the network alias
+  # cloudflared on scantor-tunnel, the network the real cloudflared shares with the orchestrator only, so the
+  # orchestrator resolves it as the tunnel's peer. It serves SCANTOR_TUNNEL_URL of
+  # stack.env (https://tunnel.scantor.localhost:8443, the test CA's wildcard certificate) and forwards every request
+  # with its Host to orchestrator:3000, like the tunnel's published application route; any Host, so negative tests can
+  # send another one from the tunnel's peer. forwardedHeaders.insecure keeps a client's X-Forwarded-For and appends
+  # the peer, as Cloudflare's edge does. The real cloudflared service stays off (profile cloudflare-tunnel), and the
+  # stack's Traefik ignores this container (no traefik.enable label). Port 8443 is the port of SCANTOR_TUNNEL_URL.
+  tunnel:
+    image: traefik:v3.7
+    command:
+      - --global.checknewversion=false
+      - --global.sendanonymoususage=false
+      - --ping=true
+      - --log.level=ERROR
+      - --providers.file.filename=/etc/scantor-tunnel/routes.yml
+      - --entrypoints.tunnel.address=:443
+      - --entrypoints.tunnel.forwardedHeaders.insecure=true
+      # Traefik's default of 60 s would end the 90 s waits of tunnel requests; Cloudflare waits 125 s for a response.
+      - --entrypoints.tunnel.transport.respondingTimeouts.readTimeout=10m
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    container_name: scantor-tunnel-stand-in
+    ports:
+      - "8443:443"
+    networks:
+      scantor-tunnel:
+        aliases:
+          - cloudflared
+    volumes:
+      - /run/scantor-test/traefik/dynamic/wildcard.crt:/etc/scantor-tunnel/wildcard.crt:ro
+      - /run/scantor-test/traefik/dynamic/wildcard.key:/etc/scantor-tunnel/wildcard.key:ro
+    configs:
+      - source: tunnel-routes
+        target: /etc/scantor-tunnel/routes.yml
+
+configs:
+  # The stand-in tunnel's routes: never a file in traefik/dynamic, which the stack's Traefik loads.
+  tunnel-routes:
+    content: |
+      http:
+        routers:
+          tunnel:
+            entryPoints: [tunnel]
+            rule: PathPrefix(`/`)
+            service: orchestrator
+            tls: {}
+        services:
+          orchestrator:
+            loadBalancer:
+              passHostHeader: true
+              servers:
+                - url: http://orchestrator:3000
+      tls:
+        stores:
+          default:
+            defaultCertificate:
+              certFile: /etc/scantor-tunnel/wildcard.crt
+              keyFile: /etc/scantor-tunnel/wildcard.key
 
 volumes:
   scantor-remote-node-docker:

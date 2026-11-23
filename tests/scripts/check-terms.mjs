@@ -23,6 +23,7 @@ export const FORBIDDEN_TERMS = [
   [/\bworker machines?\b/i, 'node'],
   [/\bscan tokens?\b/i, 'worker token'],
   [/\bartifacts?\b/i, 'file, output or bundle'],
+  [/\bexternal (?:urls?|origins?)\b/i, 'tunnel URL'],
 ]
 
 /** Removes code from Markdown: fenced blocks (keeping line numbers) and inline code spans. */

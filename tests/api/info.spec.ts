@@ -38,16 +38,19 @@ test.describe('instance info', () => {
 
     const info = ok(await api.getInstanceInfo(), 'getInstanceInfo')
     expect(Object.keys(info).sort()).toEqual(
-      ['cliImage', 'editorUrl', 'features', 'limits', 'mcpUrl', 'publicUrl', 'registryPublicHost', 'user', 'version'].sort(),
+      ['cliImage', 'editorUrl', 'features', 'limits', 'mcpUrl', 'origin', 'publicUrl', 'registryPublicHost', 'tunnelUrl', 'user', 'version'].sort(),
     )
     const health = ok(await anonApi.getHealth(), 'getHealth')
     expect(info.version).toBe(health.version)
+    expect(info.origin).toBe('public')
     expect(info.publicUrl).toBe(env.publicUrl)
+    // The stack's stand-in Cloudflare Tunnel (docs/testing.md §7.3); its own answer is in api/tunnel.spec.ts.
+    expect(info.tunnelUrl).toBe(env.tunnelUrl)
     expect(info.editorUrl).toBe(env.editorUrl)
     expect(info.mcpUrl).toBe(env.mcpUrl)
     expect(info.registryPublicHost).toBe(stackValue('SCANTOR_REGISTRY_PUBLIC_HOST'))
     expect(info.cliImage).toBe(expectedCliImage(info.version))
-    expect(info.features).toEqual({ passkeys: true, mcp: true, mcpOAuth: true, editor: true })
+    expect(info.features).toEqual({ passkeys: true, mcp: true, mcpOAuth: true, editor: true, downloads: true })
     expect(info.limits).toEqual({
       maxWorkersPerScan: Number(stackValue('SCANTOR_MAX_WORKERS_PER_SCAN')),
       maxProcessesPerWorker: Number(stackValue('SCANTOR_MAX_PROCESSES_PER_WORKER')),

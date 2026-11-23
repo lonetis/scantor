@@ -3,7 +3,7 @@ import type { APIRequestContext, APIResponse } from '@playwright/test'
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client'
 import type { FetchLike, OAuthClientMetadata, StoredOAuthClientInformation } from '@modelcontextprotocol/client'
 import { env } from './env'
-import { DEFAULT_MCP_SCOPES, ISSUER, REDIRECT_URI, registerClient, TestOAuthProvider, type McpConnection } from './mcp'
+import { DEFAULT_MCP_SCOPES, ISSUER, issuerOf, REDIRECT_URI, registerClient, TestOAuthProvider, type McpConnection } from './mcp'
 import { oauthRequest, reserveOAuth, retryAfterMs } from './mcp-limiter'
 import { unique } from './unique'
 import { newApiContext } from './users'
@@ -12,10 +12,16 @@ import { newApiContext } from './users'
 // registered client, PKCE, the authorize redirect to the consent page, the consent decision, the token exchange and
 // refresh, and raw `/mcp` requests for status and challenge checks. helpers/mcp.ts connects an SDK client through the
 // whole flow; these pieces let a test stop at, or tamper with, any step. Authorize and token requests go through the
-// OAuth budget of helpers/mcp-limiter.ts.
+// OAuth budget of helpers/mcp-limiter.ts. They default to the public URL's issuer and resource; `origin` selects the
+// tunnel URL's (docs/mcp.md §3), whose requests need a session of that origin.
 
-/** The resource every MCP token is bound to. */
+/** The resource every MCP token of the public URL is bound to. */
 export const MCP_RESOURCE = env.mcpUrl
+
+/** The `/mcp` resource of an origin: the public URL (default) or the tunnel URL. */
+export function mcpResourceOf(origin: string = env.publicUrl): string {
+  return `${origin}/mcp`
+}
 /** The consent page of the dashboard. */
 export const CONSENT_PATH = '/oauth/consent'
 /** Scopes of an "Admin" grant. */
@@ -72,11 +78,15 @@ export interface AuthorizationRequest {
   state?: string
   /** `consent` shows the consent page even when the user already consented to these scopes */
   prompt?: string
+  /** the origin whose issuer is asked (default the public URL) */
+  origin?: string
+  /** the requested resource (default the `/mcp` of `origin`) */
+  resource?: string
 }
 
 /** The authorize URL an MCP client opens in the browser. */
 export function authorizationUrl(request: AuthorizationRequest): URL {
-  const url = new URL(`${ISSUER}/oauth2/authorize`)
+  const url = new URL(`${issuerOf(request.origin)}/oauth2/authorize`)
   url.search = new URLSearchParams({
     response_type: 'code',
     client_id: request.clientId,
@@ -85,7 +95,7 @@ export function authorizationUrl(request: AuthorizationRequest): URL {
     state: request.state ?? randomBytes(8).toString('hex'),
     code_challenge: request.challenge,
     code_challenge_method: 'S256',
-    resource: MCP_RESOURCE,
+    resource: request.resource ?? mcpResourceOf(request.origin),
     ...(request.prompt ? { prompt: request.prompt } : {}),
   }).toString()
   return url
@@ -101,12 +111,12 @@ export async function authorizeRedirect(session: APIRequestContext, url: URL): P
   const response = await authorizeRequest(session, url)
   const location = response.headers()['location']
   if (!location) throw new Error(`authorize did not redirect: ${response.status()} ${await response.text()}`)
-  return new URL(location, env.publicUrl)
+  return new URL(location, url.origin)
 }
 
-/** The consent decision the consent page posts, with the signed query of the authorize redirect. */
+/** The consent decision the consent page posts, with the signed query of the authorize redirect (on its origin). */
 export function postConsent(session: APIRequestContext, consentUrl: URL, decision: { accept: boolean; scope?: string }): Promise<APIResponse> {
-  return session.post('/api/auth/oauth2/consent', {
+  return session.post(`${consentUrl.origin}/api/auth/oauth2/consent`, {
     headers: { Accept: 'application/json' },
     data: { ...decision, oauth_query: consentUrl.search.slice(1) },
   })
@@ -129,9 +139,12 @@ export interface TokenResponse {
   id_token?: string
 }
 
-/** POSTs a form to the token endpoint (within the OAuth budget) and returns the raw response. */
-export function tokenRequest(request: APIRequestContext, form: Record<string, string>): Promise<APIResponse> {
-  return oauthRequest('/oauth2/token', () => request.post(`${ISSUER}/oauth2/token`, { form: { resource: MCP_RESOURCE, ...form } }))
+/**
+ * POSTs a form to the token endpoint of `origin` (within the OAuth budget) and returns the raw response; the form's
+ * `resource` defaults to that origin's `/mcp`.
+ */
+export function tokenRequest(request: APIRequestContext, form: Record<string, string>, origin: string = env.publicUrl): Promise<APIResponse> {
+  return oauthRequest('/oauth2/token', () => request.post(`${issuerOf(origin)}/oauth2/token`, { form: { resource: mcpResourceOf(origin), ...form } }))
 }
 
 async function tokensOf(response: APIResponse, what: string): Promise<TokenResponse> {
@@ -139,21 +152,26 @@ async function tokensOf(response: APIResponse, what: string): Promise<TokenRespo
   return (await response.json()) as TokenResponse
 }
 
-/** Exchanges an authorization code (PKCE) for tokens. */
+/** Exchanges an authorization code (PKCE) for tokens at the issuer of `origin`. */
 export async function exchangeCode(
   request: APIRequestContext,
   clientId: string,
   code: string,
   verifier: string,
   redirectUri = REDIRECT_URI,
+  origin: string = env.publicUrl,
 ): Promise<TokenResponse> {
-  const response = await tokenRequest(request, {
-    grant_type: 'authorization_code',
-    code,
-    redirect_uri: redirectUri,
-    client_id: clientId,
-    code_verifier: verifier,
-  })
+  const response = await tokenRequest(
+    request,
+    {
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: clientId,
+      code_verifier: verifier,
+    },
+    origin,
+  )
   return tokensOf(response, 'the code exchange')
 }
 
@@ -172,21 +190,23 @@ export interface Authorized {
  * Runs the whole authorization as the user signed in to `session`: the worker's client (unless `client` is given)
  * requests `scope`, the user approves with `consentScope` (default: the requested scopes) and the code is exchanged.
  * `prompt=consent` makes better-auth show the consent page although an earlier test of the same user and client
- * may already have consented to these scopes (it would redirect with a code at once otherwise).
+ * may already have consented to these scopes (it would redirect with a code at once otherwise). `origin` selects the
+ * issuer and resource (default the public URL; `session` must be a session of that origin).
  */
 export async function authorize(
   session: APIRequestContext,
-  options: { scope?: string; consentScope?: string; client?: StoredOAuthClientInformation } = {},
+  options: { scope?: string; consentScope?: string; client?: StoredOAuthClientInformation; origin?: string } = {},
 ): Promise<Authorized> {
   const client = options.client ?? (await workerOAuthClient())
   const scope = options.scope ?? DEFAULT_MCP_SCOPES
+  const origin = options.origin ?? env.publicUrl
   const { verifier, challenge } = pkce()
-  const consentUrl = await authorizeRedirect(session, authorizationUrl({ clientId: client.client_id, scope, challenge, prompt: 'consent' }))
+  const consentUrl = await authorizeRedirect(session, authorizationUrl({ clientId: client.client_id, scope, challenge, prompt: 'consent', origin }))
   if (consentUrl.pathname !== CONSENT_PATH) throw new Error(`authorize went to ${consentUrl.toString()} instead of the consent page`)
   const callback = await consentRedirect(await postConsent(session, consentUrl, { accept: true, scope: options.consentScope ?? scope }))
   const code = callback.searchParams.get('code')
   if (!code) throw new Error(`the authorization returned no code: ${callback.toString()}`)
-  return { client, tokens: await exchangeCode(session, client.client_id, code, verifier) }
+  return { client, tokens: await exchangeCode(session, client.client_id, code, verifier, REDIRECT_URI, origin) }
 }
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -212,16 +232,18 @@ function budgetedFetch(timeoutMs: number): FetchLike {
  * Connects an MCP client as the user signed in to `session` through the SDK's OAuth flow (401 challenge, discovery,
  * the given registered client, PKCE S256), like helpers/mcp.ts `connectMcp`, but within the OAuth budget: the
  * authorize and token requests wait out a 429 of the provider's per-IP limits, which better-auth resets only after
- * a minute without requests and which every spec on the shared stack spends.
+ * a minute without requests and which every spec on the shared stack spends. `mcpUrl` (default env.mcpUrl) selects
+ * the origin; `session` must be a session of that origin.
  */
 export async function connectMcpPatiently(
   session: APIRequestContext,
-  options: { client: StoredOAuthClientInformation; scopes?: string; consentScope?: string; timeoutMs?: number },
+  options: { client: StoredOAuthClientInformation; scopes?: string; consentScope?: string; timeoutMs?: number; mcpUrl?: string },
 ): Promise<McpConnection> {
   const scopes = options.scopes ?? DEFAULT_MCP_SCOPES
+  const mcpUrl = new URL(options.mcpUrl ?? env.mcpUrl)
   const provider = new TestOAuthProvider(scopes, options.client)
   const fetchFn = budgetedFetch(options.timeoutMs ?? 150_000)
-  const challenged = new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider, fetch: fetchFn })
+  const challenged = new StreamableHTTPClientTransport(mcpUrl, { authProvider: provider, fetch: fetchFn })
   const unchallenged = await new Client({ name: 'scantor-tests', version: '1.0.0' }).connect(challenged).then(
     () => true,
     (error: unknown) => {
@@ -236,14 +258,14 @@ export async function connectMcpPatiently(
   // with a code at once, otherwise the consent page decides.
   const next = await authorizeRedirect(session, provider.authorizationUrl)
   const callback =
-    next.origin === env.publicUrl && next.pathname === CONSENT_PATH
+    next.origin === mcpUrl.origin && next.pathname === CONSENT_PATH
       ? await consentRedirect(await postConsent(session, next, { accept: true, scope: options.consentScope ?? scopes }))
       : next
   if (!callback.searchParams.get('code')) throw new Error(`the authorization returned no code: ${callback.toString()}`)
   await challenged.finishAuth(callback.searchParams)
 
   const client = new Client({ name: 'scantor-tests', version: '1.0.0' })
-  await client.connect(new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider, fetch: fetchFn }))
+  await client.connect(new StreamableHTTPClientTransport(mcpUrl, { authProvider: provider, fetch: fetchFn }))
   const tokens = provider.tokens()
   if (!tokens) throw new Error('the MCP SDK stored no tokens')
   return { client, provider, accessToken: tokens.access_token, close: () => client.close() }
@@ -263,9 +285,14 @@ export interface RawMcpResponse {
   body: Record<string, unknown> | null
 }
 
-/** A raw JSON-RPC POST to /mcp (default `tools/list`), for status codes, headers and challenges. */
-export async function rawMcp(request: APIRequestContext, headers: Record<string, string>, payload?: Record<string, unknown>): Promise<RawMcpResponse> {
-  const response = await request.post(env.mcpUrl, {
+/** A raw JSON-RPC POST to `mcpUrl` (default the public `/mcp`; default `tools/list`), for status codes and challenges. */
+export async function rawMcp(
+  request: APIRequestContext,
+  headers: Record<string, string>,
+  payload?: Record<string, unknown>,
+  mcpUrl: string = env.mcpUrl,
+): Promise<RawMcpResponse> {
+  const response = await request.post(mcpUrl, {
     headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json', ...headers },
     data: payload ?? { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
   })

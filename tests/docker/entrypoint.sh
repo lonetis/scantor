@@ -417,6 +417,7 @@ rm -rf "$tests_dir/.auth"
   printf 'export %s=%q\n' \
     SCANTOR_PUBLIC_URL "$public_url" \
     SCANTOR_EDITOR_URL "$(env_value SCANTOR_EDITOR_URL)" \
+    SCANTOR_TUNNEL_URL "$(env_value SCANTOR_TUNNEL_URL)" \
     SCANTOR_ADMIN_EMAIL "$SCANTOR_ADMIN_EMAIL" \
     SCANTOR_ADMIN_PASSWORD "$admin_password" \
     SCANTOR_SECRET "$(env_value SCANTOR_SECRET)" \

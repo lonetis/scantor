@@ -36,6 +36,10 @@ export interface TestEnv {
   domain: string
   /** `<publicUrl>/mcp` */
   mcpUrl: string
+  /** SCANTOR_TUNNEL_URL of the test stack: the stand-in Cloudflare Tunnel, https://tunnel.scantor.localhost:8443 */
+  tunnelUrl: string
+  /** `<tunnelUrl>/mcp` */
+  tunnelMcpUrl: string
   admin: { email: string; password: string }
   /** SCANTOR_SECRET of the test stack (white-box key derivations, helpers/keys.ts) */
   secret: string
@@ -62,12 +66,15 @@ export interface TestEnv {
 
 function load(): TestEnv {
   const publicUrl = required('SCANTOR_PUBLIC_URL').replace(/\/+$/, '')
+  const tunnelUrl = required('SCANTOR_TUNNEL_URL').replace(/\/+$/, '')
   const auth = join(testsDir, '.auth')
   return {
     publicUrl,
     editorUrl: required('SCANTOR_EDITOR_URL').replace(/\/+$/, ''),
     domain: new URL(publicUrl).hostname,
     mcpUrl: `${publicUrl}/mcp`,
+    tunnelUrl,
+    tunnelMcpUrl: `${tunnelUrl}/mcp`,
     admin: { email: required('SCANTOR_ADMIN_EMAIL'), password: required('SCANTOR_ADMIN_PASSWORD') },
     secret: required('SCANTOR_SECRET'),
     testWorkers: positiveInteger('SCANTOR_TEST_WORKERS'),

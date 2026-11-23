@@ -85,6 +85,7 @@ function listTests() {
   const placeholders = {
     SCANTOR_PUBLIC_URL: 'https://scantor.localhost',
     SCANTOR_EDITOR_URL: 'https://editor.scantor.localhost',
+    SCANTOR_TUNNEL_URL: 'https://tunnel.scantor.localhost:8443',
     SCANTOR_ADMIN_EMAIL: 'admin@scantor.test',
     SCANTOR_ADMIN_PASSWORD: 'unused',
     SCANTOR_SECRET: 'unused',

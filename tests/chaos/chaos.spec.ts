@@ -61,6 +61,7 @@ import {
 import { CONTAINERS, docker as runDocker, REMOTE_NODE_NETWORK, stackEnv } from '../helpers/docker'
 import { env } from '../helpers/env'
 import { stackKeys } from '../helpers/keys'
+import { containerAddress, NetworkPeer, orchestratorLookup, TUNNEL_HOST } from '../helpers/tunnel'
 import { cancelAndDeleteScan, scanCounts, SMALL_SETTINGS, startScan, waitForScanState as waitForScanStateLongPoll } from '../helpers/scans'
 import {
   allScriptRunLogs,
@@ -1211,6 +1212,48 @@ test.describe('an orchestrator restart during a scan and a build', () => {
   test('the interrupted revision goes back to queued until its build runs again', { tag: ['@REV-011'] }, async () => {
     expect(restart!.whileStopped.revision).toBe('queued')
   })
+})
+
+test.describe('the Cloudflare Tunnel', () => {
+  test(
+    'a container on scantor-sandbox or scantor-scripts with the alias cloudflared never becomes the tunnel peer, also as the only one',
+    { tag: ['@TUNNEL-018'] },
+    async () => {
+      test.setTimeout(300_000)
+      const tunnelServes = async () => (await fetch(`${env.tunnelUrl}/api/health`, { signal: AbortSignal.timeout(10_000) }).catch(() => null))?.status ?? 0
+      // The stand-in tunnel holds the alias on scantor-tunnel; stopped, a sandbox or scripts container is the only answer
+      // to the name, so the orchestrator's lookups really return its address (the name is never left to DNS order).
+      await runDocker(['stop', CONTAINERS.tunnel], { timeoutMs: 60_000 })
+      try {
+        for (const network of ['scantor-sandbox', 'scantor-scripts']) {
+          const impersonator = await NetworkPeer.start(network, 'cloudflared')
+          try {
+            const address = await containerAddress(impersonator.name, network)
+            expect(address, network).not.toBe('')
+            const resolved = () => orchestratorLookup('cloudflared')
+            await waitFor(`cloudflared resolved to the container on ${network}`, resolved, (found) => found.includes(address), {
+              timeoutMs: 30_000,
+              intervalMs: 1000,
+            })
+            // Its tunnel-host requests make the orchestrator look cloudflared up again (at most every 5 s), so the rounds
+            // span more than one lookup that returned the impersonator's address.
+            for (let round = 0; round < 3; round++) {
+              if (round > 0) await new Promise((resolve) => setTimeout(resolve, 6_000))
+              expect(await impersonator.status(TUNNEL_HOST, '/api/health'), `${network}, round ${round + 1}`).toBe(421)
+              expect(await impersonator.status(TUNNEL_HOST, '/api/node/hello', 'POST'), `${network}, round ${round + 1}`).toBe(421)
+            }
+            expect(await impersonator.status(env.domain, '/api/health'), `${network}, public host`).toBe(200)
+          } finally {
+            await impersonator.dispose()
+          }
+        }
+      } finally {
+        await runDocker(['start', CONTAINERS.tunnel])
+      }
+      // The stand-in back: a tunnel-host request from it after a miss makes the orchestrator find it again.
+      await waitFor('the tunnel URL served again', tunnelServes, (status) => status === 200, { timeoutMs: 120_000, intervalMs: 1000 })
+    },
+  )
 })
 
 test.describe('logs', () => {

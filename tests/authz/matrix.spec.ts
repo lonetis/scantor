@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import type { APIRequestContext } from '@playwright/test'
+import { request as playwrightRequest, type APIRequestContext } from '@playwright/test'
 import type { CallToolResult, Tool } from '@modelcontextprotocol/client'
 import type { CreatedApiKey } from '#shared/types/account'
 import type { ItemList, Page } from '#shared/types/common'
@@ -41,6 +41,7 @@ import { connectMcpWithKey, DEFAULT_MCP_SCOPES, resultText } from '../helpers/mc
 import type { OpenApiIndex, OpenApiOperation } from '../helpers/openapi'
 import { cancelAndDeleteScan, SMALL_SETTINGS, startScan } from '../helpers/scans'
 import { fetchFromScriptsNetwork } from '../helpers/security-scripts'
+import { isTunnelRefusedPath } from '../helpers/tunnel'
 import { createUser, deleteUser, newApiContext } from '../helpers/users'
 import { OWNED_PARAMS, REQUESTS, type Ids } from './requests'
 import { expect, test as base, unique } from '../fixtures'
@@ -51,7 +52,8 @@ import { expect, test as base, unique } from '../fixtures'
 // admin (session and `default` key), an admin's `editor` key, node, worker and script-run tokens, setup tokens and
 // tools cookies. The script runtime API answers only peers on the scripts network, so its credential checks also run
 // from a container there (helpers/security-scripts.ts); the security specs prove what a running run's token reaches.
-// The tests are fixed per principal and scope and loop over the operations at run time, so a new operation is covered
+// The machine, tools, registry and editor operations are also sent through the stack's stand-in Cloudflare Tunnel,
+// where they do not exist. The tests are fixed per principal and scope and loop over the operations at run time, so a new operation is covered
 // without a new test (and fails until requests.ts has its factory). Reads run first; destructive operations run last
 // on throwaway copies; after all of B's attempts the fingerprint of A's GET representations is unchanged.
 
@@ -1256,6 +1258,103 @@ test.describe('authorization matrix', () => {
       await context.dispose()
     }
   })
+
+  // ── the tunnel ────────────────────────────────────────────────────────────────────────────────────
+
+  test(
+    'through the tunnel URL every machine, tools, registry and editor operation answers 404, also with its real credential',
+    { tag: ['@TUNNEL-003'] },
+    async ({ env, openapi, seed, adminApi }) => {
+      // Case 10 of docs/security.md §7: through the stack's stand-in tunnel (docs/testing.md §7.3). The operations are
+      // read from the document at run time, so a new operation below a refused prefix is covered without a new test.
+      const refused = [...openapi.operations.values()].filter((op) => isTunnelRefusedPath(op.path)).sort((x, y) => x.operationId.localeCompare(y.operationId))
+      // Every operation of the machine scopes and of the tools scope lies below a refused prefix.
+      for (const scope of ['node', 'worker', 'scriptRun', 'tools']) {
+        const outside = operationsOf(openapi, scope).filter((op) => !refused.includes(op))
+        expect(
+          outside.map((op) => `${op.operationId} (${op.path})`),
+          `${scope} operations outside the refused prefixes`,
+        ).toEqual([])
+      }
+      expect(refused.map((op) => op.operationId)).toEqual(
+        expect.arrayContaining([
+          'createEditorSession',
+          'getEditor',
+          'stopEditor',
+          'createToolsSession',
+          'toolsForwardAuth',
+          'getRegistryToken',
+          'createRegistryToken',
+        ]),
+      )
+
+      // A throwaway node T (cordoned, in a pool of its own) for the node operations: its token is a real credential that
+      // even a broken refusal could not use against a node of the stack.
+      const created = ok(
+        await adminApi.call<NodeWithToken>('createNode', { body: { name: unique('authz-tunnel-node'), pool: unique('authz-pool') } }),
+        'createNode',
+      )
+      const session = await adminApi.call('createToolsSession', { query: { target: 'traefik' } })
+      expect(session.status).toBe(302)
+      const toolsCookie = /scantor_tools=([^;\n]+)/.exec(session.headers['set-cookie'] ?? '')?.[1]
+      expect(toolsCookie).toBeTruthy()
+      const tunnel = await playwrightRequest.newContext({ baseURL: env.tunnelUrl, extraHTTPHeaders: { Origin: env.tunnelUrl } })
+      const publicContext = await newApiContext()
+      try {
+        expect((await adminApi.call('updateNode', { path: { nodeId: created.node.id }, body: { cordoned: true } })).status).toBe(200)
+        const ids = idsOfA(seed, { instanceId: `${randomUUID()}:authz-tunnel` })
+        /** The real credential of each operation's principal. */
+        const credentialOf = (op: OpenApiOperation): Record<string, string> => {
+          if (op.path.startsWith('/api/registry/')) return { Authorization: `Basic ${Buffer.from(`node:${created.token}`).toString('base64')}` }
+          switch (scopeOf(op)) {
+            case 'node':
+              return { Authorization: `Bearer ${created.token}` }
+            case 'worker':
+              return { Authorization: `Bearer ${seed.a.workers[0]!.token}` }
+            case 'scriptRun':
+              return { Authorization: `Bearer ${seed.a.scriptRunToken}` }
+            case 'tools':
+              return { Cookie: `scantor_tools=${toolsCookie}` }
+            case 'admin':
+              return { Cookie: sessionCookie(seed.admin.storageState) }
+            default:
+              return { Cookie: sessionCookie(seed.a.storageState) }
+          }
+        }
+        /** The deny-by-default answer of an unknown operation. */
+        const noOperation = (answer: Answer) =>
+          answer.status === 404 && /^no operation at \/api\//.test(String((answer.json as { error?: { message?: string } } | undefined)?.error?.message))
+
+        for (const op of refused) {
+          // The safe variant where there is one: createEditorSession names an unknown task, so nothing starts.
+          const spec = buildRequest(op, ids, 'safe')
+          const withCredential = { ...spec, headers: { ...spec.headers, ...credentialOf(op) } }
+          const through = await send(tunnel, op, withCredential)
+          expect.soft(through.status, `tunnel: ${describeAnswer(op, through)}`).toBe(404)
+          expect.soft(errorCode(through), `tunnel: ${op.operationId}`).toBe(NOT_FOUND)
+          expect.soft(noOperation(through), `tunnel: ${describeAnswer(op, through)}`).toBe(true)
+          // The control on the public URL: the operation exists there. Destructive ones go without a credential, so the
+          // control changes nothing (stopEditor would stop A's editor).
+          const control = await send(publicContext, op, isDestructive(op) ? spec : withCredential)
+          expect.soft(noOperation(control), `public: ${describeAnswer(op, control)}`).toBe(false)
+        }
+
+        // Everything else is served through the tunnel as on the public URL: `/api/nodes` is no refused prefix.
+        const admin = { Cookie: sessionCookie(seed.admin.storageState) }
+        const nodes = await send(tunnel, openapi.get('listNodes'), { ...buildRequest(openapi.get('listNodes'), ids), headers: admin })
+        expect(nodes.status, describeAnswer(openapi.get('listNodes'), nodes)).toBe(200)
+        const account = await send(tunnel, openapi.get('getAccount'), { headers: { Authorization: `Bearer ${seed.a.key}` } })
+        expect(account.status, describeAnswer(openapi.get('getAccount'), account)).toBe(200)
+        expect((account.json as { id: string }).id).toBe(seed.a.id)
+        expect((await send(tunnel, openapi.get('getHealth'), {})).status).toBe(200)
+      } finally {
+        await tunnel.dispose()
+        await publicContext.dispose()
+        const deleted = await adminApi.deleteNode(created.node.id)
+        expect([200, 202, 204]).toContain(deleted.status)
+      }
+    },
+  )
 
   // ── injection, setup ──────────────────────────────────────────────────────────────────────────────
 

@@ -20,6 +20,8 @@ export const CONTAINERS = {
   traefik: 'scantor-traefik',
   fixtures: 'scantor-fixtures',
   remoteNode: 'scantor-remote-node',
+  /** the stand-in Cloudflare Tunnel (network alias `cloudflared` on scantor-tunnel, docs/testing.md §7.3) */
+  tunnel: 'scantor-tunnel-stand-in',
 } as const
 
 /** The network of the simulated remote node (partition tests disconnect it). */

@@ -75,7 +75,8 @@ test.describe('CSRF', () => {
   test('better-auth refuses cookie-authenticated requests from foreign origins', { tag: ['@AUTH-005'] }, async ({ user, api, env }) => {
     const context = await contextWithoutOrigin({ storageState: user.storageState })
     try {
-      for (const origin of [new URL(env.editorUrl).origin, 'https://evil.example']) {
+      // The tunnel URL's origin is trusted only by the tunnel's own better-auth instance (TUNNEL-005).
+      for (const origin of [new URL(env.editorUrl).origin, env.tunnelUrl, 'https://evil.example']) {
         const answer = await send(context, 'POST', '/api/auth/update-user', { Origin: origin }, { name: 'renamed by csrf' })
         expect(answer.status, origin).toBe(403)
       }

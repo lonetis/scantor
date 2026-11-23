@@ -216,7 +216,8 @@ test.describe('CLI & MCP access: downloads and MCP', () => {
       await openAccess(page)
       const section = page.getByRole('region', { name: 'MCP', exact: true })
       await expect(section.getByTestId('mcp-url')).toHaveText(env.mcpUrl)
-      await section.getByRole('button', { name: 'Copy MCP URL' }).click()
+      // exact: with a tunnel URL (the test stack has one) the section also has "Copy MCP URL of the tunnel URL".
+      await section.getByRole('button', { name: 'Copy MCP URL', exact: true }).click()
       await expectToast(page, 'Copied')
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(env.mcpUrl)
 
@@ -232,14 +233,27 @@ test.describe('CLI & MCP access: downloads and MCP', () => {
   )
 
   test('without OAuth only the API-key command is shown, and with MCP disabled the section says so', { tag: ['@UI-ACCT-011'] }, async ({ env, page }) => {
-    await patchInstanceInfo(page, (info) => ({ ...info, features: { ...info.features, mcpOAuth: false } }))
+    // Without a tunnel URL (the test stack has one): the API key is the only way.
+    await patchInstanceInfo(page, (info) => ({ ...info, tunnelUrl: null, features: { ...info.features, mcpOAuth: false } }))
     await openAccess(page)
     const section = page.getByRole('region', { name: 'MCP', exact: true })
     await expect(section.getByTestId('mcp-url')).toHaveText(env.mcpUrl)
     await expect(codeBlock(page, 'MCP command with an API key')).toBeVisible()
     await expect(section.getByText('OAuth for MCP clients needs an https public URL; use an API key instead.')).toBeVisible()
+    await expect(section.getByTestId('mcp-tunnel-url')).toHaveCount(0)
     await expect(page.getByRole('region', { name: 'Claude Code OAuth command' })).toHaveCount(0)
     await expect(page.getByRole('region', { name: 'MCP client configuration' })).toHaveCount(0)
+
+    // With a tunnel URL, which is always https, OAuth stays available through it, and the section says so.
+    await page.unrouteAll({ behavior: 'wait' })
+    await patchInstanceInfo(page, (info) => ({ ...info, features: { ...info.features, mcpOAuth: false } }))
+    await openAccess(page)
+    await expect(section.getByTestId('mcp-tunnel-url')).toHaveText(env.tunnelMcpUrl)
+    await expect(section.getByText('OAuth works at this URL.')).toBeVisible()
+    await expect(
+      section.getByText('OAuth at the public URL needs https: use an API key here, or connect with OAuth through the tunnel URL above.'),
+    ).toBeVisible()
+    await expect(section.getByText('OAuth for MCP clients needs an https public URL; use an API key instead.')).toHaveCount(0)
 
     await page.unrouteAll({ behavior: 'wait' })
     await patchInstanceInfo(page, (info) => ({ ...info, mcpUrl: null, features: { ...info.features, mcp: false, mcpOAuth: false } }))

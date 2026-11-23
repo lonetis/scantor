@@ -254,7 +254,8 @@ export interface ThrowawayOptions {
   /**
    * Overrides of the environment (null removes a variable). The base is the stack's generated .env (what the stack's
    * orchestrator gets through env_file) pointed at the private infrastructure, with its own random SCANTOR_SECRET, no
-   * SCANTOR_ADMIN_*, only the `api` component, no Traefik profile and `http://localhost:<port>` as public URL.
+   * SCANTOR_ADMIN_*, only the `api` component, no Traefik profile, no tunnel URL and `http://localhost:<port>` as
+   * public URL.
    */
   env?: Record<string, string | null>
   /** private MongoDB, S3 and Docker (default true); without them the process cannot get past boot step 1 */
@@ -372,6 +373,8 @@ export class ThrowawayOrchestrator {
       SCANTOR_COMPONENTS: 'api',
       COMPOSE_PROFILES: '',
       SCANTOR_DOMAIN: '',
+      // No Cloudflare Tunnel: the stack's stand-in would make every throwaway a public deployment with a second origin.
+      SCANTOR_TUNNEL_URL: '',
       SCANTOR_TRUST_PROXY: 'false',
       SCANTOR_LOG_FORMAT: 'json',
       // The production limits: the stack's multiplier exists only because the suite shares one client IP.

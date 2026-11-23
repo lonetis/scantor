@@ -35,11 +35,38 @@ async function waitForHealth(): Promise<void> {
   }
 }
 
+/**
+ * Waits until the stand-in Cloudflare Tunnel (docs/testing.md §7.3) reaches the orchestrator as a tunnel request. The
+ * orchestrator resolves `cloudflared` again after a tunnel request from an unknown peer at most every 5 s, so a stand-in
+ * that started after its last lookup gets 421 for a few seconds.
+ */
+async function waitForTunnel(): Promise<void> {
+  const context = await request.newContext({ baseURL: env.tunnelUrl })
+  try {
+    const deadline = Date.now() + 60_000
+    let last = 'no answer'
+    for (;;) {
+      try {
+        const response = await context.get('/api/health')
+        if (response.ok() && ((await response.json()) as Health).status === 'ok') return
+        last = `${response.status()} ${await response.text()}`
+      } catch (error) {
+        last = String(error)
+      }
+      if (Date.now() > deadline) throw new Error(`${env.tunnelUrl}/api/health is not ok through the stand-in tunnel after 60 s: ${last}`)
+      await sleep(1000)
+    }
+  } finally {
+    await context.dispose()
+  }
+}
+
 export default async function globalSetup(): Promise<void> {
   const keyProblems = verifyVectors()
   if (keyProblems.length > 0) throw new Error(`helpers/keys.ts disagrees with corpora/keys-vectors.json:\n  ${keyProblems.join('\n  ')}`)
 
   await waitForHealth()
+  await waitForTunnel()
 
   await mkdir(env.paths.auth, { recursive: true })
   await resetLocks()

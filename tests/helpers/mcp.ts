@@ -8,11 +8,18 @@ import { reserve } from './limiter'
 // (401 challenge → discovery → the worker's registered client → consent → PKCE token exchange → connect), or with an
 // API key as bearer token. The SDK's own OAuth machinery runs the protocol; the helper plays the user's part on the
 // consent page with the user's session. Dynamic client registration reserves a limiter slot and is cached per worker
-// by the fixtures, because better-auth allows only 10 registrations per minute per IP.
+// by the fixtures, because better-auth allows only 10 registrations per minute per IP. Every origin has its own issuer
+// and `/mcp` resource: the public URL by default, the tunnel URL (env.tunnelUrl) with a session of that origin.
 
 /** Loopback redirect URI of the test client. Nothing listens there: the code is read from the consent redirect. */
 export const REDIRECT_URI = 'http://127.0.0.1:53682/callback'
-export const ISSUER = `${env.publicUrl}/api/auth`
+
+/** The OAuth issuer of an origin: the public URL (default) or the tunnel URL. */
+export function issuerOf(origin: string = env.publicUrl): string {
+  return `${origin}/api/auth`
+}
+
+export const ISSUER = issuerOf()
 
 /** Scopes of a "Read and write" grant, the consent page's default level. */
 export const DEFAULT_MCP_SCOPES = 'offline_access scantor:read scantor:write'
@@ -75,31 +82,40 @@ function clientMetadata(): OAuthClientMetadata {
   }
 }
 
-/** Registers a public client through dynamic client registration (one limiter slot, no session needed). */
-export async function registerClient(context: APIRequestContext, metadata: Partial<OAuthClientMetadata> = {}): Promise<StoredOAuthClientInformation> {
+/**
+ * Registers a public client through dynamic client registration at the issuer of `origin` (one limiter slot, no
+ * session needed). The origins share their clients.
+ */
+export async function registerClient(
+  context: APIRequestContext,
+  metadata: Partial<OAuthClientMetadata> = {},
+  origin: string = env.publicUrl,
+): Promise<StoredOAuthClientInformation> {
   await reserve('/oauth2/register')
-  const response = await context.post(`${ISSUER}/oauth2/register`, { data: { ...clientMetadata(), ...metadata } })
+  const response = await context.post(`${issuerOf(origin)}/oauth2/register`, { data: { ...clientMetadata(), ...metadata } })
   if (!response.ok()) throw new Error(`client registration failed: ${response.status()} ${await response.text()}`)
   return (await response.json()) as StoredOAuthClientInformation
 }
 
 /**
- * Plays the user's part of an authorization with the signed-in `session`: follows the authorize URL and, on the consent
- * page, approves with `scope` (or denies). Returns the redirect URL back to the client (with `code` or `error`).
+ * Plays the user's part of an authorization with the signed-in `session` (a session of the authorize URL's origin):
+ * follows the authorize URL and, on the consent page, approves with `scope` (or denies). Returns the redirect URL back
+ * to the client (with `code` or `error`).
  */
 export async function approveAuthorization(
   session: APIRequestContext,
   authorizationUrl: URL,
   options: { accept?: boolean; scope?: string } = {},
 ): Promise<URL> {
+  const origin = authorizationUrl.origin
   const authorize = await session.get(authorizationUrl.toString(), { maxRedirects: 0 })
   const location = authorize.headers()['location']
   if (!location) throw new Error(`authorize did not redirect: ${authorize.status()} ${await authorize.text()}`)
-  const next = new URL(location, env.publicUrl)
-  if (next.origin !== env.publicUrl || next.pathname !== '/oauth/consent') return next
+  const next = new URL(location, origin)
+  if (next.origin !== origin || next.pathname !== '/oauth/consent') return next
   const accept = options.accept ?? true
   // What the consent page does: POST the decision with the signed query of the authorize redirect.
-  const consent = await session.post('/api/auth/oauth2/consent', {
+  const consent = await session.post(`${origin}/api/auth/oauth2/consent`, {
     headers: { Accept: 'application/json' },
     data: {
       accept,
@@ -127,14 +143,17 @@ export interface ConnectOptions {
   consentScope?: string
   /** a registered client to reuse (from registerClient); without it the SDK registers one (one limiter slot) */
   client?: StoredOAuthClientInformation
+  /** the `/mcp` URL: env.mcpUrl (default) or env.tunnelMcpUrl, with a `session` of that origin */
+  mcpUrl?: string
 }
 
 /** Connects an MCP client as the user signed in to `session`, through the full OAuth flow. */
 export async function connectMcp(session: APIRequestContext, options: ConnectOptions = {}): Promise<McpConnection> {
   const scopes = options.scopes ?? DEFAULT_MCP_SCOPES
+  const mcpUrl = new URL(options.mcpUrl ?? env.mcpUrl)
   const provider = new TestOAuthProvider(scopes, options.client)
   if (!options.client) await reserve('/oauth2/register')
-  const challenged = new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider })
+  const challenged = new StreamableHTTPClientTransport(mcpUrl, { authProvider: provider })
   try {
     await new Client(CLIENT_INFO).connect(challenged)
     throw new Error('the unauthenticated MCP connect was not challenged')
@@ -148,16 +167,16 @@ export async function connectMcp(session: APIRequestContext, options: ConnectOpt
   await challenged.finishAuth(callback.searchParams)
 
   const client = new Client(CLIENT_INFO)
-  await client.connect(new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: provider }))
+  await client.connect(new StreamableHTTPClientTransport(mcpUrl, { authProvider: provider }))
   const tokens = provider.tokens()
   if (!tokens) throw new Error('the MCP SDK stored no tokens')
   return { client, provider, accessToken: tokens.access_token, close: () => client.close() }
 }
 
-/** Connects with a fixed bearer credential: an API key (`sk_scantor_…`) or an access token. */
-export async function connectMcpWithKey(key: string): Promise<Client> {
+/** Connects with a fixed bearer credential (an API key `sk_scantor_…` or an access token) to `mcpUrl`. */
+export async function connectMcpWithKey(key: string, mcpUrl: string = env.mcpUrl): Promise<Client> {
   const client = new Client(CLIENT_INFO)
-  await client.connect(new StreamableHTTPClientTransport(new URL(env.mcpUrl), { authProvider: { token: async () => key } }))
+  await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl), { authProvider: { token: async () => key } }))
   return client
 }
 

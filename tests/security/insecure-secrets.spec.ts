@@ -68,6 +68,12 @@ test.describe('startup guard', () => {
       offenders: ['SCANTOR_ADMIN_PASSWORD'],
     },
     {
+      trigger: 'a SCANTOR_TUNNEL_URL',
+      // The Cloudflare Tunnel publishes the dashboard although every other setting is a loopback one.
+      env: { SCANTOR_TUNNEL_URL: 'https://tunnel.example.test', SCANTOR_RABBITMQ_PASSWORD: insecure() },
+      offenders: ['SCANTOR_RABBITMQ_PASSWORD'],
+    },
+    {
       trigger: 'a public SCANTOR_BIND_ADDRESS',
       env: { SCANTOR_BIND_ADDRESS: '0.0.0.0', SCANTOR_S3_SECRET_KEY: insecure(), SCANTOR_MONGO_EXPRESS_SECRET: shortSecret(8) },
       offenders: ['SCANTOR_MONGO_EXPRESS_SECRET', 'SCANTOR_S3_SECRET_KEY'],
