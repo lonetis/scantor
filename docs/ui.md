@@ -50,9 +50,18 @@ export default defineNuxtConfig({
 export default defineAppConfig({ ui: { colors: { primary: 'green', neutral: 'slate' } } })
 ```
 
-The SPA reads no runtime configuration. Everything instance-specific (public, editor and MCP URLs,
+The SPA reads no runtime configuration. Everything instance-specific (public, tunnel, editor and MCP URLs,
 feature flags, limits, version, CLI image) comes from `getInstanceInfo` (`GET /api/info`) and
-`getSetupStatus` (`GET /api/setup/status`).
+`getSetupStatus` (`GET /api/setup/status`). Both describe the origin the page was loaded from: `origin` is
+`tunnel` for a page loaded through the tunnel URL ([deployment](deployment.md) §10.2), and then `mcpUrl`,
+`features` and `limits` are those of the tunnel origin. The UI never compares `window.location.origin` with a
+configured URL to find out. `useInstance` loads the info once per page; after a failed load the next caller tries
+again, and the route middleware asks on every authenticated navigation, so a failure lasts until the next page change
+at most. While the info is missing `features.downloads` stays true, because downloads work on the public URL: a
+download handler (FileChip, test-run files, exports, bundles) first awaits the info (`downloadsAvailable()`) and
+follows no presigned link when the origin turns out to lack downloads, and image previews wait for the info
+(FileChip loads it itself while it is missing). Only the plain download links (revision and script-run sources,
+script-run outputs) stay enabled during the first moment of a page whose info has not arrived yet.
 
 The brand comes from `brand/` at the repository root ([brand/README.md](../brand/README.md)) and is used in
 place, never copied. Nitro serves `brand/favicons/` at the root (`nitro.publicAssets`: `/favicon.ico`,
@@ -75,7 +84,7 @@ orchestrator/app/
 │   ├── default.vue               UDashboardGroup + AppSidebar + <slot/>
 │   └── auth.vue                  centered card (login, setup, OAuth consent)
 ├── middleware/
-│   └── auth.global.ts            setup / session / admin guard driven by page meta
+│   └── auth.global.ts            setup / session / admin / tunnel guard driven by page meta
 ├── plugins/
 │   ├── api.ts                    provides $api (central $fetch wrapper, §8)
 │   └── zod.ts                    zod jitless before any schema exists (no eval probe under the CSP, §13)
@@ -85,7 +94,8 @@ orchestrator/app/
 └── utils/                        auto-imported pure helpers: status.ts, format.ts, errors.ts,
                                   json-pointer.ts, ansi.ts, navigation.ts, schema-subset.ts, download.ts,
                                   clipboard.ts, consent.ts (OAuth consent access levels), dialog.ts (modal
-                                  focus), ui-prefs.ts (§14 store shape), bundles.ts (§5.9 bundle helpers)
+                                  focus), ui-prefs.ts (§14 store shape), bundles.ts (§5.9 bundle helpers),
+                                  tunnel.ts (the copy of the tunnel notices, §3.2)
 ```
 
 Types and validation schemas are shared with the server, never duplicated in `app/`:
@@ -162,12 +172,12 @@ Defined once in `app/utils/navigation.ts` (a `.ts` file, hence the icon scan glo
 | | Scripts | `/scripts` | `i-lucide-file-code-2` | – | all |
 | | Scans | `/scans` | `i-lucide-radar` | count of the caller's scans in `creating`/`running`/`paused` | all |
 | | Templates | `/templates` | `i-lucide-layout-template` | – | all |
-| | Editor | `/editor` | `i-lucide-code` | – | `features.editor` |
+| | Editor | `/editor` | `i-lucide-code` | – | `features.editor` (false through the tunnel) |
 | Access | CLI & MCP access | `/account/access` | `i-lucide-terminal` | – | all |
 | | Git credentials | `/account/credentials` | `i-lucide-key-round` | – | all |
 | Admin | Nodes | `/admin/nodes` | `i-lucide-server` | offline nodes (color error) | admins |
 | | Users | `/admin/users` | `i-lucide-users` | – | admins |
-| | Admin tools | `/admin/tools` | `i-lucide-wrench` | – | admins |
+| | Admin tools | `/admin/tools` | `i-lucide-wrench` | – | admins (through the tunnel without the tool cards, §5.20) |
 | (bottom) | API docs ↗ | `/api/docs` (new tab) | `i-lucide-book-open` | – | all |
 
 The Scans and Nodes badges come from the singleton `useSidebarCounts()` (one poll, §9). The header holds
@@ -176,10 +186,16 @@ it holds only the standalone S in the link named "scantor overview" (§1). The f
 `UserMenu` is a `UDropdownMenu` with "Account" (`/account`), "CLI & MCP access" and "Sign out". Sign-out
 calls `signOut()` and then hard-reloads to `/login` (resets every module-level singleton).
 
+Through the tunnel (`origin === 'tunnel'`) a "Tunnel URL" badge (`i-lucide-cloud`, warning, subtle; the icon
+alone while collapsed; `data-testid="tunnel-badge"`) sits above "API docs" on every page. Its tooltip, also its
+accessible name, reads "Loaded through the tunnel URL. The editor, file downloads and the admin tools are available
+at <publicUrl>." The copy of every tunnel notice lives in `app/utils/tunnel.ts`.
+
 ## 4. Route map
 
 `meta` columns: **auth** `false` = public page; **admin** `true` = admins only (the server enforces it
-again). Layout `auth` for the three public pages, `default` everywhere else.
+again); **tunnel** `false` = not offered through the tunnel (the server refuses its operations there). Layout
+`auth` for the three public pages, `default` everywhere else.
 
 | Route | Page file | Meta | Main operations |
 |---|---|---|---|
@@ -195,7 +211,7 @@ again). Layout `auth` for the three public pages, `default` everywhere else.
 | `/scripts/new` | `pages/scripts/new.vue` | | `createScript` |
 | `/scripts/:scriptId` | `pages/scripts/[scriptId]/index.vue` | | `getScript`, `listScriptFiles`, `readScriptFile`, `listScriptRuns`, `startScriptRun`, `listScans`, `getScan`, `deleteScript`, `downloadScriptWorkspace` (link) |
 | `/scripts/:scriptId/runs/:runId` | `pages/scripts/[scriptId]/runs/[runId].vue` | | `getScriptRun`, `getScriptRunLogs`, `cancelScriptRun`, `restartScriptRun`, `getScriptRunOutputDownload` and `getScriptRunSourceDownload` (links with `redirect=true`), `getScript` |
-| `/editor` | `pages/editor.vue` | | `getEditor`, `createEditorSession`, `stopEditor` |
+| `/editor` | `pages/editor.vue` | tunnel false | `getEditor`, `createEditorSession`, `stopEditor` |
 | `/scans` | `pages/scans/index.vue` | | `listScans` |
 | `/scans/new` | `pages/scans/new.vue` | | `listTasks`, `listRevisions`, `getRevision`, `listUploads`, `createUpload`, `estimateTemplate`, `startScan` |
 | `/scans/:scanId` | `pages/scans/[scanId].vue` | | `getScan`, lifecycle operations, `listScripts` ("Run script"), `listAnalyses`, `getAnalysis`, `queryAnalyses`, `aggregateAnalyses`, `listScanWorkers`, `listInflightAnalyses`, `getWorkerLogs`, `listScanEvents`, `exportScan`, `listExports`, `getExport`, `deleteExport`, `getFileDownload`, `getJob`, `getRevision` |
@@ -223,9 +239,14 @@ setup not yet confirmed done ──► GET /api/setup/status ──► needsSetu
 await better-auth session (wait while isPending)
 no session ──► /login?redirect=<to.fullPath>   (consent: /login?<original OAuth query>)
 to.meta.admin && role !== 'admin' ──► / + toast "Admins only"
+to.meta.tunnel === false && getInstanceInfo.origin === 'tunnel' ──► / + toast "Not available through the tunnel URL"
+                                                                     ("Open <publicUrl><path> instead.")
 ```
 
-`redirect` is accepted only when it is a same-origin path (starts with `/`, not `//`, no scheme).
+`redirect` is accepted only when it is a same-origin path (starts with `/`, not `//`, no scheme). The tunnel
+guard keeps deep links such as `/editor?task=<name>` from calling operations that answer 404 through the tunnel,
+which the page would read as a missing task. Only `/editor` carries `tunnel: false`; `/admin/tools` stays
+available through the tunnel and replaces only its tool cards with an alert (§5.20).
 
 ## 5. Pages
 
@@ -394,7 +415,9 @@ Tabs (`?tab=`):
   2 s until the run settles.
 - Files of test-run analyses render in `TestRunAnalysisSlideover` as buttons "Download <name>" with the
   size: `getTestRunFileDownload` returns a presigned link, opened in a new tab (`noopener`; the forced
-  attachment makes it a download). There is no image preview; scan results use `FileChip` (§5.13.3).
+  attachment makes it a download). There is no image preview; scan results use `FileChip` (§5.13.3). Without
+  `features.downloads` (through the tunnel, whose pages cannot reach S3) the buttons are disabled, with the reason
+  as tooltip.
 - Cancel (aria "Cancel test run") → `cancelTestRun`.
 - Unsent inputs are kept per task in UI prefs (§14) **without** `writeOnly` fields. Which values are secret
   is known only from a description, so while the forms have none (no revision, no described test run) only
@@ -408,7 +431,9 @@ Tabs (`?tab=`):
   badge; actions "Start scan" (ready only, → `/scans/new?revision=<taskId>@<number>`), "Download source"
   (anchor `downloadRevisionSource?redirect=true`), "Bundle" (opens `BundleModal`; enabled for ready revisions
   that are not privileged, otherwise disabled with the reason as tooltip, `canBundle` in `utils/bundles.ts`),
-  "View files" (→ task `files` tab with `revision`).
+  "View files" (→ task `files` tab with `revision`). "Download source" redirects to a presigned S3 URL, so it is
+  disabled with a tooltip without `features.downloads` (through the tunnel); so is "Download bundle" below, while
+  creating a bundle and its commands stay.
 - **Bundle** (`BundleModal`, "Bundle of `<ref>`", mounted only while open): the warning "A bundle contains the
   complete task image, including every file of the task folder. Anyone with the file can run and inspect it."
   first; without a bundle (404) a short explanation and "Create bundle" (`createRevisionBundle`); while the
@@ -450,6 +475,8 @@ Tabs (`?tab=`):
 - A start failure (`error` of `getEditor`, the last `editors.error`, [api](api.md) §4.18) renders as an alert
   with "Retry". `429 tooManyRequests` from `createEditorSession` (all `SCANTOR_EDITOR_MAX_RUNNING` editor
   slots busy) renders as an alert "Too many editors are running; try again later".
+- Through the tunnel the page is not offered (page meta `tunnel: false`, §4.1): the editor origin is not served
+  there, and `/api/editor/*` answers 404.
 
 ### 5.11 Scans list (`/scans`)
 
@@ -587,7 +614,7 @@ Tabs (`?tab=`): `overview` (default), `results`, `query`, `workers`, `events`, `
 |---|---|
 | Header | analysis id (copy), status badge, attempt/round, worker and node as id chips (copy; admins get a link to the node), timings (scheduled, started, finished, duration) |
 | Config | JsonView of the analysis config (secrets already masked by the API) |
-| Result | JsonView; objects at `description.fileRefPaths` render as `FileChip` (name, size, content type, SHA-256 tooltip, "Download <name>" button → `getFileDownload` → `window.location.assign(url)`; for `inline` images a preview `<img>` with the presigned URL) |
+| Result | JsonView; objects at `description.fileRefPaths` render as `FileChip` (name, size, content type, SHA-256 tooltip, "Download <name>" button → `getFileDownload` → `window.location.assign(url)`; for `inline` images a preview `<img>` with the presigned URL). Without `features.downloads` (through the tunnel) the button is disabled with the reason as tooltip and no preview is loaded |
 | Error | type badge, phase, retryable, message, `details` JsonView, `stack` in a collapsible mono block |
 | Attempts | `AttemptsTable`: attempt, round, started, duration, error type and message, worker, node, expandable `logTail` |
 | Logs | `logTail` of the final attempt in `LogView` (ANSI stripped, wrap toggle) |
@@ -636,7 +663,8 @@ Actions: "Copy as JSON", "Query similar" (opens the query tab with `{"error.type
   deleted, or the API refuses it (a 4xx other than 429). An export started elsewhere ("Export results" in
   the scan controls, "Export these results" in the query console) is followed the same way and shows at
   the top of the open exports table without a reload. The UI always uses background exports (never
-  `exportScanInline`).
+  `exportScanInline`). Without `features.downloads` (through the tunnel) exports are still created, but
+  "Download" is disabled with a tooltip and the toast has no "Download" action.
 
 ### 5.14 Templates catalog (`/templates`)
 
@@ -658,7 +686,8 @@ A note links to the authoring guides ([templates](templates.md) is the internal 
   `maxWorkers` optional) → `createNode` → `SecretRevealModal` showing the token **once** with copy, the
   `docker run` command and the compose snippet from `join` (each in a `CodeBlock` with copy), and the
   warning "This token is shown only now. A node sees everything about the scans placed on it; add only
-  machines you trust like the master."
+  machines you trust like the master." The snippets always name the public URL; through the tunnel the
+  checklist of `NodeJoinModal` adds "Nodes connect to <publicUrl>, never through the tunnel URL."
 - Row actions (aria "Node actions"): Edit (`NodeFormModal` + cordon switch → `updateNode`), Show join
   command (`getNodeJoin`, token placeholder `${SCANTOR_NODE_TOKEN}`), Rotate token (`ConfirmModal` →
   `rotateNodeToken` → `SecretRevealModal`), Revoke token (`ConfirmModal`, "Its workers are rescheduled" →
@@ -699,7 +728,7 @@ Sections (`XxxSection`, each with its own loading, error and success state, load
 | Passkeys | shown when `passkeysEnabled`: list (`passkey.listUserPasskeys`: name, added, device type), rename (`updatePasskey`), remove (two-step, disabled for the last credential), add (`passkey.addPasskey {name}`, placeholder "e.g. MacBook Touch ID") |
 | Sessions | `list-sessions` (device/user agent, IP, created, current marker), "Sign out other sessions" (`revoke-session` once per other session: `revoke-sessions` would also end the current one). better-auth lists sessions only for a session signed in within the last 24 h; older sessions see a hint to sign in again |
 | Notifications | ntfy push notifications (`getNotificationSettings`): "Push notifications are disabled on this instance." when `available` is false; otherwise the instance's server as a link, "Send push notifications" (switch), the topic with "Generate" (a random `scantor-<20 characters>` topic, because a topic name is its only protection on a public server), the access token (password field, empty after every save; "A token is stored. Enter a new one to replace it." and "Remove the stored token" when `tokenSet`), "Notify me about" (the trigger catalog of `shared/utils/notifications.ts`, admin-only triggers only for admins) → `updateNotificationSettings` ("Saved"; "Enter a topic to turn notifications on" client-side); the subscription URL `<server>/<topic>`; "Send test notification" (disabled without a saved topic) → `testNotification` ("Test notification sent"); a failed `lastDelivery` as "The last notification could not be delivered" |
-| Editor | editor state (`getEditor`), "Stop editor" (`stopEditor`) |
+| Editor | shown when `features.editor` (never through the tunnel): editor state (`getEditor`), "Stop editor" (`stopEditor`) |
 
 ### 5.18 CLI & MCP access (`/account/access`)
 
@@ -721,7 +750,10 @@ Sections (`XxxSection`, each with its own loading, error and success state, load
   claude mcp add --transport http scantor <mcpUrl> --header "Authorization: Bearer sk_scantor_…"
   ```
 
-  (the MCP snippet only when `mcpUrl` is not null). The alias mirrors the docker shim (`app/utils/cli-alias.ts`,
+  (the MCP snippet only when `mcpUrl` is not null). The instance URL is the origin the page was loaded from
+  (`originUrl` of `useInstance`: the tunnel URL through the tunnel, otherwise the public URL), as is `mcpUrl`;
+  through the tunnel a hint (`data-testid="tunnel-cli-hint"`) adds that file, export and bundle downloads, the
+  test-run files of `scantor dev run --remote` included, need the public URL as `SCANTOR_URL`. The alias mirrors the docker shim (`app/utils/cli-alias.ts`,
   [architecture](architecture.md) §4.2): it runs as the invoking user with the Docker socket's group and
   `HOME=/tmp`, so `scantor init` and `.scantor/out/` files stay the user's, and it passes `<prefix>` and
   `<tag>` of `cliImage` (`<prefix>scantor:<tag>`) as `SCANTOR_IMAGE_PREFIX`/`SCANTOR_IMAGE_TAG`, so the CLI
@@ -740,7 +772,13 @@ Sections (`XxxSection`, each with its own loading, error and success state, load
   `{"mcpServers": {"scantor": {"type": "http", "url": "<mcpUrl>"}}}` and a note that the access level is
   chosen on the consent screen. When `features.mcpOAuth` is false, only the API-key form
   (`--header "Authorization: Bearer $SCANTOR_TOKEN"`) is shown, with the note "OAuth for MCP clients needs
-  an https public URL".
+  an https public URL; use an API key instead." `mcpUrl` and `features.mcpOAuth` describe the page's origin, so
+  through the tunnel they are the tunnel's. On the public origin of an instance with a tunnel URL, a second row
+  "Endpoint through the tunnel URL" shows `<tunnelUrl>/mcp` with copy (`data-testid="mcp-tunnel-url"`) and the note
+  "For MCP clients that reach the master only through its Cloudflare Tunnel, such as claude.ai (add it as a custom
+  connector). OAuth works at this URL." The tunnel URL is always https, so that holds whenever the row shows; without
+  OAuth on the public URL the API-key note then reads "OAuth at the public URL needs https: use an API key here, or
+  connect with OAuth through the tunnel URL above." instead.
 - **Authorized apps** (`OAuthAppsSection`): `listOAuthApps` (name, URI, scopes, authorized at) with
   two-step "Revoke" → `revokeOAuthApp`.
 
@@ -761,6 +799,10 @@ it, but required once the host differs from the stored one, since a token is bou
   opens a tool host directly without a valid cookie is redirected by forwardAuth to the same route
   ([auth](auth.md) §11). Without Traefik (`url` null), cards show the bind-address hint ("Bound to
   SCANTOR_ADMIN_BIND_ADDRESS; use an SSH tunnel") and no button.
+- Through the tunnel (`origin === 'tunnel'`) the page and its sidebar entry stay available, but an alert
+  "Infrastructure tools are not served through the tunnel URL" (`data-testid="tunnel-tools-alert"`) with a link
+  to `<publicUrl>/admin/tools` (new tab) replaces the tool cards and the cookie note: the tool hosts are not
+  served through the tunnel URL, and `/api/tools/*` answers 404 there. The links, health and jobs below work on both origins.
 - Links: API reference (`/api/docs`), OpenAPI document (`/api/docs/openapi.json`), metrics
   (`/api/metrics`, Prometheus text).
 - Health: `getHealth` components and alarms.
@@ -810,7 +852,8 @@ it, but required once the host differs from the stored one, since a token is bou
 - **Progress** (`data-testid="script-run-progress"`): `UProgress` of `done/total` with the message.
 - **Outcome**: `BuildErrors` for `errors[]`; an error panel (`script-run-error`) with type, message and a stack trace
   ("Copy stack trace"); the result as `JsonView` (`script-run-result`); outputs (`script-run-outputs`) as download
-  links that navigate to `getScriptRunOutputDownload?redirect=true`.
+  links that navigate to `getScriptRunOutputDownload?redirect=true`. Both redirect to presigned S3 URLs, so
+  without `features.downloads` (through the tunnel) the source and output links are disabled with a tooltip.
 - **Log** (`script-run-log`): `LogView` fed by `useScriptRunLog`, which reads `getScriptRunLogs` with `afterLine`
   and `limit=1000` every 2 s until `complete`, keeps the last 5000 lines (a longer log starts at `log.lines − 5000`),
   labels the streams `build`, `stdout`, `stderr`, `system`, and shows `script-run-dropped-lines` when
@@ -904,7 +947,7 @@ field, on the nearest rendered ancestor, or as a form-level alert when no field 
 | Composable | Responsibility |
 |---|---|
 | `useAuth()` | better-auth client singleton (`passkeyClient`, `oauthProviderClient`), `session`, `user`, `isAdmin`, `signIn`, `signOut` (hard reload) |
-| `useInstance()` | singleton: `getInstanceInfo` once per page load and `getSetupStatus`; exposes `features`, `limits`, URLs, `cliImage`, `version` |
+| `useInstance()` | singleton: `getInstanceInfo` once per page load and `getSetupStatus`; exposes `features` (including `downloads`), `limits`, URLs, `cliImage`, `version`, and the page's origin: `isTunnel`, `tunnelUrl`, `originUrl` (the tunnel URL through the tunnel, otherwise the public URL) |
 | `useApiFetch(path, opts)` | a small reactive GET over `$api` (not `useFetch`), typed by `#shared/types`: `data`, `error`, `pending`, `refresh`; refetches when `path` or `opts.query` change (a null path loads nothing) and drops the answers of superseded requests; `opts.toast` (default true) |
 | `usePoll(fn, {intervalMs, enabled})` | polling with visibility pause, in-flight skip and error backoff (§9) |
 | `useCursorList(fetchPage)` | generic `Load more` / infinite loading over `nextCursor` or `afterSeq`, with reset on filter change and an epoch guard against stale responses; `loading` covers the first page and "Load more", `refreshing` a re-read of the loaded pages (polls; the "Refresh" button spins on either); a re-read that a "Load more" page overtakes is dropped, so the page stays and the next poll re-reads all pages; a re-read covers at most `maxRefreshPages` pages, and the items loaded beyond them stay behind the re-read ones (joined by `key`, default `id`) with the cursor |
@@ -1086,7 +1129,7 @@ of the contract:
   out of `/api` to `/_icons` (public, static data, [api](api.md) §9) so the API auth middleware does not
   guard it.
 - A UI test asserts that no request leaves the dashboard origin except to the S3 public origin (downloads,
-  image previews) and the editor origin.
+  image previews) and the editor origin. Through the tunnel no request leaves the tunnel origin.
 
 ## 13. Security headers and CSP
 
@@ -1100,7 +1143,7 @@ of the contract:
 | `Referrer-Policy` | `same-origin` |
 | `Cross-Origin-Opener-Policy` | `same-origin` |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=(), publickey-credentials-get=(self), publickey-credentials-create=(self)` |
-| `Strict-Transport-Security` | `max-age=31536000` when `SCANTOR_PUBLIC_URL` is https |
+| `Strict-Transport-Security` | `max-age=31536000` when the request's origin is https: on the public origin when `SCANTOR_PUBLIC_URL` is https, through the tunnel always |
 | `Cache-Control` | `no-store` on `/login`, `/setup`, `/oauth/consent` and every `/api/*` response |
 
 The hook runs before every handler, so static assets (`/_nuxt/*`, which Nitro serves before any server
@@ -1108,17 +1151,20 @@ middleware runs), the SPA shell, `/api` answers and errors all carry these heade
 is no second copy in `routeRules`.
 
 **Full policy.** The hook extends the CSP with defence-in-depth directives. They depend on runtime
-origins (`SCANTOR_EDITOR_URL`, `SCANTOR_S3_PUBLIC_URL`), so the policy is built once at boot (option 1
-below adds a per-response value):
+origins (`SCANTOR_EDITOR_URL`, `SCANTOR_S3_PUBLIC_URL`) and on the request's origin, so the policies are built
+once per origin (public, and tunnel when `SCANTOR_TUNNEL_URL` is set) and each request gets the one of its
+origin, in the request hook and in the shell's nonce policy alike (option 1 below adds a per-response value).
+The tunnel origin's policy has `frame-src 'none'` (the editor is not served there) and no S3 origin in
+`img-src` (its pages cannot reach S3):
 
 ```
 default-src 'self';
 script-src 'self' <inline-script allowance>;
 style-src 'self' 'unsafe-inline';
-img-src 'self' data: blob: <S3 public origin>;
+img-src 'self' data: blob: <S3 public origin>;      (tunnel: without the S3 origin)
 font-src 'self' data:;
 connect-src 'self';
-frame-src <editor origin>;
+frame-src <editor origin>;                         (tunnel: 'none')
 worker-src 'self' blob:;
 object-src 'none';
 base-uri 'self';
@@ -1205,6 +1251,10 @@ presigned URLs with forced `Content-Disposition`/`Content-Type` ([architecture](
 11. **Script runs have two buttons**, "Try on 100 analyses" and "Run on all", so a sample run is the default
     gesture; the run log is polled incrementally (`afterLine`) instead of streamed, because runs last days and
     the log is stored anyway.
+12. **The UI adapts to the tunnel from the server's answer** (`getInstanceInfo.origin`, `features.editor`,
+    `features.downloads`), never from `window.location`: components stay origin-agnostic, features that need the
+    public URL are disabled with a tooltip instead of failing, pages that cannot work carry the page meta
+    `tunnel: false`, and a persistent sidebar badge explains why ([deployment](deployment.md) §10.2).
 
 ## 16. Backbone dependencies
 
@@ -1215,7 +1265,8 @@ same rule as `NodeJoin`, [api](api.md) §4.1), `features.mcpOAuth`, and for admi
 `listNodeWorkers` (`GET /api/nodes/{nodeId}/workers`) and `listNodeEvents`
 (`GET /api/nodes/{nodeId}/events`); `/_icons/*` as a public non-API route ([api](api.md) §9); `getEditor`
 returns `error` (the last start failure, `editors.error`, [data model](data-model.md) §4.15), which §5.10
-renders ([api](api.md) §4.18).
+renders ([api](api.md) §4.18); `getInstanceInfo.origin`, `tunnelUrl` and `features.downloads`, with `mcpUrl`,
+`features` and `limits` per request origin ([api](api.md) §4.1).
 
 ## 17. Future extensions
 
@@ -1233,3 +1284,4 @@ renders ([api](api.md) §4.18).
 | In-app notifications, more channels | toasts already map event-like outcomes; an in-app notifications page would read `events` filtered by the push-notification trigger catalog, and a new channel kind adds a block to the Notifications section. |
 | Additional languages and templates | wizard cards come from `listLanguages`, `listScaffolds` and `listTemplates`; no UI change. |
 | Scheduled scripts, script-run queue reasons | a schedule section on the script runs tab reusing `ScriptRunForm`; a reason line beside the `queued` badge. |
+| Downloads through the tunnel | the download buttons already depend only on `features.downloads`; an orchestrator route that streams the file would let the server switch it on for the tunnel origin. |

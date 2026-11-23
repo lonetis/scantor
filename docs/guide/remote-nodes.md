@@ -34,6 +34,10 @@ With Traefik every endpoint is TLS on port 443, so a node needs nothing but outb
 variables in the master's `.env` (see `.env.example`). Without Traefik the master must listen on the
 private address (`SCANTOR_BIND_ADDRESS`).
 
+A node never uses the tunnel URL of a master with a Cloudflare Tunnel (`SCANTOR_TUNNEL_URL`): the tunnel serves
+only the web UI, the API for users and the MCP server, and answers 404 to the requests of nodes and workers. Its
+`SCANTOR_URL` is always the public URL above, which the join command fills in.
+
 ## Join a node
 
 1. **Create the node** in the web UI (**Admin → Nodes → Add node**) or with the CLI:
@@ -243,7 +247,7 @@ Health is informational; restarts follow the daemon's own rules.
 
 | Symptom | Cause and fix |
 |---|---|
-| the node stays `pending` | the daemon never reached the master: check `docker logs scantor-node` for refused plaintext connections, TLS errors or `401` (wrong token) |
+| the node stays `pending` | the daemon never reached the master: check `docker logs scantor-node` for refused plaintext connections, TLS errors, `401` (wrong token) or `404` (`SCANTOR_URL` is the master's tunnel URL instead of its public URL) |
 | the daemon exits at start | an invalid setting (unknown `SCANTOR_NODE_DIND`, malformed CIDRs, a token together with `SCANTOR_NODE_BUILTIN=true`), a refused plaintext URL or a Docker Engine older than 25; the log names it |
 | the node goes `offline` although the daemon runs | the log shows `401` (token rotated or revoked: restart with the new token) |
 | workers show `unhealthy` in `docker ps` | they have not reached the master's API for over three poll intervals: check the master's reachability from the host (`docker inspect --format '{{json .State.Health}}' scantor-w-<id>` shows the last checks) |

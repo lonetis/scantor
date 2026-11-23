@@ -2,8 +2,8 @@
 
 This document specifies how scantor decides who is calling and what that caller may do. It covers the
 better-auth configuration (MongoDB adapter, plugins, sessions, rate limits) and the key derivation from
-`SCANTOR_SECRET`. It covers the public URL, trusted origins and proxy handling, and the typed principals
-together with the single global middleware that recognises them and binds them to route prefixes. It also
+`SCANTOR_SECRET`. It covers the public URL, the tunnel URL, trusted origins and proxy handling, and the typed
+principals together with the single global middleware that recognises them and binds them to route prefixes. It also
 covers roles and per-user limits, first-admin bootstrap, API keys for the CLI and the editor, the ownership
 helpers that every route uses, and the machine credentials: node tokens, worker tokens, the registry token
 server, the admin-tools cookie and the editor cookie. The REST surface is in [api](api.md), persistent fields
@@ -15,9 +15,11 @@ their tests in [security](security.md).
 ```
 request
   │
-  ├─ request hook       security headers on every response, public assets included (ui §13)
-  ├─ 00.request         request id, client IP header (x-scantor-client-ip), 421 for the editor host
+  ├─ request hook       security headers of the request's origin on every response, public assets included (ui §13)
+  ├─ 00.request         request id, client IP header (x-scantor-client-ip), 421 for the editor host,
+  │                     public or tunnel request, 421 for a tunnel mismatch (§4.5), access log line with the origin
   ├─ 01.path            400 badRequest for a path that a URL parser would rewrite (§5.5)
+  ├─ 01.tunnel          tunnel requests only: 404 notFound for the refused prefixes (§4.5)
   ├─ 02.body-limit      SCANTOR_MAX_REQUEST_BYTES / per-route caps, chunked bodies counted while they stream
   ├─ 10.auth            (/api/* only)
   │     ├─ route prefix  → which credential kind is parsed (§5.3)
@@ -36,7 +38,7 @@ request
 
 | Principal kind | Presented as | Accepted on | Source of identity |
 |---|---|---|---|
-| `user` via `session` | better-auth cookie `scantor.session_token` (`__Secure-scantor.session_token` on https) | user routes | better-auth `session` |
+| `user` via `session` | better-auth cookie `scantor.session_token` (`__Secure-scantor.session_token` on https) of the request's origin | user routes | better-auth `session` |
 | `user` via `apiKey` | `x-api-key: sk_scantor_…` or `Authorization: Bearer sk_scantor_…` | user routes, `/mcp` | better-auth `apikey` (hashed) |
 | `user` via `mcp` | `x-scantor-internal-auth: sic_…` (loopback listener only) | user routes | in-memory capability minted by the MCP bridge |
 | `node` | `Authorization: Bearer snt_…`; Basic `node:snt_…` on the registry token route | `/api/node/*`, `/api/registry/token` | `nodes.tokenHash` |
@@ -52,7 +54,10 @@ This middleware chain runs wherever the Nitro app serves requests: on the dashbo
 bridge of the same process uses for tool calls and the JWKS fetch (`server/utils/loopback.ts`, [mcp](mcp.md) §1,
 §4.3). Internal capabilities are accepted only on connections of the loopback listener (§5.2). The editor origin is
 a separate HTTP listener outside Nitro ([editor](editor.md) §8.1). `00.request` answers 421 Misdirected Request
-when `Host` is the editor host, so no dashboard route is ever reachable there.
+when `Host` is the editor host, so no dashboard route is ever reachable there. It also classifies every request as
+public or tunnel (§4.5) and answers 421 when only one of the two marks of a tunnel request, the `cloudflared` peer
+and the tunnel host, is present. Every origin-bound decision below (the better-auth instance, CSRF, cookies, the
+MCP resource) uses the request's origin.
 
 MCP OAuth access tokens are not principals of the REST API. They are verified only on `/mcp`, which turns
 them into `user` principals via `mcp` ([mcp](mcp.md)).
@@ -78,9 +83,11 @@ logged and does not stop the boot.
 
 ### 2.2 Configuration
 
-`orchestrator/server/utils/auth.ts` builds one instance lazily (`useAuth()`), eagerly initialised in boot
-step 3 ([architecture](architecture.md) §4.1). The return type is cast to `any` to avoid TypeScript blow-ups
-from nested better-call/zod types; typed wrappers live in `server/utils/users.ts`.
+`orchestrator/server/utils/auth.ts` builds one instance per origin lazily (`useAuth(origin)`, `origin` a
+`RequestOrigin` of `shared/utils/enums.ts`: `public` by default, `tunnel` for tunnel requests, §4.5) and caches it in
+a map; boot step 3 ([architecture](architecture.md) §4.1) initialises every configured origin eagerly
+(`configuredOrigins`: `public`, plus `tunnel` while `SCANTOR_TUNNEL_URL` is set). The return type is cast to `any`
+to avoid TypeScript blow-ups from nested better-call/zod types; typed wrappers live in `server/utils/users.ts`.
 
 ```ts
 import { betterAuth } from 'better-auth'
@@ -96,19 +103,20 @@ import { fetchClientMetadataResource } from '@better-auth/cimd/node'
 export const MCP_SCOPES = ['scantor:read', 'scantor:write', 'scantor:admin'] as const
 export const OAUTH_SCOPES = ['openid', 'profile', 'email', 'offline_access', ...MCP_SCOPES]
 
-function buildAuth(): any {
+function buildAuth(origin: RequestOrigin): any {
   const cfg = useConfig()                       // parsed env (server/utils/config.ts)
   const { db, client } = useMongo()             // the one shared MongoClient
-  const pk = resolvePasskeyConfig(cfg)          // §4.4
-  const mc = resolveMcpConfig(cfg)              // mcp.md §3.8
+  const base = originUrlOf(cfg, origin)         // SCANTOR_PUBLIC_URL or SCANTOR_TUNNEL_URL (§4.1)
+  const pk = resolvePasskeyConfig(cfg, origin)  // §4.4
+  const mc = resolveMcpConfig(cfg, origin)      // mcp.md §3.8
 
   return betterAuth({
     appName: 'scantor',
-    baseURL: cfg.publicUrl,                     // SCANTOR_PUBLIC_URL without trailing slash
+    baseURL: base,                              // the origin's URL without trailing slash
     basePath: '/api/auth',
-    secret: deriveKeyHex('better-auth'),        // §3
-    database: mongodbAdapter(db, { client, usePlural: false }),   // transactions on (replica set rs0)
-    trustedOrigins: trustedOrigins(cfg),        // §4.2
+    secret: deriveKeyHex('better-auth'),        // §3, the same for every origin
+    database: mongodbAdapter(db, { client, usePlural: false }),   // one adapter per instance; transactions on (rs0)
+    trustedOrigins: trustedOrigins(cfg, origin),   // §4.2: this origin only
     telemetry: { enabled: false },
     emailAndPassword: {
       enabled: true, disableSignUp: true, autoSignIn: false, requireEmailVerification: false,
@@ -128,8 +136,9 @@ function buildAuth(): any {
     },
     rateLimit: RATE_LIMIT,                      // §2.7
     advanced: {
+      disableOriginCheck: false,                     // better-auth skips it under NODE_ENV=test or TEST; never here
       cookiePrefix: 'scantor',
-      useSecureCookies: cfg.publicUrl.startsWith('https://'),
+      useSecureCookies: base.startsWith('https://'),  // always on the tunnel origin
       defaultCookieAttributes: { sameSite: 'lax', httpOnly: true },
       database: { generateId: () => crypto.randomUUID() },   // plain uuid strings (data-model §1)
       ipAddress: { ipAddressHeaders: ['x-scantor-client-ip'], ipv6Subnet: 64 },   // §4.3
@@ -138,8 +147,8 @@ function buildAuth(): any {
       user: { create: { before: lowercaseEmail }, update: { before: lowercaseEmail } },
     },
     hooks: {
-      before: createAuthMiddleware(beforeHook), // §2.8
-      after: createAuthMiddleware(afterHook),
+      before: createAuthMiddleware(beforeHook), // §2.8; refuses another origin's MCP resource
+      after: createAuthMiddleware(afterHook),   // clears scantor_tools on the public origin only
     },
     plugins: [
       authHttpAllowlist(),                      // §2.5; first, before every other plugin and endpoint
@@ -157,7 +166,9 @@ function buildAuth(): any {
       ...(mc.enabled ? [
         jwt(),
         mcp({
-          resource: mc.resource,                // `${SCANTOR_PUBLIC_URL}/mcp`
+          resource: mc.resource,                // `${origin URL}/mcp`
+          resources: mcpOAuthResources(cfg),    // the `/mcp` of every origin with MCP OAuth
+          clientRegistrationDefaultResources: mcpOAuthResources(cfg),
           loginPage: '/login',
           consentPage: '/oauth/consent',
           scopes: OAUTH_SCOPES,
@@ -165,7 +176,8 @@ function buildAuth(): any {
           allowDynamicClientRegistration: true,
           allowUnauthenticatedClientRegistration: true,
           clientRegistrationDefaultApplicationType: 'infer',
-          validateRedirectUri: (uri, _registered, defaultResult) => defaultResult && isAllowedMcpRedirect(uri),
+          validateRedirectUri: (uri, _registered, defaultResult) =>
+            defaultResult && isAllowedMcpRedirect(uri, cfg.mcpAllowedRedirectOrigins),
           accessTokenExpiresIn: 3600, refreshTokenExpiresIn: 2_592_000, codeExpiresIn: 600,
         }),
         cimd({
@@ -179,11 +191,38 @@ function buildAuth(): any {
 }
 ```
 
+Per origin: every instance has its own `baseURL` (and so its own OAuth issuer `<origin>/api/auth`), trusted origin,
+cookie names (`__Secure-` only on https origins), passkey rpID (§4.4) and MCP resource, and its own plugin objects;
+nothing but the MongoClient, the collections, the `jwks` keys and the secret is shared. The OAuth clients live in
+the shared collections, and better-auth issues a token only for a resource its client is linked to, so every instance
+seeds the `/mcp` resources of all origins with MCP OAuth (`mcpOAuthResources`) and links each new client to all of
+them: a client registered through one origin also works on the other, while the before hook (§2.8) decides which
+resource an origin issues tokens for. Clients registered before the tunnel URL was set, or before the public or
+tunnel URL changed, are linked at boot: step 3 adds every missing link from a stored client to the `/mcp` of a
+configured origin (`linkOAuthClientsToMcpResources`, idempotent; a link another replica created meanwhile is skipped,
+and links to an origin no longer configured stay, since nothing requests them). The consent row is shared as well
+(one per user and client, not per origin), but better-auth keeps in it only the resource of the origin consented
+through last: tokens and refreshes keep working on both origins, while a client authorized again on one origin after
+an approval on the other asks for consent again (and `prompt=none` fails with `consent_required`). The tunnel URL is
+always https with a hostname, so the tunnel
+instance has every plugin the public one has (passkeys always; jwt, mcp and cimd whenever MCP is enabled), while the
+public one lacks the OAuth plugins when its URL is plain http on a non-loopback host. The tunnel instance is
+therefore the **data instance** while it exists (`dataAuthOrigin`): `useAuthContext()` returns its context, so
+adapter calls on OAuth models always find them. Boot step 3 builds the instances one after another (each seeds the
+`oauthResource` rows of every origin, and the unique index on `identifier` exists only once the indexes are ensured,
+so instances built side by side would insert each row twice), creates the indexes of the union of every instance's
+tables, and deletes undecryptable `jwks` keys once when any origin has MCP OAuth (`anyMcpOAuth`, which also gates the
+OAuth app list of §8.2 and the OAuth step of a ban, §5.7). An instance never calls another instance's `auth.api.*`
+from inside its own endpoints or hooks.
+
 Handlers: `orchestrator/server/api/auth/[...all].ts` and `orchestrator/server/routes/.well-known/[...path].ts`
-both call `useAuth().handler(toWebRequest(event))`; the HTTP allowlist (§2.5) decides inside that handler which
-requests reach an endpoint. The `.well-known` catch-all must also match the bare
-path segments that MCP discovery uses (`/.well-known/oauth-protected-resource/mcp`,
-`/.well-known/oauth-authorization-server/api/auth`, `/.well-known/openid-configuration/api/auth`).
+both call `useAuth(requestOriginOf(event)).handler(toWebRequest(event))`, the instance of the request's origin
+(§4.5); the HTTP allowlist (§2.5) decides inside that handler which requests reach an endpoint. Requests of the
+loopback listener always classify as public, so `[...all].ts` hands them to the data instance: the JWKS fetch of
+`/mcp` ([mcp](mcp.md) §3.1) then finds `/api/auth/jwks` even when the public instance has no jwt plugin. The
+`.well-known` catch-all must also match the bare path segments that MCP discovery uses
+(`/.well-known/oauth-protected-resource/mcp`, `/.well-known/oauth-authorization-server/api/auth`,
+`/.well-known/openid-configuration/api/auth`).
 
 ### 2.3 MongoDB adapter
 
@@ -270,17 +309,18 @@ better-auth instance.
 
 | Item | Value |
 |---|---|
-| session cookie | `scantor.session_token`; on https better-auth names it `__Secure-scantor.session_token`. Host-only (no `Domain`), `Path=/`, `HttpOnly`, `SameSite=Lax`, `Secure` on https. Never sent to the editor, S3, registry or admin-tool hosts. |
+| session cookie | `scantor.session_token`; on https better-auth names it `__Secure-scantor.session_token`. Host-only (no `Domain`), `Path=/`, `HttpOnly`, `SameSite=Lax`, `Secure` on https. Never sent to the editor, S3, registry or admin-tool hosts. Signing in through the tunnel URL creates a separate session, whose host-only cookie browsers send only to the tunnel host. The instances share the secret and the `session` collection, so the server accepts a session presented on either origin (a client that replays a cookie gets it accepted; the cookie name differs only when one origin is plain http); what is per origin is the cookie's host, its name and the CSRF origin (§2.2, §4.2). |
 | lifetime | 7 days, extended once a day on use (`updateAge`) |
 | fresh age | 24 h (passkey registration without a setup context requires a fresh session, §6.4) |
 | cookie cache | disabled: every request reads the session and user, so sign-out, revocation and bans apply immediately |
 | storage | better-auth `session` collection (indexed by the adapter) |
-| sign-out | `POST /api/auth/sign-out`; the after-hook also clears `scantor_tools` (§11) |
+| sign-out | `POST /api/auth/sign-out`; on the public origin the after-hook also clears `scantor_tools` (§11) |
 
 ### 2.7 Rate limiting
 
 better-auth's limiter applies only to `/api/auth/*`. Storage is `memory` (single orchestrator). Keys are
-`<client IP>|<path>` with the client IP from §4.3.
+`<client IP>|<path>` with the client IP from §4.3. better-auth keeps the memory store at module level, so the
+instances of both origins (§2.2) share it: a client has one budget per path, whichever origin it signs in on.
 
 ```ts
 const RATE_LIMIT = {
@@ -316,13 +356,14 @@ sign-ins and OAuth registrations across all workers through a shared limiter ([t
 | Path | Action |
 |---|---|
 | `/oauth2/register` | reject (400 `invalid_redirect_uri`, OAuth error format) when any `redirect_uris` entry fails `isAllowedMcpRedirect` ([mcp](mcp.md) §3.4) |
+| `/oauth2/authorize`, `/oauth2/token` | only while MCP OAuth is on for this origin **and** another one (a tunnel URL is set; without one better-auth alone checks resources, and an unknown `resource` of an authorization request goes back to the client's redirect URI with `invalid_target`): authorize rejects (400 `invalid_target`, OAuth error format) a `resource` value (query, body, every repeated form field) that is another origin's MCP resource; token rejects any non-empty value other than this instance's MCP resource or its own userinfo endpoint (`<origin URL>/api/auth/oauth2/userinfo`, which better-auth accepts implicitly). Empty values and other unknown resources of an authorize request are left to better-auth. The hook runs before the client and redirect URI are validated, so a refused authorize request gets the JSON 400, not a redirect to the client. The OAuth rows are shared between the origins, so otherwise an origin could issue a token for the other origin's `/mcp` that neither accepts (§4.5) |
 | `/oauth2/consent` | when `accept` is true, require `scope` in the body (400 `invalid_request` otherwise) and remove `scantor:admin` from it when the session user's role is not `admin` |
 
 `afterHook(ctx)`:
 
 | Path | Action |
 |---|---|
-| `/sign-out` | append `Set-Cookie: scantor_tools=; Domain=<SCANTOR_DOMAIN>; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax` when `SCANTOR_DOMAIN` is set |
+| `/sign-out` | append `Set-Cookie: scantor_tools=; Domain=<SCANTOR_DOMAIN>; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax` when `SCANTOR_DOMAIN` is set; public instance only (the tools cookie is minted only on the public origin, §11) |
 | `/change-password`, `/revoke-sessions` | invalidate the user cache entry (§5.7) |
 
 ## 3. Secrets and key derivation
@@ -365,45 +406,56 @@ every encrypted git credential, config secret and script-run secret (a run whose
 bootstrap). API keys and node tokens are stored as hashes and survive. It
 is a disaster-recovery procedure ([security](security.md) §10).
 
-## 4. Public URL, origins and proxies
+## 4. Public URL, tunnel URL, origins and proxies
 
 ### 4.1 `SCANTOR_PUBLIC_URL`
 
 `SCANTOR_PUBLIC_URL` is the single canonical dashboard URL. It is parsed once at boot; an invalid URL, a path
-other than `/`, a query or credentials abort startup. It is used as:
+other than `/`, a query or credentials abort startup. The tunnel URL (`SCANTOR_TUNNEL_URL`, §4.5) is a second
+origin of the same listener; it replaces the public URL only in the origin-bound values of a tunnel request:
 
-| Use | Value |
-|---|---|
-| better-auth `baseURL` | `SCANTOR_PUBLIC_URL` |
-| OAuth issuer | `${SCANTOR_PUBLIC_URL}/api/auth` |
-| MCP protected resource | `${SCANTOR_PUBLIC_URL}/mcp` |
-| trusted origin, CSRF origin | `origin(SCANTOR_PUBLIC_URL)` |
-| passkey origin and default rpID | origin and hostname of `SCANTOR_PUBLIC_URL` |
-| registry token realm | `${SCANTOR_PUBLIC_URL}/api/registry/token` |
-| links in logs and responses | setup link, node join commands, `getInstanceInfo` |
+| Use | Public origin | Tunnel origin (tunnel requests) |
+|---|---|---|
+| better-auth `baseURL` | `SCANTOR_PUBLIC_URL` | `SCANTOR_TUNNEL_URL` |
+| OAuth issuer | `${SCANTOR_PUBLIC_URL}/api/auth` | `${SCANTOR_TUNNEL_URL}/api/auth` |
+| MCP protected resource | `${SCANTOR_PUBLIC_URL}/mcp` | `${SCANTOR_TUNNEL_URL}/mcp` |
+| trusted origin, CSRF origin | `origin(SCANTOR_PUBLIC_URL)` (and its loopback aliases, §4.2) | `origin(SCANTOR_TUNNEL_URL)` |
+| passkey origin and default rpID | origin and hostname of `SCANTOR_PUBLIC_URL` | origin and hostname of `SCANTOR_TUNNEL_URL` (§4.4) |
+| registry token realm | `${SCANTOR_PUBLIC_URL}/api/registry/token` | same (never the tunnel URL) |
+| links in logs and responses | setup link, node join commands, notification links, tool URLs, `getInstanceInfo.publicUrl` | `mcpUrl` of `getInstanceInfo` and `getSetupStatus`, the UI's CLI and MCP snippets |
 
-No absolute URL is ever derived from `Host`, `X-Forwarded-Host` or `X-Forwarded-Proto`. `Host` is used only
-for the 421 checks of the two listeners: the dashboard listener rejects the host of `SCANTOR_EDITOR_URL`,
-and the editor listener accepts only that host ([editor](editor.md) §8.1).
+No absolute URL is ever derived from `Host`, `X-Forwarded-Host` or `X-Forwarded-Proto`: a request's origin is
+*selected* from the fixed pair `SCANTOR_PUBLIC_URL`, `SCANTOR_TUNNEL_URL` by its classification (§4.5), never
+built from a header. `Host` is used only for the 421 checks of the two listeners and for that classification:
+the dashboard listener rejects the host of `SCANTOR_EDITOR_URL` and a tunnel host from any peer but `cloudflared`,
+and the editor listener accepts only its own host ([editor](editor.md) §8.1).
 
 ### 4.2 Trusted origins and CSRF
 
-`trustedOrigins(cfg)` returns exactly:
+`trustedOrigins(cfg, origin)` returns exactly, for the public origin:
 
 - `origin(SCANTOR_PUBLIC_URL)`;
 - when that host is `localhost`: also `http(s)://127.0.0.1:<port>` and `http(s)://[::1]:<port>` with the same
-  scheme and port (local development convenience; passkeys work only on `localhost` itself).
+  scheme and port (local development convenience; passkeys work only on `localhost` itself);
+
+and for the tunnel origin only `origin(SCANTOR_TUNNEL_URL)`. An instance trusts only its own origin: the public
+instance never trusts the tunnel origin, and the tunnel instance trusts neither the public origin nor its loopback
+aliases.
 
 The editor origin (`SCANTOR_EDITOR_URL`) is **never** trusted: workspace-controlled JavaScript runs there
 ([editor](editor.md)).
 
 CSRF rules:
 
-1. better-auth's own origin check and Fetch-Metadata checks protect `/api/auth/*`.
+1. better-auth's own origin check and Fetch-Metadata checks protect `/api/auth/*`. better-auth skips its origin
+   check when `NODE_ENV=test` or `TEST` is set; `advanced.disableOriginCheck: false` keeps it on in every
+   environment, the unit tests included.
 2. The global middleware requires, for every cookie-authenticated request with method `POST`, `PUT`,
-   `PATCH` or `DELETE`, an `Origin` header equal to a trusted origin; a missing or different `Origin` is
-   403 `forbidden`. API keys, MCP capabilities and machine tokens are not ambient credentials and are exempt.
-3. No route under the dashboard host sends `Access-Control-Allow-Origin` with credentials. The only
+   `PATCH` or `DELETE`, an `Origin` header equal to a trusted origin of the request's own origin
+   (`trustedOrigins(cfg, requestOriginOf(event))`, never the union of both lists, so it agrees with better-auth's
+   check on the same instance); a missing or different `Origin` is 403 `forbidden`. API keys, MCP capabilities
+   and machine tokens are not ambient credentials and are exempt.
+3. No route under either dashboard origin sends `Access-Control-Allow-Origin` with credentials. The only
    CORS-enabled routes are credential-less: `/.well-known/*`, `/api/auth/jwks`, `/api/auth/oauth2/token`,
    `/api/auth/oauth2/register` and `/mcp` (`Access-Control-Allow-Origin: *`, no `Allow-Credentials`; allowed
    headers `authorization, content-type, mcp-protocol-version, mcp-session-id, x-api-key`).
@@ -417,19 +469,20 @@ client can set. Scantor therefore always computes the client IP itself and hands
 header that clients cannot inject:
 
 1. Middleware `00.request` deletes any incoming `x-scantor-client-ip` header.
-2. If `SCANTOR_TRUST_PROXY=true` **and the socket peer is a trusted proxy**, the client IP is the
-   **rightmost** entry of `X-Forwarded-For`, which is the address the proxy saw. If the header is absent or
-   its rightmost entry is not an IP address, the socket peer address is used. In every other case the client
-   IP is the socket peer address.
+2. If **the socket peer is a trusted proxy** (below), the client IP is the **rightmost** entry of
+   `X-Forwarded-For`, which is the address the proxy saw. If the header is absent or its rightmost entry is not
+   an IP address, the socket peer address is used. In every other case the client IP is the socket peer address.
 3. It sets `x-scantor-client-ip` to that address. better-auth uses
    `advanced.ipAddress.ipAddressHeaders: ['x-scantor-client-ip']` for rate limiting and `session.ipAddress`,
    and scantor uses the same value in logs and its own limits. The editor listener (port 3001) computes the
    client IP of its `/_auth` failure limit the same way.
 
-The trusted proxies are `SCANTOR_TRUSTED_PROXIES`: IP addresses, CIDR ranges and host names, in compose the
-service name `traefik` (`server/utils/trusted-proxy.ts`). Host names are resolved when the `api` component
-starts, every 30 seconds, and at most every 5 seconds after a forwarded request from an unknown peer, because a
-restarted Traefik can get another address; a failed lookup keeps the previous addresses. Addresses inside the
+The trusted proxies are `SCANTOR_TRUSTED_PROXIES` while `SCANTOR_TRUST_PROXY=true` (IP addresses, CIDR ranges
+and host names, in compose the service name `traefik`), plus the compose service name `cloudflared` while
+`SCANTOR_TUNNEL_URL` is set, whatever `SCANTOR_TRUST_PROXY` says (`server/utils/trusted-proxy.ts`). Host names
+are resolved when the `api` component starts, every 30 seconds, and at most every 5 seconds after a forwarded
+request from an unknown peer (for `cloudflared`: after a request with the tunnel host, §4.5), because a restarted
+proxy can get another address; a failed lookup keeps the previous addresses. Addresses inside the
 subnets of `scantor-sandbox` and `scantor-scripts` are never trusted, whatever the list says (a network that does
 not exist contributes no range). The check is per connection, not a global switch: master workers, editor
 terminals, script runs and anything else that reaches `orchestrator:3000` or `:3001` directly (the orchestrator
@@ -440,23 +493,98 @@ Set `SCANTOR_TRUST_PROXY=true` when the dashboard is served through Traefik (the
 Traefik's entrypoints do not trust incoming forwarded headers, so they overwrite `X-Forwarded-For` with the
 real peer. Without it every request through Traefik counts as Traefik's own address, so all users share one
 rate-limit bucket. The orchestrator logs a warning at boot when `SCANTOR_TRUST_PROXY=true` and
-`COMPOSE_PROFILES` does not contain `traefik`.
+`COMPOSE_PROFILES` contains neither `traefik` nor `cloudflare-tunnel`.
+
+Through the tunnel, Cloudflare's edge appends the address of the connecting client to `X-Forwarded-For` and
+cloudflared forwards the header, so the rightmost entry is the address the edge saw; `Cf-Connecting-IP` and the
+other `Cf-*` headers are never read. That is why the tunnel's route targets `http://orchestrator:3000` and
+never Traefik. Traefik shares no network with cloudflared and has no router for the tunnel host, so such a route
+ends at Traefik's 404 (or its https redirect) and never reaches the orchestrator; a router for it added in
+`traefik/dynamic/` would overwrite `X-Forwarded-For` with cloudflared's address, so every tunnel request would count
+as one client, and the request would reach the orchestrator from the `traefik` peer, which the classification
+refuses with 421 (§4.5).
 
 ### 4.4 Passkeys
 
-WebAuthn needs a secure context and an RP ID that is a domain (never an IP literal). `resolvePasskeyConfig`:
+WebAuthn needs a secure context and an RP ID that is a domain (never an IP literal). `resolvePasskeyConfig(cfg,
+origin)` decides per origin:
 
-| `SCANTOR_PUBLIC_URL` | Passkeys | rpID | origin |
+| Origin URL | Passkeys | rpID | origin |
 |---|---|---|---|
-| `https://<domain name>[:port]` | enabled | `SCANTOR_PASSKEY_RP_ID` or the hostname | the public origin |
-| `http://localhost[:port]` or `http://<name>.localhost[:port]` | enabled | `SCANTOR_PASSKEY_RP_ID` or the hostname | the public origin |
-| `http://` any other host, or any IP-literal host (`127.0.0.1`, `[::1]`, `10.0.0.5`) | disabled | – | – |
+| `SCANTOR_PUBLIC_URL` `https://<domain name>[:port]` | enabled | `SCANTOR_PASSKEY_RP_ID` or the hostname | the public origin |
+| `SCANTOR_PUBLIC_URL` `http://localhost[:port]` or `http://<name>.localhost[:port]` | enabled | `SCANTOR_PASSKEY_RP_ID` or the hostname | the public origin |
+| `SCANTOR_PUBLIC_URL` `http://` any other host, or any IP-literal host (`127.0.0.1`, `[::1]`, `10.0.0.5`) | disabled | – | – |
+| `SCANTOR_TUNNEL_URL` (always `https://<domain name>[:port]`, §4.5) | enabled | `SCANTOR_PASSKEY_RP_ID` when it equals the tunnel hostname or is a registrable suffix of it (`isRpIdFor`), otherwise the tunnel hostname | the tunnel origin |
 
-`SCANTOR_PASSKEY_RP_ID`, when set, must equal the hostname or be a registrable suffix of it; otherwise startup
-aborts. Changing the rpID or the hostname later makes existing passkeys unusable (users then sign in with a
-password, or an admin sets one). When passkeys are disabled, the passkey plugin is not registered,
-`getSetupStatus.passkeysEnabled` and `getInstanceInfo.features.passkeys` are `false`, the UI hides passkey
+`SCANTOR_PASSKEY_RP_ID`, when set, must equal the hostname of `SCANTOR_PUBLIC_URL` or be a registrable suffix of
+it; otherwise startup aborts. It is never required to fit the tunnel host: an origin it does not fit uses its own
+hostname. A passkey works only on the origins of its rpID. With a shared rpID (`example.com` for
+`scantor.example.com` and `tunnel.example.com`) every passkey works on both origins; otherwise a passkey registered
+on one origin fails on the other, where the user signs in with a password or registers a second passkey. All
+passkeys share the `passkey` collection and are listed on both origins. Changing the rpID or the hostname later
+makes existing passkeys unusable (users then sign in with a password, or an admin sets one). When passkeys are
+disabled on an origin, its instance does not register the passkey plugin, `getSetupStatus.passkeysEnabled` and
+`getInstanceInfo.features.passkeys` (both describe the request's origin) are `false`, the UI hides passkey
 controls, and `createSetupPasskeyToken` returns 400 `passkeysDisabled`.
+
+### 4.5 `SCANTOR_TUNNEL_URL` and tunnel requests
+
+`SCANTOR_TUNNEL_URL` is the URL of the optional Cloudflare Tunnel ([architecture](architecture.md) §11.9,
+[deployment](deployment.md) §10.2); empty turns the feature off. It is a security variable (CFG-7): startup aborts
+when it is not an `https` origin (another scheme, a path other than `/`, a query or credentials), when its host
+(with the port) equals the host of `SCANTOR_PUBLIC_URL` or `SCANTOR_EDITOR_URL`, when its host is `localhost` or
+an IP literal, or, while `SCANTOR_DOMAIN` is set, when it is one of the hosts Traefik routes (`<domain>`,
+`<SCANTOR_DASHBOARD_SUBDOMAIN>.<domain>` and the fixed `editor.`, `registry.`, `s3.`, `amqp.`, `mongo.`,
+`rabbitmq.`, `mongo-express.`, `rustfs.` and `traefik.` hosts). Startup also aborts when `COMPOSE_PROFILES`
+contains `cloudflare-tunnel` while the URL is empty: cloudflared would then be an ordinary client, and the whole
+dashboard listener, machine prefixes included, would answer through the tunnel. A URL without the profile is a
+boot warning. `SCANTOR_CLOUDFLARE_TUNNEL_TOKEN` is read only by cloudflared, never by the orchestrator.
+
+`classifyRequest(event)` (`server/utils/tunnel.ts`, memoized on `event.context.requestOrigin`) classifies every
+request of the dashboard listener:
+
+| `Host` is the tunnel host | Socket peer is `cloudflared` | Classification | Effect |
+|---|---|---|---|
+| yes | yes | `tunnel` | served with the tunnel origin |
+| yes | no | `mismatch` | 421 |
+| no | yes | `mismatch` | 421 |
+| no | no | `public` | served with the public origin |
+
+- `Host`, normalised with the https default port, must equal the host (with the port) of `SCANTOR_TUNNEL_URL`.
+- The socket peer must be one of the current addresses of the compose service name `cloudflared` in the
+  trusted-proxy resolver (§4.3, `isHostPeer`). Only addresses inside the subnet of one of the orchestrator's own
+  network interfaces count (in compose, cloudflared's network `scantor-tunnel`): while no container answers to the
+  name, Docker's DNS forwards it to the host's resolvers, and a LAN host called `cloudflared` must not become the
+  tunnel. Addresses in the subnets of `scantor-sandbox` and `scantor-scripts` never count, so a user container that
+  takes the alias `cloudflared` there is not the tunnel. A miss refreshes
+  the addresses (at most every 5 s) only when the `Host` is the tunnel host, so ordinary traffic causes no lookups.
+- Without `SCANTOR_TUNNEL_URL` every request is `public` and no peer is looked up. Requests of the loopback
+  listener (the MCP bridge) are always `public`. In `nuxt dev` the socket has no peer address, so the `Host` alone
+  decides: the check is advisory in the dev stack and is verified on the test stack.
+
+`00.request` answers a mismatch with 421 Misdirected Request (`text/plain`, like the editor host) right after it
+set the client IP, before any route runs: an "HTTP Host Header" override in the tunnel's route, a client that sends
+the tunnel host straight to the dashboard listener and an unresolved `cloudflared` all end there. Such a 421 has no access log line;
+instead `00.request` warns with the kind (tunnel host from another peer, or another host from cloudflared), `host`,
+`peer` and `path`, at most once a minute per kind, so a misrouted tunnel shows in the log. `requestOriginOf(event)`
+(`public` or `tunnel`) then selects everything bound to an origin: the better-auth instance of `/api/auth/*`,
+`/.well-known/*` and the session lookups (§2.2, §5.2), the CSRF list (§4.2), the `/mcp` handler
+([mcp](mcp.md) §2), `getInstanceInfo` and `getSetupStatus` ([api](api.md) §4.1, §4.2), the security headers
+([ui](ui.md) §13) and the `wait` cap.
+
+**Refused prefixes.** On a tunnel request, `01.tunnel` answers 404 `notFound` (the [api](api.md) §1.7 envelope, as
+for deny by default, §5.4) for `/api/node`, `/api/runtime`, `/api/script-runtime`, `/api/tools`, `/api/registry`
+and `/api/editor` and every path below them (`TUNNEL_REFUSED_PREFIXES`, `isTunnelRefusedPath`; `/api/nodes` is not
+below `/api/node`). It runs after `01.path` and before the body limit and `10.auth`, so no body is read and no
+credential parsed, and the answer is the same with or without a credential. Nodes, workers and script runs never
+use the tunnel URL; the registry realm and the admin tools stay on the public URL and the Traefik hosts; the editor
+origin is not served through the tunnel. Page paths of these features (`/editor`, `/admin/tools`) are left to the
+UI ([ui](ui.md) §4.1).
+
+Through the tunnel the API clamps `wait` to 90 s (`TUNNEL_WAIT_MAX_SECONDS`), because Cloudflare answers 524 when
+the origin sends no response within its 125 s Proxy Read Timeout, and a wait sends nothing until it ends
+([api](api.md) §1.9). Tunnel requests add no principal and no scope: users and admins keep
+their principals and powers there.
 
 ## 5. Principals and the global middleware
 
@@ -493,7 +621,7 @@ The middleware stores it as `event.context.principal`; nothing else in `event.co
 |---|---|---|---|
 | internal capability | header `x-scantor-internal-auth` matching `^sic_[A-Za-z0-9_-]{43}$` | the request arrived on a connection of this process's loopback listener (`isLoopbackListenerSocket`), never on the dashboard listener, and its TCP peer address is loopback (`127.0.0.1`, `::1`); entry exists in the in-memory map and is unexpired (60 s); request method and pathname equal the values bound at mint time; entry deleted on first use (single use), whatever the outcome. The user is re-read through the user cache. | 401 `unauthorized` |
 | API key | header `x-api-key`, or `Authorization: Bearer` whose value starts with `sk_scantor_` | `auth.api.getSession({ headers: new Headers({ 'x-api-key': key }) })`. The api-key plugin hook hashes the key (SHA-256, base64url), looks it up, and checks `enabled` and `expiresAt` (expired keys are deleted). The returned session carries the fresh user. `configId` = `editor` iff the key matches `^sk_scantor_editor_[A-Za-z]{64}$`, else `default`. | 401 `unauthorized` (never falls back to the cookie) |
-| session cookie | better-auth session cookie present | `auth.api.getSession({ headers: new Headers({ cookie }) })`: DB lookup of session and user | 401 `unauthorized` |
+| session cookie | better-auth session cookie present | `auth.api.getSession({ headers: new Headers({ cookie }) })` on the instance of the request's origin (§2.2): DB lookup of session and user | 401 `unauthorized` |
 | node token | `Authorization: Bearer snt_…` (or Basic `node:snt_…` on the token route) | §10.1 | 401 `unauthorized` |
 | worker token | `Authorization: Bearer swt_…` | §10.2 | 401 `unauthorized` |
 | script-run token | `Authorization: Bearer ssr_…`, after the peer check | §10.5 | 403 `forbidden` (peer outside `scantor-scripts`), 401 `unauthorized` (token) |
@@ -501,11 +629,12 @@ The middleware stores it as `event.context.principal`; nothing else in `event.co
 | tools cookie | cookie `scantor_tools` on `/api/tools/forward-auth` (parsed by the route) | §11 | 302 to `createToolsSession` for browsers, else 401 with a short `text/plain` body (§11) |
 | setup token | header `X-Scantor-Setup-Token` | §7.2 | 401 `setupTokenInvalid` / 409 `setupCompleted` |
 
-Both better-auth lookups go through `server/utils/credential-lookup.ts`, which `/mcp` shares (§13). Only a
-credential that better-auth rejects (no session, an unknown, expired or disabled key: a 4xx `APIError`) is 401. A
-lookup that fails (a 5xx `APIError`, which is how better-auth wraps database errors, or any other error) is logged
-and answered with 503 `unavailable`, so a MongoDB election or timeout never signs browsers out or makes clients
-treat a valid key as revoked.
+Both better-auth lookups go through `lookupSession(credential, origin)` in `server/utils/credential-lookup.ts`,
+which `/mcp` shares (§13); `origin` is the request's origin, which decides the cookie name and the attributes of a
+refreshed cookie. Only a credential that better-auth rejects (no session, an unknown, expired or disabled key: a
+4xx `APIError`) is 401. A lookup that fails (a 5xx `APIError`, which is how better-auth wraps database errors, or
+any other error) is logged and answered with 503 `unavailable`, so a MongoDB election or timeout never signs
+browsers out or makes clients treat a valid key as revoked.
 
 Precedence on user routes: internal capability, then API key, then session cookie. When an explicit
 credential (capability or API key) is present, it alone decides; the cookie is ignored and CSRF does not
@@ -538,6 +667,10 @@ parsed. Credentials of another kind are ignored, so a missing credential and a w
 | every other `/api/*` | internal capability, API key, session cookie |
 | `/mcp` | not handled by the middleware; `/mcp` authenticates itself ([mcp](mcp.md) §3) |
 | editor origin (`Host` = host of `SCANTOR_EDITOR_URL`) | never reaches this middleware: the dashboard listener answers 421 for the editor host, and the dedicated editor listener (container port 3001) checks `scantor_editor` itself (§12) |
+
+On a tunnel request, `/api/node/*`, `/api/runtime/*`, `/api/script-runtime/*`, `/api/registry/*`, `/api/tools/*`
+and `/api/editor/*` never reach this middleware either: `01.tunnel` answers 404 `notFound` first (§4.5). Through the
+tunnel only user routes, `/api/auth/*`, `/api/setup/*` and the public routes remain.
 
 ### 5.4 Operation registry and scope enforcement
 
@@ -591,6 +724,11 @@ percent-encode are 400 `badRequest`. Nitro's router and the middleware match the
 path such as `/.well-known/x/../../api/auth/passkey/generate-register-options` would reach a route outside `/api/auth`
 while better-auth runs the passkey endpoint, past every check keyed on `/api/auth/*`.
 
+`orchestrator/server/middleware/01.tunnel.ts` runs next. On a tunnel request (§4.5), a path under a refused prefix
+is 404 `notFound` before the body limit and before any credential is parsed, so the machine APIs give no hint
+through the tunnel: the answer does not depend on a credential, and the script runtime API answers 404 there
+instead of the 403 of its peer check.
+
 `orchestrator/server/middleware/10.auth.ts`, for requests on the dashboard listener whose path starts with
 `/api/`:
 
@@ -607,7 +745,7 @@ while better-auth runs the passkey endpoint, past every check keyed on `/api/aut
 4. Look up the operation (§5.4): 404, 405 or 403 as listed.
 5. For `user` principals: if the user is banned (`banned === true` and
    `banExpires == null || banExpires > now`), return 403 `banned`. The tools route checks bans itself (§11).
-6. CSRF (§4.2) for `via = session` and unsafe methods.
+6. CSRF (§4.2, against the trusted origins of the request's own origin) for `via = session` and unsafe methods.
 7. Set `event.context.principal`, `event.context.operation`, and add `X-Request-Id` to the log context.
    Response headers for `/api/*` include `Cache-Control: no-store`.
 
@@ -833,10 +971,14 @@ The account page section "CLI & MCP access" (`/account/access`, [ui](ui.md)):
    claude mcp add --transport http scantor https://scantor.example.com/mcp --header "Authorization: Bearer sk_scantor_…"
    ```
 
-2. **MCP over OAuth**: the MCP URL (`<SCANTOR_PUBLIC_URL>/mcp`) and `claude mcp add --transport http scantor
-   <SCANTOR_PUBLIC_URL>/mcp`. Below it, the authorised OAuth applications (`listOAuthApps`) with client
-   name, client id or metadata host, granted scopes, date, and a two-step revoke (`revokeOAuthApp`).
+2. **MCP over OAuth**: the MCP URL (`<origin>/mcp`) and `claude mcp add --transport http scantor
+   <origin>/mcp`; on the public origin with a tunnel URL configured, also the tunnel's MCP URL for web-hosted
+   clients. Below it, the authorised OAuth applications (`listOAuthApps`) with client name, client id or
+   metadata host, granted scopes, date, and a two-step revoke (`revokeOAuthApp`).
 3. A pointer to the CLI docker shim (`scantor.sh`) and the release binaries.
+
+`<origin>` and the `SCANTOR_URL` of the snippets are the origin the page was opened on: the public URL, or the
+tunnel URL through the tunnel (`getInstanceInfo.origin`, §4.1).
 
 The CLI takes credentials only from `SCANTOR_URL` and `SCANTOR_TOKEN` and sends
 `Authorization: Bearer $SCANTOR_TOKEN`. There is no login command and no credentials file. The other
@@ -982,7 +1124,8 @@ console) are routed through the Traefik `forwardAuth` middleware `scantor-tools-
 `X-Forwarded-*` from the real request and never passes client-supplied values;
 `authResponseHeaders: [X-Scantor-User]`; [deployment](deployment.md) §7.5). They also keep their own
 credentials. Without Traefik they are bound to `SCANTOR_ADMIN_BIND_ADDRESS` only and the tools routes are
-unused.
+unused. Through the tunnel `/api/tools/*` is 404 (§4.5) and the UI hides the admin tools;
+`getInstanceInfo.adminTools` is the same on both origins, so admins open the tools from the public URL.
 
 Targets. The tool hosts are the fixed Traefik subdomains of [deployment](deployment.md) §7.3. The redirect URL is `<scheme>://<tool host>[:<port>]<path>`, with the
 scheme and port of `SCANTOR_PUBLIC_URL`:
@@ -1024,8 +1167,9 @@ ignores it. Sign-out clears it (§2.8). Demotion or a ban stops it from working 
 
 ## 12. Editor cookie
 
-The editor listener, the handoff flow and the proxy are specified in [editor](editor.md) §8. The credential
-rules, summarised from there:
+The editor listener, the handoff flow and the proxy are specified in [editor](editor.md) §8. Through the tunnel
+`createEditorSession` and the other `/api/editor` routes are 404 (§4.5): the editor origin is never reachable
+there. The credential rules, summarised from there:
 
 | Item | Value |
 |---|---|
@@ -1039,9 +1183,11 @@ rules, summarised from there:
 
 Specified in [mcp](mcp.md) §3:
 
-- OAuth 2.1 access tokens (JWT, audience `${SCANTOR_PUBLIC_URL}/mcp`, scopes `scantor:read|write|admin`)
-  are accepted **only** on `/mcp`. They are verified with `requireMcpAuth` against the loopback JWKS, then
-  checked per request: the user exists and is not banned, and the client still has a consent row.
+- OAuth 2.1 access tokens (JWT, scopes `scantor:read|write|admin`) are accepted **only** on `/mcp`, and only on
+  the origin that issued them: issuer `<origin>/api/auth` and audience `<origin>/mcp` of the public or the tunnel
+  instance (§2.2), so a token from one origin is refused on the other. They are verified with `requireMcpAuth` of
+  the request origin's instance against the loopback JWKS (keys are shared), then checked per request: the user
+  exists and is not banned, and the client still has a consent row.
 - API keys (`default` or `editor`) are also accepted on `/mcp`.
 - Tool calls reach the REST API through single-use `sic_…` capabilities (§5.2), each bound to one operation,
   and carry the principal's MCP level.
@@ -1050,10 +1196,11 @@ Specified in [mcp](mcp.md) §3:
 
 | File | Contents |
 |---|---|
-| `orchestrator/server/utils/config.ts` | env parsing (`publicUrl`, `editorUrl`, `domain`, `trustProxy`, `trustedProxies`, `passkeyRpId`, `userMaxWorkers`, `mcpEnabled`, `mcpAllowedRedirectOrigins`, …) |
+| `orchestrator/server/utils/config.ts` | env parsing (`publicUrl`, `tunnelUrl`, `editorUrl`, `domain`, `trustProxy`, `trustedProxies`, `passkeyRpId`, `userMaxWorkers`, `mcpEnabled`, `mcpAllowedRedirectOrigins`, …) and the tunnel URL rules (§4.5) |
 | `orchestrator/server/utils/keys.ts` | HKDF derivations (mirror of `internal/keys`) |
-| `orchestrator/server/utils/auth.ts` | better-auth instance, plugin configurations, hooks, indexes |
-| `orchestrator/server/utils/auth-policy.ts` | pure policy: the HTTP allowlist (`isAuthHttpEndpoint`, `authHttpAllowlist`), rate limits, `trustedOrigins`, `resolvePasskeyConfig`, `resolveMcpConfig`, `isAllowedMcpRedirect` |
+| `orchestrator/server/utils/auth.ts` | better-auth instances per origin (`useAuth(origin)`, `useAuthContext()` of the data instance), plugin configurations, hooks, indexes, the boot-time links of stored OAuth clients to every origin's `/mcp` (`linkOAuthClientsToMcpResources`) |
+| `orchestrator/server/utils/auth-policy.ts` | pure policy: the HTTP allowlist (`isAuthHttpEndpoint`, `authHttpAllowlist`), rate limits, and per origin `configuredOrigins`, `dataAuthOrigin`, `trustedOrigins`, `resolvePasskeyConfig` (with `isRpIdFor`), `resolveMcpConfig`, `anyMcpOAuth`, `mcpOAuthResources`; `isAllowedMcpRedirect` |
+| `orchestrator/server/utils/tunnel.ts` | tunnel requests (§4.5): `classifyRequest`, `requestOriginOf`, `isTunnelRequest`, `originUrlOf`, `TUNNEL_REFUSED_PREFIXES`, `isTunnelRefusedPath`, `TUNNEL_WAIT_MAX_SECONDS` |
 | `orchestrator/server/utils/principal.ts` | principal types, credential parsers, effective role |
 | `orchestrator/server/utils/operations.ts` | operation registry and matcher |
 | `orchestrator/server/utils/authz.ts` | `requireUser`, `requireAdmin`, `requireSession`, `requireNode`, `requireWorker`, `requireScriptRun`, `requireTools`, `requireSetup`, `ownerFilter`, `callerFilter`, `loadOwned`, `resolveTask`, `resolveScript`, `resolveRevisionRef`, `loadOwnedScan`, `loadOwnedAnalysis`, `loadOwnedScriptRun`, `loadScansForScriptRun`, `loadRunScan`, `loadRunAnalysis`, `ownedRef` |
@@ -1063,10 +1210,11 @@ Specified in [mcp](mcp.md) §3:
 | `orchestrator/server/utils/node-tokens.ts`, `worker-tokens.ts`, `script-run-tokens.ts` | node token generation/validation; worker and script-run token mint/verify |
 | `orchestrator/server/utils/script-network.ts` | the subnets of `scantor-scripts` and the peer check of `/api/script-runtime/*` (§10.5) |
 | `orchestrator/server/utils/internal-auth.ts` | `sic_` capability mint/consume |
-| `orchestrator/server/middleware/00.request.ts` | request id, client IP header, 421 for the editor host |
-| `orchestrator/server/utils/client-ip.ts`, `trusted-proxy.ts` | client IP from the socket peer or a trusted proxy's `X-Forwarded-For`; the trusted proxy addresses and their refresh (§4.3) |
+| `orchestrator/server/middleware/00.request.ts` | request id, client IP header, 421 for the editor host and for a tunnel mismatch (§4.5) |
+| `orchestrator/server/utils/client-ip.ts`, `trusted-proxy.ts` | client IP from the socket peer or a trusted proxy's `X-Forwarded-For`; the trusted proxy addresses (`SCANTOR_TRUSTED_PROXIES`, `cloudflared`) and their refresh (§4.3), `isHostPeer` (§4.5) |
 | `orchestrator/server/middleware/01.path.ts`, `orchestrator/server/utils/request-path.ts` | canonical request paths (§5.5) |
-| `orchestrator/server/middleware/10.auth.ts`, `orchestrator/server/utils/credential-lookup.ts` | §5.5; session and API key lookups (401 only for a rejected credential, §5.2) |
+| `orchestrator/server/middleware/01.tunnel.ts` | 404 for the refused prefixes on tunnel requests (§4.5) |
+| `orchestrator/server/middleware/10.auth.ts`, `orchestrator/server/utils/credential-lookup.ts` | §5.5; session and API key lookups on the request origin's instance (`lookupSession(credential, origin)`; 401 only for a rejected credential, §5.2) |
 | `orchestrator/server/middleware/11.passkey-guard.ts` | §6.4 |
 | `orchestrator/server/services/registry/token.ts` | registry token server |
 | `orchestrator/server/api/tools/session.get.ts`, `forward-auth.get.ts` | §11 |
@@ -1085,10 +1233,11 @@ Decisions made in this document, flagged for lead review:
 3. **API keys are rejected on `/api/auth/*`.** Otherwise a stolen key becomes a better-auth session, which can
    register passkeys, change the email or approve OAuth consents.
 4. **Client IP through `x-scantor-client-ip`**, set by middleware from the socket or, with
-   `SCANTOR_TRUST_PROXY=true` and a socket peer in `SCANTOR_TRUSTED_PROXIES`, from the rightmost
-   `X-Forwarded-For` entry. better-auth's `ipAddressHeaders` is always this header, because its default trusts
-   `x-forwarded-for` unconditionally. Trust is decided per connection, because the orchestrator shares
-   `scantor-sandbox` with user code that could otherwise choose its own rate-limit bucket (§4.3).
+   `SCANTOR_TRUST_PROXY=true` and a socket peer in `SCANTOR_TRUSTED_PROXIES` (or with `SCANTOR_TUNNEL_URL` and the
+   peer `cloudflared`), from the rightmost `X-Forwarded-For` entry. better-auth's `ipAddressHeaders` is always
+   this header, because its default trusts `x-forwarded-for` unconditionally. Trust is decided per connection,
+   because the orchestrator shares `scantor-sandbox` with user code that could otherwise choose its own
+   rate-limit bucket (§4.3).
 5. **Central operation registry with deny-by-default.** `x-scantor-scope`, `x-admin-only`, `x-read-only`,
    `x-session-only` and the MCP level are enforced in the middleware from the runtime OpenAPI document, and
    handlers re-assert them. `x-session-only` and `x-destructive` are defined in [api](api.md) §1.1.
@@ -1104,9 +1253,9 @@ Decisions made in this document, flagged for lead review:
    agentor), so an aborted ceremony cannot lock setup.
 10. **Passkey freshness guard**: passkey registration without a setup context needs a session younger than
     24 h, because `requireSession: false` would skip better-auth's fresh-session check.
-11. **Trusted origins** are the public origin plus loopback aliases when the host is `localhost`. The editor
-    origin is never trusted. CORS without credentials is enabled only on discovery, token, registration, JWKS
-    and `/mcp`.
+11. **Trusted origins** are the public origin plus loopback aliases when the host is `localhost`, and on the
+    tunnel instance only the tunnel origin; no instance trusts another's. The editor origin is never trusted.
+    CORS without credentials is enabled only on discovery, token, registration, JWKS and `/mcp`.
 12. **Passkeys are disabled for IP-literal hosts** (WebAuthn forbids IP RP IDs).
 13. **Tool hosts** are the fixed Traefik subdomains `traefik.`, `rabbitmq.`, `mongo-express.` and `rustfs.`
     of `SCANTOR_DOMAIN` ([deployment](deployment.md) decision 14) and form the forwardAuth `X-Forwarded-Host`
@@ -1126,6 +1275,17 @@ Decisions made in this document, flagged for lead review:
     of `scantor-scripts` that are not a trusted proxy, checked before the token, so a token that leaks through a
     log or an output is useless outside the master. The dev stack relaxes the peer source to `X-Forwarded-For`
     because `nuxt dev` hides the socket peer.
+19. **A tunnel request needs the `cloudflared` peer and the tunnel host together** (§4.5). Either mark alone can be
+    produced by mistake (an "HTTP Host Header" override, an unresolved `cloudflared`) or by a client (any `Host`),
+    so one alone is 421 instead of a
+    silent fallback to the public origin. The machine, registry, tools and editor prefixes are 404 through the
+    tunnel before any credential is read, `/api/runtime/*` included, because no node or worker uses the tunnel URL.
+    `nuxt dev` decides by `Host` alone, like the script runtime's peer check (decision 18).
+20. **One better-auth instance per origin** (§2.2) instead of one instance with a dynamic `baseURL`: better-auth's
+    MCP verification refuses a dynamic base URL, the passkey rpID and the MCP resource are fixed per plugin, and
+    server-side `auth.api.*` calls carry no `Host`. Per-origin instances keep the issuer, audience, cookies, CSRF
+    origin and passkey rpID exact; the instances share the collections, keys, secret and the in-memory rate
+    limiter, and the tunnel instance, whose plugins are a superset, serves as the data instance.
 
 ## 16. Future extensions
 
@@ -1143,3 +1303,4 @@ Decisions made in this document, flagged for lead review:
 | Audit log | `events` with `userId: null` already carries security events; add `auth.*` event types for sign-in, key creation, ban and role changes. |
 | Secret rotation without downtime | better-auth `secrets` (versioned) for the better-auth key; dual-key verification windows for worker, script-run and editor MACs. |
 | Script-run principals for other surfaces | The principal already carries `scanIds` and `limit`; a future scope for other runtime APIs (local runs over a user API key) would map onto the same `loadRunScan` binding. |
+| Cloudflare Access on the tunnel URL | `classifyRequest` is the one place that recognises tunnel requests; it can additionally verify `Cf-Access-Jwt-Assertion` against the Access team's keys and refuse requests without it, before any scantor credential is looked at. |

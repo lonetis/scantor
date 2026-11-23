@@ -15,7 +15,7 @@ better-auth configuration in [auth](auth.md), and the prompt-injection threat mo
 MCP client ──OAuth 2.1 (DCR or CIMD, PKCE S256)──► better-auth mcp():  /api/auth/oauth2/*, /.well-known/*
 MCP client ──POST /mcp  Authorization: Bearer <access JWT | sk_scantor_…>──►
   orchestrator/server/routes/mcp.ts
-    ├─ canonicalise the request URL to ${SCANTOR_PUBLIC_URL}/mcp
+    ├─ canonicalise the request URL to <origin>/mcp (public URL, or tunnel URL for a tunnel request)
     ├─ API key?  → user principal (auth.md §5.2), level write|admin                    (§3.7)
     │  else      → requireMcpAuth: signature, iss, aud, exp, scope, DPoP (JWKS over the loopback listener)
     │              → resolveTokenUser: user exists, not banned, consent exists → level read|write|admin
@@ -43,22 +43,23 @@ masking of `writeOnly` secrets and audit logging are identical for every surface
 
 | Item | Value |
 |---|---|
-| URL | `${SCANTOR_PUBLIC_URL}/mcp` (dashboard host only) |
+| URL | `${SCANTOR_PUBLIC_URL}/mcp`, and `${SCANTOR_TUNNEL_URL}/mcp` for tunnel requests (dashboard listener only, [auth](auth.md) §4.5) |
 | SDK | `@modelcontextprotocol/server` 2.3.x (MCP SDK v2) |
 | handler | `createMcpHandler(factory, { legacy: 'stateless', responseMode: 'auto', keepAliveMs: 15000, maxRequestBodySize: 1048576, onerror })` |
 | protocol versions | the 2026-07-28 revision and the 2025 revisions (2024-11-05 … 2025-11-25, served statelessly) |
 | methods | `POST`. For 2025-era traffic `GET` and `DELETE` answer 405 (stateless serving has no sessions). |
 | state | none: each request builds a new `McpServer` bound to the caller; no MCP session ids are issued |
-| server info | `{ name: "scantor", title: "scantor", version: <scantor version>, icons }`; `icons` are `${SCANTOR_PUBLIC_URL}/favicon.svg` (`sizes: ["any"]`) and `/android-chrome-192x192.png`, the app icon of `brand/favicons` that the dashboard serves without a session on the origin of `/mcp` ([ui](ui.md) §1) |
+| server info | `{ name: "scantor", title: "scantor", version: <scantor version>, icons }`; `icons` are `<origin>/favicon.svg` (`sizes: ["any"]`) and `<origin>/android-chrome-192x192.png`, the app icon of `brand/favicons` that the dashboard serves without a session on the origin of `/mcp` ([ui](ui.md) §1); `<origin>` is the request's origin, because a client that came through the tunnel URL may not reach the public URL |
 | capabilities | `tools` (no `listChanged`), `resources` (no `subscribe`), `instructions`; no prompts, sampling or elicitation in v1 |
 | CORS | `Access-Control-Allow-Origin: *` without credentials; allowed headers `authorization, content-type, mcp-protocol-version, mcp-session-id, x-api-key`; `OPTIONS` answered by the route |
 | cookies | ignored: `/mcp` never authenticates with the dashboard session, so it needs no CSRF protection |
-| implementation | `orchestrator/server/routes/mcp.ts` (route), `orchestrator/server/services/mcp/{server,auth,tools,arguments,bridge,truncate,untrusted,resources}.ts` |
+| implementation | `orchestrator/server/routes/mcp.ts` (route; one handler per origin, `createScantorMcpHandler(readGuide, loopbackOrigin, origin)`), `orchestrator/server/services/mcp/{server,auth,tools,arguments,bridge,truncate,untrusted,resources}.ts` |
 
-URL canonicalisation (Traefik forwards `http://orchestrator:3000/mcp`, but tokens and DPoP proofs are bound to
-the public URL):
+URL canonicalisation (Traefik and cloudflared forward `http://orchestrator:3000/mcp`, but tokens and DPoP proofs are
+bound to the resource of the request's origin):
 
 ```ts
+const mcpConfig = resolveMcpConfig(useConfig(), requestOriginOf(event))   // public or tunnel (auth.md §4.5)
 const url = new URL(request.url)
 const canonical = new Request(new URL(url.search, mcpConfig.resource), {
   method: request.method, headers: request.headers, body: request.body, duplex: 'half',
@@ -70,11 +71,16 @@ const canonical = new Request(new URL(url.search, mcpConfig.resource), {
 ### 3.1 OAuth 2.1 flow
 
 The authorization server is better-auth's `mcp()` plugin (built on `@better-auth/oauth-provider`) with
-`jwt()` and `cimd()`. Its configuration is in [auth](auth.md) §2.2.
+`jwt()` and `cimd()`. Its configuration is in [auth](auth.md) §2.2. Every origin is its own authorization server:
+`<origin>` below is the request's origin, `SCANTOR_PUBLIC_URL` or, for a tunnel request, `SCANTOR_TUNNEL_URL`
+([auth](auth.md) §4.5), whose better-auth instance has the issuer `<origin>/api/auth` and the resource
+`<origin>/mcp`. Clients, consents and signing keys are shared between the origins (a new client is linked to the
+`/mcp` of every origin, and boot step 3 links clients registered before an origin existed, [auth](auth.md) §2.2);
+tokens are not (§3.6).
 
 | Endpoint | URL |
 |---|---|
-| protected resource metadata (RFC 9728) | `GET /.well-known/oauth-protected-resource/mcp` → `{resource: "<public>/mcp", authorization_servers: ["<public>/api/auth"], scopes_supported, bearer_methods_supported: ["header"], resource_name: "scantor"}` |
+| protected resource metadata (RFC 9728) | `GET /.well-known/oauth-protected-resource/mcp` → `{resource: "<origin>/mcp", authorization_servers: ["<origin>/api/auth"], scopes_supported, bearer_methods_supported: ["header"], resource_name: "scantor"}` |
 | authorization server metadata (RFC 8414) | `GET /.well-known/oauth-authorization-server/api/auth` |
 | OpenID provider metadata | `GET /.well-known/openid-configuration/api/auth` (path insertion, which MCP clients try) and `GET /api/auth/.well-known/openid-configuration` (appended, OpenID Connect Discovery 1.0): the same document |
 | registration (RFC 7591, anonymous) | `POST /api/auth/oauth2/register` |
@@ -90,27 +96,30 @@ answers the path-insertion URL with that document, and it adds `resource_name`, 
 protected-resource metadata lacks.
 
 1. `POST /mcp` without a credential → 401 with
-   `WWW-Authenticate: Bearer resource_metadata="<public>/.well-known/oauth-protected-resource/mcp", scope="offline_access scantor:read scantor:write scantor:admin"`.
+   `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp", scope="offline_access scantor:read scantor:write scantor:admin"`.
 2. The client reads both metadata documents. It identifies itself through a **Client ID Metadata Document**
    (its `client_id` is an https URL, §3.5) or registers dynamically. Dynamic registration is unauthenticated
    (MCP clients have no initial access token) and subject to the redirect-URI policy (§3.4).
    `clientRegistrationDefaultApplicationType: 'infer'` treats registrations without `application_type` but
    with loopback or private-scheme redirect URIs as native clients.
-3. The browser opens `/api/auth/oauth2/authorize?…&code_challenge_method=S256&resource=<public>/mcp`. PKCE
-   is mandatory for public clients. A browser that is not signed in is sent to `/login?<signed query>`;
-   after sign-in better-auth continues to `/oauth/consent`.
+3. The browser opens `/api/auth/oauth2/authorize?…&code_challenge_method=S256&resource=<origin>/mcp`. PKCE
+   is mandatory for public clients. A `resource` of the other origin is refused at authorize and token
+   ([auth](auth.md) §2.8). A browser that is not signed in is sent to `/login?<signed query>` on the same
+   origin, so sign-in and consent use that origin's own session; after sign-in better-auth continues to
+   `/oauth/consent`.
 4. The user approves on the consent page (§3.3). The client exchanges the code at the token endpoint
    (form, with `resource`).
-5. Tokens: the access token is a JWT (lifetime 1 h, `aud = <public>/mcp`, `iss = <public>/api/auth`,
+5. Tokens: the access token is a JWT (lifetime 1 h, `aud = <origin>/mcp`, `iss = <origin>/api/auth`,
    `sub = userId`, `client_id`/`azp`, `scope`), signed with the `jwt()` keys. A refresh token is issued with
    `offline_access` (lifetime 30 days, rotated; the MCP plugin's 30 s reuse window absorbs retried refreshes).
    Authorization codes are valid for 10 minutes.
-6. Every `/mcp` request: `requireMcpAuth(useAuth(), handler, options)` verifies the token. The options are:
+6. Every `/mcp` request: `requireMcpAuth(useAuth(origin), handler, options)` verifies the token with the instance
+   of the request's origin, so a token issued on the other origin fails its issuer and audience. The options are:
 
    ```ts
    {
-     resource: `${publicUrl}/mcp`,
-     jwksUrl: `${loopbackOrigin}/api/auth/jwks`,   // the loopback listener (§1): never the public URL
+     resource: `${originUrl}/mcp`,                 // originUrlOf(config, origin)
+     jwksUrl: `${loopbackOrigin}/api/auth/jwks`,   // the loopback listener (§1), never a public origin; one key set
      requiredScopes: ['scantor:read'],
      isScopeSatisfied: (required, granted) =>
        required === 'scantor:read'
@@ -174,7 +183,7 @@ absolute URL without fragment or userinfo, and one of these holds:
 | # | Rule | Examples |
 |---|---|---|
 | 1 | scheme `http` and host `localhost`, `127.0.0.1` or `[::1]`, any port and path (RFC 8252 §7.3 loopback) | Claude Code, MCP Inspector, VS Code loopback callbacks |
-| 2 | scheme `https` and origin (scheme, host, port) listed in `SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS` | web-hosted connectors added by the operator |
+| 2 | scheme `https` and origin (scheme, host, port) listed in `SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS` | web-hosted connectors added by the operator, for example `https://claude.ai` for claude.ai, which reaches a master behind a firewall through the tunnel URL ([deployment](deployment.md) §10.2) |
 | 3 | private-use scheme (RFC 8252 §7.1): any scheme except `http`, `https`, `javascript`, `data`, `file`, `vbscript`, `blob`, `about`, `ftp`, `ws`, `wss` | `cursor://…` |
 
 An `https` URL on a loopback host is refused by every rule, even when its origin is listed: loopback redirects
@@ -212,6 +221,11 @@ listed that origin. Private-use schemes require an application installed on the 
 3. reject if no `oauthConsent` row exists for `(userId, client_id)` (revoked app);
 4. compute the level (§3.2).
 
+Consents are stored per user and client, not per origin: tokens and refreshes keep working on both origins, but
+each origin's authorization server issues its own tokens (§3.1), and better-auth keeps in the shared consent row only
+the resource of the origin approved through last. A client authorized again on one origin after an approval on the
+other therefore asks for consent again (and `prompt=none` fails with `consent_required`).
+
 Steps 1–3 failing returns HTTP 401 with JSON-RPC body
 `{"jsonrpc":"2.0","error":{"code":-32000,"message":"Access revoked: …"},"id":null}` and
 `WWW-Authenticate: Bearer error="invalid_token", error_description="…", resource_metadata="…"`.
@@ -235,18 +249,22 @@ Example client configuration:
 
 ### 3.8 Enabling and disabling
 
-`resolveMcpConfig(cfg)`:
+`resolveMcpConfig(cfg, origin)` decides per origin. The table shows the public origin; the tunnel origin, always
+https, is in the first or the second row:
 
 | Condition | `/mcp` | OAuth (plugins, discovery) | API keys on `/mcp` | `getInstanceInfo.features` |
 |---|---|---|---|---|
 | `SCANTOR_MCP_ENABLED=false` | 404 `notFound` | not registered; discovery 404 | no | `mcp: false, mcpOAuth: false` |
 | enabled, `SCANTOR_PUBLIC_URL` is https or http on a loopback host | on | on | yes | `mcp: true, mcpOAuth: true` |
-| enabled, `SCANTOR_PUBLIC_URL` is http on any other host | on | not registered (the `mcp()` plugin refuses non-loopback http resources); discovery 404; the 401 challenge has no `resource_metadata` | yes | `mcp: true, mcpOAuth: false` (the UI shows only the API-key snippet and explains that OAuth needs https) |
+| enabled, `SCANTOR_PUBLIC_URL` is http on any other host | on | not registered (the `mcp()` plugin refuses non-loopback http resources); discovery 404; the 401 challenge has no `resource_metadata` | yes | `mcp: true, mcpOAuth: false` (the UI shows only the API-key snippet and explains that OAuth needs https; with a tunnel URL it adds that OAuth works through the tunnel URL's endpoint) |
 
 `features.mcpOAuth` is part of `getInstanceInfo` ([api](api.md) §4.1).
 
-`getSetupStatus.mcpUrl` is `<public>/mcp` when `/mcp` is on, otherwise `null`. The disabled reason is logged
-at boot and shown on the "CLI & MCP access" page.
+The tunnel URL is always https, so through the tunnel OAuth is on whenever `/mcp` is, even while the public URL is
+plain http on a non-loopback host; `mcpOAuth` then differs between the origins. `features.mcpOAuth`,
+`getInstanceInfo.mcpUrl` and `getSetupStatus.mcpUrl` (`<origin>/mcp` when `/mcp` is on, otherwise `null`)
+describe the request's origin. The disabled reason names the variable of its origin (`SCANTOR_PUBLIC_URL` or
+`SCANTOR_TUNNEL_URL`); it is logged at boot and shown on the "CLI & MCP access" page.
 
 ## 4. Tools: generation and execution
 
@@ -324,6 +342,12 @@ request's level (`read < write < admin`).
 The client's OAuth token is never forwarded to REST routes: it is audience-bound (and possibly DPoP-bound) to
 `/mcp`. Loopback HTTP is used instead of Nitro `localFetch`, which buffers whole bodies on the event loop.
 
+A capability carries no origin, and requests of the loopback listener always classify as public
+([auth](auth.md) §4.5), so a tool call through the tunnel runs its REST operation as a public request. That is
+sound only while no `x-mcp` operation returns a URL that depends on the origin: `getInstanceInfo` and
+`getSetupStatus` are no tools, and the presigned URLs of exports point at `SCANTOR_S3_PUBLIC_URL` on both origins.
+A tool that ever needs the caller's origin must carry it in the capability.
+
 ### 4.4 Response mapping
 
 | REST response | Tool result |
@@ -337,7 +361,8 @@ The client's OAuth token is never forwarded to REST routes: it is audience-bound
 No tool returns binary content blocks. `read_analysis_file` and `read_test_run_file` return a file's content
 inside JSON, as UTF-8 text or base64, at most 96 KiB per call and paged with `offset`/`nextOffset`
 ([api](api.md) §4.15), so agents read files without reaching `SCANTOR_S3_PUBLIC_URL`. Exports return
-presigned download URLs, not data.
+presigned download URLs, not data; they point at `SCANTOR_S3_PUBLIC_URL`, which a client that came through the
+tunnel URL may not reach.
 
 ### 4.5 Response cap and truncation
 
@@ -423,7 +448,8 @@ Failures that are not HTTP errors stay in the success result. A failed revision 
 `publish_revision`, `get_revision`, `test_task`, `get_test_run`, `get_scan`, `export_scan`, `get_export`,
 `start_script_run`, `get_script_run` and `restart_script_run` accept `wait` (seconds) as in [api](api.md) §1.9. Many MCP clients time out tool calls at 60 s, so the bridge
 clamps `wait` to **50**. The generated input schema advertises `maximum: 50` with the description *"Seconds to
-wait for the resource to settle (0–50). Call again if it has not settled yet."* The REST header
+wait for the resource to settle (0–50). Call again if it has not settled yet."* 50 s is also below the 90 s that
+the API allows through the tunnel ([api](api.md) §1.9). The REST header
 `Scantor-Wait: settled|timeout` is added to the JSON result as `"_wait": "settled" | "timeout"`.
 
 ## 5. Curated tool list
@@ -611,6 +637,7 @@ Spec files follow the layout of [testing](testing.md) §2 (MCP specs in `tests/m
 | `tests/mcp/drift.spec.ts` | every tool named in the instructions, `docs/guide/` and `skills/` exists |
 | `tests/mcp/apikey.spec.ts` | `default` and `editor` keys on `/mcp`; editor key of an admin has no admin tools; invalid key → OAuth challenge |
 | `tests/mcp/agent-loop.spec.ts` | §7 end to end |
+| `tests/mcp/tunnel.spec.ts` | through the tunnel URL: discovery with the tunnel's issuer and resource, the PKCE flow on the tunnel origin, a tunnel token refused on the public `/mcp` and the other way round, another origin's `resource` refused, API keys |
 | `tests/authz/matrix.spec.ts` | the MCP half of the cross-tenant matrix ([security](security.md) §7) |
 | `tests/ui/consent.spec.ts` | consent page rendering, redirect origin shown, access-level choice, read-only approval |
 
@@ -651,6 +678,11 @@ Made in this document and flagged for lead review:
     outputs; deletion, history and presigned downloads stay in the UI and CLI. A run without `settings.limit`
     needs `confirm: true` through MCP (MCP-3), so an agent always tries a sample first and asks before reading
     every analysis. Script results, logs, errors, progress, checkpoints and outputs are code-derived and wrapped.
+15. **One authorization server per origin** ([auth](auth.md) §4.5): through the tunnel URL, `/mcp`, discovery and
+    OAuth use the tunnel's issuer `<tunnel URL>/api/auth` and resource `<tunnel URL>/mcp`, so web-hosted clients
+    such as claude.ai, which cannot reach a master behind a firewall, connect through the tunnel. Tokens stay
+    bound to the origin that issued them, while clients and consents are shared. Tool calls keep using the
+    loopback listener and carry no origin, because no tool returns an origin-dependent URL (§4.3).
 
 ## 11. Future extensions
 

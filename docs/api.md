@@ -75,6 +75,10 @@ yields 401 `unauthorized`:
 | every other `/api/*` | user |
 | `/mcp` (not under `/api`) | authenticates itself: MCP OAuth access tokens or API keys ([mcp](mcp.md) §3) |
 
+A tunnel request (through `SCANTOR_TUNNEL_URL`, [auth](auth.md) §4.5) reaches the same routes, except that
+`/api/node/*`, `/api/runtime/*`, `/api/script-runtime/*`, `/api/registry/*`, `/api/tools/*` and `/api/editor/*` are
+404 `notFound` there before any credential is parsed.
+
 Further rules of the global middleware ([auth](auth.md) §5):
 - **Deny by default.** The middleware resolves every `/api/*` request against an operation registry built
   from the runtime OpenAPI document. A path that matches no operation (outside the public and
@@ -88,8 +92,9 @@ Further rules of the global middleware ([auth](auth.md) §5):
 - Banned users are rejected for every user principal (403 `banned`); the user record is cached ≤ 30 s.
 - CSRF: cookie-authenticated `POST`, `PUT`, `PATCH` and `DELETE` requests must carry an `Origin` equal to a
   trusted origin, else 403 `forbidden`. Trusted origins are the origin of `SCANTOR_PUBLIC_URL` plus, when
-  its host is `localhost`, the `127.0.0.1` and `[::1]` aliases with the same scheme and port. The editor
-  origin is never trusted. API keys, MCP capabilities and machine tokens are not ambient and are exempt.
+  its host is `localhost`, the `127.0.0.1` and `[::1]` aliases with the same scheme and port; for a tunnel
+  request only the origin of `SCANTOR_TUNNEL_URL`. The editor origin is never trusted. API keys, MCP
+  capabilities and machine tokens are not ambient and are exempt.
 - MCP-originated calls are additionally filtered by level: `GET` and `x-read-only` operations need
   `scantor:read`, other operations `scantor:write`, `x-admin-only` operations `scantor:admin`; else 403
   `forbidden`.
@@ -180,7 +185,9 @@ Further rules of the global middleware ([auth](auth.md) §5):
 
 Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/token` (registry format, §6),
 `/api/tools/forward-auth` (302 or a 401 with a short `text/plain` body for Traefik, [auth](auth.md) §11),
-`/api/metrics` (text), `/mcp` (JSON-RPC).
+`/api/metrics` (text), `/mcp` (JSON-RPC), and the 421 Misdirected Request of the dashboard listener for the
+editor host and for a tunnel mismatch (`text/plain`, on every path, §9). There is no error code for the tunnel:
+its refused prefixes answer `notFound`.
 
 | Code | HTTP | Meaning |
 |---|---|---|
@@ -196,7 +203,7 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
 | `banned` | 403 | the user is banned |
 | `privilegedNotAllowed` | 403 | privileged revision without `canRunPrivileged` |
 | `quotaExceeded` | 403 | per-user storage quota reached (files of scans and test runs, script-run outputs) |
-| `notFound` | 404 | missing, deleted or not owned; an `/api/*` path that matches no operation |
+| `notFound` | 404 | missing, deleted or not owned; an `/api/*` path that matches no operation; a prefix refused through the tunnel ([auth](auth.md) §4.5) |
 | `methodNotAllowed` | 405 | the path matches an operation, the method does not |
 | `invalidState` | 409 | transition not allowed; `details: {state, allowed}` |
 | `alreadyExists` | 409 | unique name taken (also an output name of a script run) |
@@ -244,7 +251,10 @@ Exceptions to the envelope: `/api/auth/*` (better-auth format), `/api/registry/t
 
 ### 1.9 Long-polling with `wait`
 
-`wait` is an integer number of seconds (0–120, default 0) on the operations below. The handler returns
+`wait` is an integer number of seconds (0–120, default 0) on the operations below; through the tunnel the handler
+clamps it to 90, because Cloudflare answers 524 when the origin sends no response within its 125 s Proxy Read
+Timeout and a wait sends nothing until it ends (`getInstanceInfo.limits.waitMaxSeconds` tells clients the bound of
+their origin). The handler returns
 immediately when the resource is already settled; otherwise it holds the request until the resource
 settles or `wait` elapses, then returns the current representation with the normal status code. The
 response header `Scantor-Wait: settled|timeout` tells which. A client disconnect aborts the wait. When the
@@ -772,24 +782,26 @@ Columns: **Scope** per §1.2; **MCP** = `x-mcp`; request fields marked `?` are o
 | `GET /api/docs` | – (`server/routes/api/docs.get.ts`) | public | no | – | Scalar UI, loading one pinned bundle with its integrity hash ([ui](ui.md) §13) |
 | `GET /api/info` | `getInstanceInfo` | owner | no | – | `InstanceInfo` (below) |
 
-`InstanceInfo`:
+`InstanceInfo` describes the instance as seen through the origin of the request ([auth](auth.md) §4.5):
 
 | Field | Type | Meaning |
 |---|---|---|
 | `version` | string | orchestrator version |
-| `publicUrl`, `editorUrl`, `mcpUrl` | string; `mcpUrl` null when MCP is disabled | `SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `<public>/mcp` |
+| `origin` | `"public"`\|`"tunnel"` | the origin the request came through; clients decide by it, never by comparing their own URL with `publicUrl` |
+| `publicUrl`, `tunnelUrl`, `editorUrl` | string; `tunnelUrl` null without a tunnel | `SCANTOR_PUBLIC_URL`, `SCANTOR_TUNNEL_URL`, `SCANTOR_EDITOR_URL`, the same on both origins |
+| `mcpUrl` | string; null when MCP is disabled | `<origin>/mcp` of the request's origin |
 | `registryPublicHost` | string | `SCANTOR_REGISTRY_PUBLIC_HOST` |
 | `cliImage` | string | `<SCANTOR_IMAGE_PREFIX>scantor:<image tag>`, the image of the UI's CLI alias snippet; the image tag is the orchestrator version when it is a release version (`X.Y.Z`), otherwise `SCANTOR_IMAGE_TAG` (builds from `main` and dev builds have no version tag); same rule as `NodeJoin` (§4.17) |
-| `features` | `{passkeys, mcp, mcpOAuth, editor}` booleans | `mcpOAuth` is false when `SCANTOR_MCP_ENABLED=false` or when `SCANTOR_PUBLIC_URL` is plain http on a non-loopback host; `/mcp` then accepts API keys only ([mcp](mcp.md) §3.8) |
-| `limits` | `{maxWorkersPerScan, maxProcessesPerWorker, maxResultBytes, maxFileBytes, scanConfirmThreshold, waitMaxSeconds: 120}` | |
+| `features` | `{passkeys, mcp, mcpOAuth, editor, downloads}` booleans | per request origin. `passkeys` per [auth](auth.md) §4.4. `mcpOAuth` is false when `SCANTOR_MCP_ENABLED=false` or when the origin's URL is plain http on a non-loopback host (never for the tunnel URL); `/mcp` then accepts API keys only ([mcp](mcp.md) §3.8). `editor` and `downloads` (presigned S3 downloads, §4.15) are false through the tunnel |
+| `limits` | `{maxWorkersPerScan, maxProcessesPerWorker, maxResultBytes, maxFileBytes, scanConfirmThreshold, waitMaxSeconds}` | `waitMaxSeconds` is 120, through the tunnel 90 (§1.9) |
 | `user` | `{id, role}` | the caller |
-| `adminTools` | `{enabled, items: [{target: "rabbitmq"\|"mongo-express"\|"rustfs"\|"traefik", title, url}]}`; present only for callers with effective admin power | `enabled` = Traefik with forwardAuth is configured (`SCANTOR_DOMAIN` not empty); `url` is the tool URL of [auth](auth.md) §11 when enabled, else null (the UI then shows the `SCANTOR_ADMIN_BIND_ADDRESS` hint). Used by `/admin/tools` |
+| `adminTools` | `{enabled, items: [{target: "rabbitmq"\|"mongo-express"\|"rustfs"\|"traefik", title, url}]}`; present only for callers with effective admin power | `enabled` = Traefik with forwardAuth is configured (`SCANTOR_DOMAIN` not empty); `url` is the tool URL of [auth](auth.md) §11 when enabled, else null (the UI then shows the `SCANTOR_ADMIN_BIND_ADDRESS` hint). Used by `/admin/tools`; the same on both origins, while the UI offers the tools only on the public origin |
 
 ### 4.2 `setup`
 
 | Operation | operationId | Scope | MCP | Request | Response |
 |---|---|---|---|---|---|
-| `GET /api/setup/status` | `getSetupStatus` | public | no | – | `{needsSetup, passkeysEnabled, mcpUrl: string\|null}` |
+| `GET /api/setup/status` | `getSetupStatus` | public | no | – | `{needsSetup, passkeysEnabled, mcpUrl: string\|null}`; `passkeysEnabled` and `mcpUrl` describe the request's origin, like `getInstanceInfo` |
 | `POST /api/setup/admin` | `createSetupAdmin` | setup | no | `{email, name, password}` (password 8–128 chars) | 201 `User`; 409 `setupCompleted`; 401 `setupTokenInvalid` |
 | `POST /api/setup/admin-passkey-token` | `createSetupPasskeyToken` | setup | no | `{email, name}` | 201 `{token, expiresIn: 300}` (passkey-first admin, consumed by passkey registration); 400 `passkeysDisabled` |
 
@@ -993,7 +1005,10 @@ Exports: JSONL rows are whole analysis documents (or the `fields` projection), m
 `fields` (default `id, seq, status, attempt, round, error.type, error.message, timings.durationMs, config,
 result`); nested values are JSON-encoded; any cell starting with `=`, `+`, `-`, `@`, tab or CR is prefixed
 with `'`. Download URLs are presigned GETs of `SCANTOR_S3_PUBLIC_URL` valid for 10 minutes with
-`Content-Disposition: attachment`. File downloads follow [architecture](architecture.md) §11.5.
+`Content-Disposition: attachment`. File downloads follow [architecture](architecture.md) §11.5. Presigned URLs
+point at `SCANTOR_S3_PUBLIC_URL` on both origins, which a client that came through the tunnel usually cannot reach:
+the UI disables them there (`features.downloads`, §4.1), while uploads through `/api/uploads` and the inline reads
+below work on both origins.
 
 Inline file reads (`readAnalysisFile`, `readTestRunFile`, one shared service
 `server/services/files/content.ts`) return one byte range of a stored file as `FileContent` JSON, for clients
@@ -1056,6 +1071,9 @@ strings in [nodes](nodes.md) §4).
 | `GET /api/tools/session` | `createToolsSession` | admin (`x-session-only`) | no | `?target=rabbitmq\|mongo-express\|rustfs\|traefik` | 302 to the tool URL with `Set-Cookie: scantor_tools=…; Domain=<SCANTOR_DOMAIN>; Path=/; Secure; HttpOnly; SameSite=Lax` (8 h); 404 `notFound` when `SCANTOR_DOMAIN` is empty (no Traefik) |
 | `GET /api/tools/forward-auth` | `toolsForwardAuth` | tools | no | Traefik forwardAuth headers (`X-Forwarded-Host`, `X-Forwarded-Uri`, `X-Forwarded-Method`) and the client's `Accept` | 200 with `X-Scantor-User: <userId>`. When `X-Forwarded-Host` is not one of the tool hosts `traefik.`, `rabbitmq.`, `mongo-express.`, `rustfs.<SCANTOR_DOMAIN>`: always 401 with a short `text/plain` body. When the cookie is missing, invalid, expired or not an admin's: a browser request (`Accept` contains `text/html`) gets 302 to `<SCANTOR_PUBLIC_URL>/api/tools/session?target=<target of X-Forwarded-Host>`, which mints a fresh cookie for admins; any other request gets 401 with a short `text/plain` body ([auth](auth.md) §11); this route never uses the §1.7 envelope |
 
+Through the tunnel every `/api/editor` and `/api/tools` operation is 404 `notFound` ([auth](auth.md) §4.5): the
+editor origin and the admin tools are served only beside the public URL. `getMetrics` stays reachable for admins.
+
 ### 4.19 `scripts`
 
 `{script}` is a script id (uuid) or a script name, looked up among the **caller's** scripts (admins use ids for
@@ -1104,7 +1122,8 @@ list items do not.
 
 The API of script-run containers, specified in [scripts](scripts.md) §9. Every request carries
 `Authorization: Bearer ssr_<scriptRunId>.<mac>` and must come from a socket peer in the Docker network
-`scantor-scripts` that is not a trusted proxy (403 `forbidden` otherwise, checked before the token). The run must
+`scantor-scripts` that is not a trusted proxy (403 `forbidden` otherwise, checked before the token; through the
+tunnel every route is 404 `notFound` before that check, [auth](auth.md) §4.5). The run must
 be `running` and its owner not banned (401 `unauthorized` otherwise); there is no version check. Every scan and
 analysis is checked against the run's `scanIds` and the owner (`loadRunScan`, 404). Body caps: 1 MiB, `finish` and
 `checkpoint` `max(1 MiB, SCANTOR_MAX_RESULT_BYTES) + 128 KiB`.
@@ -1185,7 +1204,9 @@ never do. Repeated `scantor push
 
 Registry configuration: realm `${SCANTOR_PUBLIC_URL}/api/registry/token`, service `scantor-registry`, issuer
 `scantor`. The realm is called by Docker daemons (host network namespace of each node, including the
-master), never by containers, so it must be reachable from every daemon. Tokens are ES256 JWTs (header `{"alg": "ES256", "typ": "JWT", "kid": "<jwks kid>"}`), valid 300 s.
+master), never by containers, so it must be reachable from every daemon. It is never the tunnel URL: through the
+tunnel `/api/registry/*` is 404 `notFound` ([auth](auth.md) §4.5). Tokens are ES256 JWTs (header
+`{"alg": "ES256", "typ": "JWT", "kid": "<jwks kid>"}`), valid 300 s.
 Granted access is the intersection of requested and allowed actions:
 
 | Credential (Basic) | Allowed |
@@ -1261,7 +1282,8 @@ credential. No `refresh_token` is issued.
 Every request carries `Authorization: Bearer snt_…`, `User-Agent: scantor-node/<version>`,
 `X-Scantor-Version: <version>` and (after hello) `X-Scantor-Instance-Id: <instanceId>`. Responses carry
 `serverTime` (epoch ms); the daemon keeps `clockOffsetMs = serverTime + rtt/2 − localNow`.
-Error responses use the §1.7 envelope.
+Error responses use the §1.7 envelope. Through the tunnel every route is 404 `notFound`: a node's `SCANTOR_URL` is
+the public or the internal URL, never the tunnel URL ([auth](auth.md) §4.5).
 
 | Operation | operationId | Purpose |
 |---|---|---|
@@ -1488,7 +1510,8 @@ Response 204. 404 when the worker is not assigned to this node or the request id
 Every request carries `Authorization: Bearer swt_<workerId>.<mac>`, `User-Agent: scantor-runtime/<version>`
 and `X-Scantor-Version`. Identity (scan, worker, role, node) comes only from the token. A token of a worker
 in a terminal state is 401: the runtime treats 401 like `action: "stop"`. Scheduler-only routes reject
-runners with 403 `forbidden`.
+runners with 403 `forbidden`. Through the tunnel every route is 404 `notFound`: workers use the URLs of their
+node's endpoint profile ([architecture](architecture.md) §8).
 
 | Operation | operationId | Role | Purpose |
 |---|---|---|---|
@@ -1844,12 +1867,12 @@ scheduler with a `schedule`-phase or retryable error, `scheduling.restarts` is i
 
 ## 9. Non-API routes
 
-The orchestrator process has two HTTP listeners. Host checks use the `Host` header as sent (Traefik
-preserves it); `X-Forwarded-Host` is never trusted for this.
+The orchestrator process has two HTTP listeners. Host checks use the `Host` header as sent (Traefik and
+cloudflared preserve it); `X-Forwarded-Host` is never trusted for this.
 
 | Listener | Container port | Accepts `Host` | Serves |
 |---|---|---|---|
-| dashboard (Nitro) | 3000 | anything except the editor host, which gets 421 Misdirected Request | UI, `/api/*`, `/mcp`, discovery; never editor routes |
+| dashboard (Nitro) | 3000 | anything except the editor host, which gets 421 Misdirected Request; with a tunnel URL, its host only from the socket peer `cloudflared` and from that peer only its host (421 otherwise, [auth](auth.md) §4.5) | UI, `/api/*`, `/mcp`, discovery; never editor routes; through the tunnel without the refused prefixes (§1.2) |
 | editor ([editor](editor.md) §8.1) | 3001 | only the host (and port) of `SCANTOR_EDITOR_URL`; anything else gets 421 | `/_auth` and the proxy; nothing else (no `/api`, no assets) |
 
 | Route | Listener | Purpose |
@@ -1863,7 +1886,8 @@ preserves it); `X-Forwarded-Host` is never trusted for this.
 | `/*` (HTTP and WebSocket) | editor | byte-level relay to the caller's code-server unix socket with `cookie`, `authorization`, `x-api-key`, `x-scantor-*` and forwarding headers stripped and `Set-Cookie` removed from responses; WebSocket upgrades require `Origin` = editor origin; `Content-Security-Policy: frame-ancestors 'self' <dashboard origin>` |
 
 Compose publishes `SCANTOR_PORT` → 3000 and `SCANTOR_EDITOR_PORT` → 3001; with Traefik the editor router
-targets 3001. The dashboard's `/editor` page only embeds the editor origin in an iframe.
+targets 3001. The tunnel publishes nothing: cloudflared forwards to `orchestrator:3000` on the compose network.
+The dashboard's `/editor` page only embeds the editor origin in an iframe.
 
 ## 10. MCP-exposed operations
 
@@ -1942,6 +1966,12 @@ Item 18 records a round-1 ruling.
     listed or deleted, and resolved like every revision route (`resolveTask` + `resolveTaskRevision`). Its
     representation carries the recipient's `commands`, the single source of the copy-paste lines of the UI and
     the CLI, and a download presigned on every read, like exports.
+21. **The tunnel URL is a second origin, not a second API** ([auth](auth.md) §4.5): tunnel requests reach the same
+    routes with the same principals, and no route, operation or error code is added. The refused prefixes answer
+    the existing 404 `notFound`, so they reveal nothing an unknown path would not; a mismatch gets the dashboard
+    listener's `text/plain` 421; `wait` is clamped to 90 s, below Cloudflare's 125 s Proxy Read Timeout. `InstanceInfo` gains
+    `origin`, `tunnelUrl` and `features.downloads`, and its `mcpUrl`, `features` and `limits` follow the request's
+    origin, so clients learn what the origin they use offers without comparing URLs.
 
 ## 12. Future extensions
 

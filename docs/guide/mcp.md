@@ -49,6 +49,23 @@ accepted too). OAuth redirects back to the client must go to `localhost`, `127.0
 Web-hosted clients with an `https` redirect work only after the operator lists their origin in
 `SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS`.
 
+### claude.ai and other web-hosted clients
+
+claude.ai and other clients that run on their provider's servers connect to scantor from the internet. When the
+operator has set up a Cloudflare Tunnel, use the tunnel URL: `<tunnel URL>/mcp`. The **CLI & MCP access** page
+shows the URLs of the address it was opened on; opened on the public URL it also lists `<tunnel URL>/mcp`.
+
+1. The operator adds `https://claude.ai` to `SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS` (the redirect back to
+   claude.ai after the consent).
+2. In claude.ai, add a custom connector with the URL `<tunnel URL>/mcp` and connect it.
+3. Sign in and approve on the consent page, which opens on the tunnel URL. It has its own session, so you sign
+   in there once even when you are signed in on the public URL; a passkey of the public URL may not work there,
+   while your password does.
+
+Every tool works through the tunnel URL. Download links (the `download.url` of an export) point at the instance's
+storage, which the tunnel does not serve: read files with `read_analysis_file`, `read_test_run_file` and
+`read_script_run_output` instead, and download exports from the web UI on the public URL.
+
 ### Inside the browser editor
 
 The editor's terminal has `SCANTOR_URL` and `SCANTOR_TOKEN` set to a key of your own that is replaced
@@ -81,8 +98,10 @@ ends its access at once. Delete an API key to revoke it. Banned users lose acces
 ### When OAuth is not available
 
 OAuth needs scantor to be served over `https` (or on `localhost`). On an instance with a plain `http`
-URL the access page shows only the API-key setup, and clients must send an API key. When the operator
-turned MCP off (`SCANTOR_MCP_ENABLED=false`), `/mcp` answers 404 and the access page says so.
+URL the access page shows only the API-key setup, and clients must send an API key there. A tunnel URL
+is always `https`, so when the operator set one, OAuth still works through `<tunnel URL>/mcp`, and the
+access page says so. When the operator turned MCP off (`SCANTOR_MCP_ENABLED=false`), `/mcp` answers 404
+and the access page says so.
 
 ## Tools
 
@@ -168,8 +187,10 @@ try it on 100 analyses first." The instructions below tell the agent how to proc
 | `401` with a sign-in prompt in the client | no credential, an expired or revoked token, a deleted API key, or a revoked approval: authenticate again |
 | `403 insufficient_scope` | the token has no scantor access level; approve the client again |
 | a tool is missing | the level is too low (for example read only), or the tool is admin-only |
-| authorization fails without redirecting | the client's redirect URI is not allowed (see [other clients](#other-clients)) |
+| authorization fails without redirecting | the client's redirect URI is not allowed (see [other clients](#other-clients)); for claude.ai the operator must list `https://claude.ai` |
 | tool calls time out | the client's own tool timeout is shorter than `wait`; use a smaller `wait` and call again |
+| a download URL does not open | the client reaches scantor through the tunnel URL, which does not serve the storage behind download links; read files inline (`read_analysis_file`, `read_script_run_output`) or download from the public URL (see [claude.ai](#claudeai-and-other-web-hosted-clients)) |
+| `421 Misdirected Request` from the tunnel URL | the operator's Cloudflare Tunnel route does not point straight at scantor; ask the operator to fix it |
 
 ## Server instructions
 
@@ -229,7 +250,8 @@ the signed-in user.
    `restart_scan` starts a new scan with the same revision and configs. To use fixed code, publish a
    new revision and start a new scan.
 10. Export: `export_scan {"scanId": "…", "format": "jsonl", "wait": 50}`, then `get_export` until
-    `download.url` exists; give that URL (valid 10 minutes) to the user.
+    `download.url` exists; give that URL (valid 10 minutes) to the user. It does not open through a tunnel
+    URL; then the user downloads the export from the scan's Exports tab at the public URL.
 
 ### Scripts
 

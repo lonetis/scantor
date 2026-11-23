@@ -46,7 +46,7 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
 
 | Term | Definition | Not |
 |---|---|---|
-| **master** | The central deployment reachable by users and nodes: orchestrator, MongoDB, RabbitMQ, RustFS, registry, mongo-express, optional Traefik, and the built-in node. | control plane, head node |
+| **master** | The central deployment reachable by users and nodes: orchestrator, MongoDB, RabbitMQ, RustFS, registry, mongo-express, optional Traefik, optional tunnel (`cloudflared`), and the built-in node. | control plane, head node |
 | **orchestrator** | The Nuxt 4 application on the master (image `scantor-orchestrator`). It serves the web UI, the REST API (`/api/*`), the MCP endpoint (`/mcp`) and the editor origin, and runs the ingestor, reconciler, jobs runner and the other internal components of §4.1. | backend, brain |
 | **node** | A machine that contributes compute by running a node daemon. Identified by a node record and authenticated by a node token. | agent, runner, worker machine |
 | **built-in node** | The node that runs on the master itself, created automatically, with the `internal` endpoint profile. Its node token is derived from `SCANTOR_SECRET`. | local node |
@@ -58,6 +58,9 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
 | **assignment** | One entry of a node's desired worker set as returned by `GET /api/node/assignments`. | job, lease |
 | **placement** | The deterministic function that maps desired workers to nodes (hard filters, then stable spread). | scheduling (reserved for `schedule`) |
 | **managed labels** | The Docker labels scantor sets at container creation on every container it creates; they override image labels with the same key ([security](security.md)). | |
+| **tunnel** | The optional Cloudflare Tunnel of the master: the compose service `cloudflared` (profile `cloudflare-tunnel`) connects outbound to Cloudflare and forwards the requests for the tunnel URL straight to `orchestrator:3000`, never through Traefik. Only the dashboard, the REST API and `/mcp` are reachable through it (§11.9). | ingress, external access, Cloudflare proxy |
+| **tunnel URL** | `SCANTOR_TUNNEL_URL`: the https origin served through the tunnel, a second origin of the dashboard listener. `SCANTOR_PUBLIC_URL` stays the canonical origin; the editor, S3, the registry, AMQP, nodes and the links in logs and notifications keep their own variables and endpoint profiles (§8) and never use the tunnel URL. | external URL, external origin, public URL |
+| **tunnel request** | A request on the dashboard listener whose socket peer is the `cloudflared` service **and** whose `Host` is the host of the tunnel URL. A request with only one of the two is refused with 421 ([auth](auth.md) §4.5). | |
 
 ### 2.2 Tasks and authoring
 
@@ -151,10 +154,11 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
 
 ```
    users (browser, CLI, MCP agents)                     remote nodes (outbound only)
-        │ https                                             │ https / amqps / s3 / registry
+        │ https (public URL or tunnel URL)                  │ https / amqps / s3 / registry
         ▼                                                   ▼
  ┌──────────────────────────── master ───────────────────────────────────────────┐
  │  traefik (optional, :443 HTTP + TCP SNI)                                        │
+ │  cloudflared (optional, outbound only): tunnel URL ─► orchestrator:3000         │
  │      │                                                                          │
  │  orchestrator ── UI · REST /api · /mcp · editor origin · registry token server   │
  │      │  ingestor · reconciler · jobs runner · task-pipeline driver ·            │
@@ -182,7 +186,7 @@ until a shared store exists (§14), so they run in one process. Everything below
 |---|---|---|---|
 | **REST API** | `api` | All `/api/*` routes (Nitro file routes with `defineRouteMeta`), zod validation, error envelope, OpenAPI at `/api/docs/openapi.json` ([api](api.md)). Handlers record intent; they never perform long infrastructure work inline. | all |
 | **MCP server** | `api` | `/mcp` (Streamable HTTP, stateless). Tools generated from the OpenAPI document (curated by `x-mcp`), executed by loopback calls to the REST API with a single-use internal capability ([mcp](mcp.md)). | – |
-| **auth** | `api` | better-auth (`/api/auth/*`, Mongo adapter, admin, passkey, api-key, jwt, mcp, cimd plugins) plus one global middleware that resolves the typed principal for every request and enforces route prefixes, the operation registry built from the runtime OpenAPI document (deny by default), scopes, bans, CSRF origin checks and body caps ([auth](auth.md) §5). | better-auth collections |
+| **auth** | `api` | better-auth (`/api/auth/*`, Mongo adapter, admin, passkey, api-key, jwt, mcp, cimd plugins; one instance per configured origin, public URL and tunnel URL, [auth](auth.md) §2.2) plus one global middleware that resolves the typed principal for every request and enforces route prefixes, the operation registry built from the runtime OpenAPI document (deny by default), scopes, bans, CSRF origin checks and body caps ([auth](auth.md) §5). | better-auth collections |
 | **ingestor** | `ingestor` | Consumes `scantor.results.ingest` (results and attempt events) and `scantor.dead.ingest` (dead-lettered analyses and poison results). Guarded upserts, duplicate handling, live counters, rate window, circuit breaker, completion trigger ([queue](queue.md)). | `analyses`, `scans`, `events` |
 | **reconciler** | `reconciler` | Level-triggered loops (10 s tick + change streams, under `locks`): scan topology ensure/remove, `creating → running`, placement and node assignment revisions, node offline detection and lost workers, scheduler supervision and epochs, periodic recount and completion, stall detection and gap fill, scan conditions, boot sweeps (orphan RabbitMQ users and queues, orphan helper/test-run/build/editor containers), GC (draft images after `SCANTOR_DRAFT_IMAGE_RETENTION`, leftover `scantor-bundle/*` tags of stopped bundle steps, tombstones, registry garbage collection every `SCANTOR_REGISTRY_GC_INTERVAL` under the `registryGc` lock, [deployment](deployment.md) §14.1), editor reaper (idle timeout and editor-key expiry). | `scans`, `workers`, `nodes`, `editors`, `locks` |
 | **jobs runner** | `api` (kinds `revisionBuild`, `testRun`, `scriptRun`, `bundle`) and `reconciler` (kinds `scanDelete`, `scanRetryFailed`, `export`, `taskDelete`, `scriptDelete`, `userPurge`, `notification`) | Claims queued jobs with a lease, executes them with a resumable cursor, retries with backoff, enforces per-kind concurrency (`SCANTOR_BUILD_CONCURRENCY`, `SCANTOR_TEST_RUN_CONCURRENCY`, `SCANTOR_SCRIPT_RUN_CONCURRENCY`) and per-user concurrency where a kind defines it (`SCANTOR_SCRIPT_RUN_CONCURRENCY_PER_USER`; one `bundle` job per user). | `jobs` |
@@ -199,23 +203,27 @@ Orchestrator boot order (the process exits non-zero on any failure before step 7
 1. Configuration and startup guard ([security](security.md) §6.11 CFG-2, whose algorithm is authoritative):
    parse every variable (invalid security-relevant values abort). The deployment is **public** when the host
    of `SCANTOR_PUBLIC_URL` or `SCANTOR_EDITOR_URL` is not loopback (`localhost`, `*.localhost`,
-   `127.0.0.0/8`, `::1`), `COMPOSE_PROFILES` contains `traefik`, or `SCANTOR_BIND_ADDRESS` /
-   `SCANTOR_ADMIN_BIND_ADDRESS` is not a loopback address. In public mode, refuse to start when **any**
-   environment value ends in `-insecure-dev`, a core secret (`SCANTOR_SECRET`, `SCANTOR_MONGO_PASSWORD`,
-   `SCANTOR_RABBITMQ_PASSWORD`, `SCANTOR_S3_SECRET_KEY`, `SCANTOR_MONGO_EXPRESS_PASSWORD`,
+   `127.0.0.0/8`, `::1`), `COMPOSE_PROFILES` contains `traefik` or `cloudflare-tunnel`, `SCANTOR_TUNNEL_URL`
+   is set, or `SCANTOR_BIND_ADDRESS` / `SCANTOR_ADMIN_BIND_ADDRESS` is not a loopback address. In public mode,
+   refuse to start when **any** environment value ends in `-insecure-dev`, a core secret (`SCANTOR_SECRET`,
+   `SCANTOR_MONGO_PASSWORD`, `SCANTOR_RABBITMQ_PASSWORD`, `SCANTOR_S3_SECRET_KEY`, `SCANTOR_MONGO_EXPRESS_PASSWORD`,
    `SCANTOR_MONGO_EXPRESS_SECRET`, and `SCANTOR_MONGO_ANALYTICS_PASSWORD` while the analytics user exists)
    is shorter than 16 characters, or `SCANTOR_ADMIN_PASSWORD` is set and shorter than 16 characters, unless
    `SCANTOR_ALLOW_INSECURE_DEFAULTS=true`. Always refuse when `SCANTOR_EDITOR_URL` has the same origin as
-   `SCANTOR_PUBLIC_URL`. Only variable names are logged.
+   `SCANTOR_PUBLIC_URL`, when `SCANTOR_TUNNEL_URL` breaks one of its rules, and when `COMPOSE_PROFILES`
+   contains `cloudflare-tunnel` while `SCANTOR_TUNNEL_URL` is empty ([auth](auth.md) §4.5). Only variable names
+   are logged.
 2. Connect MongoDB (replica set `rs0`, wait until primary), run migrations under the `migrations` lock,
    ensure all indexes ([data model](data-model.md)), ensure the read-only `scantor_query` user and, while
    `SCANTOR_EXPOSE_MONGO=true` or `SCANTOR_MONGO_EXPRESS_READONLY=true`, the read-only analytics user
    ([deployment](deployment.md) §4.3).
-3. Initialise better-auth. Delete `jwks` keys that can no longer be decrypted with the current secret
-   (after a `SCANTOR_SECRET` change), so the jwt plugin creates a new key. If no user exists, create the
-   first admin from `SCANTOR_ADMIN_EMAIL` / `SCANTOR_ADMIN_PASSWORD`, otherwise generate the in-memory
-   setup token (`sst_…`) and log `[setup] no users exist; open <SCANTOR_PUBLIC_URL>/setup?token=<token> to
-   create the first admin` ([auth](auth.md) §7).
+3. Initialise better-auth, one instance per configured origin, one after another, so that only the first seeds the
+   OAuth resource rows ([auth](auth.md) §2.2). Ensure the indexes of its collections, link every stored OAuth
+   client to the `/mcp` resource of every configured origin it lacks (a client registered before a tunnel URL was
+   set works through it too), and delete `jwks` keys that can no longer be decrypted with the current secret
+   (after a `SCANTOR_SECRET` change), so the jwt plugin creates a new key. If no user exists, create the first admin from `SCANTOR_ADMIN_EMAIL` /
+   `SCANTOR_ADMIN_PASSWORD`, otherwise generate the in-memory setup token (`sst_…`) and log `[setup] no
+   users exist; open <SCANTOR_PUBLIC_URL>/setup?token=<token> to create the first admin` ([auth](auth.md) §7).
 4. Ensure the S3 bucket `SCANTOR_S3_BUCKET`, its CORS and lifecycle rules.
 5. Ensure the RabbitMQ vhost `scantor`, exchanges, global queues and their bindings ([queue](queue.md)
    §3.5; scantor defines no RabbitMQ policies).
@@ -355,6 +363,7 @@ temporary tags `scantor-bundle/<uuid>:src|build` of a running bundle step; their
 | registry | `registry:3.1.2` | CNCF distribution with native token auth (realm `${SCANTOR_PUBLIC_URL}/api/registry/token`, service `scantor-registry`, issuer `scantor`, JWKS from the shared volume), `REGISTRY_HTTP_SECRET` from the derived `http-secret` file, storage delete enabled (task deletion removes manifests; blobs are reclaimed by registry GC). |
 | mongo-express | `mongo-express:1.0.2-20-alpine3.19` | Read-only DB browser, connected as the read-only analytics user (root only with `SCANTOR_MONGO_EXPRESS_READONLY=false`), bound to `SCANTOR_ADMIN_BIND_ADDRESS`, behind Traefik forwardAuth when Traefik is on ([deployment](deployment.md) §4.7). |
 | traefik | `traefik:v3.7` | Optional (compose profile `traefik`): TLS termination, HTTP routers and TCP HostSNI routers (AMQPS, optional Mongo) on :443, forwardAuth for admin GUIs ([deployment](deployment.md)). |
+| cloudflared | `cloudflare/cloudflared:2026.11.1` | Optional (compose profile `cloudflare-tunnel`): the tunnel. Connects outbound to Cloudflare (port 7844) with `SCANTOR_CLOUDFLARE_TUNNEL_TOKEN` (its only credential) and forwards the requests for the tunnel URL to `http://orchestrator:3000`; network `scantor-tunnel` only, which it shares with the orchestrator alone, no published ports ([deployment](deployment.md) §4.10, §10.2). |
 | node | scantor image, command `scantor node` | The built-in node daemon (Docker socket, `SCANTOR_NODE_BUILTIN=true`). |
 | orchestrator | `scantor-orchestrator` | Docker socket (builds, helpers, editors, test runs, registry GC exec), all infra credentials; container ports 3000 (dashboard) and 3001 (editor origin). |
 
@@ -447,7 +456,8 @@ Flat layout; Go module at the repo root.
 │   ├── app/                    UI (pages, components, composables)
 │   ├── server/api/             REST routes, one file per method
 │   ├── server/routes/          /mcp, /.well-known/*
-│   ├── server/middleware/      request id and client IP, security headers, body caps, principal resolution
+│   ├── server/middleware/      request id, client IP and tunnel classification, security headers, refused tunnel
+│   │                           prefixes, body caps, principal resolution
 │   ├── server/plugins/         00.boot (foundation boot steps, §4.1), 10.components, 20–89 domain plugins (their
 │   │                           boot steps and component tasks; 20.editor-listener on port 3001, 30.tasks,
 │   │                           35.scripts, 36.bundles, 40.scans, 50.results, 60.nodes, 70.editor, 80.notifications), 99.start (runs the boot, starts
@@ -457,8 +467,8 @@ Flat layout; Go module at the repo root.
 │   │                           editor, tools, query, metrics, mcp, notifications, scripts, script-runs,
 │   │                           script-runtime, bundles, … ([development](development.md) §7)
 │   ├── server/utils/           config, errors, zod helpers, pagination, principal, operations, authz (ownership
-│   │                           helpers), keys, secrets, redact, startup-guard, mongo, s3, amqp, labels, boot, jobs,
-│   │                           locks, event-sinks, …
+│   │                           helpers), keys, secrets, redact, startup-guard, tunnel, mongo, s3, amqp, labels, boot,
+│   │                           jobs, locks, event-sinks, …
 │   ├── shared/                 types, zod request schemas and utilities shared by app and server
 │   ├── test/                   vitest unit tests (paths mirror server/, [testing](testing.md) §1) and opt-in
 │   │                           *.integration.test.ts
@@ -505,23 +515,28 @@ There is no `images/` directory: each Dockerfile lives with its component.
                          Internet / LAN
                               │
               host ports bound to SCANTOR_BIND_ADDRESS / SCANTOR_ADMIN_BIND_ADDRESS
-              (or Traefik :443 when the traefik profile is on)
+              (or Traefik :443 when the traefik profile is on; the tunnel publishes no port)
                               │
 ┌──────────────────────────── network: scantor (internal compose network) ─────────────────────────┐
 │ orchestrator   mongo   rabbitmq   rustfs   registry   mongo-express   traefik   node (built-in)  │
+│ NOT attached: cloudflared                                                                        │
 └───────┬──────────────────────┬────────┬──────────────────────────────────────────────────────────┘
         │ (also attached)      │        │
 ┌───────▼──────────────────────▼────────▼────── network: scantor-sandbox ─────────────────────────┐
 │ orchestrator (alias orchestrator)  rabbitmq (alias rabbitmq)  rustfs (alias rustfs)              │
 │ master workers scantor-w-*      editors scantor-editor-*                                         │
-│ NOT attached: mongo, mongo-express, registry, traefik, node daemon                               │
+│ NOT attached: mongo, mongo-express, registry, traefik, cloudflared, node daemon                  │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──── network: scantor-egress (created at orchestrator boot; bridge, enable_icc=false, no services) ┐
 │ git workspace helpers (scantor-h-*)      test-run containers (scantor-t-*)                        │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──── network: scantor-scripts (compose network, internal: true; no route to the internet) ─────────┐
 │ orchestrator (alias orchestrator)  rustfs (alias rustfs)   script-run containers (scantor-s-*)    │
-│ NOT attached: mongo, rabbitmq, registry, traefik, node daemon, workers, editors                   │
+│ NOT attached: mongo, rabbitmq, registry, traefik, cloudflared, node daemon, workers, editors      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌──── network: scantor-tunnel (compose network, bridge with egress; only these two members) ────────┐
+│ orchestrator (alias orchestrator)   cloudflared (profile cloudflare-tunnel; outbound to           │
+│ Cloudflare's edge on port 7844, forwards the tunnel URL's requests to orchestrator:3000)          │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
   network none:  workspace helpers except git ops (scantor-h-*), describe/check containers (scantor-b-*)
   BuildKit RUN steps: the daemon's build network (egress deny list applies)
@@ -538,7 +553,10 @@ Networks that scantor creates itself (`scantor-egress`, `scantor-workers`) carry
 `scantor.kind=network`; nothing deletes them automatically. `scantor-scripts` is defined by the compose files
 (`name: scantor-scripts`, `internal: true`), because two compose services join it; script-run containers join
 only it, and the service-name aliases keep `SCANTOR_INTERNAL_URL` and `SCANTOR_S3_INTERNAL_URL` valid there. Script
-builds keep internet access through BuildKit's build network ([scripts](scripts.md) §6.4).
+builds keep internet access through BuildKit's build network ([scripts](scripts.md) §6.4). `scantor-tunnel` is a compose
+network too (`name: scantor-tunnel`, not internal, because cloudflared needs egress): the routes of a remotely managed
+tunnel live in the Cloudflare account, out of scantor's sight, so cloudflared shares a network with the orchestrator
+alone and no route can reach the data stores, the admin GUIs or the built-in node ([deployment](deployment.md) §5).
 
 Every node applies the egress deny list `SCANTOR_NODE_EGRESS_DENY` (cloud metadata ranges) with a one-shot
 `NET_ADMIN` host-network helper on the `DOCKER-USER` chain. It is best effort: when it cannot be applied
@@ -552,7 +570,13 @@ the daemon logs a warning and reports `egressDenyApplied: false` ([nodes](nodes.
 | **Z1 admin tools** | mongo-express, RabbitMQ management, RustFS console, Traefik dashboard | admin-only via forwardAuth `scantor_tools` cookie plus their own credentials; bound to `SCANTOR_ADMIN_BIND_ADDRESS` without Traefik |
 | **Z2 user code, master** | master workers, editors, test-run containers, script-run containers, describe/check containers, BuildKit RUN steps, workspace helpers | only their own scan's credentials (per-scan AMQP user, presigned URLs, worker token), their own run's script-run token, or the owner's editor API key; never infra root credentials |
 | **Z3 remote node** | remote node daemon and its workers | a node sees everything about the scans placed on it (configs including secrets, worker tokens, per-scan AMQP credentials); only add nodes you trust like the master |
-| **Z4 users** | browsers, CLI, MCP clients | their own resources; admins everything |
+| **Z4 users** | browsers, CLI, MCP clients, through the public URL or the tunnel URL | their own resources; admins everything |
+
+The tunnel (`cloudflared`) belongs to no zone that holds platform credentials: its only secret is its tunnel token,
+and its requests are Z4 requests. It shares a network (`scantor-tunnel`) with the orchestrator only, so whatever its
+routes in the Cloudflare account say, it reaches nothing else. The orchestrator trusts it for one thing, the
+rightmost `X-Forwarded-For` entry (the client address Cloudflare's edge saw), and refuses every request from it whose
+`Host` is not the tunnel host ([auth](auth.md) §4.3, §4.5).
 
 ### 6.3 Reachability
 
@@ -562,6 +586,8 @@ reachable.
 | From ↓ / to → | orchestrator HTTP | mongo | rabbitmq AMQP | rabbitmq mgmt | rustfs S3 | registry | host Docker | internet |
 |---|---|---|---|---|---|---|---|---|
 | browser / CLI / MCP | public URL, user principal | – (opt-in TCP route, read-only user) | – | admin tools only | presigned GET only (public URL) | – | – | – |
+| browser / CLI / MCP through the tunnel URL | tunnel URL (Cloudflare → `cloudflared`), user principal; machine, editor and tools prefixes 404 (§11.9) | – | – | – | – (presigned URLs point at the public S3 URL) | – | – | – |
+| cloudflared | `orchestrator:3000` (forwards tunnel requests; no principal of its own) | – | – | – | – | – | – | outbound to Cloudflare |
 | orchestrator | – | cred (app user + `scantor_query`) | cred (admin) | cred (admin) | cred (root keys) | cred (orchestrator credential) | socket | yes |
 | built-in node daemon | `SCANTOR_INTERNAL_URL`, node principal | – | – | – | – | via host daemon at `localhost:${SCANTOR_REGISTRY_PORT}`, node principal | socket | via daemon (GHCR pulls) |
 | master worker | `SCANTOR_INTERNAL_URL`, worker principal (`/api/runtime/*` only) | – | cred (`scan-<scanId>`) | net only (untagged users get 401) | presigned PUT only | – | – | yes, minus deny list |
@@ -580,7 +606,11 @@ port 3000, editor origin `SCANTOR_EDITOR_PORT` → orchestrator container port 3
 `SCANTOR_BIND_ADDRESS` must include loopback, because the master's host Docker daemon pushes to and pulls
 from `localhost:${SCANTOR_REGISTRY_PORT}`. With Traefik, public traffic enters only through :443
 ([deployment](deployment.md) §1); the Traefik editor router targets container port 3001. The dashboard
-listener answers 421 for the editor host and the editor listener answers 421 for every other host.
+listener answers 421 for the editor host and the editor listener answers 421 for every other host. With a tunnel
+URL, the dashboard listener also answers 421 for the tunnel host from any peer but `cloudflared`, and for any other
+host from `cloudflared` ([auth](auth.md) §4.5). The tunnel adds no published port, and its route targets
+`orchestrator:3000` directly, never Traefik, whose entrypoints overwrite `X-Forwarded-For` ([deployment](deployment.md)
+§10.2).
 
 Remote transport must be TLS unless every resolved address of the host is loopback, RFC 1918, CGNAT
 (`100.64.0.0/10`, private overlays such as WireGuard/Tailscale) or IPv6 ULA (`fc00::/7`), or
@@ -637,9 +667,13 @@ reach RustFS unchanged).
 | Registry host in image refs (daemon side) | `localhost:${SCANTOR_REGISTRY_PORT}` | `SCANTOR_REGISTRY_PUBLIC_HOST` |
 | Registry token realm (fixed in registry config) | `${SCANTOR_PUBLIC_URL}/api/registry/token` | same |
 
-Browsers always receive public URLs (`SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `SCANTOR_S3_PUBLIC_URL`).
-The editor and the CLI inside it use `SCANTOR_INTERNAL_URL`. Script-run containers always use the internal
-profile: `SCANTOR_INTERNAL_URL` and presigned URLs of `SCANTOR_S3_INTERNAL_URL` ([scripts](scripts.md) §9).
+Browsers always receive public URLs (`SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `SCANTOR_S3_PUBLIC_URL`),
+with one exception: a tunnel request gets the tunnel URL as its own origin for the MCP resource and `mcpUrl`, the
+OAuth issuer, passkeys and the CLI and MCP snippets of the UI (§11.9). The editor origin and presigned S3 URLs are
+never usable through the tunnel, and nodes and workers never use the tunnel URL: the profiles above have no tunnel
+column, and the registry token realm, node join commands, the setup link and notification links stay on
+`SCANTOR_PUBLIC_URL`. The editor and the CLI inside it use `SCANTOR_INTERNAL_URL`. Script-run containers always use
+the internal profile: `SCANTOR_INTERNAL_URL` and presigned URLs of `SCANTOR_S3_INTERNAL_URL` ([scripts](scripts.md) §9).
 
 ## 9. Identity, credentials and key derivation
 
@@ -647,9 +681,9 @@ Summary; the full model is in [auth](auth.md) and [security](security.md).
 
 | Principal | Presented as | Accepted on | Stored |
 |---|---|---|---|
-| user / session | cookie `scantor.session_token` (`__Secure-scantor.session_token` on https origins); host-only | `/api/*` except machine prefixes; mutations need a trusted `Origin` | better-auth `session` |
+| user / session | cookie `scantor.session_token` (`__Secure-scantor.session_token` on https origins); host-only, so browsers keep a session on the origin it was signed in on (public URL or tunnel URL); the server does not bind it to that origin | `/api/*` except machine prefixes; mutations need an `Origin` trusted for the request's own origin | better-auth `session` |
 | user / API key | `x-api-key` or `Authorization: Bearer` with `sk_scantor_…` (configId `default`) or `sk_scantor_editor_…` (configId `editor`, never admin power) | same as session, and `/mcp`; rejected on `/api/auth/*` | better-auth `apikey` (hashed) |
-| user / MCP | `/mcp` accepts OAuth access tokens (audience `<SCANTOR_PUBLIC_URL>/mcp`) and API keys. Each tool call reaches the REST API with header `x-scantor-internal-auth: sic_…`: single use, 60 s, accepted only from loopback peers and bound to one method + path | same as session; MCP level-filtered | memory |
+| user / MCP | `/mcp` accepts OAuth access tokens (audience `<origin>/mcp` of the origin that issued them, public URL or tunnel URL; never valid on the other) and API keys. Each tool call reaches the REST API with header `x-scantor-internal-auth: sic_…`: single use, 60 s, accepted only from loopback peers and bound to one method + path | same as session; MCP level-filtered | memory |
 | node | `Authorization: Bearer snt_…`; Basic `node:snt_…` on the registry token endpoint | `/api/node/*`, `/api/registry/token` | `nodes.tokenHash` (SHA-256) |
 | worker | `Authorization: Bearer swt_<workerId>.<mac>` | `/api/runtime/*` | nothing (HMAC-derived) |
 | script run | `Authorization: Bearer ssr_<scriptRunId>.<mac>`, valid only while the run is `running` | `/api/script-runtime/*`, and only from a socket peer in `scantor-scripts` | nothing (HMAC-derived) |
@@ -1110,6 +1144,42 @@ recipient: docker load -i <file> → docker run --rm -v "$PWD:/work" localhost/s
    turns files named at upload fields into local uploads, and runs the schedule and the analyses in one container
    on local mode's streaming run path, without any API client ([runtime](runtime.md) §15.6–§15.9).
 
+### 11.9 Tunnel requests
+
+```
+client ──https──► Cloudflare edge (TLS ends; appends the client address to X-Forwarded-For)
+  ──► cloudflared (profile cloudflare-tunnel; outbound connection, no published port)
+  ──http, Host = tunnel host──► orchestrator:3000                   (never through Traefik)
+request hook   security headers of the tunnel origin: HSTS, frame-src 'none', no S3 origin
+00.request     client IP = rightmost X-Forwarded-For (cloudflared is a trusted proxy)
+               peer is cloudflared and Host is the tunnel host → tunnel
+               exactly one of the two → 421 │ neither → public
+01.tunnel      /api/node, /api/runtime, /api/script-runtime, /api/tools, /api/registry,
+               /api/editor → 404 notFound
+10.auth        cookie session on the tunnel instance of better-auth; CSRF against the tunnel origin
+/api/auth/*, /.well-known/*, /mcp
+               the tunnel instance: issuer <tunnel URL>/api/auth, resource <tunnel URL>/mcp
+```
+
+1. A request is a tunnel request only when both marks hold: the socket peer resolves to the compose service
+   `cloudflared` (only addresses on a network the orchestrator is attached to count, and never those in
+   `scantor-sandbox` and `scantor-scripts`) and `Host` is the tunnel host. One mark alone is a routing mistake or a forgery and gets 421, before any route runs. Without
+   `SCANTOR_TUNNEL_URL` no request is a tunnel request. The loopback listener of the MCP bridge is always public;
+   `nuxt dev` has no socket peer and decides by `Host` alone ([auth](auth.md) §4.5).
+2. Through the tunnel, users reach the dashboard, the REST API with user principals, `/api/auth/*`, the discovery
+   documents and `/mcp`; admins keep their admin power there. The machine APIs, the registry token, the editor
+   handoff and the admin-tools routes answer 404 before any body or credential is read: nodes, workers and
+   script runs never come through the tunnel, and the editor and the admin GUIs live on hosts it does not serve.
+   Presigned S3 URLs point at `SCANTOR_S3_PUBLIC_URL`, so the UI disables the editor, the admin tools and
+   downloads there (`getInstanceInfo.origin`, `features`); uploads through `/api/uploads` and inline file reads
+   work.
+3. Every origin has its own better-auth instance (shared collections, keys and secret): its own `baseURL`, trusted
+   origin, host-only cookies, passkey rpID, OAuth issuer and MCP resource. A tunnel sign-in is a separate session,
+   and an access token issued on one origin is refused on the other origin's `/mcp` ([auth](auth.md) §2.2).
+4. Cloudflare answers 524 when the origin sends no response within its Proxy Read Timeout (125 s) and caps request
+   bodies by plan, so `wait` through the tunnel, which sends nothing until it ends, is clamped to 90 s ([api](api.md)
+   §1.9) and large uploads may need the public URL ([deployment](deployment.md) §10.2).
+
 ## 12. Key decisions
 
 | # | Decision | Rationale |
@@ -1138,6 +1208,7 @@ recipient: docker load -i <file> → docker run --rm -v "$PWD:/work" localhost/s
 | D22 | Environment-only configuration, documented only in `.env.example`; insecure dev secrets refused in public deployments. | Project rule; secure by default. |
 | D23 | Scripts are revision-less folders run on the master in one container per run, on an internal network with a run-scoped token, reading scans through a dedicated streaming API. | Evaluations iterate quickly on large data sets at internal bandwidth; the container can read only its owner's chosen scans and reach nothing else ([scripts](scripts.md) §15). |
 | D24 | Bundles bake the runtime into a derived revision image, a deliberate exception to D2. | A recipient has only Docker, so nothing could inject the runtime; the bundle records `scantorVersion`, a create rebuilds when it differs from the orchestrator's, and runtime fixes reach a bundle only when it is recreated ([runtime](runtime.md) §15.7). |
+| D25 | An optional Cloudflare Tunnel serves only the dashboard, the REST API and `/mcp` at a second https origin, `SCANTOR_TUNNEL_URL`. Its route targets `orchestrator:3000`, never Traefik, and cloudflared shares a network (`scantor-tunnel`) with the orchestrator alone; a tunnel request is recognised by socket peer and `Host` together; better-auth runs one instance per origin. | A master behind a firewall becomes reachable for users and web-hosted MCP clients without open ports, while the editor, S3, the registry, AMQP, the admin tools and the nodes stay on their own URLs. Per-origin instances keep the issuer, MCP resource, CSRF origin and passkey rpID exact for each origin. Traefik's entrypoints overwrite `X-Forwarded-For`, so a route through Traefik would lose the client address (§11.9). The tunnel's routes live in the Cloudflare account, out of scantor's sight, so the network, not the route, bounds what the tunnel can reach. |
 
 ## 13. Decisions made in this document
 
@@ -1206,6 +1277,13 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
     No new container kind exists: the bundle image is built by BuildKit on the master and never runs there. The
     two routes are not MCP tools (44 of 45 tool slots are used, and an archive of hundreds of MB is useless to an
     agent); the guide `bundles` is an MCP resource.
+21. **Cloudflare Tunnel** (§11.9, D25): an optional compose service `cloudflared` (profile `cloudflare-tunnel`),
+    two variables (`SCANTOR_TUNNEL_URL` for the orchestrator, `SCANTOR_CLOUDFLARE_TUNNEL_TOKEN` for cloudflared
+    only), the classification of every dashboard-listener request as public or tunnel in `00.request`
+    (`server/utils/tunnel.ts`), the refused prefixes in `01.tunnel`, and one better-auth instance per origin. No
+    new principal, scope, route, error code or container kind exists. `/api/runtime/*` is refused through the
+    tunnel like the other machine prefixes, because workers reach the master only through the URLs of their
+    endpoint profile (§8).
 
 ## 14. Future extensions
 
@@ -1228,3 +1306,4 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
 | Script extensions (scheduled scripts, local runs, more languages, opt-in egress) | [scripts](scripts.md) §16: runs are created by one service function, the SDK reads only two variables, languages are rows of `languages.json`, and the container's network list is one field of its spec. |
 | Bundle extensions (configs chosen at creation, for example from a test run; `scantor dev bundle <dir>` without the platform; `--resume` from `run.json`; a retry heap and schedule restarts; multi-arch and DinD bundles; a bundle list and a DELETE route) | The bundle info has a version (`v`) and an allowlist schema, `run.json` keeps the template resolutions, the bundle step takes the info on stdin from any producer, and bundles are a singular sub-resource whose documents already carry ids ([runtime](runtime.md) §19, [data model](data-model.md) §12). |
 | Revision retention | Task images are tagged per revision and referenced by digest; a retention job could delete manifests of revisions no scan references, and registry GC already reclaims blobs. |
+| Cloudflare Access in front of the tunnel URL | Tunnel requests are recognised in one place (`server/utils/tunnel.ts`); verifying the `Cf-Access-Jwt-Assertion` header against the team's keys there would add an identity check before scantor's own authentication, without touching better-auth or the public origin. |

@@ -50,7 +50,7 @@ The daemon reads only environment variables, documented with their defaults in `
 
 | Variable | Used for |
 |---|---|
-| `SCANTOR_URL` | Orchestrator base URL. Built-in node: `SCANTOR_INTERNAL_URL`. Remote node: `SCANTOR_PUBLIC_URL`. |
+| `SCANTOR_URL` | Orchestrator base URL. Built-in node: `SCANTOR_INTERNAL_URL`. Remote node: `SCANTOR_PUBLIC_URL`, never the tunnel URL (`SCANTOR_TUNNEL_URL` answers 404 to `/api/node/*` and `/api/runtime/*`, [deployment](deployment.md) §10.2). |
 | `SCANTOR_NODE_TOKEN` | The node token (`snt_…`). Required unless `SCANTOR_NODE_BUILTIN=true`. |
 | `SCANTOR_NODE_BUILTIN` | `true` only for the master's built-in node. The daemon derives its token from `SCANTOR_SECRET` (§3). |
 | `SCANTOR_SECRET` | Built-in node only: input of the token derivation. Never set it on remote nodes. |

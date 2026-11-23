@@ -43,7 +43,7 @@ tests/
 ├── fixtures.ts                  test.extend: the only `test`/`expect` export specs import
 ├── helpers/                     env, limiter, unique, api-client, openapi, users, webauthn, mcp, tasks, scans,
 │                                docker, amqp, keys, tar, ui, cli, fixtures-server (debug: with debug.spec.ts),
-│                                scripts, security-scripts, api-bundles, bundles
+│                                scripts, security-scripts, api-bundles, bundles, tunnel
 ├── api/*.spec.ts                REST API behaviour per tag
 ├── ui/*.spec.ts                 browser tests
 ├── e2e/*.spec.ts                real scans, examples in every language, remote node, CLI, debug, scaffold matrix
@@ -69,7 +69,8 @@ tests/
 │   ├── daemon.json              inner dockerd config
 │   ├── entrypoint.sh            phases (§7.4)
 │   ├── playwright.sh            `playwright test` with the stack's environment (entrypoint and `just test-exec`)
-│   ├── stack.tests.yml          compose override layered over docker-compose.prod.yml
+│   ├── stack.tests.yml          compose override layered over docker-compose.prod.yml (fixtures server, remote
+│   │                            node, stand-in Cloudflare Tunnel)
 │   ├── stack.env                non-secret test settings for the inner stack
 │   ├── join-remote-node.mjs     creates the remote node record and starts its daemon inside the remote node
 │   ├── traefik/tls.yml          file-provider config that makes the test CA wildcard certificate Traefik's default
@@ -204,7 +205,23 @@ presigner (`test/utils/s3.test.ts`), the runner's `refundAttemptOnStop`, and the
 (`service.test.ts`), the `bundle` job with its verdicts, hooks and cleanup (`job.test.ts`), the representation
 (`mappers.test.ts`), the pipeline driver with a fake `scantor task bundle` writing to fd 3
 (`test/services/pipeline/task-bundle.test.ts`, `fake-task-bundle.mjs`, including an output that rejects and kills
-the child), the task-delete and GC cascades, and the modal's pure helpers (`test/ui/bundles.test.ts`).
+the child), the task-delete and GC cascades, and the modal's pure helpers (`test/ui/bundles.test.ts`); the Cloudflare
+Tunnel ([auth](auth.md) §4.5, [security](security.md) TUN-1…TUN-8): the classifier's truth table (peer × `Host`,
+the refused prefixes with `/api/nodes` not among them, `test/utils/tunnel.test.ts`), the 421 of `00.request` for
+both kinds of mismatch with its rate-limited warning, the 404 of `01.tunnel` and the origin on the event context
+(`test/middleware/tunnel.test.ts`), credential lookups and the CSRF check on the request origin's better-auth
+instance (`test/middleware/tunnel-auth.test.ts`) and the passkey guard's session on it
+(`test/middleware/passkey-guard.test.ts`), discovery, the `/mcp` challenge, token audiences, the `invalid_target`
+refusal, the trusted origins, better-auth's origin check, the passkey relying parties, one resource row per origin
+and the boot-time links of older OAuth clients with the real better-auth instances of both origins on an in-memory
+database (`test/services/mcp/origins.test.ts`), better-auth's own `invalid_target` redirect without a tunnel
+(`test/services/mcp/single-origin.test.ts`), the cookies of an http public URL next to the https tunnel URL
+(`test/utils/auth-cookies.test.ts`), the copy of the tunnel notices and the gating of every presigned download
+control (`test/ui/tunnel.test.ts`), the instance info's retry and download check (`test/ui/instance.test.ts`), and
+tunnel
+cases in the `config`, `startup-guard`, `trusted-proxy`, `client-ip`, `auth-policy`, `auth-indexes`,
+`credential-lookup`, `instance-info`, `security-headers` and `wait` tests of `test/utils/`, in
+`test/middleware/script-runtime-auth.test.ts` (404 before the peer check's 403) and in `test/ui/navigation.test.ts`.
 
 Integration tests are `*.integration.test.ts` files next to the unit tests. They skip themselves unless
 their gate holds, so `just test-orchestrator` (no Docker socket, non-root) runs only unit tests. `just
@@ -389,6 +406,8 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
  │         traefik :443/:80 published on 0.0.0.0 of the runner ─┐  default cert = test CA wildcard
  │         orchestrator · mongo · rabbitmq · rustfs · registry · mongo-express · node (built-in, pool shared)
  │         fixtures   (tranco/crux/crux-cache/ntfy on :8089 as fixtures.scantor.localhost; git behind Traefik as git.scantor.localhost)
+ │         tunnel     stand-in Cloudflare Tunnel: traefik:v3.7, alias cloudflared on scantor-tunnel, :8443 on 0.0.0.0,
+ │                    https://tunnel.scantor.localhost:8443 → http://orchestrator:3000 (Host kept, X-Forwarded-For appended)
  │         remote-node  docker:29.9-dind on its own network scantor-remote (own dockerd: bip 10.20.0.1/24,
  │                      pools 10.21.0.0/16, dns 172.17.0.1, trusts the test CA)       ┐ simulated remote node
  │              └── scantor-node  scantor:dev `scantor node`, started with createNode's   ┘ "remote-1", pool "remote"
@@ -428,8 +447,9 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
   (§7.4 phase 8), so the production compose file is tested. Its project directory is
   `/run/scantor-test` (`--project-directory`), so the compose file's relative paths (`env_file: .env`,
   `./traefik/dynamic`) resolve to the generated test files and never to the developer's `/src/.env`.
-  `stack.tests.yml` only adds the fixtures server and the remote node and uses no relative paths (the
-  remote node mounts the CA from its absolute runner path). `stack.env` holds non-secret settings chosen for
+  `stack.tests.yml` only adds the fixtures server, the remote node and the stand-in Cloudflare Tunnel (below) and
+  uses no relative paths (the remote node mounts the CA, the tunnel the wildcard certificate from their absolute
+  runner paths). `stack.env` holds non-secret settings chosen for
   speed and determinism; every key must exist in `.env.example` (the entrypoint and `lint-env.mjs` check it):
 
 | Setting | Test value | Why |
@@ -440,6 +460,7 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
 | `SCANTOR_DOMAIN` and the URL set of [deployment](deployment.md) §7.7 | `scantor.localhost`; `SCANTOR_PUBLIC_URL` / `SCANTOR_EDITOR_URL` = `https://scantor.localhost` / `https://editor.scantor.localhost`, S3 `https://s3.scantor.localhost`, AMQP `amqps://amqp.scantor.localhost:443`, registry `registry.scantor.localhost`, RustFS console `https://rustfs.scantor.localhost`; `SCANTOR_TRAEFIK_CERT_RESOLVER` empty | one HTTPS origin (passkeys need it), the public endpoint profile for the remote node |
 | `SCANTOR_TRUST_PROXY` | `true` | as in production behind Traefik |
 | `SCANTOR_TRAEFIK_BIND_ADDRESS` | `0.0.0.0` | Traefik reachable at 127.0.0.1 and the docker0 address inside the runner (`SCANTOR_BIND_ADDRESS` keeps its loopback value) |
+| `SCANTOR_TUNNEL_URL` | `https://tunnel.scantor.localhost:8443` | the stand-in Cloudflare Tunnel (below) is a second origin; `COMPOSE_PROFILES` keeps only `traefik`, so the real `cloudflared` never starts and the orchestrator logs its boot warning about the missing profile; `SCANTOR_CLOUDFLARE_TUNNEL_TOKEN` stays empty |
 | `SCANTOR_ADMIN_EMAIL` | `admin@scantor.test` (password random, generated by the entrypoint) | headless first admin |
 | `SCANTOR_TRANCO_URL` / `SCANTOR_CRUX_URL` / `SCANTOR_CRUX_CACHE_URL` | `http://fixtures.scantor.localhost:8089/tranco` / `…/crux` / `…/crux-cache` | no internet data sources |
 | `SCANTOR_GIT_ALLOW_PRIVATE` | `true` | git import from the fixtures server |
@@ -460,6 +481,24 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
 | `SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES` | `2MiB` | the smallest log cap: the head-and-tail retention is testable with a small run |
 | `SCANTOR_SCRIPT_RUN_MAX_OUTPUTS` | `10` | the output limit is testable with a few outputs |
 
+- The stand-in Cloudflare Tunnel is the service `tunnel` of `stack.tests.yml` (container `scantor-tunnel-stand-in`):
+  the stack's own `traefik:v3.7` image (no extra pull) with the network alias `cloudflared` on `scantor-tunnel`, the
+  network the real cloudflared shares with the orchestrator only, which the orchestrator resolves as the tunnel's
+  peer exactly like the compose service of production ([auth](auth.md) §4.5).
+  A file provider whose routes are inline `configs:` content (never a file in `traefik/dynamic`, which the stack's
+  Traefik loads) routes every request on its entrypoint `:443`, published as `8443` on `0.0.0.0` of the runner, to
+  `http://orchestrator:3000` with its `Host` kept, like the tunnel's published application route; the wildcard
+  certificate of the test CA (mounted read-only from `/run/scantor-test/traefik/dynamic/`) is its default
+  certificate, so `https://tunnel.scantor.localhost:8443` resolves (dnsmasq, Chromium's `*.localhost`) and verifies
+  like every other test host. `forwardedHeaders.insecure=true` keeps a client's `X-Forwarded-For` and appends the peer
+  it saw, as Cloudflare's edge does, and a read timeout of 10 minutes keeps the 90 s waits of tunnel requests alive
+  (Traefik's default is 60 s). It forwards any `Host`, so a test can send another host from the tunnel's peer; the
+  stack's Traefik ignores it (no `traefik.enable` label) and has no route for the tunnel host. It differs from
+  Cloudflare in what the suite does not need: no `Cf-*` headers, no 125 s read timeout or 100 MB limit, and the
+  tunnel URL has a port. Peers that are not the tunnel are the runner on the dashboard listener, throwaway containers
+  on `scantor-sandbox` and `scantor-scripts` (with the alias `cloudflared` only in the chaos project, §8.7), and the
+  stand-in itself towards throwaway orchestrators that joined `scantor-tunnel` (`docker exec scantor-tunnel-stand-in
+  wget …`, helpers/tunnel.ts).
 - The remote node is a single `docker:29.9-dind` container on its own network `scantor-remote`: the node
   daemon runs **inside** it, started by `join-remote-node.mjs` with the exact `dockerRun` command of
   `createNode` plus `-e SCANTOR_CA_CERT`. A daemon outside the DinD with `DOCKER_HOST` pointing at it would
@@ -491,7 +530,7 @@ failures and normal exits all tear down. Playwright and the keep-alive wait run 
 | 8. stack | pull every image that `compose config --images` names and that is absent locally, with `docker pull` retried 4× like the build; after phase 6 only the pinned third-party images (including the remote node's `docker:29.9-dind`) can be absent (once per cache volume locally, on every CI run). Then `docker compose -p scantor --project-directory /run/scantor-test -f /src/docker-compose.prod.yml -f /src/docker-compose.ports.yml -f /opt/scantor-test/stack.tests.yml up -d --pull never` (profiles from `COMPOSE_PROFILES` in the project `.env`) | exit 1 |
 | 8a. wait | poll `https://scantor.localhost/api/health` until `status: ok` and every component `ok` (≤ 300 s) | dump `compose ps` and `compose logs --tail 200`, exit 1 |
 | 8b. remote node | `node join-remote-node.mjs`: sign in as the seeded admin (one sign-in), `createNode {name: "remote-1", pool: "remote", labels: {zone: "remote"}}`, `docker save scantor:dev \| docker exec -i scantor-remote-node docker load`, run the `dockerRun` of the response inside the remote node with `-e SCANTOR_CA_CERT`, wait ≤ 120 s until the node is `online`, write `{id, name, pool, labels, token}` to `/run/scantor-test/remote-node.json` (0600) | the node daemon's log tail, exit 1 |
-| 8c. playwright | `npm ci` into the node_modules volume when `package-lock.json` changed (stamp `node_modules/.scantor-package-lock.json`); remove `tests/.auth`; write `SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `SCANTOR_ADMIN_EMAIL`, `SCANTOR_ADMIN_PASSWORD`, `SCANTOR_SECRET`, `SCANTOR_AUTH_RATE_LIMIT_SCALE`, `NODE_EXTRA_CA_CERTS`, `SCANTOR_TEST_WORKERS`, the host uid/gid and `CI` to `/etc/profile.d/scantor-test.sh`; run `scantor-test-playwright "$@"` (`tests/docker/playwright.sh`: sources that file, runs `npx playwright test` in `/work/tests`, hands `playwright-report/`, `test-results/` and `.auth/` to `SCANTOR_TEST_HOST_UID:GID`); keep its exit code | a non-zero exit code: write `compose ps -a`, every service's log, the remote node daemon's log and the inner dockerd's log (with timestamps, gzipped) to `test-results/stack-logs/`, since phase 9 removes the stack and the broker or reconciler failures behind many test failures show only there |
+| 8c. playwright | `npm ci` into the node_modules volume when `package-lock.json` changed (stamp `node_modules/.scantor-package-lock.json`); remove `tests/.auth`; write `SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `SCANTOR_TUNNEL_URL`, `SCANTOR_ADMIN_EMAIL`, `SCANTOR_ADMIN_PASSWORD`, `SCANTOR_SECRET`, `SCANTOR_AUTH_RATE_LIMIT_SCALE`, `NODE_EXTRA_CA_CERTS`, `SCANTOR_TEST_WORKERS`, the host uid/gid and `CI` to `/etc/profile.d/scantor-test.sh`; run `scantor-test-playwright "$@"` (`tests/docker/playwright.sh`: sources that file, runs `npx playwright test` in `/work/tests`, hands `playwright-report/`, `test-results/` and `.auth/` to `SCANTOR_TEST_HOST_UID:GID`); keep its exit code | a non-zero exit code: write `compose ps -a`, every service's log, the remote node daemon's log and the inner dockerd's log (with timestamps, gzipped) to `test-results/stack-logs/`, since phase 9 removes the stack and the broker or reconciler failures behind many test failures show only there |
 | 8d. keep alive | `SCANTOR_TEST_KEEP_ALIVE=true` → touch `/run/scantor-test/ready`, print how to use `just test-exec` and `just test-down`, and block until interrupted | – |
 | 9. cleanup | `compose down -v --remove-orphans` (same project flags as phase 8, when the `.env` exists); remove every container with label `scantor.managed=true`, `scantor.test=true` or `com.docker.compose.project=scantor` (workers, helpers, editors, test-run and build containers, test-created orchestrators); remove app-created networks (`scantor-egress`, label `scantor.kind=network`) and the project's networks; remove the project's volumes and the boot-created volumes `scantor-workspaces` and `scantor-editor-home`; remove task and draft images (`*/tasks/*`) and images labelled `scantor.test=true`; keep platform images and build cache; stop dockerd cleanly (the cache volume stays consistent); hand the reports to the host user; exit with the Playwright exit code (or the failing phase's) | best effort, logs every failure |
 
@@ -545,7 +584,9 @@ Fails loudly (every error is thrown; nothing is swallowed):
 
 1. Read the environment (`helpers/env.ts` is the only place reading `process.env` in tests) and check
    `helpers/keys.ts` against `corpora/keys-vectors.json`.
-2. Poll `GET /api/health` (≤ 120 s) until `status: ok`.
+2. Poll `GET /api/health` (≤ 120 s) until `status: ok`, then the same through the stand-in Cloudflare Tunnel
+   (`SCANTOR_TUNNEL_URL`, ≤ 60 s, §7.3): the orchestrator resolves `cloudflared` again after a tunnel request from
+   an unknown peer at most every 5 s, so a stand-in that started after its last lookup gets 421 for a few seconds.
 3. Remove stale limiter lock files (`.auth/limiter/`, §9); the timestamp logs stay, so back-to-back `just
    test-exec` runs share the sign-in budget. Sign in as `SCANTOR_ADMIN_EMAIL`/`SCANTOR_ADMIN_PASSWORD`
    through `POST /api/auth/sign-in/email` with an API request context (one limiter slot); save
@@ -595,17 +636,18 @@ choose (git imports of the fixture repositories, `git-*`) repeat within a worker
 
 | Helper | Contract |
 |---|---|
-| `helpers/env.ts` | `env` (`TestEnv`: `publicUrl`, `editorUrl`, `domain`, `mcpUrl`, `admin`, `secret`, `testWorkers`, `authRateLimitScale`, `ci`, `caCertFile`, `paths` of the tests, the repository (`/src` in the runner), the stack files (`/run/scantor-test`), `.auth/`); `workerIndex()`; `childEnv(extra, {inherit})` for child processes. The only module reading `process.env`; a missing variable throws |
+| `helpers/env.ts` | `env` (`TestEnv`: `publicUrl`, `editorUrl`, `domain`, `mcpUrl`, `tunnelUrl` and `tunnelMcpUrl` (the stand-in Cloudflare Tunnel, §7.3), `admin`, `secret`, `testWorkers`, `authRateLimitScale`, `ci`, `caCertFile`, `paths` of the tests, the repository (`/src` in the runner), the stack files (`/run/scantor-test`), `.auth/`); `workerIndex()`; `childEnv(extra, {inherit})` for child processes. The only module reading `process.env`; a missing variable throws |
 | `helpers/limiter.ts` | `reserve(path)`: a cross-worker sliding-window limiter (a lock file plus a timestamp log per path under `.auth/limiter/`) that blocks until a slot is free; at most 8 per rolling 60 s for `/sign-in/email` and for `/oauth2/register`, 16 for `/passkey/verify-authentication` (below the limits of [auth](auth.md) §2.7, with a margin for window-boundary effects and the runner's own sign-in), each multiplied by the stack's `SCANTOR_AUTH_RATE_LIMIT_SCALE`; `resetLocks()` |
 | `helpers/unique.ts` | `unique(prefix)`: `${prefix}-${workerIndex}-${Date.now().toString(36)}-${rand4}`, lowercase slug ≤ 64 (also exported by `fixtures.ts`) |
 | `helpers/openapi.ts` | `OpenApiIndex`: operations by `operationId` (method, path template, parameters, request body, responses, `x-*` extensions) and `validateResponse(operationId, status, body)` (ajv 2020-12, OpenAPI 3.0-style `nullable` converted to type arrays, formats not asserted) |
 | `helpers/api-client.ts` | `ApiClient(request, openapi)`: generic `call(operationId, {path, query, body, headers, maxRedirects (0), validate})` resolved through the OpenAPI index returning `{status, headers, body, raw}` (body `{}` when not JSON; a Buffer body is sent as is); never throws on a status: `ok(response)` returns the body of a 2xx or throws `ApiError`; thin typed wrappers for frequent operations using type-only imports from `#shared/types`; 2xx JSON bodies are validated against the operation's response schema, so documentation drift fails tests |
 | `helpers/users.ts` | `newApiContext({storageState, headers})` (public origin, `Origin` header, a 150 s request timeout, because `wait` long-polls and slow jobs outlive Playwright's 30 s default), `createUser(adminApi, {prefix, role, …})`, `deleteUser`, `signIn(context, email, password)` (returns the response, also for wrong passwords), `signedInContext(email, password)`, `browserSignIn(page, user, redirect?)`; every sign-in first calls `reserve('/sign-in/email')` |
 | `helpers/webauthn.ts` | `installVirtualAuthenticator(page)` → `{listCredentials, setUserVerified, dispose}`; passkey sign-ins reserve `/passkey/verify-authentication` |
-| `helpers/mcp.ts` | `TestOAuthProvider`, `registerClient(context)` (DCR, reserves `/oauth2/register`), `approveAuthorization(session, url, {accept, scope})` (the consent page's `POST /api/auth/oauth2/consent` with the signed query and the scope), `connectMcp(session, {scopes, consentScope, client?})` (401 challenge → discovery → the given client, else one registration → consent → token → connect), `connectMcpWithKey(key)`, `callJson`, `callError`, `resultText`; redirect URI `http://127.0.0.1:53682/callback` (nothing listens; the code is read from the redirect) |
+| `helpers/mcp.ts` | `TestOAuthProvider`, `issuerOf(origin)`, `registerClient(context, metadata, origin)` (DCR, reserves `/oauth2/register`), `approveAuthorization(session, url, {accept, scope})` (the consent page's `POST /api/auth/oauth2/consent` on the authorize URL's origin with the signed query and the scope), `connectMcp(session, {scopes, consentScope, client?, mcpUrl?})` (401 challenge → discovery → the given client, else one registration → consent → token → connect), `connectMcpWithKey(key, mcpUrl)`, `callJson`, `callError`, `resultText`; redirect URI `http://127.0.0.1:53682/callback` (nothing listens; the code is read from the redirect). Every origin has its own issuer and resource: the public URL by default, the tunnel URL (`env.tunnelMcpUrl`) with a session of that origin; `helpers/mcp-oauth.ts` takes the same `origin`/`mcpUrl` (`authorizationUrl({origin, resource})`, `tokenRequest(request, form, origin)`, `exchangeCode`, `authorize(session, {origin})`, `connectMcpPatiently(session, {mcpUrl})`, `rawMcp(request, headers, payload, mcpUrl)`) |
 | `helpers/tasks.ts` | `packTask(dir, {name})` (deterministic tar.gz, manifest `name` rewritten with `yaml`), `copyTask(dir, name)` (a renamed copy for the CLI; `removeDir`), `uploadAndPublish`, `publishAndWait`, `waitForRevision`, `deleteTask`, `fixtureTaskDir(name)`, `exampleTaskDir(name)` |
 | `helpers/scans.ts` | `SMALL_SETTINGS` (1 runner × 1 process, 0.25 CPU, 256 MiB), `startScan`, `waitForScanState(api, id, states, timeoutMs)` (long-polls `getScan?wait=50`; throws with the scan's `state`, `stateReason`, `conditions`, scheduling, progress and workers when it settles in another terminal state or times out), `startScanAndWait`, `scanCounts` (`aggregateAnalyses [{$group: {_id: "$status", n: {$sum: 1}}}]`, exact, never the `stats` hints), `cancelAndDeleteScan` |
-| `helpers/docker.ts` | `docker(args)` through `execFile` only (never a shell string), `innerDocker` (the `docker` fixture), `CONTAINERS` (the stack's container names), `REMOTE_NODE_NETWORK`, `stackEnv()` (the stack's generated `.env`) |
+| `helpers/docker.ts` | `docker(args)` through `execFile` only (never a shell string), `innerDocker` (the `docker` fixture), `CONTAINERS` (the stack's container names, the stand-in tunnel `scantor-tunnel-stand-in` included), `REMOTE_NODE_NETWORK`, `stackEnv()` (the stack's generated `.env`) |
+| `helpers/tunnel.ts` | the Cloudflare Tunnel of the stack (§7.3): `TUNNEL_HOST`, `TUNNEL_REFUSED_PREFIXES` and `isTunnelRefusedPath` (mirroring `server/utils/tunnel.ts`), `newTunnelContext({storageState, headers})` (tunnel URL as `baseURL` and `Origin`, the long-poll timeout), `signInThroughTunnel`/`tunnelSession` (through the limiter, waiting out a 429), `writeTunnelState(file, account, publicState)` (one storage state with the account's session on both origins, since sessions are host-only), `NetworkPeer` and `statusFromNetwork` (busybox `wget` with any `Host` to `orchestrator:3000` from a container on `scantor-sandbox` or `scantor-scripts`, optionally with a network alias), `statusFromTunnelPeer` (the stand-in itself sends the request, for throwaway orchestrators), `TUNNEL_NETWORK`, `containerAddress(container, network)`, `tunnelPeerAddress()` (the stand-in's address on `scantor-tunnel`), `connectToTunnelNetwork(container)` (attaches a throwaway to `scantor-tunnel` and returns its URL there), `orchestratorLookup(host)` (the stack orchestrator's own resolver), `orchestratorLogLines(since)` and `waitForOrchestratorLog(since, predicate)` (the stack orchestrator's JSON log lines) |
 | `helpers/amqp.ts` | `connectAsScan(scanId)` (user `scan-<scanId>`, password via `helpers/keys.ts`), `connectAsAdmin()`, `connectAs(user, password)` over `amqps://amqp.<domain>:443/scantor` (Traefik, the test CA); `publish(session, exchange, routingKey, body, properties)` on a confirm channel (`user_id` defaults to the session's user), for security and chaos cases |
 | `helpers/keys.ts` | `Keys`/`stackKeys()`: HKDF derivations of [architecture](architecture.md) §9 from the stack's `SCANTOR_SECRET` for white-box tests (`amqpPassword`, `registryPushPassword`, `workerToken` with the worker documents from `listScanWorkers`, `mongoQueryPassword`, `builtinNodeToken`, `toolsCookie`, `editorCookie`); `verifyVectors()` checks them against `corpora/keys-vectors.json` (global setup) |
 | `helpers/tar.ts` | `loadTarCorpus()`, `buildCaseArchive(case)`, `buildTarGz(entries)`: hostile archives (traversal, absolute, symlink, hardlink, device, FIFO, backslash, too many files, gzip bomb, PAX records) from `corpora/tar-slip/cases.json`; zip cases and `nameBase64` names are refused (the Go and vitest suites cover them) |
@@ -708,7 +750,12 @@ BuildErrors; manifest defaults above the caps (phase `config`); timeout and OOM;
 covers `createRevisionBundle` and `getRevisionBundle`: 201 `queued` then `ready` with a presigned gzip attachment
 and the commands; reuse (200) and replacement (`rebuild`, failure, expiry: 201); 409 `revisionNotReady` and
 `bundleUnsupported`; 404 without a bundle and for another user's revision; a bundle after the master lost its local
-revision image (removed through `helpers/docker.ts`); task deletion removing the object.
+revision image (removed through `helpers/docker.ts`); task deletion removing the object. `tunnel` covers the
+Cloudflare Tunnel as a second origin through the stack's stand-in (§7.3): the dashboard, the REST API (an API key,
+an upload) and `/mcp` through the tunnel URL; `getInstanceInfo`, `getSetupStatus` and `scantor instance` per origin;
+host-only sessions and CSRF per origin (each origin refuses the other's `Origin`); HSTS and the CSP without editor
+and S3 origins through the tunnel URL; the passkey RP ID per origin; and a `wait=120` that ends after 90 s through
+the tunnel URL.
 
 ### 8.2 UI (`ui/`)
 
@@ -733,6 +780,7 @@ revision image (removed through `helpers/docker.ts`); task deletion removing the
 | `account.spec.ts` / `access.spec.ts` / `credentials.spec.ts` | profile, password, sessions (on `freshUser`); API key shown once with export, alias and API-key MCP snippets, OAuth MCP command, OAuth app revoke; credentials CRUD |
 | `editor.spec.ts` | on `freshUser`: editor starts, iframe loads the code-server workbench from the editor origin, new-tab session, stop |
 | `admin-tools.spec.ts` | tool links set the tools cookie and reach each GUI through forwardAuth; non-admin gets nothing |
+| `tunnel.spec.ts` | the dashboard through the stand-in Cloudflare Tunnel (§7.3) with a session of both origins (`helpers/tunnel.ts` `writeTunnelState`; the tunnel URL's requests are sent from Node like the public URL's): the login form on the tunnel URL, the "Tunnel URL" badge and the hidden Editor link, `/editor` redirected to the overview with its toast and no editor request, the admin tools page's alert in place of the tool cards (API links, health and jobs stay, and so does its navigation entry), a revision's disabled "Download source" with its tooltip, the access page's MCP endpoint, hint and key snippets per origin |
 | `scripts.spec.ts` | the script pages of [ui](ui.md) §5.21–§5.24: list and search, create, files tab, the run form (scan picker, schema form or JSON, secrets, sample and full run), the run page (progress, log polling, outputs, cancel, run again, resume), "Run script" from the scan page, `/editor?script=` |
 | `a11y.spec.ts` | on every page: every `button` has an accessible name; canonical names of [ui](ui.md) §11 exist |
 | `headers.spec.ts` | the required headers of [ui](ui.md) §13 on every page and on `/api/*` (`Cache-Control: no-store`), `frame-ancestors 'none'` on `/login`, `/setup` and `/oauth/consent`, the editor host's headers; no CSP violation in the console on any page (this decides the inline-script option of [ui](ui.md) §13); no request leaves the dashboard, S3 and editor origins |
@@ -769,6 +817,7 @@ revision image (removed through `helpers/docker.ts`); task deletion removing the
 | `agent-loop.spec.ts` | a serial loop using tools only: `create_task` (python, template `range`) → `read_task_file` (manifest, entry) → `write_task_files` (change `run`) → `test_task` (`wait=50`) → `publish_revision` (`wait`) → `start_scan` → `get_scan` (`wait`) until completed → `query_analyses` → `aggregate_analyses` → `export_scan` → `get_export`; asserts `{untrusted_data: …}` wrapping on analysis content and structured build errors after a deliberately broken edit |
 | `limits.spec.ts` | 256 KiB response cap with the truncation note (a `query_analyses` call whose rows exceed it) |
 | `guides.spec.ts` | server instructions (present, ≤ 8 KiB, every tool they name exists), guide resources and `get_authoring_guide` for every row of `schemas/languages.json` |
+| `tunnel.spec.ts` | through the stand-in Cloudflare Tunnel (§7.3): the `/mcp` challenge and the discovery documents name the tunnel URL's issuer and resource; the SDK's OAuth flow and the manual PKCE flow with a session of the tunnel URL yield tokens for `<tunnel URL>/mcp`; a token of one origin gets 401 on the other's `/mcp`; authorize and token requests for the other origin's resource get 400 `invalid_target`; an API key works on both |
 | `drift.spec.ts` | every MCP tool name and `scantor <command>` mentioned in `skills/**` and `docs/guide/*.md` exists (tools from `tools/list`, commands from `docs/guide/cli.md`, which `just docs` generates from the cobra command tree), and guide code snippets match the files in `tasks/` they claim to include |
 
 ### 8.5 Authorization matrix (`authz/`)
@@ -799,6 +848,13 @@ fixes the mechanics:
 - The `scriptRun` scope is checked twice: from the runner every credential gets 403 (the peer check runs first),
   and from a throwaway container on `scantor-scripts` (`fetchFromScriptsNetwork` in `helpers/security-scripts.ts`)
   every credential but the token of a running run gets 401, the token of A's ended run included.
+- The tunnel case ([security](security.md) §7 case 10) sends every operation below a refused prefix of
+  `helpers/tunnel.ts` (every `node`, `worker`, `scriptRun` and `tools` operation must lie below one) through the
+  stand-in tunnel (§7.3) with its principal's real credential (a throwaway cordoned node's token, A's worker and
+  script-run tokens, an admin's tools cookie and session, A's session) and expects 404 `notFound` with the
+  deny-by-default message; the control on the public URL must not be that answer (destructive operations go there
+  without a credential, so it changes nothing), and `listNodes`, `getAccount` and `getHealth` answer through the tunnel
+  URL as on the public URL.
 
 ### 8.6 Security (`security/`)
 
@@ -815,9 +871,10 @@ security.md cites (`tests/security/<name>.spec.ts`); the other mitigations are c
 | `cross-scan.spec.ts` | `helpers/amqp.ts` as `scan-<B>` | publish with routing key `<A>` refused by the broker; a spoofed `user_id` closes the channel; body claiming `scanId: A` with routing key `<B>` writes only `B-<seq>`; seq −1 / 1.5 / 2^53 and a round above the scan's round rejected; an oversized result becomes a `failed`/`validation` analysis while other scans keep ingesting; a message without `user_id` → `security.ingestRejected` event and no document |
 | `banned.spec.ts` | ban a user (`freshUser`) holding a session, a `default` key, an `editor` key, an MCP OAuth token, MCP via API key and a tools cookie (admin) | every user principal rejected within the 30 s cache, keys and OAuth consents gone, editor stopped; with `cancelScans` the scans are cancelled, without it the scan's workers keep their tokens and the scan completes ([auth](auth.md) §5.7) |
 | `setup-token.spec.ts` | a throwaway orchestrator (`scantor-test-setup-*`, label `scantor.test=true`, private infrastructure below), `SCANTOR_COMPONENTS=api`, no `SCANTOR_ADMIN_*` | `GET /api/setup/status` public; `createSetupAdmin` without or with a wrong token → 401 `setupTokenInvalid`; the token from its log → 201; again → 409 `setupCompleted`; a passkey setup token is single use |
-| `insecure-secrets.spec.ts` | throwaway orchestrator containers ([security](security.md) CFG-2): public mode by a non-loopback `SCANTOR_PUBLIC_URL` or `SCANTOR_EDITOR_URL`, by `COMPOSE_PROFILES=traefik`, or by a non-loopback `SCANTOR_BIND_ADDRESS`/`SCANTOR_ADMIN_BIND_ADDRESS`; offenders: any variable ending in `-insecure-dev` (including one the orchestrator does not read) and short core secrets; plus an editor URL with the same origin as the public URL | in public mode: exit code 1 within 30 s and a log line naming each offending variable and no value; with `SCANTOR_ALLOW_INSECURE_DEFAULTS=true` the guard passes; all-loopback settings without Traefik pass; the same-origin editor URL always exits 1 |
+| `insecure-secrets.spec.ts` | throwaway orchestrator containers ([security](security.md) CFG-2): public mode by a non-loopback `SCANTOR_PUBLIC_URL` or `SCANTOR_EDITOR_URL`, by `COMPOSE_PROFILES=traefik`, by a set `SCANTOR_TUNNEL_URL`, or by a non-loopback `SCANTOR_BIND_ADDRESS`/`SCANTOR_ADMIN_BIND_ADDRESS`; offenders: any variable ending in `-insecure-dev` (including one the orchestrator does not read) and short core secrets; plus an editor URL with the same origin as the public URL | in public mode: exit code 1 within 30 s and a log line naming each offending variable and no value; with `SCANTOR_ALLOW_INSECURE_DEFAULTS=true` the guard passes; all-loopback settings without Traefik pass; the same-origin editor URL always exits 1 |
 | `auth-endpoints.spec.ts` | better-auth surface | each endpoint outside the HTTP allowlist ([auth](auth.md) §2.5) → 404; no other better-auth endpoint than those of [api](api.md) §3 reachable with a session; session `Set-Cookie` attributes; the client IP of sign-ins through Traefik, straight to the dashboard listener and from `scantor-sandbox` (never a forwarded value); API keys rejected on `/api/auth/*`; the rate limits are in `rate-limits.spec.ts` |
 | `rate-limits.spec.ts` | throwaway orchestrators | the 11th sign-in within a minute with rotating `X-Forwarded-For` → 429 with `SCANTOR_TRUST_PROXY=false` and with `true` from a peer outside `SCANTOR_TRUSTED_PROXIES`; with the runner as the trusted proxy the rightmost entry is the client; the other per-IP auth budgets ([auth](auth.md) §2.7), so the suite's own budget (§9) is untouched |
+| `tunnel.spec.ts` | the stack's stand-in Cloudflare Tunnel (§7.3), containers on the internal networks and throwaway orchestrators ([security](security.md) TUN-1…TUN-3, TUN-7) | the tunnel host straight to the dashboard listener and any other host from the tunnel's peer → 421 `text/plain`, with a rate-limited warning per kind; Traefik has no route for the tunnel host; containers on `scantor-sandbox` and `scantor-scripts` → 421 (one there with the alias `cloudflared` would take the name over from the stand-in, so that case is in the chaos project, §8.7); the session IP and the access log's `clientIp` of a tunnel sign-in are the address the tunnel appended to `X-Forwarded-For`, never a client-supplied entry; the refused prefixes → 404 before the body limit (413 on the public URL) and before any credential (no principal in the access log); a throwaway attached to `scantor-tunnel` without `SCANTOR_TUNNEL_URL` treats the tunnel's peer as an ordinary client, redeployed with it the same requests are refused; invalid tunnel URLs and the `cloudflare-tunnel` profile without one exit 1 naming `SCANTOR_TUNNEL_URL` |
 | `csrf.spec.ts` | cookie-authenticated mutations | foreign or missing `Origin` → 403; the editor origin is never trusted; API keys need no `Origin` |
 | `compose-lint.spec.ts`, `env-example.spec.ts` | the compose files and `.env.example` (no stack needed) | thin wrappers that run the rule functions of `scripts/lint-compose.mjs` and `scripts/lint-env.mjs` (§11), so the same rules fail `just lint` early and appear in the security project and TESTS.md |
 | `traefik.spec.ts` | the stack's Traefik | `http://` redirects to `https://`, the test CA's certificate is served for every host and the SNI TCP router, each host routes to its target, the dashboard API needs the tools cookie |
@@ -838,7 +895,11 @@ Docker-in-Docker engine mounted as `/var/run/docker.sock`, because the `api` com
 removes every editor container its own database does not know; and a RustFS. Every orchestrator on one
 infrastructure gets a database and a bucket of its own, so each starts with zero users. They mount none of
 the stack's volumes: their registry key files land in a container-local directory, so they never touch the
-main registry's JWKS.
+main registry's JWKS. Their environment is the stack's `.env` without the Traefik profile, `SCANTOR_DOMAIN` and
+`SCANTOR_TUNNEL_URL`, so they are no public deployment unless a test makes them one; a throwaway that sets the tunnel
+URL joins `scantor-tunnel` (`helpers/tunnel.ts` `connectToTunnelNetwork`) and resolves the stand-in tunnel there as
+its `cloudflared` (`security/tunnel.spec.ts`), and its Docker daemon has no `scantor-sandbox` or `scantor-scripts`,
+so it excludes no subnet.
 
 ### 8.7 Chaos (`chaos/chaos.spec.ts`)
 
@@ -857,6 +918,7 @@ never timing. Cases run serially after all other projects.
 | non-deterministic schedule | `nondeterministic` scan; kill the scheduler after `scheduling.confirmed > 0` | scan `failed`; `scheduling.error.message` contains "schedule() is not deterministic" |
 | remote node partition | `docker network disconnect` the remote node (`scantor-remote-node` from `scantor-remote`) for 40 s (> `SCANTOR_NODE_OFFLINE_AFTER`), then reconnect | node `offline` then `online`; its workers `lost` and replaced; scan `completed` with exact counts; stale containers removed after return |
 | lost analyses retried | a `throws` scan whose analyses are `retrying` with a long `backoff.initialMs`; delete the scan queue with its delayed messages through the RabbitMQ management API (the reconciler recreates it empty) | after `SCANTOR_SCAN_STALL_AFTER` the documents are `lost` with their config and the scan ends; `retryFailedAnalyses` resets them; scan `completed` with `succeeded == total` |
+| cloudflared impersonated | `docker stop` the stand-in tunnel, then a container with the network alias `cloudflared` on `scantor-sandbox`, and one on `scantor-scripts`, as the only answer to the name (the orchestrator's own resolver returns its address); `docker start` the stand-in afterwards | its tunnel-host requests → 421 across several lookups, its public-host requests → 200 (the sandbox and scripts subnets never count, TUN-1); the tunnel URL serves again once the stand-in is back |
 | broker alarm | lower RabbitMQ's memory watermark (`rabbitmqctl set_vm_memory_high_watermark absolute 1`) during a running scan, restore it after 20 s | while the alarm lasts `startScan` returns 503 `brokerAlarm` and the running scan shows the `brokerAlarm` condition; afterwards the condition clears and the scan completes with exact counts |
 
 Excluded because they cannot be made deterministic in this environment: retry-failed racing late results,
@@ -941,6 +1003,14 @@ Flake avoidance (agentor's pitfalls):
     with an `InformationalError` "socket idle timeout" that reached the worker uncaught and failed its next test,
     although every step of that test passed. The `mcp` project covers the SDK clients. ESLint enforces the rule
     for `tests/ui/` (no global `fetch`, no SDK client or helper that connects one).
+19. The stack's orchestrator trusts every address that `cloudflared` resolves to on a network it is attached to
+    (outside `scantor-sandbox` and `scantor-scripts`) as the tunnel's peer, and Docker's DNS answers the name from
+    the first of its networks that has it, which can be `scantor-sandbox` before `scantor-tunnel`. A container with
+    the alias `cloudflared` on `scantor-sandbox` or `scantor-scripts` therefore takes the name over from the stand-in
+    and breaks the tunnel for every other spec: only the serial chaos project impersonates it (§8.7), never a spec
+    that runs beside others, and never on `scantor` or `scantor-tunnel`, which would make the stack trust a test
+    container. Misdirected tunnel requests are logged once a minute per kind, so a test
+    that looks for that warning reads the log from a minute before its own requests.
 
 ## 10. `FEATURES.md` and `TESTS.md`
 
@@ -986,15 +1056,16 @@ regenerates the index in the same commit ([development](development.md) §13).
 - `tests/scripts/check-terms.mjs` (part of `just lint`, dependency-free): fails when user-facing strings in
   `orchestrator/app/**/*.vue`, `docs/guide/*.md` and `README.md` use a curated list of forbidden terms from
   [architecture](architecture.md) §2 ("replica" except MongoDB's "replica set", "concurrency", "dry run",
-  "campaign", "control plane", "head node", "scan template", "worker machine", "scan token"). Code is exempt:
+  "campaign", "control plane", "head node", "scan template", "worker machine", "scan token", "external URL" and
+  "external origin", which must be "tunnel URL"). Code is exempt:
   comments, fenced code blocks and inline code spans, identifiers (camelCase, snake_case) and env variable
   names.
 - `tests/scripts/lint-compose.mjs` (`just lint-compose`, part of `just lint`) parses the compose files
   and fails when the infrastructure services (`data-init`, `mongo`, `rabbitmq`, `rustfs`, `registry`,
-  `mongo-express`, `traefik`) differ between `docker-compose.dev.yml` and `docker-compose.prod.yml`, when either
-  publishes a port other than Traefik's and the registry's, when the overlay `docker-compose.ports.yml` sets
-  anything but `ports` of services of the production file, or when a compose rule
-  of [security](security.md) is broken: Traefik `exposedbydefault=false`, the compose-project constraint
+  `mongo-express`, `traefik`, `cloudflared`) differ between `docker-compose.dev.yml` and
+  `docker-compose.prod.yml`, when either publishes a port other than Traefik's and the registry's, when the
+  overlay `docker-compose.ports.yml` sets anything but `ports` of services of the production file, or when a
+  compose rule of [security](security.md) is broken: Traefik `exposedbydefault=false`, the compose-project constraint
   and `api.insecure=false`; admin GUIs and MongoDB published only on `SCANTOR_ADMIN_BIND_ADDRESS`; the
   MongoDB TCP router only with `SCANTOR_EXPOSE_MONGO`; mongo-express read-only; `mongod --noscripting` and
   `--slowOpSampleRate 0`; RabbitMQ with the management plugin only (`RABBITMQ_ENABLED_PLUGINS`);
@@ -1005,7 +1076,12 @@ regenerates the index in the same commit ([development](development.md) §13).
   `env_file: .env`; mongo and rabbitmq run as their own users and mongo, rabbitmq and rustfs wait for
   `data-init` (`service_completed_successfully`), which mounts their `SCANTOR_*_DATA` locations; every
   service of every compose file defines an enabled healthcheck, except a one-shot service (`restart: "no"`,
-  every dependent waits for `service_completed_successfully`).
+  every dependent waits for `service_completed_successfully`). `cloudflared` ([deployment](deployment.md) §4.10,
+  [security](security.md) TUN-6) must exist in both files with exactly the profile `cloudflare-tunnel`, join only
+  the network `scantor-tunnel` (a plain bridge named `scantor-tunnel`, not internal, which the orchestrator joins and
+  no other service, the stand-in `tunnel` of the test stack override aside), bind its metrics and `/ready` to `--metrics 127.0.0.1:20241` in both its command and its
+  healthcheck, get its token only as `TUNNEL_TOKEN=${SCANTOR_CLOUDFLARE_TUNNEL_TOKEN}` in its `environment` (never
+  `--token` on the command line, no `env_file`) and publish no ports, also not through `docker-compose.ports.yml`.
 - `tests/scripts/lint-env.mjs` (part of `just lint`, dependency-free) fails when a `SCANTOR_*` variable read
   by code (the Go `LoadConfig`s in `internal/*/config.go` and direct `Getenv`/`LookupEnv` calls,
   `server/utils/config.ts`, compose interpolations including `tests/docker/stack.tests.yml`, recipes,
@@ -1072,8 +1148,12 @@ job passes.
    names; never touch shared objects; never sign in or register an OAuth client without the limiter.
 4. Tag the test with its FEATURES.md ids.
 5. For a new API operation: add its entries to `authz/requests.ts`; for a new MCP tool: update the
-   expected tool set in `mcp/tools.spec.ts`.
-6. Run the file with `just test-exec <file>` against a stack kept alive with `just test-up` (remove it with
+   expected tool set in `mcp/tools.spec.ts`. An operation below a prefix the tunnel refuses needs nothing more: the
+   matrix's tunnel case reads them from the document.
+6. For behaviour of the tunnel URL use the stack's stand-in Cloudflare Tunnel (§7.3) through `helpers/tunnel.ts`
+   (`newTunnelContext`, `tunnelSession`, and `writeTunnelState` for pages); sessions are host-only, so a test that
+   uses both origins signs in on each, through the limiter.
+7. Run the file with `just test-exec <file>` against a stack kept alive with `just test-up` (remove it with
    `just test-down`); then `just test-index`.
 
 ## 14. Decisions
@@ -1117,6 +1197,11 @@ job passes.
     downloaded through its presigned URL and loaded and run in `scantor-remote-node`, a separate Docker daemon on
     its own network, where a bundle run has no stack service, volume or credential at hand (and BRUN-009 runs
     under `--network none`), so the specs prove that a bundle needs nothing but Docker.
+16. **A Traefik stand-in plays the Cloudflare Tunnel** (§7.3): the real `cloudflared` needs a Cloudflare account,
+    a token and the internet, so the suite cannot run it. What the orchestrator checks is only the peer that
+    resolves as `cloudflared` on `scantor-tunnel`, the `Host` and the appended `X-Forwarded-For`, and a proxy with that
+    network alias reproduces all three; the stack's own Traefik image costs no pull, and the real service's compose
+    rules are covered by `lint-compose` (§11).
 
 ## 15. Future extensions
 

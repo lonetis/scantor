@@ -505,7 +505,9 @@ and handlers that reload the run require `running` again (401 when it ended mean
 `/api/script-runtime/*` accepts a request only when its **socket peer address** lies in a subnet of the Docker
 network `scantor-scripts` and is not a trusted reverse proxy (`SCANTOR_TRUST_PROXY`), so the request did not come
 through Traefik; otherwise 403 `forbidden`. The check runs before the token, so outside callers cause no database
-read and learn nothing about tokens. A leaked token is useless outside the master.
+read and learn nothing about tokens. A leaked token is useless outside the master. A tunnel request never gets
+that far: `/api/script-runtime/*` is a prefix refused through the tunnel, which answers 404 `notFound` before the
+peer check ([deployment](deployment.md) §10.2).
 
 - The subnets come from the network's IPAM configuration (`server/utils/script-network.ts`), inspected by boot step
   `scripts-network` (order 650, `server/plugins/35.scripts.ts`). The step never fails the boot: while the subnets

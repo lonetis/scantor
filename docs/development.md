@@ -204,6 +204,13 @@ Conventions for recipes:
   <dind> docker load`, create the node with `scantor nodes create <name> --pool remote` and run the printed
   `dockerRun` inside the DinD container. Restore `.env` afterwards: the registry's token realm follows
   `SCANTOR_PUBLIC_URL`.
+- **Cloudflare Tunnel against the dev stack**: set `COMPOSE_PROFILES=cloudflare-tunnel`, `SCANTOR_TUNNEL_URL`
+  and `SCANTOR_CLOUDFLARE_TUNNEL_TOKEN` in `.env` and run `just up` ([deployment](deployment.md) §10.2). Vite
+  answers 403 "Blocked request" to an unknown `Host`, so `nuxt.config.ts` adds the tunnel host to
+  `vite.server.allowedHosts` from `SCANTOR_TUNNEL_URL`. Under `nuxt dev` the socket has no peer address, so
+  tunnel requests are recognised by `Host` alone and any client that sends the tunnel host is treated as one:
+  the classification is advisory in the dev stack, as the script runtime peer check is ([scripts](scripts.md)
+  §9.3). Verify peer-dependent behaviour on the test stack.
 - **Data**: mongo-express, the RabbitMQ management UI and the RustFS console are bound to
   `SCANTOR_ADMIN_BIND_ADDRESS` ([deployment](deployment.md)).
 - **Tests while developing**: run the narrowest suite first (`just test-go ./internal/taskpipe/...`,
@@ -321,9 +328,10 @@ orchestrator/
 │   ├── routes/                   mcp.ts (/mcp), .well-known/[...path].ts, api/docs.get.ts (the Scalar reference,
 │   │                             ui §13) (never editor routes: the editor origin is its own listener)
 │   ├── middleware/               ordered by prefix (auth §1): 00.request (request id, x-scantor-client-ip,
-│   │                             421 for the editor host), 01.path (400 for non-canonical paths, auth §5.5),
-│   │                             02.body-limit, 10.auth (prefixes, principals, operation registry, scopes,
-│   │                             bans, CSRF), 11.passkey-guard
+│   │                             request origin, 421 for the editor host and for tunnel host/peer mismatches),
+│   │                             01.path (400 for non-canonical paths, auth §5.5), 01.tunnel (404 for the
+│   │                             prefixes refused through the tunnel), 02.body-limit, 10.auth (prefixes,
+│   │                             principals, operation registry, scopes, bans, CSRF), 11.passkey-guard
 │   ├── plugins/                  Nitro plugins in file-name order: 00.boot (resets the registries, registers the
 │   │                             foundation boot steps, architecture §4.1), 10.components (foundation component
 │   │                             tasks: the jobs runners, userPurge), 20–89 domain plugins that only register
@@ -352,7 +360,9 @@ orchestrator/
 │   │                             openapi.ts (route-meta typing with the x-scantor extensions)
 │   └── utils/                    foundation seams and clients: config (the only process.env reader), env-values,
 │                                 startup-guard, errors, error-handler, zod (validate helpers), pagination, serialize,
-│                                 auth and auth-policy (better-auth instance), credential-lookup (session and API
+│                                 auth and auth-policy (one better-auth instance per origin, useAuth(origin)),
+│                                 tunnel (classification of tunnel requests by peer and Host, the refused prefixes,
+│                                 requestOriginOf, originUrlOf), trusted-proxy, credential-lookup (session and API
 │                                 key lookups, auth §5.2), principal, operations (operation registry), authz
 │                                 (ownership helpers), request-path (canonical paths, auth §5.5), internal-auth,
 │                                 loopback (the MCP bridge's private listener, mcp §1), node-tokens, worker-tokens,
@@ -448,6 +458,10 @@ and [templates](templates.md).
 2. Add the representation to `shared/types/<area>.ts` and the request schema to `shared/schemas/<area>.ts`.
 3. Create `server/api/<path>.<method>.ts` with `defineRouteMeta` first, then the thin handler (§7).
    Long-running work becomes a job; ownership through `loadOwned`; status codes per [api](api.md) §1.6.
+   A route under a prefix that is refused through the tunnel (`TUNNEL_REFUSED_PREFIXES` in
+   `server/utils/tunnel.ts`) answers 404 there; an absolute dashboard, REST or `/mcp` URL in a response comes from
+   `originUrlOf` with the request's origin, never from `Host`; editor, S3, registry and node URLs come from their own
+   variables or the node's endpoint profile ([architecture](architecture.md) §8), never from the tunnel URL.
 4. Update [api](api.md) (route table, representation, errors) and, when MCP-exposed, [mcp](mcp.md)
    (tool list, untrusted-data wrapping, response size).
 5. If MCP-exposed, update the expected tool set in `tests/mcp/tools.spec.ts`; check the tool description
@@ -507,7 +521,8 @@ and [templates](templates.md).
 ### 9.4 Add a UI page
 
 1. Create `app/pages/<path>.vue` with `definePageMeta` (`auth: false` for public pages, `admin: true` for
-   admin pages) and `useHead({ title: '<Page> · scantor' })`.
+   admin pages, `tunnel: false` for pages whose operations are refused through the tunnel) and
+   `useHead({ title: '<Page> · scantor' })`.
 2. Render one `UDashboardPanel` (`#header` with `UDashboardNavbar`, `UDashboardSidebarCollapse`, a
    "Refresh" button when the page polls; `#body` with the content).
 3. Load data with `useApiFetch`/`useCursorList` and poll with `usePoll` at the intervals of [ui](ui.md) §9;
@@ -591,7 +606,7 @@ Pins (researched 2026-10-21; update this table in the same commit as any bump):
 | Go | go 1.27 / toolchain go1.27.3, the same patch level in every `golang:` image (`golang:1.27.3-alpine3.24` builds the binaries of the scantor and orchestrator images and the test fixtures server, `golang:1.27.3-trixie` the editor, the Go base image, the test runner's CLI, the recipes and `release.yml`); github.com/moby/moby/client **v0.6.2 exact** + moby/api v1.56.1; amqp091-go v1.16.0; cobra v1.10.2; invopop/jsonschema v0.14.0; santhosh-tekuri/jsonschema/v6 v6.0.3; aws-sdk-go-v2 service/s3 v1.114.4; go.yaml.in/yaml/v3 v3.0.5; golang.org/x/sync v0.24.0; github.com/moby/buildkit v0.34.1 (Dockerfile parser of `internal/taskpipe`); github.com/moby/patternmatcher v0.6.1 (`.dockerignore` semantics of `task pack`); delve v1.27.2; gopls v0.24.0; golangci-lint v2.15.0 |
 | Python | 3.14 base images; pydantic >=2.14,<3; debugpy >=1.8.22; pytest >=9.1; pytest-asyncio >=1.4; ruff >=0.17.1 (`just lint`/`fmt` run `uvx ruff@0.17.1`); basedpyright 1.40.2; uv 0.13.4 |
 | Base images | `scantor-base-python` ships basedpyright 1.40.2 (its `SCANTOR_CHECK_CMD`); `scantor-base-js` ships typescript ~6.0.3 and @types/node at `/node_modules` (its check command); zod stays nested inside `@scantor/connector`, so user code imports the re-exported `z` ([tasks](tasks.md)) |
-| Infrastructure images | `rabbitmq:4.4-management`, `mongo:9.0`, `mongo-express:1.0.2-20-alpine3.19`, `rustfs/rustfs:1.0.3`, `registry:3.1.2`, `traefik:v3.7`, `alpine:3.24` (`data-init`), `codercom/code-server:4.141.0`, `docker:29.9-dind` (tests) |
+| Infrastructure images | `rabbitmq:4.4-management`, `mongo:9.0`, `mongo-express:1.0.2-20-alpine3.19`, `rustfs/rustfs:1.0.3`, `registry:3.1.2`, `traefik:v3.7` (also the stand-in tunnel of `tests/docker/stack.tests.yml`), `cloudflare/cloudflared:2026.11.1` (exact: cloudflared has no floating major or minor tag, only exact `YYYY.M.P` releases, their per-architecture and build-number variants, and `latest`; checked 2026-11-23), `alpine:3.24` (`data-init`), `codercom/code-server:4.141.0`, `docker:29.9-dind` (tests) |
 | Editor extensions | Open VSX, pinned in `editor/extensions.txt` ([editor](editor.md) §2.2): ms-python.python 2026.4.0 with its pack members ms-python.debugpy 2026.6.0 and ms-python.vscode-python-envs 1.40.0, detachhead.basedpyright 1.40.2, charliermarsh.ruff 2026.88.0, golang.go 0.58.0, redhat.vscode-yaml 2.0.0, dbaeumer.vscode-eslint 3.0.34 |
 | Tools | just 1.59.0; GitHub Actions majors: checkout@v7, cache@v6, upload-artifact@v7, download-artifact@v8, setup-buildx-action@v4, setup-qemu-action@v4, login-action@v4, metadata-action@v6, build-push-action@v7, bake-action@v7, setup-just@v4, golangci-lint-action@v9 |
 
@@ -652,7 +667,8 @@ Conventional Commits 1.0.0 with an emoji after the colon (the maintainer's globa
   `jobs`, `editor`, `cli`, `node`, `runtime`, `taskpipe`, `workspace`, `templates`, `protocol`,
   `connector-python`, `connector-js`, `connector-go`, `scaffolds`, `schemas`, `examples`, `compose`,
   `images`, `tests`, `deps`, `docs`, `scripts` (scripts, script runs and the script runtime API across their
-  layers), `bundles` (bundles across their layers: format, orchestrator, bundle step and bundle mode).
+  layers), `bundles` (bundles across their layers: format, orchestrator, bundle step and bundle mode), `tunnel`
+  (the Cloudflare Tunnel across its layers: compose service, request classification, per-origin auth, UI).
 - Breaking changes: `!` before the colon and a `BREAKING CHANGE: <what breaks and how to migrate>` footer.
   Issue references in footers (`Fixes #123`).
 - Commits authored or co-authored by an AI agent add `Co-authored-by: <agent> <noreply@…>`.
@@ -735,6 +751,10 @@ restarting `scantor node` with the new image tag within the compatibility window
     names, shared by the bundle step, bundle mode and the CLI; `internal/runtime/bundlerun` for bundle mode on top
     of `internal/runtime/local`), one orchestrator service area (`bundles`) registered by `36.bundles.ts`, and the
     commit scope `bundles` for changes across these layers ([architecture](architecture.md) D24).
+12. **The Cloudflare Tunnel lives in one request seam** (`server/utils/tunnel.ts`: classification, refused prefixes,
+    origin URLs), which every per-origin decision reads through `requestOriginOf(event)`; it never imports
+    `server/utils/auth.ts`, which vitest suites mock. The commit scope `tunnel` covers the feature across compose,
+    request pipeline, auth and UI ([architecture](architecture.md) D25).
 
 ## 16. Future extensions
 

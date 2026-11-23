@@ -37,6 +37,7 @@ README. The most important terms:
 | Term | Meaning |
 |---|---|
 | master / orchestrator | the central deployment / its Nuxt app (UI, REST `/api/*`, `/mcp`, editor origin, ingestor, reconciler) |
+| tunnel / tunnel URL / tunnel request | the optional Cloudflare Tunnel of the master (service `cloudflared`, profile `cloudflare-tunnel`, routed straight to `orchestrator:3000`) / `SCANTOR_TUNNEL_URL`, a second https origin for the dashboard, REST API and `/mcp` only (`SCANTOR_PUBLIC_URL` stays canonical) / a request whose socket peer is `cloudflared` **and** whose `Host` is the tunnel host; never "external URL"; write "Cloudflare Tunnel" or "tunnel URL" where "SSH tunnel" could be meant |
 | node (built-in, remote) | a Docker host running a node daemon (`scantor node`); never "agent" or "runner" |
 | task | a folder: `scantor.yaml` (manifest), `Dockerfile` (`FROM ${SCANTOR_BASE}`), entry file with types and `schedule`/`run` |
 | revision | an immutable numbered build of a task (`echo@3`); never "version" or "release" |
@@ -53,7 +54,7 @@ README. The most important terms:
 ## Architecture in ten lines
 
 1. One static Go binary is the CLI, the node daemon, the runtime (`scantor runtime`), the task pipeline (`scantor task pack | check-static | build | bundle`, and `scantor script build`) and the workspace helpers.
-2. The orchestrator is one Node process; `SCANTOR_COMPONENTS` selects `api`, `ingestor`, `reconciler`. Infra: MongoDB (rs0), RabbitMQ, RustFS (S3), registry, optional Traefik.
+2. The orchestrator is one Node process; `SCANTOR_COMPONENTS` selects `api`, `ingestor`, `reconciler`. Infra: MongoDB (rs0), RabbitMQ, RustFS (S3), registry, optional Traefik and Cloudflare Tunnel (`cloudflared`, a second origin for the dashboard, REST API and `/mcp` only).
 3. Handlers only record intent; the level-triggered reconciler converges (topology, placement, assignments, completion); leased jobs do long work (builds, test runs, deletes, retries, exports, bundles).
 4. Nodes connect outbound only: they long-poll their desired workers and reconcile local containers; every consumer injects the runtime binary into task containers (never baked into images, except into bundles, D24).
 5. Workers run the task image; the runtime speaks NDJSON over fd 3/4 with connector processes. Templates and all retry, timeout, upload and error logic live once in Go.
@@ -97,6 +98,12 @@ Run the narrowest suite first (`just test-go ./internal/taskpipe/...`, `just tes
   `internal/envconf`, and only `internal/cli` passes `os.Getenv`/`os.LookupEnv` in. Compose passes
   `${VAR}` without defaults. Dev secrets end in `-insecure-dev`.
 - **camelCase JSON** everywhere (TS, Go, Python wire, Mongo); ids are uuid v4 except analysis ids.
+- **Origins**: a dashboard, REST or `/mcp` URL in a response comes from `SCANTOR_PUBLIC_URL` or, for a tunnel
+  request, from `SCANTOR_TUNNEL_URL` (`originUrlOf(config, requestOriginOf(event))`, `server/utils/tunnel.ts`), never
+  from `Host`. Every other URL keeps its own source and never uses the tunnel URL: node and worker URLs (API, AMQP,
+  S3, registry) follow the node's endpoint profile ([docs/architecture.md](docs/architecture.md) §8), browsers get the
+  editor from `SCANTOR_EDITOR_URL` and presigned downloads from `SCANTOR_S3_PUBLIC_URL`, and the registry token realm,
+  join commands, the setup link and notification links use `SCANTOR_PUBLIC_URL`.
 - **Ownership** through `server/utils/authz.ts` only: `requireUser`/`requireAdmin`, `loadOwned`,
   `loadOwnedScan`, `ownerFilter` (`callerFilter` for the caller-only credential and upload lists),
   `resolveTask`, `resolveScript`, `loadOwnedScriptRun` (script-run tokens: `requireScriptRun`, `loadRunScan`).
@@ -162,7 +169,7 @@ model, api) wins and the other doc is fixed.
 | [docs/editor.md](docs/editor.md) | the browser editor, its origin and proxy, workspace helpers, git import |
 | [docs/mcp.md](docs/mcp.md) | the MCP server: OAuth, tool generation and curation, untrusted data, guides |
 | [docs/ui.md](docs/ui.md) | UI pages, components, forms, polling, CSP |
-| [docs/deployment.md](docs/deployment.md) | compose services, Traefik, secrets, production setup, backups, metrics, maintenance |
+| [docs/deployment.md](docs/deployment.md) | compose services, Traefik, Cloudflare Tunnel, secrets, production setup, backups, metrics, maintenance |
 | [docs/development.md](docs/development.md) | dev environment, recipes, code organization, change checklists, versions, releases |
 | [docs/testing.md](docs/testing.md) | test layers, the dockerized suite, fixtures, FEATURES.md, static checks, CI |
 | [docs/guide/README.md](docs/guide/README.md) | index of the user guides |
@@ -203,7 +210,14 @@ model, api) wins and the other doc is fixed.
 - A native CLI against the dev stack's local images needs `SCANTOR_IMAGE_PREFIX=` (empty) and `SCANTOR_IMAGE_TAG=dev`; otherwise it references GHCR base images.
 - Nitro hot reload follows inodes: tools that replace files (the Edit/Write tools, `sed -i`) leave `nuxt dev` on the old server code without a log line. `touch` another server file to trigger the rebuild.
 - `nuxt typecheck` (and `npm run typecheck`) rewrites `orchestrator/.nuxt`, which the dev orchestrator mounts, so `nuxt dev` does a full reload. It does not type-check the vitest files in `orchestrator/test/`.
-- `nuxt dev` blocks unknown Host headers with 403 "Blocked request": new hostnames must go into `vite.server.allowedHosts` in `nuxt.config.ts`.
+- `nuxt dev` blocks unknown Host headers with 403 "Blocked request": new hostnames must go into `vite.server.allowedHosts` in `nuxt.config.ts` (it adds the hosts of `SCANTOR_INTERNAL_URL`, `SCANTOR_PUBLIC_URL` and `SCANTOR_TUNNEL_URL`).
+- The tunnel's route targets `http://orchestrator:3000`, never Traefik: a tunnel request is recognised by its socket peer (`cloudflared`, only at an address on a network the orchestrator is attached to) and the tunnel `Host` together, and Traefik's entrypoints overwrite `X-Forwarded-For`; one mark without the other gets 421 from `00.request`. Through the tunnel `01.tunnel` answers 404 for `/api/node`, `/api/runtime`, `/api/script-runtime`, `/api/tools`, `/api/registry` and `/api/editor`.
+- `cloudflared` joins only the network `scantor-tunnel`, which no service but the orchestrator joins (`lint-compose`): its routes live in the Cloudflare account, out of scantor's sight, so the network is what keeps a stray route away from the data stores and admin GUIs. A test container with the alias `cloudflared` on `scantor-sandbox` takes the name over from the test stack's stand-in (Docker's DNS answers from the first network that has it), so only the serial chaos project impersonates it.
+- The orchestrator learns the compose profiles only from `COMPOSE_PROFILES` (`.env` or the shell): the startup guard and the "cloudflare-tunnel profile needs `SCANTOR_TUNNEL_URL`" check cannot see `docker compose --profile`.
+- Under `nuxt dev` the socket has no peer address, so tunnel classification falls back to the `Host` alone and is only advisory; verify tunnel behaviour against the test stack.
+- better-auth runs one instance per origin: pick it per request with `useAuth(requestOriginOf(event))` (bare `useAuth()` is the public one), never call one instance's `auth.api.*` from another's hook, and remember that issuer, MCP resource, CSRF origin, session cookie and passkey rpID are per origin (the in-memory rate limits are shared: better-auth keeps its memory store at module level, keyed `<ip>|<path>`). `server/utils/tunnel.ts` must not import `server/utils/auth.ts` (vitest mocks it).
+- Cloudflare answers 524 when no response starts within its 125 s Proxy Read Timeout and refuses bodies above 100 MB (413): `wait` through the tunnel is clamped to 90 s, and presigned S3 downloads, the editor and the admin tools are unavailable there (`features.downloads`, `features.editor` false; `scantor dev run --remote` skips its file downloads there).
+- better-auth skips its own origin check under `NODE_ENV=test` or `TEST`; `buildAuth` sets `advanced.disableOriginCheck: false`, so the vitest instances check origins like production. Boot step 3 builds the per-origin instances one after another (concurrent builds seed the `oauthResource` rows twice) and links stored OAuth clients to every origin's `/mcp`.
 - Nitro serves public assets (`/_nuxt/*`) before any server middleware: headers every response needs belong in the `request` hook (`server/plugins/security-headers.ts`), not in middleware or `routeRules`.
 - Import ajv as `ajv/dist/2020.js`: ajv has no exports map, and the production build fails with `ERR_MODULE_NOT_FOUND` while `nuxt dev` works.
 - MCP tool calls reach the REST routes through the private loopback listener (`server/utils/loopback.ts`) with single-use capabilities; never route them to port 3000 or `localFetch`.

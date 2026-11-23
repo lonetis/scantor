@@ -52,8 +52,9 @@ Python scripts.
   node availability.
 - **Multi-user**: accounts with passkeys, API keys, per-user isolation and an admin area for users and
   nodes.
-- **Self-hosted with Docker Compose**: prebuilt images on GHCR and optional Traefik with automatic
-  wildcard TLS.
+- **Self-hosted with Docker Compose**: prebuilt images on GHCR, optional Traefik with automatic
+  wildcard TLS, and an optional Cloudflare Tunnel that serves the web UI, the API and the MCP server at a
+  second URL without an open port, for example for claude.ai.
 
 ## Getting Started
 
@@ -117,6 +118,14 @@ token; other DNS providers work too) and `https` URLs. Every public endpoint is 
 A deployment that is reachable from the network refuses to start while any secret still has its
 insecure development value.
 
+**Cloudflare Tunnel.** To reach the web UI, the API and the MCP server from outside without opening a port,
+for example from claude.ai or through a firewall that allows outbound port 7844, add `cloudflare-tunnel` to
+`COMPOSE_PROFILES` in `.env` and follow the "CLOUDFLARE TUNNEL" section of `.env.example`: create a tunnel in the
+Cloudflare dashboard, route its hostname to `http://orchestrator:3000` (never to Traefik) and set
+`SCANTOR_TUNNEL_URL` and `SCANTOR_CLOUDFLARE_TUNNEL_TOKEN`. The tunnel URL serves only the web UI, the API and the
+MCP server; the browser editor, file downloads (including those of `scantor dev run --remote`), the admin tools and
+nodes keep using the public URL. It works with or without Traefik.
+
 **Rootless Docker.** A host where you have only a rootless Docker daemon works with `.env` settings alone:
 the daemon socket (`SCANTOR_DOCKER_SOCKET`), unprivileged Traefik ports and, without the `br_netfilter` kernel
 module, `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true`. The "DOCKER HOST" section of `.env.example` lists them.
@@ -142,6 +151,7 @@ flowchart LR
 
   subgraph MASTER["🖥️ Master · public server"]
     traefik{{"<b>traefik</b> · optional<br/>0.0.0.0:443 · 0.0.0.0:80<br/>TLS for every public port"}}
+    cloudflared{{"<b>cloudflared</b> · optional<br/>Cloudflare Tunnel, no open port<br/>web UI · /api · /mcp"}}
     bnode["<b>node daemon</b><br/>the built-in node<br/>starts <b>workers</b> here"]
     orch["<b>orchestrator</b><br/>127.0.0.1:3000<br/>web UI · /api · /mcp<br/>127.0.0.1:3001<br/>browser editor origin"]
     editor["<b>editor</b> · one per user<br/>code-server, no port<br/>edits <b>task</b> folders"]
@@ -166,6 +176,7 @@ flowchart LR
 
   browser & cli & agent --> orch
   traefik -.- orch
+  cloudflared -.- orch
   bnode -->|"④ assignments"| orch
   orch -.->|"relays"| editor
   orch -->|"⑦ store results"| mongo
@@ -194,7 +205,8 @@ a remote node. Ports and addresses are the defaults of [`.env.example`](.env.exa
 port maps to the same container port. Public ports bind to `SCANTOR_BIND_ADDRESS`, admin ports to
 `SCANTOR_ADMIN_BIND_ADDRESS`. To reach the master from other machines, enable Traefik, which serves every
 public port on `:443` by host name (`<domain>`, `editor.`, `amqp.`, `s3.`, `registry.`), or bind the
-public ports to a reachable address.
+public ports to a reachable address. The optional `cloudflared` connects out to Cloudflare and serves the web UI,
+`/api` and `/mcp` at a second URL, the tunnel URL, without any open port.
 
 1. A user writes a **task** in the browser editor, with the CLI or through an LLM agent, and publishes it.
 2. The orchestrator builds the task into the image of a new **revision** and pushes it to the registry.
@@ -493,8 +505,10 @@ with OAuth:
 claude mcp add --transport http scantor https://scantor.example.com/mcp
 ```
 
-or with an API key (`--header "Authorization: Bearer $SCANTOR_TOKEN"`). The [MCP guide](docs/guide/mcp.md)
-covers other clients, access levels, the tools and the agent loop.
+or with an API key (`--header "Authorization: Bearer $SCANTOR_TOKEN"`). Web-hosted clients such as
+claude.ai connect from the internet: give them `<tunnel URL>/mcp` of an instance with a Cloudflare Tunnel, once
+the operator has allowed `https://claude.ai` as a redirect origin. The [MCP guide](docs/guide/mcp.md) covers
+other clients, access levels, the tools and the agent loop.
 
 This repository is also a Claude Code plugin marketplace. The `scantor` plugin adds three skills, one
 for developing tasks, one for running scans and analysing results and one for writing and running

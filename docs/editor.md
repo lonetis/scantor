@@ -398,11 +398,15 @@ publishes it as `${SCANTOR_BIND_ADDRESS}:${SCANTOR_EDITOR_PORT}:3001`, and Traef
 
 | Listener | Accepts `Host` | Serves |
 |---|---|---|
-| dashboard (3000, Nitro) | anything except the editor host, which gets 421 Misdirected Request | UI, `/api`, `/mcp`; never editor routes |
+| dashboard (3000, Nitro) | anything except the editor host, which gets 421 Misdirected Request (so does a tunnel host/peer mismatch, [auth](auth.md) §4.5) | UI, `/api`, `/mcp`; never editor routes |
 | editor (3001) | only the host (and port) of `SCANTOR_EDITOR_URL`; everything else gets 421 | `/_auth` and the proxy; nothing else (no `/api`, no assets) |
 
 - The orchestrator refuses to start when `SCANTOR_EDITOR_URL` and `SCANTOR_PUBLIC_URL` have the same
-  origin ([deployment](deployment.md) §8.2).
+  origin ([deployment](deployment.md) §8.2), or when the host (port included) of the tunnel URL
+  `SCANTOR_TUNNEL_URL` equals that of either.
+- The editor is never served through the tunnel: cloudflared reaches only the dashboard listener, and there
+  every `/api/editor/*` request through the tunnel answers 404 `notFound`, so no handoff (§8.3) starts from the
+  tunnel origin ([deployment](deployment.md) §10.2).
 - The `Host` header is used as sent. Traefik preserves it, and `X-Forwarded-Host` is never trusted.
 - Listener settings: `requestTimeout: 0` (uploads into the editor), `headersTimeout: 60000`. In
   development the plugin retries `listen` on `EADDRINUSE` for 10 s, because Nitro reloads.
