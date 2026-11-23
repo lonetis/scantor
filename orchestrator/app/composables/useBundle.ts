@@ -11,6 +11,7 @@ export const BUNDLE_POLL_MS = 2000
 
 export function useBundle(taskId: MaybeRefOrGetter<string>, revision: MaybeRefOrGetter<string>) {
   const api = useApi()
+  const { downloadsAvailable } = useInstance()
   const bundle = shallowRef<Bundle | null>(null)
   /** True once a read answered (with a bundle or 404). */
   const loaded = ref(false)
@@ -65,8 +66,9 @@ export function useBundle(taskId: MaybeRefOrGetter<string>, revision: MaybeRefOr
     }
   }
 
-  /** Downloads a ready bundle through its presigned link. */
+  /** Downloads a ready bundle through its presigned link (never through the tunnel URL, useInstance). */
   async function download(): Promise<void> {
+    if (!(await downloadsAvailable())) return
     const current = bundle.value
     const fresh = current && bundleDownloadFresh(current) ? current : await read(false)
     bundle.value = fresh

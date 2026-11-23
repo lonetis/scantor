@@ -2,7 +2,9 @@
 import { JOB_KINDS, JOB_STATES } from '#shared/utils/enums'
 
 // Admin tools (docs/ui.md §5.20): the infrastructure GUIs behind Traefik forwardAuth, API links, platform health and
-// the background jobs of all users.
+// the background jobs of all users. The tool hosts and /api/tools/* are not served through the tunnel URL, so there an
+// alert with a link to this page on the public URL replaces the tool grid; the API links, health and jobs work on both
+// origins.
 definePageMeta({ admin: true })
 useHead({ title: 'Admin tools · scantor' })
 
@@ -11,6 +13,8 @@ const JOBS_POLL_MS = 10_000
 const ANY = 'any'
 
 const { adminTools, loadInfo, health, healthError, loadHealth, filters, jobs } = useTools()
+const { isTunnel, publicUrl } = useInstance()
+const publicToolsLink = computed(() => publicToolsUrl(publicUrl.value))
 
 const kindFilter = ref<string>(ANY)
 const stateFilter = ref<string>(ANY)
@@ -65,21 +69,32 @@ async function refreshAll(): Promise<void> {
       <div class="mx-auto w-full max-w-6xl space-y-8">
         <section class="space-y-3" aria-labelledby="tools-heading">
           <h2 id="tools-heading" class="text-[10px] font-semibold uppercase tracking-wider text-dimmed">Infrastructure tools</h2>
-          <UAlert
-            v-if="adminTools && !adminTools.enabled"
-            color="neutral"
-            variant="subtle"
-            icon="i-lucide-info"
-            title="Traefik is not enabled"
-            description="Without Traefik the admin tools are published only on SCANTOR_ADMIN_BIND_ADDRESS. Reach them through an SSH tunnel; they ask for their own credentials."
-          />
-          <div v-if="adminTools" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <ToolCard v-for="item in adminTools.items" :key="item.target" :item="item" />
-          </div>
-          <p v-else class="text-xs text-dimmed">Loading…</p>
-          <p v-if="adminTools?.enabled" class="text-xs text-muted">
-            Opening a tool sets an admin-only cookie for the tool hosts (valid 8 hours). The tools still ask for their own credentials.
-          </p>
+          <UAlert v-if="isTunnel" color="neutral" variant="subtle" icon="i-lucide-cloud" :title="TUNNEL_TOOLS_UNAVAILABLE" data-testid="tunnel-tools-alert">
+            <template #description>
+              <template v-if="publicToolsLink">
+                Open them at
+                <ULink :to="publicToolsLink" external target="_blank" class="font-medium text-highlighted underline">{{ publicToolsLink }}</ULink>
+              </template>
+              <template v-else>Open them at the public URL.</template>
+            </template>
+          </UAlert>
+          <template v-else>
+            <UAlert
+              v-if="adminTools && !adminTools.enabled"
+              color="neutral"
+              variant="subtle"
+              icon="i-lucide-info"
+              title="Traefik is not enabled"
+              description="Without Traefik the admin tools are published only on SCANTOR_ADMIN_BIND_ADDRESS. Reach them through an SSH tunnel; they ask for their own credentials."
+            />
+            <div v-if="adminTools" class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <ToolCard v-for="item in adminTools.items" :key="item.target" :item="item" />
+            </div>
+            <p v-else class="text-xs text-dimmed">Loading…</p>
+            <p v-if="adminTools?.enabled" class="text-xs text-muted">
+              Opening a tool sets an admin-only cookie for the tool hosts (valid 8 hours). The tools still ask for their own credentials.
+            </p>
+          </template>
         </section>
 
         <section class="space-y-3" aria-labelledby="links-heading">

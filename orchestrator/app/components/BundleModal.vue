@@ -3,8 +3,9 @@ import { useNow } from '@vueuse/core'
 
 // The bundle of a revision (docs/ui.md §5.9): the disclosure warning, then "Create bundle" while the revision has none;
 // the state and elapsed time while the bundle job runs (useBundle polls every 2 s); when ready the platform, size,
-// expiry, "Download bundle" (a fresh presigned link) and the recipient's copyable commands; when failed the error and
-// "Try again" (rebuild). Mount it with `v-if` and `v-model:open`, so it reads the bundle when it opens.
+// expiry, "Download bundle" (a fresh presigned link; disabled without the downloads feature) and the recipient's
+// copyable commands; when failed the error and "Try again" (rebuild). Mount it with `v-if` and `v-model:open`, so it
+// reads the bundle when it opens.
 const props = defineProps<{
   revision: Pick<Revision, 'taskId' | 'number' | 'ref'>
 }>()
@@ -17,6 +18,7 @@ const detail = useBundle(
 )
 const bundle = detail.bundle
 const now = useNow({ interval: 1000 })
+const { features, publicUrl } = useInstance()
 
 const active = computed(() => isBundleActive(bundle.value?.state))
 const elapsed = computed(() => (bundle.value ? bundleElapsedMs(bundle.value, now.value.getTime()) : null))
@@ -154,7 +156,11 @@ async function download(): Promise<void> {
       <div class="flex w-full justify-end gap-2">
         <UButton v-if="action === 'create'" label="Create bundle" icon="i-lucide-package" :loading="detail.creating.value" @click="create(false)" />
         <UButton v-else-if="action === 'retry'" label="Try again" icon="i-lucide-rotate-ccw" :loading="detail.creating.value" @click="create(true)" />
-        <UButton v-else label="Download bundle" icon="i-lucide-download" :loading="downloading" @click="download" />
+        <UTooltip v-else :text="downloadsUnavailableText(publicUrl)" :disabled="features.downloads">
+          <span>
+            <UButton label="Download bundle" icon="i-lucide-download" :loading="downloading" :disabled="!features.downloads" @click="download" />
+          </span>
+        </UTooltip>
       </div>
     </template>
   </UModal>

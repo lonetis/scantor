@@ -3,10 +3,12 @@ import type { NavigationMenuItem } from '@nuxt/ui'
 import type { NavigationLink } from '~/utils/navigation'
 
 // The dashboard sidebar (docs/ui.md §3): logo, theme, primary actions, navigation groups, API docs and the
-// user menu. Items are data from utils/navigation.ts; badges come from the singleton sidebar poll.
+// user menu. Items are data from utils/navigation.ts; badges come from the singleton sidebar poll. Through the tunnel
+// URL a badge above the API docs says so and names the public URL for what is not available.
 
 const { isAdmin } = useAuth()
-const { features } = useInstance()
+const { features, isTunnel, publicUrl } = useInstance()
+const tunnelText = computed(() => tunnelIndicatorText(publicUrl.value))
 const counts = useSidebarCounts()
 
 function badgeFor(link: NavigationLink): NavigationMenuItem['badge'] {
@@ -33,7 +35,7 @@ function toItem(link: NavigationLink): NavigationMenuItem {
 }
 
 const groups = computed<NavigationMenuItem[][]>(() =>
-  visibleGroups({ isAdmin: isAdmin.value, editorEnabled: features.value.editor }).map((group) => [
+  visibleGroups({ isAdmin: isAdmin.value, editorEnabled: features.value.editor, isTunnel: isTunnel.value }).map((group) => [
     { label: group.label, type: 'label' },
     ...group.links.map(toItem),
   ]),
@@ -87,14 +89,23 @@ const actions = SIDEBAR_ACTIONS
         :ui="{ label: 'text-[10px] font-semibold uppercase tracking-wider text-dimmed' }"
       />
 
-      <UNavigationMenu
-        :collapsed="collapsed"
-        :items="footerItems"
-        orientation="vertical"
-        tooltip
-        aria-label="Documentation"
-        class="mt-auto"
-      />
+      <div class="mt-auto flex flex-col gap-1.5">
+        <UTooltip v-if="isTunnel" :text="tunnelText">
+          <UBadge
+            icon="i-lucide-cloud"
+            :label="collapsed ? undefined : 'Tunnel URL'"
+            color="warning"
+            variant="subtle"
+            size="sm"
+            role="note"
+            tabindex="0"
+            :aria-label="tunnelText"
+            :class="collapsed ? 'self-center' : 'self-start'"
+            data-testid="tunnel-badge"
+          />
+        </UTooltip>
+        <UNavigationMenu :collapsed="collapsed" :items="footerItems" orientation="vertical" tooltip aria-label="Documentation" />
+      </div>
     </template>
 
     <template #footer="{ collapsed }">

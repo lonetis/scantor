@@ -1,15 +1,18 @@
 <script setup lang="ts">
 // One analysis of a test run (docs/ui.md §5.8): status, timings, config, result or error, attempts, log tail and
-// files (presigned downloads through getTestRunFileDownload). Configs and results are masked ("***").
+// files (presigned downloads through getTestRunFileDownload; disabled without the downloads feature). Configs and
+// results are masked ("***").
 const props = defineProps<{ testRunId: string; analysis: TestRunAnalysis | null }>()
 const open = defineModel<boolean>('open', { default: false })
 
 const actions = useTestRunActions()
+const { features, publicUrl, downloadsAvailable } = useInstance()
 const downloading = ref<string | null>(null)
 
 async function download(file: FileRef): Promise<void> {
   downloading.value = file.id
   try {
+    if (!(await downloadsAvailable())) return
     const target = await actions.fileDownload(props.testRunId, file.id)
     window.open(target.url, '_blank', 'noopener')
   } catch (cause) {
@@ -48,22 +51,25 @@ async function download(file: FileRef): Promise<void> {
         <div v-if="analysis.files.length > 0" class="space-y-1">
           <p class="section-label">Files</p>
           <div class="flex flex-wrap gap-2">
-            <UButton
-              v-for="file in analysis.files"
-              :key="file.id"
-              :label="file.name"
-              :aria-label="`Download ${file.name}`"
-              icon="i-lucide-file-down"
-              size="xs"
-              color="neutral"
-              variant="outline"
-              :loading="downloading === file.id"
-              @click="download(file)"
-            >
-              <template #trailing>
-                <span class="text-[10px] text-muted">{{ formatBytes(file.size) }}</span>
-              </template>
-            </UButton>
+            <UTooltip v-for="file in analysis.files" :key="file.id" :text="downloadsUnavailableText(publicUrl)" :disabled="features.downloads">
+              <span>
+                <UButton
+                  :label="file.name"
+                  :aria-label="`Download ${file.name}`"
+                  icon="i-lucide-file-down"
+                  size="xs"
+                  color="neutral"
+                  variant="outline"
+                  :loading="downloading === file.id"
+                  :disabled="!features.downloads"
+                  @click="download(file)"
+                >
+                  <template #trailing>
+                    <span class="text-[10px] text-muted">{{ formatBytes(file.size) }}</span>
+                  </template>
+                </UButton>
+              </span>
+            </UTooltip>
           </div>
         </div>
         <div v-if="analysis.attempts.length > 0" class="space-y-1">

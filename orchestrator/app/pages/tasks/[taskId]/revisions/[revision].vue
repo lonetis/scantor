@@ -1,8 +1,8 @@
 <script setup lang="ts">
 // Revision detail (docs/ui.md §5.9): header with ref, state, message and timings; actions "Start scan", "Download
-// source", "Bundle" (BundleModal; disabled with the reason as tooltip unless the revision is ready and not privileged)
-// and "View files"; the errors of a failed build first; the live build log; the facts and, for ready revisions, the
-// describe output. Polls every second while the revision is queued or building.
+// source" (disabled without the downloads feature), "Bundle" (BundleModal; disabled with the reason as tooltip unless
+// the revision is ready and not privileged) and "View files"; the errors of a failed build first; the live build log;
+// the facts and, for ready revisions, the describe output. Polls every second while the revision is queued or building.
 const route = useRoute()
 const taskId = computed(() => String(route.params.taskId))
 const revisionRef = computed(() => String(route.params.revision))
@@ -12,6 +12,7 @@ const active = computed(() => isRevisionActive(revision.value?.state))
 const buildLog = useBuildLog(taskId, revisionRef, active)
 const bundleAvailability = computed(() => canBundle(revision.value))
 const bundleOpen = ref(false)
+const { features, publicUrl } = useInstance()
 
 useHead({ title: () => `${revision.value?.ref ?? 'Revision'} · scantor` })
 
@@ -49,7 +50,20 @@ const sourceUrl = computed(() => `/api/tasks/${encodeURIComponent(taskId.value)}
               icon="i-lucide-play"
               size="sm"
             />
-            <UButton :href="sourceUrl" external label="Download source" icon="i-lucide-download" size="sm" color="neutral" variant="outline" />
+            <UTooltip :text="downloadsUnavailableText(publicUrl)" :disabled="features.downloads">
+              <span>
+                <UButton
+                  :href="features.downloads ? sourceUrl : undefined"
+                  external
+                  label="Download source"
+                  icon="i-lucide-download"
+                  size="sm"
+                  color="neutral"
+                  variant="outline"
+                  :disabled="!features.downloads"
+                />
+              </span>
+            </UTooltip>
             <UTooltip :text="bundleAvailability.reason ?? 'Create or download a bundle that runs with only Docker'">
               <span>
                 <UButton

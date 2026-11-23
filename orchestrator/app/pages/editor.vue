@@ -2,7 +2,9 @@
 // Editor (docs/ui.md §5.10): the caller's code-server, embedded from the separate editor origin. Every iframe load
 // and every new tab uses a fresh one-time session URL (createEditorSession; valid 60 s, single use). `?task=<name>`
 // opens that task's folder, `?script=<name>` that script's folder. Visiting the page opens the editor, unless its last
-// start failed (then the error and "Retry" are shown) or the user stopped it here.
+// start failed (then the error and "Retry" are shown) or the user stopped it here. The editor origin is internal, so
+// the page is not served through the tunnel URL.
+definePageMeta({ tunnel: false })
 useHead({ title: 'Editor · scantor' })
 
 type Phase = 'loading' | 'starting' | 'ready' | 'stopped' | 'failed' | 'busy' | 'taskMissing' | 'scriptMissing'

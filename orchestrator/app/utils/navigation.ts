@@ -13,6 +13,8 @@ export interface NavigationLink {
   badge?: NavigationBadge
   /** Opens in a new tab and is served by the API, not the SPA. */
   external?: boolean
+  /** `false` hides the link through the tunnel URL, like the page meta of the same name (docs/ui.md §4.1). */
+  tunnel?: false
 }
 
 export interface NavigationGroup {
@@ -34,7 +36,7 @@ export const SIDEBAR_GROUPS: readonly NavigationGroup[] = [
       { label: 'Scripts', to: '/scripts', icon: 'i-lucide-file-code-2', visible: 'all' },
       { label: 'Scans', to: '/scans', icon: 'i-lucide-radar', visible: 'all', badge: 'activeScans' },
       { label: 'Templates', to: '/templates', icon: 'i-lucide-layout-template', visible: 'all' },
-      { label: 'Editor', to: '/editor', icon: 'i-lucide-code', visible: 'editorFeature' },
+      { label: 'Editor', to: '/editor', icon: 'i-lucide-code', visible: 'editorFeature', tunnel: false },
     ],
   },
   {
@@ -61,9 +63,12 @@ export const SIDEBAR_FOOTER_LINKS: readonly NavigationLink[] = [
 export interface NavigationContext {
   isAdmin: boolean
   editorEnabled: boolean
+  /** The page was loaded through the tunnel URL. */
+  isTunnel?: boolean
 }
 
 export function isLinkVisible(link: NavigationLink, context: NavigationContext): boolean {
+  if (link.tunnel === false && context.isTunnel) return false
   if (link.visible === 'admin') return context.isAdmin
   if (link.visible === 'editorFeature') return context.editorEnabled
   return true

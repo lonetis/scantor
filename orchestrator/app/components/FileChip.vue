@@ -4,7 +4,9 @@ import type { FileDownload } from '#shared/types/exports'
 
 // One file of an analysis (docs/ui.md §5.13.3): name, size, content type and SHA-256 as text, a download button
 // (getFileDownload → presigned URL, forced attachment) and, with `preview`, an image preview for the types the API
-// serves inline (png, jpeg, gif, webp). File names come from task code: rendered as text, never as a link.
+// serves inline (png, jpeg, gif, webp). File names come from task code: rendered as text, never as a link. Without the
+// downloads feature (the tunnel URL, where S3 is unreachable) the button is disabled and no preview is loaded; a
+// preview waits for the instance info, which the chip loads itself (again) while it is missing.
 const props = withDefaults(defineProps<{
   file: FileRef
   /** `<scanId>-<seq>` of the analysis the file belongs to. */
@@ -16,16 +18,23 @@ const props = withDefaults(defineProps<{
 }>(), { preview: false, compact: false })
 
 const analyses = useAnalyses(() => props.analysisId.slice(0, 36))
+const { info: instanceInfo, features, publicUrl, loadInfo, downloadsAvailable } = useInstance()
 const downloading = ref(false)
 const previewInfo = shallowRef<FileDownload | null>(null)
 const previewFailed = ref(false)
 const isImage = computed(() => ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(props.file.contentType.split(';')[0]!.trim().toLowerCase()))
 // Every result row has its own chips, so the name carries the analysis (docs/ui.md §11 rule 1).
 const downloadLabel = computed(() => fileDownloadLabel(props.file.name, props.analysisId))
+const downloadTooltip = computed(() =>
+  features.value.downloads ? downloadLabel.value : `${downloadLabel.value}: ${downloadsUnavailableText(publicUrl.value)}`,
+)
+/** Previews wait for the instance info, so none points at S3 through the tunnel URL. */
+const previewAllowed = computed(() => instanceInfo.value !== null && features.value.downloads)
 
 async function download(): Promise<void> {
   downloading.value = true
   try {
+    if (!(await downloadsAvailable())) return
     const info = await analyses.fileDownload(props.analysisId, props.file.id)
     navigateToDownload(info.url)
   } catch (error) {
@@ -37,6 +46,12 @@ async function download(): Promise<void> {
 
 async function loadPreview(): Promise<void> {
   if (!props.preview || !isImage.value) return
+  if (instanceInfo.value === null) {
+    // Shared with every other caller; when the info arrives, the watch on previewAllowed loads the preview.
+    loadInfo().catch((error: unknown) => console.error('[files] loading the instance info failed', error))
+    return
+  }
+  if (!previewAllowed.value) return
   try {
     const info = await analyses.fileDownload(props.analysisId, props.file.id)
     if (info.inline) previewInfo.value = info
@@ -47,7 +62,7 @@ async function loadPreview(): Promise<void> {
 }
 
 // Separate sources, so a new `file` object of the same file (a refreshed results row) does not reload the preview.
-watch([() => props.analysisId, () => props.file.id, () => props.preview], () => {
+watch([() => props.analysisId, () => props.file.id, () => props.preview, previewAllowed], () => {
   previewInfo.value = null
   previewFailed.value = false
   void loadPreview()
@@ -63,14 +78,15 @@ watch([() => props.analysisId, () => props.file.id, () => props.preview], () => 
       </UTooltip>
       <BytesText :bytes="file.size" class="text-muted" />
       <span v-if="!compact" class="truncate text-dimmed">{{ file.contentType }}</span>
-      <UTooltip :text="downloadLabel">
+      <UTooltip :text="downloadTooltip">
         <UButton
           icon="i-lucide-download"
           color="neutral"
           variant="ghost"
           size="xs"
           :loading="downloading"
-          :aria-label="downloadLabel"
+          :disabled="!features.downloads"
+          :aria-label="downloadTooltip"
           @click.stop="download"
         />
       </UTooltip>

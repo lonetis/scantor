@@ -4,14 +4,15 @@ import type { Export } from '#shared/types/exports'
 import type { Scan } from '#shared/types/scans'
 
 // The exports tab of a scan (docs/ui.md §5.13.6): listExports?scanId= with format, state, rows, size, created and
-// expiry; "Download" follows a fresh presigned link, delete asks first. Unsettled exports are followed every 2 s by
-// useExports, which also announces ready exports with a toast. New exports start in the ExportModal; one started from
-// the scan controls or the query console joins the table as it is followed.
+// expiry; "Download" follows a fresh presigned link (disabled without the downloads feature), delete asks first.
+// Unsettled exports are followed every 2 s by useExports, which also announces ready exports with a toast. New exports
+// start in the ExportModal; one started from the scan controls or the query console joins the table as it is followed.
 const props = defineProps<{
   scan: Pick<Scan, 'id' | 'name' | 'state'>
 }>()
 
 const exports = useExports(() => props.scan.id)
+const { features, publicUrl } = useInstance()
 const { confirm } = useConfirm()
 const busy = ref<string | null>(null)
 
@@ -116,17 +117,21 @@ const columns: TableColumn<Export>[] = [
       <template #expiresAt-cell="{ row }"><RelativeTime :value="row.original.expiresAt" /></template>
       <template #actions-cell="{ row }">
         <div class="flex justify-end gap-1">
-          <UButton
-            v-if="row.original.state === 'ready'"
-            label="Download"
-            icon="i-lucide-download"
-            color="neutral"
-            variant="outline"
-            size="xs"
-            :loading="busy === row.original.id"
-            :aria-label="`Download ${describe(row.original)}`"
-            @click="download(row.original)"
-          />
+          <UTooltip v-if="row.original.state === 'ready'" :text="downloadsUnavailableText(publicUrl)" :disabled="features.downloads">
+            <span>
+              <UButton
+                label="Download"
+                icon="i-lucide-download"
+                color="neutral"
+                variant="outline"
+                size="xs"
+                :loading="busy === row.original.id"
+                :disabled="!features.downloads"
+                :aria-label="`Download ${describe(row.original)}`"
+                @click="download(row.original)"
+              />
+            </span>
+          </UTooltip>
           <UTooltip :text="`Delete ${describe(row.original)}`">
             <UButton
               icon="i-lucide-trash-2"

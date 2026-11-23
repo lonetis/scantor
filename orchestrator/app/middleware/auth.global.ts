@@ -1,4 +1,4 @@
-// Setup / session / admin guard driven by page meta (docs/ui.md §4.1). The server enforces every rule again.
+// Setup / session / admin / tunnel guard driven by page meta (docs/ui.md §4.1). The server enforces every rule again.
 
 declare module '#app' {
   interface PageMeta {
@@ -6,6 +6,8 @@ declare module '#app' {
     auth?: boolean
     /** Admins only; others are sent to the overview. */
     admin?: boolean
+    /** `false` marks a page of the public URL only (the editor); the tunnel URL sends to the overview. */
+    tunnel?: boolean
   }
 }
 
@@ -29,9 +31,24 @@ export default defineNuxtRouteMiddleware(async (to) => {
   const { waitForSession, isAdmin } = useAuth()
   const user = await waitForSession()
   if (!user) return navigateTo({ path: '/login', query: { redirect: to.fullPath } })
+  // The instance info is loaded once per page; after a failure every navigation tries again (useInstance).
+  const instance = useInstance()
+  if (!instance.info.value) instance.loadInfo().catch((error: unknown) => console.error('[auth] loading the instance info failed', error))
 
   if (to.meta.admin === true && !isAdmin.value) {
     useToast().add({ title: 'Admins only', color: 'warning', icon: 'i-lucide-shield' })
     return navigateTo('/')
+  }
+
+  if (to.meta.tunnel === false) {
+    const info = await instance.loadInfo().catch((error: unknown) => {
+      // Without the info the page opens; the server refuses what it cannot serve through the tunnel URL.
+      console.error('[auth] loading the instance info failed', error)
+      return null
+    })
+    if (info?.origin === 'tunnel') {
+      useToast().add({ title: TUNNEL_PAGE_UNAVAILABLE, description: publicPageText(info.publicUrl, to.fullPath), color: 'warning', icon: 'i-lucide-cloud' })
+      return navigateTo('/')
+    }
   }
 })

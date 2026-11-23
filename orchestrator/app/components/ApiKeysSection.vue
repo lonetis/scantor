@@ -5,9 +5,10 @@ import { API_KEY_DEFAULT_EXPIRES_IN_DAYS, createApiKeyBody } from '#shared/schem
 import type { SecretSnippet } from '~/components/SecretRevealModal.vue'
 
 // API keys for the CLI, scripts and MCP clients (docs/ui.md §5.18, docs/auth.md §8.2). A new key is shown once
-// with ready-to-paste snippets; editor keys are listed read-only.
+// with ready-to-paste snippets; editor keys are listed read-only. SCANTOR_URL in the snippets is the URL this page was
+// loaded from (the tunnel URL through the tunnel), with a hint on what needs the public URL.
 const { keys, defaultKeys, editorKeys, loading, error, load, createKey, deleteKey } = useApiKeys()
-const { info, isReleaseVersion } = useInstance()
+const { info, isReleaseVersion, isTunnel, publicUrl, originUrl } = useInstance()
 
 defineExpose({ load })
 onMounted(() => {
@@ -26,7 +27,7 @@ const revealed = ref<{ key: string, name: string } | null>(null)
 const revealOpen = ref(false)
 const deleteArmedId = ref<string | null>(null)
 
-const publicUrl = computed(() => info.value?.publicUrl ?? window.location.origin)
+const cliUrl = computed(() => originUrl.value ?? window.location.origin)
 
 // Release assets (docs/development.md §14), linked only for release versions: dev builds have no release.
 const RELEASE_REPOSITORY = 'https://github.com/lonetis/scantor'
@@ -45,7 +46,7 @@ function releaseAssetUrl(asset: string): string {
 
 function snippetsFor(key: string): SecretSnippet[] {
   const snippets: SecretSnippet[] = [
-    { title: 'Environment', code: `export SCANTOR_URL=${publicUrl.value}\nexport SCANTOR_TOKEN=${key}` },
+    { title: 'Environment', code: `export SCANTOR_URL=${cliUrl.value}\nexport SCANTOR_TOKEN=${key}` },
   ]
   if (info.value?.cliImage) {
     snippets.push({
@@ -190,6 +191,7 @@ const columns: TableColumn<ApiKey>[] = [
           of release <a :href="releasePageUrl" class="text-primary hover:underline" rel="noopener noreferrer" target="_blank">v{{ releaseVersion }}</a></template>.
         <template v-if="keys.length === 0 && !loading"> Create a key to get started.</template>
       </p>
+      <p v-if="isTunnel" data-testid="tunnel-cli-hint">{{ tunnelCliText(publicUrl) }}</p>
       <ul v-if="releaseVersion" class="flex flex-wrap gap-x-4 gap-y-1" aria-label="CLI downloads">
         <li>
           <a :href="releaseAssetUrl('scantor.sh')" class="font-mono text-primary hover:underline" rel="noopener noreferrer">scantor.sh</a>

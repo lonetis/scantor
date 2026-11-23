@@ -8,6 +8,12 @@ import { EXPORT_POLL_MS, exportPollDelay, exportRows, useExports } from '../../a
 
 let answers: (() => unknown)[]
 let reads: number
+/** features.downloads of the stubbed instance info (false through the tunnel URL) */
+let downloads: boolean
+/** every toast the composable showed */
+let toasts: { title?: string; actions?: { label: string }[] }[]
+/** every presigned URL a download followed */
+let followed: string[]
 
 function exportOf(id: string, state = 'running', expiresInMs = 3_600_000) {
   return { id, scanId: 'scan', state, format: 'jsonl', rows: 0, bytes: 0, error: null, expiresAt: new Date(Date.now() + expiresInMs).toISOString() }
@@ -23,11 +29,16 @@ beforeEach(() => {
   vi.useFakeTimers()
   answers = []
   reads = 0
+  downloads = true
+  toasts = []
+  followed = []
   vi.stubGlobal('useCursorList', useCursorList)
   vi.stubGlobal('apiQuery', (query: Record<string, unknown>) => query)
   vi.stubGlobal('toApiError', (cause: unknown) => cause)
-  vi.stubGlobal('useToast', () => ({ add: () => {} }))
+  vi.stubGlobal('useToast', () => ({ add: (toast: (typeof toasts)[number]) => toasts.push(toast) }))
   vi.stubGlobal('useOverlay', () => ({}))
+  vi.stubGlobal('useInstance', () => ({ features: { value: { downloads } }, downloadsAvailable: async () => downloads }))
+  vi.stubGlobal('navigateToDownload', (url: string) => followed.push(url))
   vi.stubGlobal('formatCount', String)
   vi.stubGlobal('formatBytes', String)
   vi.stubGlobal('useApi', () => async (_path: string, options: { method?: string, body?: { id: string, expiresInMs?: number } } = {}) => {
@@ -87,6 +98,36 @@ describe('following an export', () => {
     expect(reads).toBe(1)
     await vi.advanceTimersByTimeAsync(120_000)
     expect(reads).toBe(1)
+  })
+})
+
+describe('downloads (TUNNEL-013)', () => {
+  const ready = () => ({
+    ...exportOf('e4', 'ready'),
+    download: { url: 'https://s3.example.com/e4?X-Amz-Signature=x', expiresAt: new Date(Date.now() + 600_000).toISOString() },
+  })
+
+  it('offers the download in the ready toast and follows its presigned link on the public URL', async () => {
+    answers.push(ready)
+    await start('e4')
+    await vi.advanceTimersByTimeAsync(EXPORT_POLL_MS)
+    expect(toasts.map((toast) => [toast.title, toast.actions?.map((action) => action.label)])).toEqual([['Export ready', ['Download']]])
+    await useExports('scan').download(ready() as never)
+    expect(followed).toEqual(['https://s3.example.com/e4?X-Amz-Signature=x'])
+  })
+
+  it('only announces a ready export through the tunnel URL and never follows a presigned link there', async () => {
+    downloads = false
+    answers.push(ready)
+    await start('e5')
+    await vi.advanceTimersByTimeAsync(EXPORT_POLL_MS)
+    expect(toasts).toHaveLength(1)
+    expect(toasts[0]!.title).toBe('Export ready')
+    expect(toasts[0]!.actions).toBeUndefined()
+    const before = reads
+    await useExports('scan').download(exportOf('e5', 'ready') as never)
+    expect(followed).toEqual([])
+    expect(reads).toBe(before)
   })
 })
 

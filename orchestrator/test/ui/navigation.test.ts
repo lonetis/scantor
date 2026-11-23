@@ -27,6 +27,22 @@ describe('sidebar navigation (docs/ui.md §3.2)', () => {
     expect(admin.map((group) => group.label)).toEqual(['Workspace', 'Access', 'Admin'])
     expect(admin[0]!.links.map((link) => link.label)).toContain('Editor')
   })
+
+  it('hides only the editor through the tunnel URL; the admin tools page adapts in place (docs/ui.md §5.20)', () => {
+    const labels = (groups: ReturnType<typeof visibleGroups>) => groups.flatMap((group) => group.links.map((link) => link.label))
+    const tunnel = visibleGroups({ isAdmin: true, editorEnabled: true, isTunnel: true })
+    expect(tunnel.map((group) => group.label)).toEqual(['Workspace', 'Access', 'Admin'])
+    expect(labels(tunnel)).not.toContain('Editor')
+    expect(tunnel.find((group) => group.label === 'Admin')!.links.map((link) => link.label)).toEqual(['Nodes', 'Users', 'Admin tools'])
+    // The same links as on the public URL apart from the editor.
+    expect(labels(tunnel)).toEqual(labels(visibleGroups({ isAdmin: true, editorEnabled: true })).filter((label) => label !== 'Editor'))
+    expect(labels(visibleGroups({ isAdmin: true, editorEnabled: true, isTunnel: false }))).toContain('Editor')
+    expect(
+      SIDEBAR_GROUPS.flatMap((group) => group.links)
+        .filter((link) => link.tunnel === false)
+        .map((link) => link.to),
+    ).toEqual(['/editor'])
+  })
 })
 
 describe('safeRedirectPath (docs/ui.md §4.1)', () => {

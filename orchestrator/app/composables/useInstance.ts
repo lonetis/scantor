@@ -1,5 +1,9 @@
+import { computed, shallowRef } from 'vue'
+
 // Instance-wide facts (docs/ui.md §1): the SPA reads no runtime configuration; URLs, feature flags, limits and
-// the version come from getInstanceInfo (signed in) and getSetupStatus (public). Both are loaded once per page.
+// the version come from getInstanceInfo (signed in) and getSetupStatus (public). Both are loaded once per page; a failed
+// load is tried again by the next caller (every navigation asks, middleware/auth.global.ts). Whether the page came
+// through the tunnel URL is the server's `origin`, never a comparison of window.location.
 
 const info = shallowRef<InstanceInfo | null>(null)
 const setupStatus = shallowRef<SetupStatus | null>(null)
@@ -47,10 +51,40 @@ export function useInstance() {
     mcp: info.value?.features.mcp ?? setupStatus.value?.mcpUrl != null,
     mcpOAuth: info.value?.features.mcpOAuth ?? false,
     editor: info.value?.features.editor ?? false,
+    downloads: info.value?.features.downloads ?? true,
   }))
+  /**
+   * Whether a download may start now: loads the info first (again, after a failure), so a click before it arrived
+   * never leads a tunnel page to an unreachable presigned URL. Without the info downloads stay allowed, as they work on
+   * the public URL. Capture it during setup and call it from the handler.
+   */
+  async function downloadsAvailable(): Promise<boolean> {
+    const loaded = await loadInfo().catch(() => null)
+    return loaded ? loaded.features.downloads : features.value.downloads
+  }
   const limits = computed(() => info.value?.limits ?? null)
   const version = computed(() => info.value?.version ?? null)
   const isReleaseVersion = computed(() => version.value !== null && RELEASE_VERSION.test(version.value))
+  /** True when this page was loaded through the tunnel URL. */
+  const isTunnel = computed(() => info.value?.origin === 'tunnel')
+  const publicUrl = computed(() => info.value?.publicUrl ?? null)
+  const tunnelUrl = computed(() => info.value?.tunnelUrl ?? null)
+  /** The URL this page was loaded from: the tunnel URL through the tunnel, otherwise the public URL. */
+  const originUrl = computed(() => (isTunnel.value ? tunnelUrl.value : publicUrl.value))
 
-  return { info, setupStatus, features, limits, version, isReleaseVersion, loadInfo, loadSetupStatus }
+  return {
+    info,
+    setupStatus,
+    features,
+    limits,
+    version,
+    isReleaseVersion,
+    isTunnel,
+    publicUrl,
+    tunnelUrl,
+    originUrl,
+    loadInfo,
+    loadSetupStatus,
+    downloadsAvailable,
+  }
 }

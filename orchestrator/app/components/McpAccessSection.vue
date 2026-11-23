@@ -1,9 +1,12 @@
 <script setup lang="ts">
 // MCP access (docs/ui.md §5.18, docs/mcp.md §3.8): the endpoint, the OAuth setup command and a generic client
-// snippet; without OAuth (plain-http public URL) only the API-key form.
-const { info } = useInstance()
+// snippet; without OAuth (plain-http public URL) only the API-key form. The server answers with the MCP URL of the
+// origin this page came through; on the public URL with a Cloudflare Tunnel the endpoint of the tunnel URL follows.
+// The tunnel URL is always https, so OAuth works there whenever MCP is on, even when the public URL lacks it.
+const { info, isTunnel, tunnelUrl } = useInstance()
 
 const mcpUrl = computed(() => info.value?.mcpUrl ?? null)
+const tunnelMcpUrl = computed(() => (mcpUrl.value && !isTunnel.value && tunnelUrl.value ? `${tunnelUrl.value.replace(/\/+$/, '')}/mcp` : null))
 const oauth = computed(() => info.value?.features.mcpOAuth ?? false)
 const oauthCommand = computed(() => `claude mcp add --transport http scantor ${mcpUrl.value}`)
 const apiKeyCommand = computed(() => `claude mcp add --transport http scantor ${mcpUrl.value} --header "Authorization: Bearer $SCANTOR_TOKEN"`)
@@ -34,6 +37,20 @@ const clientSnippet = computed(() => JSON.stringify({ mcpServers: { scantor: { t
         </div>
       </div>
 
+      <div v-if="tunnelMcpUrl" class="space-y-1">
+        <p class="section-label">Endpoint through the tunnel URL</p>
+        <div class="flex items-center gap-1">
+          <code class="code-surface block min-w-0 flex-1 overflow-x-auto rounded-md px-3 py-1.5 whitespace-nowrap" data-testid="mcp-tunnel-url">{{
+            tunnelMcpUrl
+          }}</code>
+          <CopyButton :value="tunnelMcpUrl" label="Copy MCP URL of the tunnel URL" size="sm" />
+        </div>
+        <p class="text-xs text-muted">
+          For MCP clients that reach the master only through its Cloudflare Tunnel, such as claude.ai (add it as a custom connector). OAuth works at
+          this URL.
+        </p>
+      </div>
+
       <template v-if="oauth">
         <div class="space-y-1">
           <p class="section-label">Claude Code (OAuth)</p>
@@ -49,7 +66,10 @@ const clientSnippet = computed(() => JSON.stringify({ mcpServers: { scantor: { t
       <div class="space-y-1">
         <p class="section-label">With an API key</p>
         <CodeBlock :code="apiKeyCommand" copy-label="Copy API key MCP command" label="MCP command with an API key" wrap />
-        <p v-if="!oauth" class="text-xs text-muted">OAuth for MCP clients needs an https public URL; use an API key instead.</p>
+        <p v-if="!oauth && tunnelMcpUrl" class="text-xs text-muted">
+          OAuth at the public URL needs https: use an API key here, or connect with OAuth through the tunnel URL above.
+        </p>
+        <p v-else-if="!oauth" class="text-xs text-muted">OAuth for MCP clients needs an https public URL; use an API key instead.</p>
       </div>
     </template>
   </section>

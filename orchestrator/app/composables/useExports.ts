@@ -6,9 +6,10 @@ import type { AnalysisStatus, ExportFormat } from '#shared/utils/enums'
 
 // Background exports of a scan (docs/ui.md §5.13.6; docs/api.md §4.15). The UI always uses exportScan (never the
 // inline export). A created export is followed with getExport every 2 s until it is ready or failed, then a toast
-// offers the download. Following is module-wide, so an export started from the scan controls is still followed
-// when the exports tab is not open; like every poll (docs/ui.md §9) it pauses while the tab is hidden and doubles its
-// interval after each failure up to 60 s, and it ends when the export expired or was deleted or the API refuses it.
+// offers the download (without the downloads feature it only announces the export). Following is module-wide, so an
+// export started from the scan controls is still followed when the exports tab is not open; like every poll
+// (docs/ui.md §9) it pauses while the tab is hidden and doubles its interval after each failure up to 60 s, and it ends
+// when the export expired or was deleted or the API refuses it.
 
 export const EXPORT_POLL_MS = 2000
 const EXPORT_POLL_MAX_MS = 60_000
@@ -89,6 +90,7 @@ export function useExports(scanId: MaybeRefOrGetter<string | null | undefined> =
   const api = useApi()
   const toast = useToast()
   const overlay = useOverlay()
+  const { features, downloadsAvailable } = useInstance()
 
   const list = useCursorList<Export>(
     (cursor) => api<Page<Export>>('/api/exports', {
@@ -111,7 +113,9 @@ export function useExports(scanId: MaybeRefOrGetter<string | null | undefined> =
         description: `${formatCount(item.rows)} rows, ${formatBytes(item.bytes)}`,
         color: 'success',
         icon: 'i-lucide-download',
-        actions: [{ label: 'Download', icon: 'i-lucide-download', color: 'neutral', variant: 'outline', onClick: () => void download(item) }],
+        actions: features.value.downloads
+          ? [{ label: 'Download', icon: 'i-lucide-download', color: 'neutral', variant: 'outline', onClick: () => void download(item) }]
+          : undefined,
       })
     } else {
       toast.add({ title: 'Export failed', description: item.error?.message ?? 'The export could not be written.', color: 'error', icon: 'i-lucide-circle-alert' })
@@ -176,6 +180,7 @@ export function useExports(scanId: MaybeRefOrGetter<string | null | undefined> =
 
   /** Downloads a ready export; the link is presigned anew on every getExport. */
   async function download(item: Export): Promise<void> {
+    if (!(await downloadsAvailable())) return
     const fresh = item.download && Date.parse(item.download.expiresAt) - Date.now() > 30_000
       ? item
       : await api<Export>(`/api/exports/${encodeURIComponent(item.id)}`)

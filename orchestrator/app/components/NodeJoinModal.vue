@@ -4,7 +4,8 @@ import type { SecretSnippet } from './SecretRevealModal.vue'
 
 // Join instructions of a remote node (docs/nodes.md §4, docs/ui.md §5.15): the `docker run` line and the compose file
 // next to the host checklist. With `token` (createNode, rotateNodeToken) the token is shown exactly once through
-// SecretRevealModal; without it (getNodeJoin) the snippets carry the placeholder ${SCANTOR_NODE_TOKEN}.
+// SecretRevealModal; without it (getNodeJoin) the snippets carry the placeholder ${SCANTOR_NODE_TOKEN}. The snippets
+// always name the public URL; through the tunnel URL the checklist says so.
 const props = withDefaults(defineProps<{
   nodeName: string
   join: NodeJoin | null
@@ -15,7 +16,7 @@ const open = defineModel<boolean>('open', { default: false })
 
 const TOKEN_WARNING = 'This token is shown only now. A node sees everything about the scans placed on it; add only machines you trust like the master.'
 
-const { info, loadInfo } = useInstance()
+const { info, isTunnel, loadInfo } = useInstance()
 watch(open, (value) => {
   if (value) loadInfo().catch((error: unknown) => console.error('[nodes] loading instance info failed', error))
 }, { immediate: true })
@@ -32,6 +33,7 @@ const snippets = computed<SecretSnippet[]>(() =>
 const checklist = computed(() => [
   'Docker Engine 25 or newer on the node host.',
   `Outbound HTTPS from the node host to ${info.value?.publicUrl ?? 'the dashboard URL'}, ${info.value?.registryPublicHost ?? 'the registry host'}, the S3 endpoint and the AMQPS endpoint.`,
+  ...(isTunnel.value ? [nodesConnectText(info.value?.publicUrl)] : []),
   'Outbound HTTPS to the registry of the node image in the commands below (ghcr.io unless SCANTOR_IMAGE_PREFIX names a mirror): the host pulls it to install and upgrade the node, and base-image layers when it can.',
   'For a private CA, the host Docker daemon must trust it for the registry host (/etc/docker/certs.d/<registry host>/ca.crt).',
   'For SCANTOR_NODE_DIND=sysbox, Sysbox must be installed on the host.',

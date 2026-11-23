@@ -4,11 +4,13 @@ import { useIntervalFn } from '@vueuse/core'
 // Script run detail: state, progress, duration, actions (cancel, run again, resume, download source), build errors, the
 // error with its stack, the result, the output files (downloaded by navigation to their presigned URLs), the scans and
 // settings the run used, and the log (`getScriptRunLogs?afterLine=`, every 2 s until it is complete). Polls the run
-// every 2 s while it is active.
+// every 2 s while it is active. Without the downloads feature the source and output downloads are disabled.
 const route = useRoute()
 const toast = useToast()
 const { confirm } = useConfirm()
 const actions = useScriptRunActions()
+const { features, publicUrl } = useInstance()
+const downloadsText = computed(() => downloadsUnavailableText(publicUrl.value))
 
 const scriptId = computed(() => String(route.params.scriptId))
 const runId = computed(() => String(route.params.runId))
@@ -129,17 +131,22 @@ function formatTimeout(ms: number | null): string {
               :ui="{ label: 'hidden lg:inline' }"
               @click="openRestart(false)"
             />
-            <UButton
-              :href="actions.sourceDownloadUrl(run.id)"
-              external
-              label="Download source"
-              aria-label="Download source"
-              icon="i-lucide-download"
-              size="sm"
-              color="neutral"
-              variant="ghost"
-              :ui="{ label: 'hidden xl:inline' }"
-            />
+            <UTooltip :text="downloadsText" :disabled="features.downloads">
+              <span>
+                <UButton
+                  :href="features.downloads ? actions.sourceDownloadUrl(run.id) : undefined"
+                  external
+                  label="Download source"
+                  aria-label="Download source"
+                  icon="i-lucide-download"
+                  size="sm"
+                  color="neutral"
+                  variant="ghost"
+                  :disabled="!features.downloads"
+                  :ui="{ label: 'hidden xl:inline' }"
+                />
+              </span>
+            </UTooltip>
           </template>
         </template>
       </UDashboardNavbar>
@@ -221,16 +228,20 @@ function formatTimeout(ms: number | null): string {
               <BytesText :bytes="output.size" class="text-xs text-muted" />
               <span class="text-xs text-dimmed">{{ output.contentType }}</span>
               <IdChip :id="output.sha256" :copy-label="`Copy SHA-256 of ${stripEscapes(output.name)}`" />
-              <UButton
-                :href="actions.outputDownloadUrl(run.id, output.id)"
-                external
-                :label="`Download ${stripEscapes(output.name)}`"
-                icon="i-lucide-download"
-                size="xs"
-                color="neutral"
-                variant="outline"
-                class="ms-auto"
-              />
+              <UTooltip :text="downloadsText" :disabled="features.downloads">
+                <span class="ms-auto">
+                  <UButton
+                    :href="features.downloads ? actions.outputDownloadUrl(run.id, output.id) : undefined"
+                    external
+                    :label="`Download ${stripEscapes(output.name)}`"
+                    icon="i-lucide-download"
+                    size="xs"
+                    color="neutral"
+                    variant="outline"
+                    :disabled="!features.downloads"
+                  />
+                </span>
+              </UTooltip>
             </li>
           </ul>
           <p v-else class="text-xs text-dimmed">{{ active ? 'No output files stored yet.' : 'The run stored no output files.' }}</p>
