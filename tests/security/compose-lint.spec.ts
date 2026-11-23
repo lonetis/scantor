@@ -13,7 +13,7 @@ const STACK = 'tests/docker/stack.tests.yml'
 const TESTS = 'docker-compose.tests.yml'
 
 /** The infrastructure services that must be identical in the dev and prod compose files. */
-const INFRASTRUCTURE = ['data-init', 'mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik'] as const
+const INFRASTRUCTURE = ['data-init', 'mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik', 'cloudflared'] as const
 
 /** Edits one service of a compose file through the YAML document model (anchors and formatting are kept). */
 async function editService(copy: RepoCopy, file: string, service: string, edit: (path: (string | number)[], doc: ReturnType<typeof parseDocument>) => void) {
@@ -45,6 +45,72 @@ const RULES: RuleCase[] = [
     title: 'Traefik serves its API insecurely',
     breakRule: (copy) => copy.replace(PROD, '--api.insecure=false', '--api.insecure=true'),
     problem: `${PROD}: traefik lacks --api.insecure=false`,
+  },
+  {
+    title: 'cloudflared joins another network than scantor-tunnel',
+    breakRule: (copy) => editService(copy, PROD, 'cloudflared', (path, doc) => doc.addIn([...path, 'networks'], 'scantor')),
+    problem: `${PROD}: cloudflared must join only the scantor-tunnel network`,
+  },
+  {
+    title: 'another service than the orchestrator joins scantor-tunnel',
+    breakRule: (copy) => editService(copy, PROD, 'mongo-express', (path, doc) => doc.addIn([...path, 'networks'], 'scantor-tunnel')),
+    problem: `${PROD}: mongo-express must not join scantor-tunnel (only the orchestrator and cloudflared)`,
+  },
+  {
+    title: 'a test stack service besides the stand-in tunnel joins scantor-tunnel',
+    breakRule: (copy) => editService(copy, STACK, 'fixtures', (path, doc) => doc.setIn([...path, 'networks'], doc.createNode(['scantor', 'scantor-tunnel']))),
+    problem: `${STACK}: fixtures must not join scantor-tunnel (only the orchestrator and tunnel)`,
+  },
+  {
+    title: 'the network scantor-tunnel is internal',
+    breakRule: (copy) =>
+      copy.replace(PROD, '  scantor-tunnel:\n    name: scantor-tunnel\n', '  scantor-tunnel:\n    name: scantor-tunnel\n    internal: true\n'),
+    problem: `${PROD}: the network scantor-tunnel must be a plain bridge named scantor-tunnel (not internal)`,
+  },
+  {
+    title: 'the orchestrator leaves scantor-tunnel',
+    breakRule: (copy) => copy.replace(PROD, '      - scantor-scripts\n      - scantor-tunnel\n', '      - scantor-scripts\n'),
+    problem: `${PROD}: the orchestrator must join scantor-tunnel`,
+  },
+  {
+    title: 'cloudflared starts without the cloudflare-tunnel profile',
+    breakRule: (copy) => editService(copy, PROD, 'cloudflared', (path, doc) => doc.deleteIn([...path, 'profiles'])),
+    problem: `${PROD}: cloudflared must have exactly the profile cloudflare-tunnel`,
+  },
+  {
+    title: 'cloudflared serves its metrics beyond its loopback',
+    breakRule: (copy) => copy.replace(PROD, '"--metrics", "127.0.0.1:20241", "run"', '"--metrics", "0.0.0.0:20241", "run"'),
+    problem: `${PROD}: cloudflared must run with --metrics 127.0.0.1:20241`,
+  },
+  {
+    title: 'the cloudflared healthcheck asks another metrics address',
+    breakRule: (copy) => copy.replace(PROD, '"--metrics", "127.0.0.1:20241", "ready"', '"--metrics", "0.0.0.0:20241", "ready"'),
+    problem: `${PROD}: the cloudflared healthcheck must use --metrics 127.0.0.1:20241`,
+  },
+  {
+    title: 'cloudflared gets its token on the command line',
+    breakRule: (copy) => copy.replace(PROD, '"127.0.0.1:20241", "run"]', '"127.0.0.1:20241", "run", "--token", "${SCANTOR_CLOUDFLARE_TUNNEL_TOKEN}"]'),
+    problem: `${PROD}: cloudflared must not get its token on the command line`,
+  },
+  {
+    title: 'cloudflared gets more environment than its token',
+    breakRule: (copy) => editService(copy, PROD, 'cloudflared', (path, doc) => doc.addIn([...path, 'environment'], 'TUNNEL_METRICS=0.0.0.0:20241')),
+    problem: `${PROD}: cloudflared must get exactly TUNNEL_TOKEN=\${SCANTOR_CLOUDFLARE_TUNNEL_TOKEN} as its environment`,
+  },
+  {
+    title: 'cloudflared reads the .env file',
+    breakRule: (copy) => editService(copy, PROD, 'cloudflared', (path, doc) => doc.setIn([...path, 'env_file'], doc.createNode(['.env']))),
+    problem: `${PROD}: cloudflared must have no env_file`,
+  },
+  {
+    title: 'the ports overlay publishes a cloudflared port',
+    breakRule: (copy) => editService(copy, PORTS, 'cloudflared', (path, doc) => doc.setIn([...path, 'ports'], doc.createNode(['127.0.0.1:20241:20241']))),
+    problem: `${PORTS}: cloudflared must publish no ports`,
+  },
+  {
+    title: 'the production file has no cloudflared service',
+    breakRule: (copy) => editService(copy, PROD, 'cloudflared', (path, doc) => doc.deleteIn(path)),
+    problem: `${PROD}: no cloudflared service`,
   },
   {
     title: 'the RabbitMQ management GUI is published on the public bind address',

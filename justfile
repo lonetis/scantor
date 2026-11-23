@@ -167,8 +167,10 @@ up: init
     done
     public_url="$(sed -n 's/^SCANTOR_PUBLIC_URL=//p' .env)"
     editor_url="$(sed -n 's/^SCANTOR_EDITOR_URL=//p' .env)"
+    tunnel_url="$(sed -n 's/^SCANTOR_TUNNEL_URL=//p' .env)"
     echo "==> Dashboard: $public_url"
     echo "==> Editor:    $editor_url"
+    if [ -n "$tunnel_url" ]; then echo "==> Tunnel:    $tunnel_url"; fi
     setup_url="$(docker logs scantor-orchestrator 2>&1 | grep -o 'https\{0,1\}://[^ "]*/setup?token=[^ "]*' | tail -n 1 || true)"
     if [ -n "$setup_url" ]; then
       echo "==> Setup:     $setup_url"

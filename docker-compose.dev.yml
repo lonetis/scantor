@@ -47,6 +47,7 @@ services:
       - scantor
       - scantor-sandbox
       - scantor-scripts
+      - scantor-tunnel
     volumes:
       - .:/app
       - scantor-orchestrator-node-modules:/app/orchestrator/node_modules
@@ -58,6 +59,7 @@ services:
       - SCANTOR_IMAGE_TAG=dev
       - SCANTOR_BUILD_CACHE_MAX_BYTES=0
       - NODE_ENV=development
+      - COMPOSE_PROFILES=${COMPOSE_PROFILES}
     env_file:
       - .env
 
@@ -425,6 +427,28 @@ services:
     env_file:
       - .env
 
+  cloudflared:
+    image: cloudflare/cloudflared:2026.11.1
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:20241", "run"]
+    depends_on:
+      orchestrator:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    container_name: scantor-cloudflared
+    profiles:
+      - cloudflare-tunnel
+    logging: *logging
+    networks:
+      - scantor-tunnel
+    environment:
+      - TUNNEL_TOKEN=${SCANTOR_CLOUDFLARE_TUNNEL_TOKEN}
+
 volumes:
   scantor-orchestrator-node-modules:
     name: scantor-orchestrator-node-modules
@@ -453,3 +477,5 @@ networks:
   scantor-scripts:
     name: scantor-scripts
     internal: true
+  scantor-tunnel:
+    name: scantor-tunnel

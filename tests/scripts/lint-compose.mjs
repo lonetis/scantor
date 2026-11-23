@@ -12,6 +12,13 @@
 //     only (its Prometheus endpoint answers without credentials, also on scantor-sandbox); memory limits on the
 //     orchestrator, mongo and rabbitmq; the orchestrator never mounts scantor-workspaces; the orchestrator and
 //     Traefik get `env_file: .env`;
+//   - cloudflared (docs/deployment.md §4.10) has exactly the profile cloudflare-tunnel and joins only the network
+//     scantor-tunnel, a plain bridge (not internal: cloudflared needs egress) that only the orchestrator joins besides
+//     it (in the test stack override only the stand-in tunnel), so a tunnel route can reach nothing but the
+//     orchestrator, whatever the Cloudflare account says; its command and its healthcheck bind
+//     the metrics and /ready endpoint to its own loopback (`--metrics 127.0.0.1:20241`, never the whole network); it
+//     gets the tunnel token only as TUNNEL_TOKEN=${SCANTOR_CLOUDFLARE_TUNNEL_TOKEN} in its environment (no env_file,
+//     never on the command line) and publishes no ports, not even through the overlay;
 //   - no compose file (including the test runner's and the test stack override) gives a variable a default, except the
 //     image prefix fallback `${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}`; an alternative value (`${VAR:+…}`, only when
 //     VAR is set) is no default and stays allowed;
@@ -31,7 +38,7 @@ import { parse } from 'yaml'
 
 const root = resolve(fileURLToPath(new URL('../..', import.meta.url)))
 
-export const INFRASTRUCTURE_SERVICES = ['data-init', 'mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik']
+export const INFRASTRUCTURE_SERVICES = ['data-init', 'mongo', 'rabbitmq', 'rustfs', 'registry', 'mongo-express', 'traefik', 'cloudflared']
 
 /** Persistent mounts of the infrastructure services: service → container path → the variable naming its source. */
 export const DATA_MOUNTS = {
@@ -61,7 +68,33 @@ const BASE_PORT_SERVICES = ['traefik', 'registry']
 
 const ALLOWED_DEFAULT = '${SCANTOR_IMAGE_PREFIX-ghcr.io/lonetis/}'
 
+/** The test stack's override of docker-compose.prod.yml (its stand-in tunnel joins scantor-tunnel). */
+const STACK_OVERRIDE = 'tests/docker/stack.tests.yml'
+
+/** cloudflared: its profile, its only network, its metrics address and the only form of its token. */
+const CLOUDFLARED_PROFILE = 'cloudflare-tunnel'
+export const TUNNEL_NETWORK = 'scantor-tunnel'
+const CLOUDFLARED_METRICS = '127.0.0.1:20241'
+const CLOUDFLARED_TOKEN = 'TUNNEL_TOKEN=${SCANTOR_CLOUDFLARE_TUNNEL_TOKEN}'
+
 const asList = (value) => (Array.isArray(value) ? value : value === undefined || value === null ? [] : [value])
+
+/** The words of a command or healthcheck test, in list or string form. */
+const words = (value) => asList(value).flatMap((part) => String(part).trim().split(/\s+/))
+
+/** The value of `--flag value` or `--flag=value` among words, or undefined. */
+function flagValue(args, flag) {
+  const index = args.indexOf(flag)
+  if (index >= 0) return args[index + 1]
+  return args.find((arg) => arg.startsWith(`${flag}=`))?.slice(flag.length + 1)
+}
+
+/** The networks of a service, in list or mapping form. */
+const networkNames = (networks) => (Array.isArray(networks) ? networks.map(String) : Object.keys(networks ?? {}))
+
+/** The environment of a service as KEY=value entries, in list or mapping form. */
+const environmentEntries = (environment) =>
+  Array.isArray(environment) ? environment.map(String) : Object.entries(environment ?? {}).map(([key, value]) => `${key}=${value ?? ''}`)
 
 /** Admin GUIs and MongoDB published on another address than SCANTOR_ADMIN_BIND_ADDRESS. */
 function adminPortProblems(name, services) {
@@ -89,7 +122,61 @@ function overlayProblems(overlay, prod) {
       if (key !== 'ports') problems.push(`${PORTS_OVERLAY}: ${service} may set only ports, not ${key}`)
     }
   }
+  if (asList(overlay?.services?.cloudflared?.ports).length > 0) problems.push(`${PORTS_OVERLAY}: cloudflared must publish no ports`)
   problems.push(...adminPortProblems(PORTS_OVERLAY, overlay?.services ?? {}))
+  return problems
+}
+
+/**
+ * cloudflared connects outbound only and forwards tunnel requests to the orchestrator, which trusts its
+ * X-Forwarded-For: it joins only scantor-tunnel, keeps /metrics and /ready on its loopback (cloudflared binds
+ * 0.0.0.0 in a container otherwise) and gets nothing from .env but the token, never on its command line.
+ */
+function cloudflaredProblems(name, services) {
+  const cloudflared = services.cloudflared
+  if (!cloudflared) return [`${name}: no cloudflared service`]
+  const problems = []
+  if (!isDeepStrictEqual(asList(cloudflared.profiles), [CLOUDFLARED_PROFILE])) {
+    problems.push(`${name}: cloudflared must have exactly the profile ${CLOUDFLARED_PROFILE}`)
+  }
+  if (!isDeepStrictEqual(networkNames(cloudflared.networks), [TUNNEL_NETWORK]))
+    problems.push(`${name}: cloudflared must join only the ${TUNNEL_NETWORK} network`)
+  const command = words(cloudflared.command)
+  if (flagValue(command, '--metrics') !== CLOUDFLARED_METRICS) problems.push(`${name}: cloudflared must run with --metrics ${CLOUDFLARED_METRICS}`)
+  if (flagValue(words(cloudflared.healthcheck?.test), '--metrics') !== CLOUDFLARED_METRICS) {
+    problems.push(`${name}: the cloudflared healthcheck must use --metrics ${CLOUDFLARED_METRICS}`)
+  }
+  if (command.some((word) => word === '--token' || word.startsWith('--token='))) {
+    problems.push(`${name}: cloudflared must not get its token on the command line`)
+  }
+  if (!isDeepStrictEqual(environmentEntries(cloudflared.environment), [CLOUDFLARED_TOKEN])) {
+    problems.push(`${name}: cloudflared must get exactly ${CLOUDFLARED_TOKEN} as its environment`)
+  }
+  if (cloudflared.env_file !== undefined) problems.push(`${name}: cloudflared must have no env_file`)
+  return problems
+}
+
+/**
+ * scantor-tunnel is the network of the tunnel's routes: a plain bridge named scantor-tunnel (cloudflared needs egress),
+ * joined by the orchestrator and otherwise only by `members` (cloudflared; the stand-in tunnel in the test stack).
+ * An override (`base` false) only adds services, so only their networks are checked there.
+ */
+function tunnelNetworkProblems(name, compose, members, base = true) {
+  const problems = []
+  const services = compose.services ?? {}
+  for (const [service, definition] of Object.entries(services)) {
+    if (service !== 'orchestrator' && !members.includes(service) && networkNames(definition?.networks).includes(TUNNEL_NETWORK)) {
+      problems.push(`${name}: ${service} must not join ${TUNNEL_NETWORK} (only the orchestrator and ${members.join(', ')})`)
+    }
+  }
+  if (!base) return problems
+  const network = compose.networks?.[TUNNEL_NETWORK]
+  if (network?.name !== TUNNEL_NETWORK || network.internal === true || (network.driver ?? 'bridge') !== 'bridge') {
+    problems.push(`${name}: the network ${TUNNEL_NETWORK} must be a plain bridge named ${TUNNEL_NETWORK} (not internal)`)
+  }
+  if (services.orchestrator && !networkNames(services.orchestrator.networks).includes(TUNNEL_NETWORK)) {
+    problems.push(`${name}: the orchestrator must join ${TUNNEL_NETWORK}`)
+  }
   return problems
 }
 
@@ -110,7 +197,7 @@ function serviceRules(name, compose) {
       if (!command.includes(flag)) problems.push(`${name}: traefik lacks ${flag}`)
     }
   }
-  problems.push(...adminPortProblems(name, services))
+  problems.push(...adminPortProblems(name, services), ...cloudflaredProblems(name, services), ...tunnelNetworkProblems(name, compose, ['cloudflared']))
   for (const [service, definition] of Object.entries(services)) {
     if (!BASE_PORT_SERVICES.includes(service) && asList(definition?.ports).length > 0) {
       problems.push(`${name}: ${service} publishes ports; direct ports belong in ${PORTS_OVERLAY}`)
@@ -208,8 +295,9 @@ export function lintCompose(repo = root) {
   }
   problems.push(...serviceRules('docker-compose.dev.yml', dev), ...serviceRules('docker-compose.prod.yml', prod))
   problems.push(...overlayProblems(parse(read(PORTS_OVERLAY)), prod))
+  problems.push(...tunnelNetworkProblems(STACK_OVERRIDE, parse(read(STACK_OVERRIDE)), ['tunnel'], false))
   const composeFiles = readdirSync(repo).filter((n) => /^docker-compose\..+\.yml$/.test(n))
-  for (const file of [...composeFiles, 'tests/docker/stack.tests.yml']) {
+  for (const file of [...composeFiles, STACK_OVERRIDE]) {
     const text = read(file)
     problems.push(...defaultProblems(file, text))
     // The overlay's services are completed by the file it is layered over.
