@@ -106,6 +106,46 @@ func TestDevRunRemote(t *testing.T) {
 	}
 }
 
+// TestDevRunRemoteThroughTheTunnel: through the tunnel URL the presigned links of test-run files point at S3, which the
+// tunnel does not serve, so the files are not downloaded; the exit code is still the test run's.
+func TestDevRunRemoteThroughTheTunnel(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		final  map[string]any
+		code   int
+		origin string
+	}{
+		{"succeeded", testRunJSON("completed", [3]int{1, 1, 0}, nil), 0, "tunnel"},
+		{"failed", testRunJSON("completed", [3]int{1, 0, 1}, nil), 1, "tunnel"},
+		{"public origin", testRunJSON("completed", [3]int{1, 1, 0}, nil), 0, "public"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := remoteFake(t, tt.final)
+			f.reply("GET", "/api/info", http.StatusOK, map[string]any{"origin": tt.origin, "publicUrl": "https://scantor.example.com", "tunnelUrl": "https://tunnel.example.org"})
+			dir := writeTaskDir(t, nil)
+			code, out, errOut := f.exec("dev", "run", dir, "--remote")
+			if code != tt.code {
+				t.Fatalf("exit %d, want %d\n%s\n%s", code, tt.code, out, errOut)
+			}
+			files, _ := filepath.Glob(filepath.Join(dir, ".scantor", "out", "*", "files", "0", "f1", "report.txt"))
+			links, downloads := len(f.calls("GET", "/api/test-runs/"+testRunID+"/files/f1")), len(f.calls("GET", "/download/f1"))
+			if tt.origin == "public" {
+				if len(files) != 1 || downloads != 1 || strings.Contains(errOut, "not downloaded") {
+					t.Fatalf("files %v, %d downloads\n%s", files, downloads, errOut)
+				}
+				return
+			}
+			if len(files) != 0 || links != 0 || downloads != 0 {
+				t.Fatalf("files %v, %d links, %d downloads through the tunnel", files, links, downloads)
+			}
+			want := "1 test-run file(s) not downloaded: downloads are not available through the tunnel URL; set SCANTOR_URL=https://scantor.example.com"
+			if !strings.Contains(errOut, want) {
+				t.Fatalf("stderr lacks %q:\n%s", want, errOut)
+			}
+		})
+	}
+}
+
 func TestDevRunRemoteJSON(t *testing.T) {
 	f := remoteFake(t, testRunJSON("completed", [3]int{1, 0, 1}, nil))
 	code, out, _ := f.execEnv(map[string]string{"SCANTOR_DEV_MODE": "remote"}, "dev", "run", writeTaskDir(t, nil), "-o", "json")

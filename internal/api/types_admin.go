@@ -10,10 +10,11 @@ type Health struct {
 
 // InstanceFeatures are the optional features of an instance.
 type InstanceFeatures struct {
-	Passkeys bool `json:"passkeys"`
-	MCP      bool `json:"mcp"`
-	MCPOAuth bool `json:"mcpOAuth"`
-	Editor   bool `json:"editor"`
+	Passkeys  bool `json:"passkeys"`
+	MCP       bool `json:"mcp"`
+	MCPOAuth  bool `json:"mcpOAuth"`
+	Editor    bool `json:"editor"`
+	Downloads bool `json:"downloads"`
 }
 
 // InstanceLimits are the user-visible limits of an instance.
@@ -45,10 +46,13 @@ type InstanceUser struct {
 	Role string `json:"role"`
 }
 
-// InstanceInfo is the response of getInstanceInfo (docs/api.md §4.1).
+// InstanceInfo is the response of getInstanceInfo (docs/api.md §4.1). Origin is the origin the request came
+// through ("public" for SCANTOR_PUBLIC_URL, "tunnel" for the tunnel URL); MCPURL, Features and Limits follow it.
 type InstanceInfo struct {
 	Version            string           `json:"version"`
+	Origin             string           `json:"origin"`
 	PublicURL          string           `json:"publicUrl"`
+	TunnelURL          *string          `json:"tunnelUrl"`
 	EditorURL          string           `json:"editorUrl"`
 	MCPURL             *string          `json:"mcpUrl"`
 	RegistryPublicHost string           `json:"registryPublicHost"`

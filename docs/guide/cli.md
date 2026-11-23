@@ -540,7 +540,7 @@ Build and run a task folder (locally, or as a platform test run)
 
 Build the task folder on the local Docker daemon (as validate, without the type check), describe it, validate the configs against its schemas with defaults filled, and run it in the runtime's local mode: schedule (at most --limit analyses), then run. Nothing is bind-mounted; files the task produces are copied to .scantor/out/&lt;timestamp&gt;/files/ in the folder.
 
-With --remote, or SCANTOR_DEV_MODE=remote (set in the editor), the run is a test run on the platform: outside the editor the folder is first uploaded into the task's workspace without publishing (--force replaces unpublished workspace changes), then the test run is followed and its files are downloaded.
+With --remote, or SCANTOR_DEV_MODE=remote (set in the editor), the run is a test run on the platform: outside the editor the folder is first uploaded into the task's workspace without publishing (--force replaces unpublished workspace changes), then the test run is followed and its files are downloaded. Through a tunnel URL (SCANTOR_URL is the master's Cloudflare Tunnel) the files are not downloaded, because their presigned links point at S3, which only the public URL reaches: a warning names that URL, and the exit code is the test run's.
 
 Events are printed as they happen; with -o json one JSON object per line (local: the runtime's local-mode events; remote: {"type": &lt;event&gt;, "data": &lt;payload&gt;} per test-run event). Exit codes: 0 all analyses succeeded, 1 some failed, 2 invalid task or configs, 3 platform failure. A test run reports a connector that cannot start, or a scan config the connector rejects, as a schedule error, so --remote exits 1 where a local run exits 2.
 
@@ -877,7 +877,7 @@ Show the orchestrator's version, URLs, features and limits
 
 ### Synopsis
 
-Show the version of the orchestrator at SCANTOR_URL, its public, editor and MCP URLs, the CLI image, the enabled features and the instance limits (maximum workers per scan, processes per worker, result and file sizes, the scan confirmation threshold).
+Show the version of the orchestrator at SCANTOR_URL, its public, editor and MCP URLs, the tunnel URL of its Cloudflare Tunnel, the CLI image, the enabled features and the instance limits (maximum workers per scan, processes per worker, result and file sizes, the scan confirmation threshold). The origin row tells whether SCANTOR_URL is the public URL or the tunnel URL; the MCP URL, features and limits are those of that origin.
 
 ```
 scantor instance [flags]

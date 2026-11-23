@@ -88,7 +88,10 @@ const devRunLong = "Build the task folder on the local Docker daemon (as validat
 	"to .scantor/out/<timestamp>/files/ in the folder.\n\n" +
 	"With --remote, or SCANTOR_DEV_MODE=remote (set in the editor), the run is a test run on the platform: " +
 	"outside the editor the folder is first uploaded into the task's workspace without publishing (--force " +
-	"replaces unpublished workspace changes), then the test run is followed and its files are downloaded.\n\n" +
+	"replaces unpublished workspace changes), then the test run is followed and its files are downloaded. " +
+	"Through a tunnel URL (SCANTOR_URL is the master's Cloudflare Tunnel) the files are not downloaded, because " +
+	"their presigned links point at S3, which only the public URL reaches: a warning names that URL, and the " +
+	"exit code is the test run's.\n\n" +
 	"Events are printed as they happen; with -o json one JSON object per line (local: the runtime's local-mode " +
 	"events; remote: {\"type\": <event>, \"data\": <payload>} per test-run event). Exit codes: 0 all analyses " +
 	"succeeded, 1 some failed, 2 invalid task or configs, 3 platform failure. A test run reports a connector " +
@@ -332,10 +335,17 @@ func devRemote(ctx context.Context, app *App, cfg Config, dir string, opts devOp
 	if err != nil {
 		return interruptedOr(ctx, err)
 	}
-	files, err := devDownloadTestRunFiles(ctx, app, client, full, printer.outDir)
-	printer.filesWritten(files)
-	if err != nil {
-		return interruptedOr(ctx, err)
+	if n := devTestRunFileCount(full); n > 0 {
+		if tunnel, publicURL := devThroughTunnel(ctx, client); tunnel {
+			app.Output().Warnf("%d test-run file(s) not downloaded: downloads are not available through the tunnel URL; "+
+				"set SCANTOR_URL=%s to download them", n, publicURL)
+		} else {
+			files, err := devDownloadTestRunFiles(ctx, app, client, full, printer.outDir)
+			printer.filesWritten(files)
+			if err != nil {
+				return interruptedOr(ctx, err)
+			}
+		}
 	}
 	if err := printer.writeErr(); err != nil {
 		return err
@@ -403,6 +413,26 @@ func devCancelTestRun(ctx context.Context, app *App, client *api.Client, id stri
 
 // devDownloadTestRunFiles downloads the files of every analysis to <outDir>/files/<seq>/<fileId>/<name>,
 // the layout of local runs.
+// devTestRunFileCount counts the files of a test run's analyses.
+func devTestRunFileCount(run *api.TestRun) int {
+	n := 0
+	for _, a := range run.Analyses {
+		n += len(a.Files)
+	}
+	return n
+}
+
+// devThroughTunnel reports whether SCANTOR_URL is the master's tunnel URL, where presigned downloads do not work
+// (getInstanceInfo.origin, docs/deployment.md §10.2), and the public URL to use instead. An orchestrator without the
+// field, or a failed lookup, counts as the public URL: the downloads are tried as before.
+func devThroughTunnel(ctx context.Context, client *api.Client) (bool, string) {
+	info, err := client.GetInstanceInfo(ctx)
+	if err != nil {
+		return false, ""
+	}
+	return info.Origin == "tunnel", info.PublicURL
+}
+
 func devDownloadTestRunFiles(ctx context.Context, app *App, client *api.Client, run *api.TestRun, outDir string) (int, error) {
 	n := 0
 	for _, a := range run.Analyses {

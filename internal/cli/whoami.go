@@ -65,9 +65,11 @@ func newInstanceCommand(app *App) *cobra.Command {
 	return &cobra.Command{
 		Use:   "instance",
 		Short: "Show the orchestrator's version, URLs, features and limits",
-		Long: "Show the version of the orchestrator at SCANTOR_URL, its public, editor and MCP URLs, the CLI " +
-			"image, the enabled features and the instance limits (maximum workers per scan, processes per " +
-			"worker, result and file sizes, the scan confirmation threshold).",
+		Long: "Show the version of the orchestrator at SCANTOR_URL, its public, editor and MCP URLs, the tunnel " +
+			"URL of its Cloudflare Tunnel, the CLI image, the enabled features and the instance limits (maximum " +
+			"workers per scan, processes per worker, result and file sizes, the scan confirmation threshold). " +
+			"The origin row tells whether SCANTOR_URL is the public URL or the tunnel URL; the MCP URL, features " +
+			"and limits are those of that origin.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := app.APIClient()
@@ -81,7 +83,9 @@ func newInstanceCommand(app *App) *cobra.Command {
 			return app.Output().Print(info, func(w io.Writer) error {
 				var kv apiKV
 				kv.add("version", info.Version)
+				kv.add("origin", info.Origin)
 				kv.add("public url", info.PublicURL)
+				kv.add("tunnel url", apiDeref(info.TunnelURL))
 				kv.add("editor url", info.EditorURL)
 				kv.add("mcp url", apiDeref(info.MCPURL))
 				kv.add("registry", info.RegistryPublicHost)
@@ -90,7 +94,7 @@ func newInstanceCommand(app *App) *cobra.Command {
 				for _, f := range []struct {
 					name string
 					on   bool
-				}{{"editor", info.Features.Editor}, {"mcp", info.Features.MCP}, {"mcpOAuth", info.Features.MCPOAuth}, {"passkeys", info.Features.Passkeys}} {
+				}{{"editor", info.Features.Editor}, {"downloads", info.Features.Downloads}, {"mcp", info.Features.MCP}, {"mcpOAuth", info.Features.MCPOAuth}, {"passkeys", info.Features.Passkeys}} {
 					if f.on {
 						features = append(features, f.name)
 					}
