@@ -240,11 +240,26 @@ export async function fulfillJson(route: Route, body: unknown, status = 200): Pr
   await route.fulfill({ status, contentType: 'application/json', headers: { 'cache-control': 'no-store' }, body: JSON.stringify(body) })
 }
 
-/** Rewrites the JSON body of the real response (for example a feature flag of getInstanceInfo). */
+/**
+ * Rewrites the JSON body of the real response (for example a feature flag of getInstanceInfo). A page that polls (a
+ * building revision, a running scan) can still send a request while the test ends: when its context closes during
+ * the fetch, nothing waits for the answer any more, and the error is dropped instead of failing a passed test.
+ */
 export async function patchJsonResponse<T>(route: Route, patch: (body: T) => T): Promise<void> {
-  const response = await route.fetch()
-  const body = (await response.json()) as T
-  await route.fulfill({ response, json: patch(body) })
+  try {
+    const response = await route.fetch()
+    const body = (await response.json()) as T
+    await route.fulfill({ response, json: patch(body) })
+  } catch (error) {
+    if (endedWithTheTest(error)) return
+    throw error
+  }
+}
+
+/** True for the errors Playwright raises when a route outlives its page, context or test. */
+function endedWithTheTest(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /has been disposed|Target page, context or browser has been closed|Test ended/.test(message)
 }
 
 /** True for a request of the given method to exactly this API path (query ignored). */
