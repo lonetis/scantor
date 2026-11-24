@@ -24,19 +24,25 @@ func apiNodeFixture(name string) map[string]any {
 	}
 }
 
-// The worker cap is min(info.maxWorkers, maxWorkers): an override can only lower the daemon's cap (CLI-6).
+// The capacity is min(info.maxWorkers, maxWorkers): the daemon value (which includes a daemon override)
+// and the admin worker limit, which can only lower it.
 func TestAPINodeWorkers(t *testing.T) {
-	override := func(n int) *int { return &n }
+	limit := func(n int) *int { return &n }
 	reported := func(n int) *api.NodeInfoRecord { return &api.NodeInfoRecord{MaxWorkers: n} }
+	overridden := &api.NodeDaemonConfig{Sources: []byte(`{"maxWorkers":"override","dns":{"mode":"env"}}`)}
+	fromEnv := &api.NodeDaemonConfig{Sources: []byte(`{"maxWorkers":"env"}`)}
 	cases := []struct {
 		node    api.Node
 		workers string
 		sources string
 	}{
-		{api.Node{ActiveWorkers: 3, MaxWorkers: override(32), Info: reported(8)}, "3/8", "daemon 8, override 32"},
-		{api.Node{ActiveWorkers: 1, MaxWorkers: override(2), Info: reported(8)}, "1/2", "daemon 8, override 2"},
-		{api.Node{MaxWorkers: override(4)}, "0/4", "daemon not reported yet, override 4"},
+		{api.Node{ActiveWorkers: 3, MaxWorkers: limit(32), Info: reported(8)}, "3/8", "daemon 8, admin worker limit 32"},
+		{api.Node{ActiveWorkers: 1, MaxWorkers: limit(2), Info: reported(8)}, "1/2", "daemon 8, admin worker limit 2"},
+		{api.Node{MaxWorkers: limit(4)}, "0/4", "daemon not reported yet, admin worker limit 4"},
 		{api.Node{ActiveWorkers: 5, Info: reported(8)}, "5/8", ""},
+		{api.Node{ActiveWorkers: 5, Info: reported(8), DaemonConfig: fromEnv}, "5/8", ""},
+		{api.Node{ActiveWorkers: 2, Info: reported(16), DaemonConfig: overridden}, "2/16", "daemon 16 by daemon override"},
+		{api.Node{ActiveWorkers: 2, MaxWorkers: limit(8), Info: reported(16), DaemonConfig: overridden}, "2/8", "daemon 16 by daemon override, admin worker limit 8"},
 		{api.Node{}, "0/-", ""},
 	}
 	for _, c := range cases {
@@ -59,7 +65,7 @@ func TestAPINodeWorkers(t *testing.T) {
 	if code, out, _ := f.exec("nodes", "list"); code != 0 || !regexp.MustCompile(`\s3/8\s`).MatchString(out) {
 		t.Fatalf("list: exit %d, out %q", code, out)
 	}
-	if code, out, _ := f.exec("nodes", "get", apiNodeID); code != 0 || !strings.Contains(out, "3/8 (daemon 8, override 32)") {
+	if code, out, _ := f.exec("nodes", "get", apiNodeID); code != 0 || !strings.Contains(out, "3/8 (daemon 8, admin worker limit 32)") {
 		t.Fatalf("get: exit %d, out %q", code, out)
 	}
 }

@@ -1090,13 +1090,15 @@ scantor nodes [flags]
 
 * [scantor](#scantor)	 - Run scanning tasks at scale
 * [scantor nodes create](#scantor-nodes-create)	 - Create a remote node and print its token and join command
+* [scantor nodes daemon-config](#scantor-nodes-daemon-config)	 - Show the daemon configuration of a node
+* [scantor nodes daemon-overrides](#scantor-nodes-daemon-overrides)	 - Set or remove the daemon overrides of a node's running daemon
 * [scantor nodes delete](#scantor-nodes-delete)	 - Delete a node
 * [scantor nodes events](#scantor-nodes-events)	 - List the timeline of a node
 * [scantor nodes get](#scantor-nodes-get)	 - Show a node
 * [scantor nodes join](#scantor-nodes-join)	 - Print the commands that start a node's daemon
 * [scantor nodes list](#scantor-nodes-list)	 - List nodes
 * [scantor nodes token](#scantor-nodes-token)	 - Rotate or revoke a node's token
-* [scantor nodes update](#scantor-nodes-update)	 - Change a node's name, pool, labels, worker cap or cordon
+* [scantor nodes update](#scantor-nodes-update)	 - Change a node's name, pool, labels, admin worker limit or cordon
 * [scantor nodes workers](#scantor-nodes-workers)	 - List the workers placed on a node
 
 
@@ -1123,7 +1125,7 @@ scantor nodes create <name> [flags]
 ```
   -h, --help                help for create
       --label stringArray   label key=value (repeatable)
-      --max-workers int     lower the node's worker cap below what the daemon reports (SCANTOR_NODE_MAX_WORKERS); a higher value has no effect
+      --max-workers int     admin worker limit: capacity = min(daemon value incl. daemon override, admin worker limit), so a limit above the daemon value has no effect (the daemon value is SCANTOR_NODE_MAX_WORKERS, or a daemon override of it)
       --pool string         node pool scans select with nodeSelector.pool (server default "shared")
 ```
 
@@ -1136,6 +1138,158 @@ scantor nodes create <name> [flags]
 ### SEE ALSO
 
 * [scantor nodes](#scantor-nodes)	 - Manage the nodes that run workers (admins)
+
+
+## scantor nodes daemon-config
+
+Show the daemon configuration of a node
+
+### Synopsis
+
+Show the configuration the node's daemon runs with: every value with its source (env, default or override) and its environment variable, then the daemon overrides, whether the daemon has applied them, the overrides it rejected and its configuration warnings. Secrets are never part of it. JSON output is the node's daemonConfig object, null until a daemon of the node's current instance reported it. A node is addressed by its id or its name.
+
+```
+scantor nodes daemon-config <node> [flags]
+```
+
+### Examples
+
+```
+  scantor nodes daemon-config scan-eu-1
+```
+
+### Options
+
+```
+  -h, --help   help for daemon-config
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor nodes](#scantor-nodes)	 - Manage the nodes that run workers (admins)
+
+
+## scantor nodes daemon-overrides
+
+Set or remove the daemon overrides of a node's running daemon
+
+```
+scantor nodes daemon-overrides [flags]
+```
+
+### Options
+
+```
+  -h, --help   help for daemon-overrides
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor nodes](#scantor-nodes)	 - Manage the nodes that run workers (admins)
+* [scantor nodes daemon-overrides reset](#scantor-nodes-daemon-overrides-reset)	 - Remove every daemon override of a node
+* [scantor nodes daemon-overrides set](#scantor-nodes-daemon-overrides-set)	 - Override values of the daemon configuration of a node's running daemon
+
+
+## scantor nodes daemon-overrides reset
+
+Remove every daemon override of a node
+
+### Synopsis
+
+Remove every daemon override of the node's running daemon instance: the daemon returns to the values of its environment with its next assignments poll (a dns change replaces the node resolver). Nothing changes when no override is set. A node is addressed by its id or its name.
+
+```
+scantor nodes daemon-overrides reset <node> [flags]
+```
+
+### Examples
+
+```
+  scantor nodes daemon-overrides reset scan-eu-1
+```
+
+### Options
+
+```
+  -h, --help   help for reset
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor nodes daemon-overrides](#scantor-nodes-daemon-overrides)	 - Set or remove the daemon overrides of a node's running daemon
+
+
+## scantor nodes daemon-overrides set
+
+Override values of the daemon configuration of a node's running daemon
+
+### Synopsis
+
+Set daemon overrides: values that replace values of the daemon configuration in the node's running daemon instance until it stops, so a daemon restart clears them. Only the given flags change; --unset removes an override (a dotted key such as maxWorkers or dns.mode, or dns for every dns override). Byte sizes take an integer with an optional KiB, MiB, GiB or TiB suffix, durations Go syntax such as 30m or 24h, and lists are comma-separated. The daemon applies the overrides with its next assignments poll: the values of worker containers apply to workers created afterwards, and a dns change replaces the node resolver, whose cache then starts empty. The node operator can restrict overrides with SCANTOR_NODE_OVERRIDES. The node's capacity = min(daemon value incl. daemon override, admin worker limit): --max-workers overrides the daemon value, scantor nodes update --max-workers sets the admin worker limit. A node is addressed by its id or its name.
+
+```
+scantor nodes daemon-overrides set <node> [flags]
+```
+
+### Examples
+
+```
+  scantor nodes daemon-overrides set scan-eu-1 --max-workers 16 --dns-mode iterative
+  scantor nodes daemon-overrides set scan-eu-1 --dns-upstreams host --dns-cache-size 1GiB
+  scantor nodes daemon-overrides set scan-eu-1 --unset maxWorkers --unset dns
+```
+
+### Options
+
+```
+      --dns-authoritative-qps int   queries per second to each authoritative server in iterative mode; 0 for no limit (SCANTOR_NODE_DNS_AUTHORITATIVE_QPS; 0 to 1000000)
+      --dns-cache-size bytes        answer cache size of the node resolver (SCANTOR_NODE_DNS_CACHE_SIZE; 16MiB to 64GiB)
+      --dns-local-domains list      extra domains the node resolver resolves through the host nameservers, comma-separated (SCANTOR_NODE_DNS_LOCAL_DOMAINS; up to 64 entries)
+      --dns-max-lookups int         lookups the node resolver runs at once (SCANTOR_NODE_DNS_MAX_LOOKUPS; 1 to 20000)
+      --dns-mode string             node resolver mode (SCANTOR_NODE_DNS_MODE; recursive, iterative or disabled)
+      --dns-root-servers list       root servers of iterative mode, comma-separated: ip, ip:port or [v6]:port; "" for the IANA root servers; private and special-purpose servers only in the node environment (SCANTOR_NODE_DNS_ROOT_SERVERS; up to 16 entries)
+      --dns-upstream-qps int        queries per second to each upstream server; 0 for no limit (SCANTOR_NODE_DNS_UPSTREAM_QPS; 0 to 1000000)
+      --dns-upstreams list          upstream servers of recursive mode, comma-separated: ip, ip:port, [v6]:port, or host for the host nameservers; private and special-purpose servers only in the node environment (SCANTOR_NODE_DNS_UPSTREAMS; 1 to 16 entries)
+  -h, --help                        help for set
+      --image-retention duration    how long an unused task image stays on the node (SCANTOR_NODE_IMAGE_RETENTION; 0s to 8760h)
+      --log-level string            log level of the daemon (SCANTOR_LOG_LEVEL; debug, info, warn or error)
+      --max-workers int             daemon worker capacity; the node's capacity is the smaller of this and the admin worker limit (SCANTOR_NODE_MAX_WORKERS; 1 to 100000)
+      --nofile int                  open-file limit of every worker created afterwards (SCANTOR_NODE_NOFILE; 1 to 1073741824)
+      --pids-limit int              process limit of every worker created afterwards (SCANTOR_NODE_PIDS_LIMIT; 1 to 1073741824)
+      --pull-timeout duration       time limit of one image pull (SCANTOR_NODE_PULL_TIMEOUT; 1s to 24h)
+      --shm-size bytes              /dev/shm size of every worker created afterwards (SCANTOR_NODE_SHM_SIZE; 1MiB to 64GiB)
+      --unset strings               remove the override of a dotted key such as maxWorkers or dns.mode; dns removes every dns override (repeatable)
+      --worker-log-max-files int    log files kept of every worker created afterwards (SCANTOR_NODE_WORKER_LOG_MAX_FILES; 1 to 1000)
+      --worker-log-max-size bytes   log file size of every worker created afterwards (SCANTOR_NODE_WORKER_LOG_MAX_SIZE; 1 to 16GiB)
+```
+
+### Options inherited from parent commands
+
+```
+  -o, --output format   output format: human or json (default human)
+```
+
+### SEE ALSO
+
+* [scantor nodes daemon-overrides](#scantor-nodes-daemon-overrides)	 - Set or remove the daemon overrides of a node's running daemon
 
 
 ## scantor nodes delete
@@ -1205,7 +1359,7 @@ Show a node
 
 ### Synopsis
 
-Show a node: state, endpoint profile, pool, labels, reported host info and instance lease. A node is addressed by its id or its name.
+Show a node: state, endpoint profile, pool, labels, capacity, reported host info, the state of its node resolver, its daemon overrides and its instance lease. A node is addressed by its id or its name.
 
 ```
 scantor nodes get <node> [flags]
@@ -1269,7 +1423,7 @@ List nodes
 
 ### Synopsis
 
-List every node with its state, pool, architecture, worker usage and last heartbeat. WORKERS is active/cap, where the cap is the smaller of what the daemon reports and the admin override. Admins only.
+List every node with its state, pool, architecture, worker usage and last heartbeat. WORKERS is active/capacity, where capacity = min(daemon value incl. daemon override, admin worker limit). Admins only.
 
 ```
 scantor nodes list [flags]
@@ -1387,11 +1541,11 @@ scantor nodes token rotate <node> [flags]
 
 ## scantor nodes update
 
-Change a node's name, pool, labels, worker cap or cordon
+Change a node's name, pool, labels, admin worker limit or cordon
 
 ### Synopsis
 
-Change a node. --label replaces all labels (repeat it for several); --clear-labels removes them all. --cordoned stops new workers from being placed on the node (--cordoned=false lifts it); running workers stay. A node is addressed by its id or its name.
+Change a node. --label replaces all labels (repeat it for several); --clear-labels removes them all. --max-workers sets the admin worker limit, which persists; the node's capacity = min(daemon value incl. daemon override, admin worker limit), and a daemon override (scantor nodes daemon-overrides set) changes the daemon value until the daemon restarts. --cordoned stops new workers from being placed on the node (--cordoned=false lifts it); running workers stay. A node is addressed by its id or its name.
 
 ```
 scantor nodes update <node> [flags]
@@ -1411,9 +1565,9 @@ scantor nodes update <node> [flags]
       --cordoned            stop placing new workers on the node
   -h, --help                help for update
       --label stringArray   label key=value; replaces all labels (repeatable)
-      --max-workers int     lower the node's worker cap below what the daemon reports (SCANTOR_NODE_MAX_WORKERS); a higher value has no effect
+      --max-workers int     admin worker limit: capacity = min(daemon value incl. daemon override, admin worker limit), so a limit above the daemon value has no effect (the daemon value is SCANTOR_NODE_MAX_WORKERS, or a daemon override of it)
       --name string         new name
-      --no-max-workers      remove the override and use the worker cap the daemon reports
+      --no-max-workers      remove the admin worker limit, so the capacity is the daemon value
       --pool string         new pool
 ```
 

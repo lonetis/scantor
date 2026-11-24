@@ -586,11 +586,22 @@ func (c *Client) GetJob(ctx context.Context, jobID string, wait int) (*Job, erro
 
 // ── nodes (admin) ────────────────────────────────────────────────────────────
 
-// ListNodes calls listNodes; state and pool are optional.
-func (c *Client) ListNodes(ctx context.Context, state, pool string) ([]Node, error) {
+// ListNodesQuery holds the parameters of listNodes; every field is optional.
+type ListNodesQuery struct {
+	State string
+	Pool  string
+	// DaemonConfig adds every node's daemon configuration (include=daemonConfig).
+	DaemonConfig bool
+}
+
+// ListNodes calls listNodes.
+func (c *Client) ListNodes(ctx context.Context, query ListNodesQuery) ([]Node, error) {
 	q := url.Values{}
-	setIf(q, "state", state)
-	setIf(q, "pool", pool)
+	setIf(q, "state", query.State)
+	setIf(q, "pool", query.Pool)
+	if query.DaemonConfig {
+		q.Set("include", "daemonConfig")
+	}
 	var out List[Node]
 	return out.Items, c.getJSON(ctx, "/api/nodes", q, &out)
 }
@@ -616,6 +627,20 @@ func (c *Client) UpdateNode(ctx context.Context, nodeID string, body UpdateNode)
 // DeleteNode calls deleteNode.
 func (c *Client) DeleteNode(ctx context.Context, nodeID string) error {
 	return c.userCall(ctx, http.MethodDelete, "/api/nodes/"+PathSegment(nodeID), nil, nil, nil, 0)
+}
+
+// UpdateNodeDaemonOverrides calls updateNodeDaemonOverrides with a JSON merge patch of the daemon
+// overrides of the node's running daemon instance.
+func (c *Client) UpdateNodeDaemonOverrides(ctx context.Context, nodeID string, body UpdateNodeDaemonOverrides) (*Node, error) {
+	var out Node
+	return &out, c.userCall(ctx, http.MethodPatch, "/api/nodes/"+PathSegment(nodeID)+"/daemon-overrides", nil, body, &out, 0)
+}
+
+// DeleteNodeDaemonOverrides calls deleteNodeDaemonOverrides, which removes every daemon override of the
+// node's running daemon instance.
+func (c *Client) DeleteNodeDaemonOverrides(ctx context.Context, nodeID string) (*Node, error) {
+	var out Node
+	return &out, c.userCall(ctx, http.MethodDelete, "/api/nodes/"+PathSegment(nodeID)+"/daemon-overrides", nil, nil, &out, 0)
 }
 
 // RotateNodeToken calls rotateNodeToken.

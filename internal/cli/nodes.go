@@ -34,7 +34,7 @@ func apiResolveNode(ctx context.Context, client *api.Client, ref string) (string
 	if apiIsUUID(ref) {
 		return ref, nil
 	}
-	nodes, err := client.ListNodes(ctx, "", "")
+	nodes, err := client.ListNodes(ctx, api.ListNodesQuery{})
 	if err != nil {
 		return "", err
 	}
@@ -52,7 +52,7 @@ func newNodesListCommand(app *App) *cobra.Command {
 		Use:   "list",
 		Short: "List nodes",
 		Long: "List every node with its state, pool, architecture, worker usage and last heartbeat. WORKERS is " +
-			"active/cap, where the cap is the smaller of what the daemon reports and the admin override. Admins only.",
+			"active/capacity, where capacity = min(daemon value incl. daemon override, admin worker limit). Admins only.",
 		Example: "  scantor nodes list --state online",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -60,7 +60,7 @@ func newNodesListCommand(app *App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			nodes, err := client.ListNodes(cmd.Context(), state, pool)
+			nodes, err := client.ListNodes(cmd.Context(), api.ListNodesQuery{State: state, Pool: pool})
 			if err != nil {
 				return err
 			}
@@ -83,9 +83,10 @@ func newNodesListCommand(app *App) *cobra.Command {
 	return cmd
 }
 
-// apiNodeWorkers renders "active/cap" with the effective worker cap, min(info.maxWorkers, maxWorkers)
-// (docs/data-model.md §4, nodes): the admin override can only lower what the daemon reports. Before the
-// first report the override is the only bound known, and "-" means none is.
+// apiNodeWorkers renders "active/capacity" with the node's capacity, min(info.maxWorkers, maxWorkers)
+// (docs/data-model.md §4, nodes): the daemon reports its value including a daemon override, and the admin
+// worker limit can only lower it. Before the first report the admin worker limit is the only bound known,
+// and "-" means none is.
 func apiNodeWorkers(n api.Node) string {
 	limit := "-"
 	if c, ok := apiNodeCap(n); ok {
@@ -94,7 +95,7 @@ func apiNodeWorkers(n api.Node) string {
 	return fmt.Sprintf("%d/%s", n.ActiveWorkers, limit)
 }
 
-// apiNodeCap returns the effective worker cap of a node and whether any bound is known.
+// apiNodeCap returns the capacity of a node and whether any bound is known.
 func apiNodeCap(n api.Node) (int, bool) {
 	reported := n.Info != nil && n.Info.MaxWorkers > 0
 	switch {
@@ -108,17 +109,25 @@ func apiNodeCap(n api.Node) (int, bool) {
 	return 0, false
 }
 
-// apiNodeCapSources names where the cap comes from when an admin override is set: the daemon's report
-// and the override, so a raised override that has no effect is visible.
+// apiNodeCapSources names where the capacity comes from when it is not simply the daemon's value: the
+// daemon value, marked when a daemon override set it, and the admin worker limit, so a limit above the
+// daemon value, which has no effect, is visible.
 func apiNodeCapSources(n api.Node) string {
-	if n.MaxWorkers == nil {
+	overridden := apiSourceOf(n.DaemonConfig, "maxWorkers") == api.SourceOverride
+	if n.MaxWorkers == nil && !overridden {
 		return ""
 	}
-	daemon := "not reported yet"
+	daemon := "daemon not reported yet"
 	if n.Info != nil && n.Info.MaxWorkers > 0 {
-		daemon = fmt.Sprintf("%d", n.Info.MaxWorkers)
+		daemon = fmt.Sprintf("daemon %d", n.Info.MaxWorkers)
 	}
-	return fmt.Sprintf("daemon %s, override %d", daemon, *n.MaxWorkers)
+	if overridden {
+		daemon += " by daemon override"
+	}
+	if n.MaxWorkers == nil {
+		return daemon
+	}
+	return fmt.Sprintf("%s, admin worker limit %d", daemon, *n.MaxWorkers)
 }
 
 func newNodesCreateCommand(app *App) *cobra.Command {
@@ -160,9 +169,13 @@ func newNodesCreateCommand(app *App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&body.Pool, "pool", "", `node pool scans select with nodeSelector.pool (server default "shared")`)
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "label key=value (repeatable)")
-	cmd.Flags().IntVar(&maxWorkers, "max-workers", 0, "lower the node's worker cap below what the daemon reports (SCANTOR_NODE_MAX_WORKERS); a higher value has no effect")
+	cmd.Flags().IntVar(&maxWorkers, "max-workers", 0, apiAdminWorkerLimitHelp)
 	return cmd
 }
+
+// apiAdminWorkerLimitHelp is the help text of --max-workers of nodes create and update.
+const apiAdminWorkerLimitHelp = "admin worker limit: capacity = min(daemon value incl. daemon override, admin worker limit), " +
+	"so a limit above the daemon value has no effect (the daemon value is SCANTOR_NODE_MAX_WORKERS, or a daemon override of it)"
 
 // apiParseLabels parses repeated key=value flags.
 func apiParseLabels(values []string) (map[string]string, error) {
@@ -200,9 +213,10 @@ func apiWriteJoin(w io.Writer, join api.NodeJoin) error {
 
 func newNodesGetCommand(app *App) *cobra.Command {
 	return &cobra.Command{
-		Use:     "get <node>",
-		Short:   "Show a node",
-		Long:    "Show a node: state, endpoint profile, pool, labels, reported host info and instance lease. " + apiNodeArgHelp,
+		Use:   "get <node>",
+		Short: "Show a node",
+		Long: "Show a node: state, endpoint profile, pool, labels, capacity, reported host info, the state of its " +
+			"node resolver, its daemon overrides and its instance lease. " + apiNodeArgHelp,
 		Example: "  scantor nodes get scan-eu-1",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -262,6 +276,19 @@ func apiWriteNode(w io.Writer, n *api.Node) error {
 			daemon += ", network not isolated"
 		}
 		kv.add("daemon", daemon)
+		if i.Resolver != nil {
+			kv.add("dns resolver", apiResolverSummary(i.Resolver))
+		}
+	}
+	if dc := n.DaemonConfig; dc != nil {
+		overrides, err := apiOverridesText(dc.Overrides)
+		if err != nil {
+			return err
+		}
+		if overrides != "" && dc.Pending {
+			overrides += " (not applied yet)"
+		}
+		kv.add("daemon overrides", overrides)
 	}
 	kv.add("token", n.TokenPrefix)
 	kv.add("last seen", apiTime(n.LastSeenAt))
@@ -276,10 +303,12 @@ func newNodesUpdateCommand(app *App) *cobra.Command {
 	var maxWorkers int
 	cmd := &cobra.Command{
 		Use:   "update <node>",
-		Short: "Change a node's name, pool, labels, worker cap or cordon",
+		Short: "Change a node's name, pool, labels, admin worker limit or cordon",
 		Long: "Change a node. --label replaces all labels (repeat it for several); --clear-labels removes them all. " +
-			"--cordoned stops new workers from being placed on the node (--cordoned=false lifts it); running " +
-			"workers stay. " + apiNodeArgHelp,
+			"--max-workers sets the admin worker limit, which persists; the node's capacity = min(daemon value incl. " +
+			"daemon override, admin worker limit), and a daemon override (scantor nodes daemon-overrides set) " +
+			"changes the daemon value until the daemon restarts. --cordoned stops new workers from being placed on " +
+			"the node (--cordoned=false lifts it); running workers stay. " + apiNodeArgHelp,
 		Example: `  scantor nodes update scan-eu-1 --cordoned
   scantor nodes update scan-eu-1 --pool remote --label region=eu --label gpu=false --no-max-workers`,
 		Args: cobra.ExactArgs(1),
@@ -338,8 +367,8 @@ func newNodesUpdateCommand(app *App) *cobra.Command {
 	cmd.Flags().StringVar(&pool, "pool", "", "new pool")
 	cmd.Flags().StringArrayVar(&labels, "label", nil, "label key=value; replaces all labels (repeatable)")
 	cmd.Flags().BoolVar(&clearLabels, "clear-labels", false, "remove every label")
-	cmd.Flags().IntVar(&maxWorkers, "max-workers", 0, "lower the node's worker cap below what the daemon reports (SCANTOR_NODE_MAX_WORKERS); a higher value has no effect")
-	cmd.Flags().BoolVar(&noMaxWorkers, "no-max-workers", false, "remove the override and use the worker cap the daemon reports")
+	cmd.Flags().IntVar(&maxWorkers, "max-workers", 0, apiAdminWorkerLimitHelp)
+	cmd.Flags().BoolVar(&noMaxWorkers, "no-max-workers", false, "remove the admin worker limit, so the capacity is the daemon value")
 	cmd.Flags().BoolVar(&cordoned, "cordoned", false, "stop placing new workers on the node")
 	return cmd
 }
