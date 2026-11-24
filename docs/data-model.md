@@ -577,11 +577,14 @@ Indexes: `{scanId: 1, role: 1, state: 1}`, `{nodeId: 1, state: 1}`, `{userId: 1,
 | `tokenRotatedAt` | Date \| null | ✓ | |
 | `pool` | slug | ✓ | default `shared` |
 | `labels` | map string → string | ✓ | ≤ 32 entries; keys `^[a-z0-9]([a-z0-9._-]{0,61}[a-z0-9])?$`, values ≤ 63 chars |
-| `maxWorkers` | int \| null | ✓ | admin override; effective capacity = min(`info.maxWorkers`, `maxWorkers`) |
+| `maxWorkers` | int \| null | ✓ | the **admin worker limit** (persistent, set by `createNode`/`updateNode`); placement capacity = min(`info.maxWorkers`, `maxWorkers`) ([nodes](nodes.md) §12.2) |
 | `cordoned` | boolean | ✓ | no new placements; existing workers stay |
 | `instance` | `{id, version, startedAt, lastSeenAt}` \| null | ✓ | lease holder; the lease is live while `lastSeenAt > now − SCANTOR_NODE_OFFLINE_AFTER` |
-| `info` | object \| null | ✓ | last report: `{version, hostname, os, arch, kernel, dockerVersion, cpus, memoryBytes, diskFreeBytes, dindMode: "disabled"\|"sysbox"\|"privileged", maxWorkers, egressDenyApplied, networkIsolated?, clockOffsetMs}`. `dindMode` is the **effective** mode (daemon `SCANTOR_NODE_DIND`, but a node configured for `sysbox` without the `sysbox-runc` runtime reports `disabled`); `maxWorkers` is daemon `SCANTOR_NODE_MAX_WORKERS` (0 → number of CPUs) |
-| `assignmentsRev` | int ≥ 0 | ✓ | desired-state revision; incremented on every change of the node's desired set or log requests |
+| `info` | object \| null | ✓ | last report: `{version, hostname, os, arch, kernel, dockerVersion, cpus, memoryBytes, diskFreeBytes, dindMode: "disabled"\|"sysbox"\|"privileged", maxWorkers, egressDenyApplied, networkIsolated?, clockOffsetMs, resolver?}`. `dindMode` is the **effective** mode (daemon `SCANTOR_NODE_DIND`, but a node configured for `sysbox` without the `sysbox-runc` runtime reports `disabled`); `maxWorkers` is the daemon's value: `SCANTOR_NODE_MAX_WORKERS` or its `maxWorkers` daemon override (0 → number of CPUs); `resolver` is the node resolver's report `{mode, state, address?, kept, error, detail?, since, spec?, ipv6, upstreamOk, stats}` ([nodes](nodes.md) §6.11.5), absent until a daemon that runs a node resolver reported it (a hello replaces `info`, so a hello without one leaves none) and null when its report failed validation |
+| `daemonConfig` | `{instanceId, values, sources, warnings, appliedOverridesRev, rejected, reportedAt}` \| null | – | the daemon configuration last reported by the daemon instance `instanceId` ([nodes](nodes.md) §6.12.1); `sources` and `rejected` mirror the structure of `values` (`{dns: {mode: "override"}}`, never dotted keys). Replaced by every hello (null without a report) and by every status of the current instance that carries one; null when the report failed validation. Absent in documents written before daemon overrides existed: absent = null |
+| `daemonOverrides` | `{instanceId, values, rev, updatedAt, updatedBy}` \| null | – | the daemon overrides set for the daemon instance `instanceId` ([nodes](nodes.md) §6.12.3): `values` holds only the overridden keys (`dns` nested), `rev` counts the writes for this instance (from 1), `updatedBy` is the admin's user id. Written only by `updateNodeDaemonOverrides`/`deleteNodeDaemonOverrides` with a conditional update on `rev`; set to null by a hello of a new instance. Absent = null |
+| `resolverFailedState` | `failed`\|`degraded`\|`unreachable` \| null | – | *internal*, never in the API: the failing state the node resolver last entered and has not been reported `ready` after. Written by hello and status in the same update as the report: a failing report sets it, a `ready` report clears it, and `starting`, `disabled`, absent and invalid reports leave it alone; it outlives a hello, which replaces `info`. A `ready` report while it is set records `node.resolverReady` (§4.11, [nodes](nodes.md) §6.11.5). Absent = null |
+| `assignmentsRev` | int ≥ 0 | ✓ | desired-state revision; incremented on every change of the node's desired set, log requests or daemon overrides |
 | `lastSeenAt` | Date \| null | ✓ | last hello/status |
 | `createdBy` | uuid \| null | ✓ | admin who created it (null for built-in) |
 | `createdAt`, `updatedAt` | Date | ✓ | |
@@ -602,6 +605,8 @@ Indexes: `{scanId: 1, role: 1, state: 1}`, `{nodeId: 1, state: 1}`, `{userId: 1,
   "cordoned": false,
   "instance": { "id": "4c6f2b1e-9a8d-4e7f-b6c5-3d2e1f0a9b8c:7d1e", "version": "1.4.0", "startedAt": { "$date": "2026-10-21T07:00:00.000Z" }, "lastSeenAt": { "$date": "2026-10-21T10:05:10.000Z" } },
   "info": { "version": "1.4.0", "hostname": "scan-eu-1", "os": "linux", "arch": "amd64", "kernel": "6.8.0-48-generic", "dockerVersion": "29.9.2", "cpus": 16, "memoryBytes": 68719476736, "diskFreeBytes": 409600000000, "dindMode": "disabled", "maxWorkers": 8, "egressDenyApplied": true, "clockOffsetMs": -8 },
+  "daemonConfig": null,
+  "daemonOverrides": null,
   "assignmentsRev": 43,
   "lastSeenAt": { "$date": "2026-10-21T10:05:10.000Z" },
   "createdBy": "0b6f6f0e-3c0e-4a6e-9f0e-5d1f8b0a7c11",
@@ -612,6 +617,11 @@ Indexes: `{scanId: 1, role: 1, state: 1}`, `{nodeId: 1, state: 1}`, `{userId: 1,
 
 Indexes: `{name: 1}` unique; `{tokenHash: 1}` unique with `partialFilterExpression: {tokenHash: {$type: "string"}}`;
 `{builtIn: 1}` unique with `partialFilterExpression: {builtIn: true}`; `{state: 1}`.
+
+`createNode` and the built-in node's boot upsert set `daemonConfig` and `daemonOverrides` to null on insert
+(`$setOnInsert`); older documents without them need no migration, because every reader treats an absent field as
+null. Daemon overrides belong to one instance: the representation ([api](api.md) §2 `NodeDaemonConfig`) and the
+assignments use `daemonOverrides` and `daemonConfig` only while their `instanceId` equals `instance.id`.
 
 ### 4.9 `credentials`
 
@@ -711,6 +721,10 @@ Indexes: `{userId: 1, sha256: 1}` unique; `{userId: 1, createdAt: -1}`.
 | `revision.ready` / `revision.failed` | info/error | `{number, errors?}` |
 | `scriptRun.completed` / `scriptRun.failed` | info/error | `{scriptName, durationMs, error?: {type, message}}` (a failed build reports `{type: "build", message}`); a cancelled run writes none |
 | `node.online` / `node.offline` / `node.revoked` / `node.tokenRotated` / `node.instanceConflict` | info/warning | `{instanceId?}` |
+| `node.daemonOverridesChanged` | info | `{by, keys, cleared}`: the admin's user id, the dotted keys the request changed, `cleared: true` for `deleteNodeDaemonOverrides` |
+| `node.daemonOverridesCleared` | info | `{instanceId, keys}`: the hello of the new daemon instance `instanceId` ended the overrides that the previous instance held for `keys` |
+| `node.resolverFailed` | warning | `{state, previousState, mode, error, detail?}`: the node resolver's state entered `failed`, `degraded` or `unreachable` from `previousState` (the previous report's state, null without one) ([nodes](nodes.md) §6.11.5) |
+| `node.resolverReady` | info | `{state, previousState, mode}`: the node resolver is `ready` (`state`) again after the failing state `previousState` it last entered (`resolverFailedState`), also when other states, absent reports or a new daemon instance came in between |
 | `security.ingestRejected` | warning | `{reason, routingKey, userIdProperty}` |
 
 ```json
@@ -1401,6 +1415,8 @@ All limits are enforced at the earliest point listed. Values come from the named
 | conditions per scan | 16 | reconciler |
 | event message / data | 1 KiB / 8 KiB | event writer |
 | node labels | 32 | API |
+| daemon-reported sub-reports (`daemonConfig`, `info.resolver`) | 64 KiB of JSON each (the daemon caps its configuration report below it, [nodes](nodes.md) §6.12.1); larger or invalid ones are stored as null, never a refused heartbeat | node API ([api](api.md) §7.3) |
+| daemon overrides | the keys and bounds of `schemas/daemon-overrides.json`; at most 16 upstream servers, 16 root servers, 64 local domains | API (`updateNodeDaemonOverrides`), node daemon |
 | script runs | scans per run 1–20; config `SCANTOR_MAX_SCAN_CONFIG_BYTES`; secrets ≤ 32 of ≤ 8 KiB; `timeoutMs` ≤ `SCANTOR_SCRIPT_RUN_TIMEOUT`, CPUs ≤ `SCANTOR_SCRIPT_RUN_MAX_CPUS`, memory ≤ `SCANTOR_SCRIPT_RUN_MAX_MEMORY` | API, again after the build (manifest defaults) |
 | concurrent script runs | `SCANTOR_SCRIPT_RUN_CONCURRENCY` per orchestrator process, `SCANTOR_SCRIPT_RUN_CONCURRENCY_PER_USER` per user | jobs runner |
 | script-run log | `SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES` (head 1 MiB + tail); lines ≤ 16 KiB; ingestion ≤ 1 MiB/s and 2000 lines/s per 10 s window | log writer |
@@ -1498,6 +1514,12 @@ written. Item 14 records a round-1 ruling.
     replacing one is delete-then-insert. Retention is a TTL index plus the `bundles/` lifecycle rule with the
     same days, like exports; `expiresAt` restarts when the bundle becomes ready, so a slow build does not shorten
     its life.
+17. **The daemon configuration and the daemon overrides live on the node document** (`nodes.daemonConfig`,
+    `nodes.daemonOverrides`), each stamped with the daemon instance it belongs to, instead of a collection of their
+    own: there is one of each per node, both are small and bounded (a report above 64 KiB is stored as null), and the
+    instance id makes a restart a reset without a cleanup job. `sources` and `rejected` mirror the structure of
+    `values`, because maps with dotted keys (`"dns.mode"`) are fragile in MongoDB: a later dot-path update creates a
+    sibling path, and dot-path queries miss them.
 
 ## 12. Future extensions
 

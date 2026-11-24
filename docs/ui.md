@@ -122,7 +122,7 @@ Pages call their composables directly; there is no event relaying through layout
 | Tasks | `TaskTable`, `TaskHeader`, `TaskWorkspaceCard`, `TaskFilesBrowser`, `RevisionTable`, `RevisionFacts`, `BuildLog`, `BuildErrors`, `DescribeView`, `PublishModal`, `BundleModal`, `TestRunPanel`, `TestRunAnalysisSlideover`, `WizardSourceStep`, `WizardLanguageStep`, `WizardTemplateStep`, `WizardNameStep`, `WizardGitStep`, `WizardUploadStep` |
 | Scans | `ScanTable`, `ScanHeader`, `ScanControls`, `ScanProgress`, `ScanStats`, `ScanHealth`, `ConditionItem`, `ScanSettingsCard`, `ScanResultsTable`, `ResultsFilterBar`, `AnalysisSlideover`, `AttemptsTable`, `FileChip`, `QueryConsole`, `ExportsPanel`, `ExportModal`, `ScaleModal`, `RestartModal`, `WorkersTable`, `InflightTable`, `WorkerLogsModal`, `EventTimeline`, `NewScanForm`, `RevisionPicker`, `SettingsFields`, `EstimateBadge` |
 | Scripts | `ScriptTable`, `ScriptRunsTable`, `ScriptRunForm`, `ScriptScanPicker`, `ScriptSecretsField`, `ScriptRunRestartModal`, `RunScriptModal`, `FilesBrowser` (shared with `TaskFilesBrowser`) |
-| Admin | `NodeTable`, `NodeFormModal`, `NodeJoinModal`, `UserTable`, `UserFormModal`, `BanUserModal`, `ToolCard`, `JobsTable` |
+| Admin | `NodeTable`, `NodeFormModal`, `NodeJoinModal`, `NodeResolverCard`, `NodeDaemonConfigTable`, `NodeDaemonOverridesModal`, `UserTable`, `UserFormModal`, `BanUserModal`, `ToolCard`, `JobsTable` |
 | Account | `ProfileSection`, `PasswordSection`, `PasskeysSection`, `SessionsSection`, `EditorSection`, `ApiKeysSection`, `McpAccessSection`, `OAuthAppsSection`, `CredentialsTable`, `CredentialFormModal` |
 | Catalog | `TemplateCard` |
 
@@ -220,7 +220,7 @@ again); **tunnel** `false` = not offered through the tunnel (the server refuses 
 | `/account/access` | `pages/account/access.vue` | | `listApiKeys`, `createApiKey`, `deleteApiKey`, `listOAuthApps`, `revokeOAuthApp`, `getInstanceInfo` |
 | `/account/credentials` | `pages/account/credentials.vue` | | `listCredentials`, `createCredential`, `updateCredential`, `deleteCredential` |
 | `/admin/nodes` | `pages/admin/nodes/index.vue` | admin | `listNodes`, `createNode`, `updateNode`, `deleteNode`, `rotateNodeToken`, `revokeNodeToken`, `getNodeJoin` |
-| `/admin/nodes/:nodeId` | `pages/admin/nodes/[nodeId].vue` | admin | `getNode`, `listNodeWorkers`, `listNodeEvents` |
+| `/admin/nodes/:nodeId` | `pages/admin/nodes/[nodeId].vue` | admin | `getNode`, `listNodeWorkers`, `listNodeEvents`, `updateNodeDaemonOverrides`, `deleteNodeDaemonOverrides` |
 | `/admin/users` | `pages/admin/users.vue` | admin | `listUsers`, `createUser`, `updateUser`, `setUserPassword`, `banUser`, `unbanUser`, `deleteUser`, `getJob` |
 | `/admin/tools` | `pages/admin/tools.vue` | admin | `getInstanceInfo` (`adminTools`), `createToolsSession` (navigation), `listJobs`, `getHealth` |
 
@@ -315,7 +315,7 @@ Layout and behaviour follow [mcp](mcp.md) §3.3:
 | Needs attention | scans with `conditionsCount > 0` or `state=failed` in the last list page, with the top condition | same list + `listScans?state=failed&limit=10` |
 | Recent scans | last 10 scans (`ScanTable` compact) | `listScans?limit=10` |
 | Recent tasks | last 5 tasks: name, language, latest revision badge, "Unpublished changes" badge | `listTasks?limit=5` |
-| Platform health (admins) | component dots for mongo, rabbitmq, s3, registry; RabbitMQ alarms; nodes online/offline/total, free capacity (the sum of `max(0, capacity − activeWorkers)` over online, uncordoned nodes, with capacity = `info.maxWorkers`, capped by the node's `maxWorkers` when set) | `getHealth`, `listNodes` |
+| Platform health (admins) | component dots for mongo, rabbitmq, s3, registry; RabbitMQ alarms; nodes online/offline/total, free capacity (the sum of `max(0, capacity − activeWorkers)` over online, uncordoned nodes, with capacity = `info.maxWorkers`, capped by the node's admin worker limit `maxWorkers` when set) | `getHealth`, `listNodes` |
 | Quick actions | New task, New scan, CLI & MCP access | – |
 
 Empty first-run state: "No tasks yet" with "Create your first task" (→ `/tasks/new`).
@@ -681,23 +681,71 @@ A note links to the authoring guides ([templates](templates.md) is the internal 
   hyphens." under the filter instead of a request): name (mono) + "built-in" pill, state badge, cordoned
   badge, pool, labels (chips), arch, CPUs, memory, free disk, workers `activeWorkers / capacity`, DinD
   mode, version, last seen (relative), warnings: egress deny not applied (`info.egressDenyApplied ===
-  false`), "Network not isolated" (`info.networkIsolated === false`, [nodes](nodes.md) §6.8), clock offset > 2 s.
-- Navbar "Add node" → `NodeFormModal` (name slug, pool default `shared`, labels `KeyValueEditor` ≤ 32,
-  `maxWorkers` optional) → `createNode` → `SecretRevealModal` showing the token **once** with copy, the
-  `docker run` command and the compose snippet from `join` (each in a `CodeBlock` with copy), and the
-  warning "This token is shown only now. A node sees everything about the scans placed on it; add only
-  machines you trust like the master." The snippets always name the public URL; through the tunnel the
-  checklist of `NodeJoinModal` adds "Nodes connect to <publicUrl>, never through the tunnel URL."
+  false`), "Network not isolated" (`info.networkIsolated === false`, [nodes](nodes.md) §6.8), clock offset > 2 s,
+  node resolver `failed`, `degraded` or `unreachable` ("Node resolver <state>: <the readable text of its error
+  code>", from `info.resolver`, [nodes](nodes.md) §6.11.5). The capacity tooltip names the admin worker limit when
+  one is set.
+- Navbar "Add node" → `NodeFormModal` (name slug, pool default `shared`, labels `KeyValueEditor` ≤ 32, the optional
+  admin worker limit "Admin worker limit", whose help says "Persistent cap: the node's capacity is the smaller of this
+  and the daemon's max workers. Empty = no limit.") → `createNode` → `SecretRevealModal` showing the token **once**
+  with copy, the `docker run` command and the compose snippet from `join` (each in a `CodeBlock` with copy), and the
+  warning "This token is shown only now. A node sees everything about the scans placed on it; add only machines you
+  trust like the master." The snippets always name the public URL; through the tunnel the checklist of `NodeJoinModal`
+  adds "Nodes connect to <publicUrl>, never through the tunnel URL."
 - Row actions (aria "Node actions"): Edit (`NodeFormModal` + cordon switch → `updateNode`), Show join
   command (`getNodeJoin`, token placeholder `${SCANTOR_NODE_TOKEN}`), Rotate token (`ConfirmModal` →
   `rotateNodeToken` → `SecretRevealModal`), Revoke token (`ConfirmModal`, "Its workers are rescheduled" →
   `revokeNodeToken`), Delete (`ConfirmModal` → `deleteNode`). Rotate, revoke and delete are disabled for
   the built-in node; its menu explains why in a label above them ("The built-in node's token is derived from
   SCANTOR_SECRET"). The actions button's tooltip is its name, "Node actions for <name>" (§11 rule 1).
-- Node detail: info `dl` (all `info` fields, `networkIsolated` as "Worker network" or, on the built-in node,
-  "Test-run network": isolated, not isolated or – for daemons that do not report it; instance version and
-  start, lease), workers on the node
-  (`listNodeWorkers`: scan link, role, state, processes, restarts), node events (`listNodeEvents`).
+- Node detail: info `dl` (all `info` fields, `networkIsolated` as "Worker network" or, on the built-in node, "Test-run
+  network": isolated, not isolated or – for daemons that do not report it; "Admin worker limit" is the admin worker
+  limit ("none" when unset), "Reported max workers" `info.maxWorkers`; instance version and start, lease), workers on
+  the node (`listNodeWorkers`: scan link, role, state, processes, restarts), node events (`listNodeEvents`).
+- Node detail, "Node resolver" card (`NodeResolverCard`, from `info.resolver`, [nodes](nodes.md) §6.11.5): a region
+  (`section` named by its `h2` "Node resolver", test id `node-resolver`) with the state badge (status kind
+  `resolver`, §10), mode ("· kept for existing workers" while a disabled resolver still serves workers), address
+  (the gateway, – without one), the readable text of the error code with its `detail` in parentheses, "Upstream
+  check" ("servers answer" or "no server answers") and "IPv6" ("used" or "not used"), both "unknown" (muted) while
+  the report cannot know them (`stats` null, state `starting`, or `disabled` without a kept resolver), "State
+  since" (`since`), the spec hash (12 hex digits, the whole hash as its title), and the stats rows Queries, Cache
+  hits (a percentage, the counts in its title), Lookups, Failures, In flight, Queries per second and Conntrack usage
+  (highlighted from 80 %, "unknown" without a value); "Not reported by the node's daemon." without a report.
+- Node detail, "Daemon configuration" section (from `getNode`'s `daemonConfig`, [nodes](nodes.md) §6.12): the note
+  "Overrides last until the daemon restarts. The admin worker limit is separate and persistent.", then "Reported
+  <relative time>" and, when overrides exist, "· overrides changed <relative `overriddenAt`> by <`IdChip` of
+  `overriddenBy`>" (test id `daemon-overrides-by`, copy label "Copy id of admin <id>"); an info alert "Overrides
+  pending" with both revisions while `pending` is true; an error alert "The daemon rejected overrides" listing each
+  `rejected` reason with its setting's label; a warning alert "Configuration warnings" with the daemon's
+  `warnings`; and `NodeDaemonConfigTable`, a table Setting | Value | Source with every value (`dns.*` included; the
+  environment variable name in mono under the setting; byte sizes and durations formatted; a pending or rejected
+  override noted under the value; the source as a badge, status kind `daemonConfigSource`, §10). Without a
+  configuration it says "The node has not reported a valid daemon configuration (an old daemon or an invalid
+  report)."
+- "Edit overrides" opens `NodeDaemonOverridesModal` ("Daemon overrides of <name>"): the groups Workers, Daemon and
+  Node resolver, each with a short description, and one field for every overridable key with its environment variable
+  as the hint. A key outside the daemon's `overrides` allow-list stays visible but disabled, with the help "Not
+  allowed on this node (SCANTOR_NODE_OVERRIDES)." Each field is prefilled with its override, or else its reported
+  value (a max workers value of 0 starts at the reported max workers). Counts use `NumberInput` with the override
+  bounds, the resolver mode and the log level are `USelect`s, byte sizes and durations are text in the variable's
+  syntax, and the server and domain lists take one entry per line; the upstream and root server help says that private
+  and special-purpose servers can only be set in `SCANTOR_NODE_DNS_UPSTREAMS` and `SCANTOR_NODE_DNS_ROOT_SERVERS`. An
+  emptied root server or local domain list is sent as `[]`, which is an override (the IANA root servers; no local
+  domains), not a removal; an emptied upstream list and an emptied or unparsable count, byte size or duration are
+  field errors, and so is every entry the request schema refuses ("<entry>: <message>", [api](api.md) §4.17). An
+  overridden key shows an icon button "Remove override of <setting>" (then "Keep override of <setting>"), which
+  disables the field and sends the key as `null`. Only keys whose parsed value changed are sent →
+  `updateNodeDaemonOverrides`, with a toast "Daemon overrides of <name> saved" and the API's errors inline
+  (`notReported`: "The node has not reported a valid daemon configuration (an old daemon or an invalid report). A
+  daemon that is still connecting reports it shortly."; `notAllowed` names the settings).
+- "Reset overrides" (`ConfirmModal` "Reset the daemon overrides of <name>") → `deleteNodeDaemonOverrides`, with a
+  toast "Daemon overrides of <name> reset". Both buttons are disabled with a tooltip that names the reason: the
+  token is revoked ("The node's token is revoked"), no daemon instance holds the lease ("No daemon instance holds
+  the lease of this node"); "Edit overrides" also without a daemon configuration ("The node has not reported a
+  valid daemon configuration (an old daemon or an invalid report)") or when the daemon allows no key ("The node's
+  daemon accepts no overrides (SCANTOR_NODE_OVERRIDES)"), "Reset overrides" when a reported configuration has no
+  overrides ("No daemon overrides are set"). Reset stays enabled without a daemon configuration, because the
+  idempotent DELETE needs none and removes overrides an invalid report hides.
 
 ### 5.16 Users (`/admin/users`)
 
@@ -1028,7 +1076,7 @@ per consumer; stops on unmount.
 | Script run (`getScriptRun`) | 2 s | while `queued`/`building`/`running`, then stop |
 | Script run log (`getScriptRunLogs`) | 2 s | until the page is `complete` |
 | Editor (`getEditor`) | 2 s while `starting`/`stopping`, otherwise 30 s | editor page |
-| Nodes list, node detail | 10 s | page visible |
+| Nodes list (`listNodes` without `include`), node detail (`getNode` with the daemon configuration and the node resolver report) | 10 s | page visible |
 | Sidebar counts | 15 s | always (signed in) |
 
 ## 10. Theme and look
@@ -1058,6 +1106,8 @@ per consumer; stops on unmount.
 | script run | `queued` neutral · `building` info · `running` info · `completed` success · `failed` error · `cancelled` neutral |
 | worker | `pending` warning · `assigned`/`pulling`/`starting` info · `running` success · `backoff` error · `draining` warning · `stopped` neutral · `lost` error |
 | node | `pending` neutral · `online` success · `offline` error · `revoked` neutral; cordoned → extra warning badge |
+| resolver | `starting` info · `ready` success · `degraded` warning · `unreachable` warning · `failed` error · `disabled` neutral |
+| daemonConfigSource | `env` info · `default` neutral · `override` warning |
 | export / job | `queued` neutral · `running` info · `ready`/`succeeded` success · `failed` error · `cancelled` neutral |
 | bundle | `queued` neutral · `running` info · `ready` success · `failed` error (as exports) |
 | editor | `starting` info · `running` success · `stopping` warning · `stopped` neutral |
@@ -1084,7 +1134,8 @@ of the contract:
    "Delete task", "Start test run", "Cancel test run", "Pause scan", "Resume scan", "Scale scan", "Cancel
    scan", "Retry failed analyses", "Restart scan", "Delete scan", "Export results", "Scan actions", "Run
    query", "Show worker logs", "Follow log", "Edit as JSON", "Show value", "Add item", "Copy to clipboard",
-   "Add node", "Node actions", "Rotate token", "Revoke token", "Create key", "Stop editor", "Approve",
+   "Add node", "Node actions", "Rotate token", "Revoke token", "Edit overrides", "Reset overrides", "Create
+   key", "Stop editor", "Approve",
    "Deny", "Run script", "Download script", "Delete script", "Cancel script run", "Run again", "Resume",
    "Download source", "Try on 100 analyses", "Run on all", "Add secret", "Back to the script", "Back to the scripts",
    "Bundle", "Create bundle", "Download bundle", "Try again"; radio labels on the consent page: "Read only", "Read and write", "Admin". Where the same

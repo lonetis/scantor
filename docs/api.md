@@ -219,6 +219,7 @@ its refused prefixes answer `notFound`.
 | `staleEpoch` | 409 | scheduler fenced by a newer epoch; `details.currentEpoch` |
 | `nodeInstanceConflict` | 409 | another daemon instance holds the node lease |
 | `builtInNode` | 409 | not allowed on the built-in node |
+| `daemonOverridesUnavailable` | 409 | the node's daemon overrides cannot be set now; `details.reason`: `noInstance` (no daemon instance holds the node, or it is revoked), `notReported` (no valid daemon configuration of the instance: an older daemon, a report stored as null because it was invalid, or none yet), `notAllowed` (`details.keys` are outside the node's `SCANTOR_NODE_OVERRIDES`) ([nodes](nodes.md) §6.12) |
 | `setupCompleted` | 409 | a user already exists |
 | `lastCredential` | 409 | removing the last password/passkey |
 | `payloadTooLarge` | 413 | body cap exceeded, or a workspace helper cap (files, bytes, workspace size); `details: {limit, actual?}` |
@@ -310,7 +311,8 @@ additions and omissions are listed for brevity; the JSON examples are normative 
 | `ScanSummary` | `scans` | `{id, userId, name, task, revision {id, number, ref}, state, stateReason, settings.workers, settings.processes, progress, stats, conditionsCount, createdAt, completedAt}` (`userId` lets admin lists show the owner) |
 | `Analysis` | `analyses` | `id` = `_id`; `files[].key` omitted; secrets masked |
 | `Worker` | `workers` | − `spec.specHash`; + `node {id, name}`, + `scan {id, name}` |
-| `Node` | `nodes` | − `tokenHash`, `instance.id`; + `activeWorkers` |
+| `Node` | `nodes` | − `tokenHash`, `instance.id`, `daemonOverrides`; `daemonConfig` → `NodeDaemonConfig` (only from `getNode`, the daemon overrides routes and `listNodes` with `include=daemonConfig`; absent otherwise, also from `createNode`, `updateNode`, `rotateNodeToken` and `revokeNodeToken`; null when no daemon of the current instance reported a valid one); + `activeWorkers`. `info.resolver` (the node resolver's report, [nodes](nodes.md) §6.11.5) is always included; it is absent until a daemon that runs a node resolver reported it. `maxWorkers` is the admin worker limit; `info.maxWorkers` is the daemon's value, a daemon override included |
+| `NodeDaemonConfig` | `nodes.daemonConfig` + `nodes.daemonOverrides` of the current instance | `{values, sources, warnings, overrides, overridesRev, appliedOverridesRev, pending, rejected, overriddenBy, overriddenAt, reportedAt}`: the daemon's report ([nodes](nodes.md) §6.12.1; `sources` and `rejected` mirror the structure of `values`), `overrides` = the override values (`{}` when none; `dns` nested), `overridesRev` = their `rev` (0 when none), `pending` = `appliedOverridesRev < overridesRev`, `overriddenBy`/`overriddenAt` = `updatedBy`/`updatedAt` of the overrides (null when none). Secrets are never part of it |
 | `Export` | `exports` | − `key`; + `download {url, expiresAt}` when `ready` |
 | `Bundle` | `bundles` | − `userId`, `taskId`, `taskName`, `key`, `fileName`, `jobId`, `updatedAt`; `revisionId`, `revisionNumber` → `revision {id, number, ref}`; + `download {url, expiresAt, fileName}` when `ready` (presigned anew on every representation), + `commands {load, run, describe}` |
 | `Upload`, `Credential`, `Event`, `Job`, `Condition` | same names | internal fields omitted |
@@ -1043,13 +1045,15 @@ All operations: scope admin, `x-admin-only: true`.
 
 | Operation | operationId | MCP | Request | Response |
 |---|---|---|---|---|
-| `GET /api/nodes` | `listNodes` | **yes** | `?state, pool` | `{items: Node[]}` |
-| `POST /api/nodes` | `createNode` | no | `{name, pool? ("shared"), labels?, maxWorkers?}` | 201 `{node: Node, token: "snt_…", join: NodeJoin}`; 409 `alreadyExists`; 400 `validationFailed` for the name `builtin` (reserved for the built-in node) |
-| `GET /api/nodes/{nodeId}` | `getNode` | no | – | `Node` |
-| `PATCH /api/nodes/{nodeId}` | `updateNode` | no | `{name?, pool?, labels?, maxWorkers?: int\|null, cordoned?}` | `Node`; 409 `alreadyExists` (name taken); 409 `builtInNode` when renaming the built-in node; 400 `validationFailed` for the reserved name `builtin` |
+| `GET /api/nodes` | `listNodes` | **yes** | `?state, pool, include` (`include=daemonConfig` adds `daemonConfig` to every item) | `{items: Node[]}` |
+| `POST /api/nodes` | `createNode` | no | `{name, pool? ("shared"), labels?, maxWorkers?}` (`maxWorkers`: the admin worker limit) | 201 `{node: Node, token: "snt_…", join: NodeJoin}`; 409 `alreadyExists`; 400 `validationFailed` for the name `builtin` (reserved for the built-in node) |
+| `GET /api/nodes/{nodeId}` | `getNode` | no | – | `Node` with `daemonConfig` |
+| `PATCH /api/nodes/{nodeId}` | `updateNode` | no | `{name?, pool?, labels?, maxWorkers?: int\|null, cordoned?}` (`maxWorkers`: the persistent admin worker limit; null removes it) | `Node` (without `daemonConfig`); 409 `alreadyExists` (name taken); 409 `builtInNode` when renaming the built-in node; 400 `validationFailed` for the reserved name `builtin` |
+| `PATCH /api/nodes/{nodeId}/daemon-overrides` | `updateNodeDaemonOverrides` | **yes** | a JSON merge patch of the daemon overrides (below) | `Node` with `daemonConfig`; 409 `daemonOverridesUnavailable`; 409 `invalidState` (other writes changed the overrides 3 times in a row; `details.state`; try again); 400 `validationFailed` |
+| `DELETE /api/nodes/{nodeId}/daemon-overrides` | `deleteNodeDaemonOverrides` | no | – | `Node` with `daemonConfig` (idempotent: removes every override of the current instance; needs no daemon configuration); 409 `invalidState` (changed concurrently 3 times in a row) |
 | `DELETE /api/nodes/{nodeId}` | `deleteNode` | no | – | 204 (workers become `lost`); 409 `builtInNode` |
 | `POST /api/nodes/{nodeId}/token` | `rotateNodeToken` (`x-destructive`) | no | – | `{node, token, join}`; 409 `builtInNode` |
-| `DELETE /api/nodes/{nodeId}/token` | `revokeNodeToken` | no | – | `Node` (`revoked`); 409 `builtInNode` |
+| `DELETE /api/nodes/{nodeId}/token` | `revokeNodeToken` | no | – | `Node` (`revoked`, without `daemonConfig`); 409 `builtInNode` |
 | `GET /api/nodes/{nodeId}/join` | `getNodeJoin` | no | – | `NodeJoin` with the token replaced by `${SCANTOR_NODE_TOKEN}` |
 | `GET /api/nodes/{nodeId}/workers` | `listNodeWorkers` | no | `?state (list), cursor, limit` | `Page<Worker>` (with `scan {id, name}`) of workers whose `nodeId` is this node; index `{nodeId: 1, state: 1}` |
 | `GET /api/nodes/{nodeId}/events` | `listNodeEvents` | no | `?type, cursor, limit` | `Page<Event>` with this `nodeId`, newest first; index `{nodeId: 1, at: -1}` |
@@ -1059,6 +1063,36 @@ All operations: scope admin, `x-admin-only: true`.
 /var/run/docker.sock:/var/run/docker.sock -e SCANTOR_URL=<SCANTOR_PUBLIC_URL> -e SCANTOR_NODE_TOKEN=<token>
 <SCANTOR_IMAGE_PREFIX>scantor:<image tag> node` (one line; image tag rule as for `cliImage`, §4.1; exact
 strings in [nodes](nodes.md) §4).
+
+**Daemon overrides** ([nodes](nodes.md) §6.12). `updateNodeDaemonOverrides` takes `{maxWorkers?, pidsLimit?,
+shmSizeBytes?, nofile?, workerLogMaxSizeBytes?, workerLogMaxFiles?, imageRetentionMs?, pullTimeoutMs?, logLevel?,
+dns?: {mode?, upstreams?, rootServers?, localDomains?, cacheSizeBytes?, maxLookups?, upstreamQps?,
+authoritativeQps?} | null}`, a JSON merge patch (RFC 7396): every member is nullable, and `null` removes that
+override (`dns: null` every `dns.*` override); unknown members are rejected, and at least one member is required.
+The bounds are those of `schemas/daemon-overrides.json` (for example `maxWorkers` 1–100000, `logLevel`
+`debug`/`info`/`warn`/`error`, `dns.mode` `recursive`/`iterative`/`disabled`), and local domains are domain names.
+Upstream entries are an IPv4 address in dotted form (no leading zeros) or `ip:port`, an IPv6 address (at most one
+`::`, a dotted IPv4 tail allowed; without brackets it has no port) or `[v6]:port`, or `host`; root servers the same
+without `host`. Ports are 1–65535 without leading zeros, and entries are trimmed. Each refused entry is a 400 issue
+at `dns.upstreams.<i>` or `dns.rootServers.<i>`: `must be an IP address, ip:port or [v6]:port` (upstreams: `…,
+[v6]:port or host`) when malformed, `zoned addresses are not supported` for a `%` zone, `must be a unicast address
+(not unspecified or multicast)` for `0.0.0.0`, `::`, `::ffff:0.0.0.0`, `224.0.0.0/4` or `ff00::/8`, `IPv6 link-local
+addresses are not supported` for `fe80::/10`, and `private and special-purpose servers can only be configured in the
+node environment (SCANTOR_NODE_DNS_*)` for an address in the node resolver's always-refused ranges (checked after
+unmapping an IPv4-mapped address: `0.0.0.0/8`, `10/8`, `100.64/10`, `127/8`, `169.254/16`, `172.16/12`,
+`192.0.0.0/24`, `192.168/16`, `198.18/15`, `224/4`, `240/4`, `::/128`, `::1/128`, `fc00::/7`, `fe80::/10`,
+`ff00::/8`, `64:ff9b::/96`, `64:ff9b:1::/48`; [nodes](nodes.md) §6.12.2). The daemon also refuses a server inside
+its `SCANTOR_NODE_EGRESS_DENY` and reports it in `daemonConfig.rejected`. The merged result is validated again.
+The route needs a daemon instance of the node that reported a valid daemon configuration, and keys inside that
+daemon's `overrides` allow-list (409 `daemonOverridesUnavailable`, §1.7, with `details.reason`). It writes the
+overrides for the current instance with `rev + 1`, conditional on the overrides as read; after 3 lost races it
+answers 409 `invalidState` (`details.state`). Then it wakes the node's assignments long-poll and records the event
+`node.daemonOverridesChanged` (`{by, keys, cleared: false}`). The daemon applies
+them with its next assignments response and reports the result: `daemonConfig.pending` is true until then, and
+keys the daemon refused appear in `daemonConfig.rejected`. `deleteNodeDaemonOverrides` removes every override of
+the current instance (the event has `cleared: true` when there were any) with the same conditional write; it needs
+no daemon configuration. A daemon restart (a hello with a new instance) clears the overrides as well (event
+`node.daemonOverridesCleared`).
 
 ### 4.18 `metrics`, `editor`, `tools`
 
@@ -1287,9 +1321,9 @@ the public or the internal URL, never the tunnel URL ([auth](auth.md) §4.5).
 
 | Operation | operationId | Purpose |
 |---|---|---|
-| `POST /api/node/hello` | `nodeHello` | register the instance, report info, receive node identity and intervals |
-| `GET /api/node/assignments` | `getNodeAssignments` | long-poll the desired worker set |
-| `POST /api/node/status` | `postNodeStatus` | heartbeat + actual container state every 10 s |
+| `POST /api/node/hello` | `nodeHello` | register the instance, report info and the daemon configuration, receive node identity, intervals and endpoint hosts |
+| `GET /api/node/assignments` | `getNodeAssignments` | long-poll the desired worker set and the daemon overrides |
+| `POST /api/node/status` | `postNodeStatus` | heartbeat + actual container state, node resolver state and daemon configuration every 10 s |
 | `POST /api/node/workers/{workerId}/logs` | `postWorkerLogs` | answer an on-demand log request |
 
 ### 7.1 `POST /api/node/hello`
@@ -1319,16 +1353,51 @@ Content-Type: application/json
     "dindMode": "disabled",
     "maxWorkers": 8,
     "egressDenyApplied": true,
-    "networkIsolated": true
+    "networkIsolated": true,
+    "resolver": {
+      "mode": "recursive", "state": "ready", "address": "10.10.0.1", "kept": false, "error": null,
+      "since": "2026-10-21T09:58:12.000Z", "spec": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "ipv6": false, "upstreamOk": true,
+      "stats": { "queries": 120345, "cacheHits": 98000, "lookups": 20100, "failures": 340, "inflight": 12, "qps": 850.5, "conntrackUsed": 0.05 }
+    }
   },
   "containers": [
     { "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "containerId": "f1e2d3c4b5a6", "state": "running", "specHash": "sha256:5d41…" }
-  ]
+  ],
+  "daemonConfig": {
+    "appliedOverridesRev": 0,
+    "values": {
+      "url": "https://scantor.example.com", "builtIn": false, "maxWorkers": 8, "dind": "disabled",
+      "egressDeny": ["169.254.0.0/16", "fd00:ec2::254/128", "100.100.100.200/32", "198.51.100.0/24"],
+      "allowUnisolatedNetworks": false, "allowInsecureTransport": false, "caCertificates": [],
+      "pidsLimit": 4096, "shmSizeBytes": 268435456, "nofile": 65536, "workerLogMaxSizeBytes": 20971520, "workerLogMaxFiles": 3,
+      "imageRetentionMs": 86400000, "pullTimeoutMs": 1800000, "logLevel": "info", "logFormat": "json", "overrides": "all",
+      "dns": {
+        "mode": "recursive",
+        "upstreams": ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "2606:4700:4700::1111", "2606:4700:4700::1001", "2001:4860:4860::8888", "2001:4860:4860::8844"],
+        "rootServers": [], "localDomains": [], "cacheSizeBytes": 268435456, "maxLookups": 1000, "upstreamQps": 0, "authoritativeQps": 200
+      }
+    },
+    "sources": {
+      "url": "env", "builtIn": "default", "maxWorkers": "env", "dind": "default", "egressDeny": "env",
+      "allowUnisolatedNetworks": "default", "allowInsecureTransport": "default", "caCertificates": "default",
+      "pidsLimit": "env", "shmSizeBytes": "env", "nofile": "env", "workerLogMaxSizeBytes": "env", "workerLogMaxFiles": "env",
+      "imageRetentionMs": "env", "pullTimeoutMs": "env", "logLevel": "env", "logFormat": "env", "overrides": "default",
+      "dns": {
+        "mode": "default", "upstreams": "default", "rootServers": "default", "localDomains": "default",
+        "cacheSizeBytes": "default", "maxLookups": "default", "upstreamQps": "default", "authoritativeQps": "default"
+      }
+    },
+    "warnings": [],
+    "rejected": {}
+  }
 }
 ```
 
 `instanceId` = Docker engine ID + ":" + a random nonce generated at daemon start. `containers` lists the
-managed containers found at start (for adoption).
+managed containers found at start (for adoption). Two optional reports follow the rules of §7.3:
+`info.resolver`, the node resolver report the daemon process already holds (absent at its first hello, because
+the node id is not known yet), and `daemonConfig`, the daemon configuration ([nodes](nodes.md) §6.12.1).
 
 ```json
 {
@@ -1347,19 +1416,29 @@ managed containers found at start (for adoption).
     "offlineAfterMs": 60000,
     "drainGraceMs": 30000,
     "registry": { "host": "registry.example.com", "username": "node" },
-    "minFreeDiskBytes": 10737418240
+    "minFreeDiskBytes": 10737418240,
+    "endpointHosts": ["amqp.scantor.example.com", "fixtures.scantor.example.com", "s3.scantor.example.com", "scantor.example.com"]
   }
 }
 ```
 
 `config.minFreeDiskBytes` comes from `SCANTOR_NODE_MIN_FREE_DISK`: placement excludes nodes below it
 (`diskLow`) and the daemon runs an emergency image GC when its free disk drops below it
-([nodes](nodes.md) §8).
+([nodes](nodes.md) §8). `config.endpointHosts` lists the sorted, unique host names (no IP literals) of every URL
+the orchestrator hands to the node's workers for its endpoint profile: the worker `SCANTOR_URL`, the AMQP URL, the
+S3 URL and the template data sources `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL` and `SCANTOR_CRUX_CACHE_URL`
+([architecture](architecture.md) §8). The node resolver resolves them through the host nameservers
+([nodes](nodes.md) §6.11.6); a daemon of the previous minor version ignores the field.
 
 Errors: 401 `unauthorized` (unknown or revoked token), 409 `nodeInstanceConflict` (a live lease of a
 **different** Docker engine; `details.retryAfterMs`; a hello whose `instanceId` has the same engine ID as
 the lease holder takes the lease over at once, [nodes](nodes.md) §5.2), 426 `incompatibleVersion`. Effects: node `online`, `instance` and `info`
-stored, `lastSeenAt` updated, event `node.online`.
+stored (`info` replaced, so a hello without `info.resolver` leaves none), `lastSeenAt` updated, event `node.online`.
+A hello whose `instanceId` differs from the stored instance clears the node's daemon overrides (event
+`node.daemonOverridesCleared` with the new `instanceId` and the ended `keys`, when they held values); a hello of the
+same instance keeps them. Every hello stores its `daemonConfig` report for its instance, or null without one or when
+it is invalid. Its resolver report records the events `node.resolverFailed` and `node.resolverReady` as a status
+does (§7.3).
 
 ### 7.2 `GET /api/node/assignments`
 
@@ -1401,7 +1480,8 @@ desired set; any managed container not listed must be stopped (grace `drainGrace
   ],
   "logRequests": [
     { "requestId": "61c0e9a2-3b4d-4e5f-8a6b-7c8d9e0f1a2b", "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d", "tailBytes": 65536 }
-  ]
+  ],
+  "daemonOverrides": { "rev": 3, "values": { "maxWorkers": 16, "dns": { "mode": "iterative", "upstreams": ["198.51.100.53"] } } }
 }
 ```
 
@@ -1417,7 +1497,14 @@ desired set; any managed container not listed must be stopped (grace `drainGrace
   passthrough, and `SCANTOR_DIND=1` in workers whose `dindMode` is not null (privileged revisions on
   `sysbox`/`privileged` nodes), so the runtime starts the inner `dockerd` ([nodes](nodes.md) §6.9,
   [runtime](runtime.md) §4.4). The assignment `env` never contains it: it holds only `SCANTOR_URL` and
-  `SCANTOR_WORKER_TOKEN` ([nodes](nodes.md) §6.10).
+  `SCANTOR_WORKER_TOKEN` ([nodes](nodes.md) §6.10). It also adds `HostConfig.Dns` (the worker network's gateway)
+  while its node resolver is `ready` ([nodes](nodes.md) §6.11.5).
+- `daemonOverrides` is `{rev, values}`: the complete daemon overrides of the instance that polls, `values` with the
+  overridable keys and `dns` nested ([nodes](nodes.md) §6.12.2), or `{rev: 0, values: {}}` when there are none or
+  they belong to another instance. A change of the overrides increases `nodes.assignmentsRev`, so a waiting
+  long-poll returns at once. The daemon applies them before the desired set, without comparing revisions, and
+  reports the applied `rev` as `daemonConfig.appliedOverridesRev` (§7.3). A daemon of the previous minor version
+  ignores the field.
 
 ### 7.3 `POST /api/node/status`
 
@@ -1432,9 +1519,15 @@ desired set; any managed container not listed must be stopped (grace `drainGrace
     "memoryBytes": 68719476736,
     "diskFreeBytes": 409600000000,
     "dindMode": "disabled",
-    "maxWorkers": 8,
+    "maxWorkers": 16,
     "egressDenyApplied": true,
-    "networkIsolated": true
+    "networkIsolated": true,
+    "resolver": {
+      "mode": "iterative", "state": "ready", "address": "10.10.0.1", "kept": false, "error": null,
+      "since": "2026-10-21T10:00:05.000Z", "spec": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+      "ipv6": false, "upstreamOk": true,
+      "stats": { "queries": 120345, "cacheHits": 98000, "lookups": 20100, "failures": 340, "inflight": 12, "qps": 850.5, "conntrackUsed": 0.05 }
+    }
   },
   "workers": [
     {
@@ -1467,7 +1560,34 @@ desired set; any managed container not listed must be stopped (grace `drainGrace
       "workerId": "3e4f5a6b-7c8d-4e9f-9a0b-1c2d3e4f5a6b",
       "state": "removed"
     }
-  ]
+  ],
+  "daemonConfig": {
+    "appliedOverridesRev": 3,
+    "values": {
+      "url": "https://scantor.example.com", "builtIn": false, "maxWorkers": 16, "dind": "disabled",
+      "egressDeny": ["169.254.0.0/16", "fd00:ec2::254/128", "100.100.100.200/32", "198.51.100.0/24"],
+      "allowUnisolatedNetworks": false, "allowInsecureTransport": false, "caCertificates": [],
+      "pidsLimit": 4096, "shmSizeBytes": 268435456, "nofile": 65536, "workerLogMaxSizeBytes": 20971520, "workerLogMaxFiles": 3,
+      "imageRetentionMs": 86400000, "pullTimeoutMs": 1800000, "logLevel": "info", "logFormat": "json", "overrides": "all",
+      "dns": {
+        "mode": "iterative",
+        "upstreams": ["1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "2606:4700:4700::1111", "2606:4700:4700::1001", "2001:4860:4860::8888", "2001:4860:4860::8844"],
+        "rootServers": [], "localDomains": [], "cacheSizeBytes": 268435456, "maxLookups": 1000, "upstreamQps": 0, "authoritativeQps": 200
+      }
+    },
+    "sources": {
+      "url": "env", "builtIn": "default", "maxWorkers": "override", "dind": "default", "egressDeny": "env",
+      "allowUnisolatedNetworks": "default", "allowInsecureTransport": "default", "caCertificates": "default",
+      "pidsLimit": "env", "shmSizeBytes": "env", "nofile": "env", "workerLogMaxSizeBytes": "env", "workerLogMaxFiles": "env",
+      "imageRetentionMs": "env", "pullTimeoutMs": "env", "logLevel": "env", "logFormat": "env", "overrides": "default",
+      "dns": {
+        "mode": "override", "upstreams": "default", "rootServers": "default", "localDomains": "default",
+        "cacheSizeBytes": "default", "maxLookups": "default", "upstreamQps": "default", "authoritativeQps": "default"
+      }
+    },
+    "warnings": [],
+    "rejected": { "dns": { "upstreams": "private and special-purpose servers can only be configured in the node environment (SCANTOR_NODE_DNS_*)" } }
+  }
 }
 ```
 
@@ -1481,6 +1601,21 @@ create failure) travel inside these entries; the orchestrator derives `worker.*`
 from changes between reports: a new `lastExit.at` with `exitCode ≠ 0` or `oomKilled` raises
 `worker.crashed` and `crashLoop`; exit code 0 never does.
 
+Two optional reports ride along: `info.resolver`, the node resolver's state (`{mode, state, address?, kept, error,
+detail?, since, spec?, ipv6, upstreamOk, stats}`, [nodes](nodes.md) §6.11.5; `error` is a fixed code, never log text),
+and `daemonConfig`, the daemon configuration (`{appliedOverridesRev, values, sources, warnings, rejected}`,
+[nodes](nodes.md) §6.12.1). The strict body schema takes both as unknown values, and each is checked separately
+against its own lenient schema (at most 64 KiB of JSON; unknown keys dropped; every inner key optional except
+`info.resolver.mode`, `info.resolver.state` and `daemonConfig.values`, without which the sub-report is stored as null;
+when absent, `kept`, `ipv6` and `upstreamOk` are false, `error` and `stats` null and `since` the time of the report):
+an invalid sub-report is stored as null and logged, never a 400, because the status is the node's heartbeat and a
+refused one would take the node offline. Every key added to them in a later version is optional, so the version window
+of §1.10 never turns a new key into a refused heartbeat. The lists are bounded (64 CA certificates with subjects of at
+most 1024 characters, 256 egress deny CIDRs, 64 warnings of at most 1024 characters, 64 upstream and root servers, 256
+local domains, 64 allowed override keys) at or above the daemon's own caps, which keep its report below 64 KiB (32
+certificates with subjects of at most 256 characters, 256 CIDRs, 32 warnings and `rejected` messages of at most 512
+characters, a truncation warning, [nodes](nodes.md) §6.12.1). Older daemons send neither.
+
 ```json
 { "serverTime": 1761040815002, "rev": 43, "nextStatusMs": 10000 }
 ```
@@ -1488,8 +1623,16 @@ from changes between reports: a new `lastExit.at` with `exitCode ≠ 0` or `oomK
 `nextStatusMs` is the daemon's next report interval ([nodes](nodes.md) §7.1).
 
 Effects: `lastSeenAt`, `info`, worker states and `processes.applied` updated ([data model](data-model.md)
-§6.6), crash events and conditions raised. A `rev` greater than `appliedRev` tells the daemon to poll
-assignments now. 409 `nodeInstanceConflict` when the instance id is not the lease holder.
+§6.6), crash events and conditions raised. `daemonConfig` is stored (with `instanceId` and `reportedAt`) only for
+the lease holder's instance; a status without one leaves the stored report alone. A change of
+`info.resolver.state` into `failed`, `degraded` or `unreachable` records the event `node.resolverFailed`
+(`{state, previousState, mode, error, detail?}`), and `ready` after one of them records `node.resolverReady`
+(`{state, previousState, mode}`, `previousState` being the failing state it recovered from), also when `starting`,
+`disabled`, absent or invalid reports or a hello of a new instance came in between; a first `ready` records nothing.
+Both are judged against the report stored before the status's own atomic update, so overlapping reports record a
+change once ([nodes](nodes.md) §6.11.5). A `rev` greater than
+`appliedRev` tells the daemon to poll assignments now; `appliedRev` is the assignments revision, unrelated to
+`daemonConfig.appliedOverridesRev`. 409 `nodeInstanceConflict` when the instance id is not the lease holder.
 
 ### 7.4 `POST /api/node/workers/{workerId}/logs`
 
@@ -1891,7 +2034,7 @@ The dashboard's `/editor` page only embeds the editor origin in an iframe.
 
 ## 10. MCP-exposed operations
 
-44 operations have `x-mcp: true` (at most 45, [mcp](mcp.md) §10 decision 12); tool name =
+45 operations have `x-mcp: true` (at most 45, so the cap is reached, [mcp](mcp.md) §10 decisions 12 and 16); tool name =
 `snake_case(operationId)`. Read tools need `scantor:read`, write tools `scantor:write`, admin tools
 `scantor:admin`. Tools returning analysis configs, results, logs or file contents wrap that content as
 `{"untrusted_data": …}`; responses are capped at 256 KiB with a truncation note ([mcp](mcp.md)). `/mcp`
@@ -1908,12 +2051,13 @@ also accepts scantor API keys (`Authorization: Bearer sk_scantor_…` or `x-api-
 | results | `get_analysis`, `read_analysis_file`, `query_analyses`, `aggregate_analyses`, `get_export` | `export_scan` |
 | scripts and files | `list_scripts`, `get_script`, `list_script_files`, `read_script_file` | `create_script`, `write_script_files`, `delete_script_file` |
 | script runs | `get_script_run`, `get_script_run_logs`, `read_script_run_output` | `start_script_run`, `cancel_script_run`, `restart_script_run` |
-| admin | `list_nodes` | – |
+| admin | `list_nodes` (with `include: "daemonConfig"` for every node's daemon configuration) | `update_node_daemon_overrides` |
 
 Not exposed: `createRevisionBundle` and `getRevisionBundle` (`x-mcp: false`). A bundle is an archive of hundreds
-of MB that an agent can neither use nor hand on, and 44 of the 45 tool slots are taken; the bundles guide is an
+of MB that an agent can neither use nor hand on, and every tool slot is taken; the bundles guide is an
 MCP resource (`scantor://guide/bundles`), so an agent can explain bundles and ask the user to create one in the
-UI or with `scantor revisions bundle`.
+UI or with `scantor revisions bundle`. `getNode` (`list_nodes` with `include` carries the same daemon configuration)
+and `deleteNodeDaemonOverrides` (a patch with `null` members removes overrides too) are not exposed either.
 
 ## 11. Decisions made in this document
 
@@ -1959,8 +2103,8 @@ Item 18 records a round-1 ruling.
 19. **Scripts** get three user tags (`scripts`, `script-files`, `script-runs`) and a machine API
     (`/api/script-runtime/*`, scope `scriptRun`) bound to a network as well as a token; the analysis stream is
     NDJSON with checkpoint lines instead of pages, and output bytes move as presigned multipart uploads
-    ([scripts](scripts.md) §15). MCP gets 13 script tools (44 of 45); a run over all analyses needs
-    `confirm: true` through MCP, like a large scan.
+    ([scripts](scripts.md) §15). MCP gets 13 script tools (44 of 45 then, 45 with item 22); a run over all
+    analyses needs `confirm: true` through MCP, like a large scan.
 20. **A revision's bundle is a singular sub-resource** (`…/revisions/{revision}/bundle`) without a bundle id in
     the path: one bundle per revision, created idempotently by `POST` and read by `GET`, replaced instead of
     listed or deleted, and resolved like every revision route (`resolveTask` + `resolveTaskRevision`). Its
@@ -1972,6 +2116,16 @@ Item 18 records a round-1 ruling.
     listener's `text/plain` 421; `wait` is clamped to 90 s, below Cloudflare's 125 s Proxy Read Timeout. `InstanceInfo` gains
     `origin`, `tunnelUrl` and `features.downloads`, and its `mcpUrl`, `features` and `limits` follow the request's
     origin, so clients learn what the origin they use offers without comparing URLs.
+22. **Daemon overrides are a sub-resource named after what it changes** (`/api/nodes/{nodeId}/daemon-overrides`,
+    `updateNodeDaemonOverrides` and `deleteNodeDaemonOverrides`, [architecture](architecture.md) D27): the PATCH body
+    is the overrides, not the reported daemon configuration, and `delete` is an allowed verb where `reset` is not.
+    Reading stays on the `Node` (`daemonConfig`, in full on `getNode` and with `include=daemonConfig` on
+    `listNodes`, so lists stay small by default). A dedicated 409 `daemonOverridesUnavailable` with
+    `details.reason` tells the UI and the CLI why a node cannot take overrides, which `invalidState` cannot express
+    for a node that is online but runs an older daemon. Daemon-reported sub-reports (`daemonConfig`,
+    `info.resolver`) are parsed apart from the heartbeat and never fail it (§7.3), and their wire names keep
+    `overridesRev`/`appliedOverridesRev` apart from the assignments `rev`/`appliedRev`. `updateNodeDaemonOverrides`
+    is the 45th and last MCP tool ([mcp](mcp.md) §10 decision 16).
 
 ## 12. Future extensions
 
@@ -1984,7 +2138,7 @@ Item 18 records a round-1 ruling.
 | Per-process multiplexing | State poll `busy[]` already carries `executionId`; no API change. |
 | Organisations / shared tasks | The scope model (`owner`) is enforced by one helper; a future `org` principal adds a membership check there. |
 | More notification channels (webhooks, email) | `NotificationSettings` holds one object per channel kind beside `ntfy`, triggers are one catalog (`shared/utils/notifications.ts`), and delivery is one job kind that can dispatch by channel. |
-| More MCP tools | Raise the curated limit deliberately (44 of 45 are used); the generated test enforces the cap. |
+| More MCP tools | Raise the curated limit deliberately (45 of 45 are used); the generated test enforces the cap. |
 | Scheduled or local script runs | New routes calling the same run start service; the script runtime API needs no change ([scripts](scripts.md) §16). |
 | API versioning | A future breaking change would add `/api/v2/*` routes beside the current ones; machine APIs already negotiate versions. |
 | Scoped or read-only API keys | `apikey.permissions` exists; the operation registry already knows `x-read-only`, `x-admin-only` and `x-session-only`, so a key level maps onto the same checks as MCP levels. |

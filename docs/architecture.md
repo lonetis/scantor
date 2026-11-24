@@ -33,7 +33,9 @@ Principles (in priority order when they conflict):
    lives once in the runtime.
 4. **Level-triggered, idempotent control.** API handlers record intent; a reconciler converges
    infrastructure to that intent; every consumer of a message tolerates duplicates.
-5. **Configuration exclusively through environment variables**, documented only in `.env.example`.
+5. **Configuration exclusively through environment variables**, documented only in `.env.example`. The one
+   exception is daemon overrides (D27): admin-set values for one running node daemon instance, never persisted
+   on the node.
 6. **Extensibility without speculation.** Data models, wire formats and interfaces leave room for the
    items in each document's "Future extensions" section without implementing them.
 
@@ -51,7 +53,10 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
 | **node** | A machine that contributes compute by running a node daemon. Identified by a node record and authenticated by a node token. | agent, runner, worker machine |
 | **built-in node** | The node that runs on the master itself, created automatically, with the `internal` endpoint profile. Its node token is derived from `SCANTOR_SECRET`. | local node |
 | **remote node** | Any node other than the built-in node. Uses the `public` endpoint profile and connects outbound only. | external node |
-| **node daemon** | The process `scantor node` on a node. It long-polls its desired worker set, reconciles local Docker containers to match, and reports status. | agent |
+| **node daemon** | The process `scantor node` on a node. It long-polls its desired worker set and its daemon overrides, reconciles local Docker containers to match, runs the node resolver, and reports status. | agent |
+| **node resolver** | The DNS server of a node: one container `scantor-dns-<nodeId>-<hash12>` (kind `resolver`) that the node daemon runs from its own image on the host network, bound to port 53 of the worker network's gateway. It answers every name the node's workers look up, with a cache, through the zdns library: recursively through upstream servers or iteratively from the root servers ([nodes](nodes.md) §6.11). Say "upstream servers" for the servers of recursive mode, "root servers" for those of iterative mode and "host nameservers" for the servers of the resolver container's `/etc/resolv.conf`. | DNS proxy, zdns server |
+| **daemon configuration** | The configuration a node daemon runs with: its environment variables (or their defaults) with any daemon overrides applied. The daemon reports it; secrets are never part of it ([nodes](nodes.md) §6.12). | node settings, runtime config, effective configuration |
+| **daemon override** | An admin-set value that replaces one value of the daemon configuration in the running daemon instance until that instance stops (D27). The persistent `maxWorkers` of a node record is the **admin worker limit**, never an override. | runtime override, hot config |
 | **node token** | The secret a node daemon authenticates with: `snt_` + 32 random bytes (base64url), stored only as SHA-256. Shown once; rotatable and revocable by admins. | node key |
 | **node pool** | A string label on a node (default `shared`) that scans select with `settings.nodeSelector.pool`. | cluster, group |
 | **endpoint profile** | Which set of URLs a node and its workers use to reach the master: `internal` (compose service names, built-in node) or `public` (public URLs, remote nodes). See §8. | |
@@ -168,8 +173,9 @@ the concept; a docs/UI string test enforces a curated subset of them ([testing](
  │      └── host Docker daemon ── builds · helpers · editors · test & script runs  │
  │                                                                                  │
  │  built-in node daemon (scantor node) ── host Docker daemon ── master workers    │
+ │                                                    └── node resolver (DNS)      │
  └──────────────────────────────────────────────────────────────────────────────────┘
-        remote node: scantor node ── local Docker daemon ── remote workers
+        remote node: scantor node ── local Docker daemon ── remote workers, node resolver (DNS)
         worker = task image + injected runtime + connector processes
 ```
 
@@ -275,12 +281,14 @@ backed-off daemon has not reported yet.
 
 One static Go binary (`CGO_ENABLED=0`, module `github.com/lonetis/scantor`, `cmd/scantor`). It is shipped in
 the image `ghcr.io/lonetis/scantor` (plus `git`), bundled into the orchestrator image, released as native
-binaries (darwin/linux × amd64/arm64), and injected into every container that needs the runtime.
+binaries (darwin/linux × amd64/arm64), and injected into every container that needs the runtime. The node
+resolver's DNS code (the zdns library, imported only by `internal/resolver`) is part of the same binary, which
+costs about 5 MB in every injection and bundle ([development](development.md) §11; D26).
 
 | Role | Command | Who runs it | Where it runs |
 |---|---|---|---|
 | CLI | `scantor <command>` (`init`, `validate`, `dev run`, `dev debug`, `push`, `tasks …`, `revisions …`, `scripts …`, `scans …`, `analyses …`, `export`, `exports …`, `files get`, `uploads …`, `jobs …`, `nodes …`, `templates list \| estimate`, `whoami`, `instance`, `version`) | users, CI, agents | host (native binary or docker shim `scantor.sh`), editor container |
-| node daemon | `scantor node` | operators | built-in node service on the master; `docker run … ghcr.io/lonetis/scantor node` on remote nodes |
+| node daemon | `scantor node` (`node healthcheck`; hidden: `node egress-apply` of the egress helper, `node resolver serve \| healthcheck \| probe` of the node resolver, [nodes](nodes.md) §6.11) | operators; the daemon starts its egress helper, node resolver and resolver probe itself | built-in node service on the master; `docker run … ghcr.io/lonetis/scantor node` on remote nodes; the hidden commands in containers of the daemon's own image |
 | runtime | `scantor runtime` (hidden; modes `worker`, `local`, `describe`, `check`, `script`, `bundle`) | node daemon (workers), task pipeline (describe/check), CLI `dev run` and test runs (local), `scriptRun` job (script); `bundle` is the entrypoint of bundle images, the one runtime command users start themselves (through `docker run`, §11.8) | inside task and script-run containers at `/scantor/scantor`; baked into bundle images at the same path |
 | task pipeline | `scantor task pack \| check-static \| build \| bundle` (hidden; NDJSON events, structured errors `{phase, file?, line?, message}`; `bundle` derives the bundle image of a revision image and writes its archive to a file descriptor, [tasks](tasks.md) §9.11) | orchestrator (subprocess; `bundle` only from the `bundle` job), CLI `validate`/`push`/`dev run` | orchestrator container; user host |
 | script pipeline | `scantor script build` (hidden; pack → static → build of a script folder, same events and exit codes, never pushed; [scripts](scripts.md) §4) | orchestrator (subprocess of the `scriptRun` job) | orchestrator container |
@@ -410,7 +418,9 @@ Flat layout; Go module at the repo root.
 ├── cmd/scantor/                main package: cobra root command
 ├── internal/
 │   ├── cli/                    CLI commands (cobra), output formats (-o json), exit codes
-│   ├── node/                   node daemon: hello, assignments long-poll, container reconcile, status, egress helper
+│   ├── node/                   node daemon: hello, assignments long-poll, container reconcile, status, egress helper,
+│   │                           node resolver manager and probe, daemon configuration and overrides
+│   ├── resolver/               the node resolver process (zdns, zmap/dns server, cache, guard); the only zdns importer
 │   ├── runtime/                worker/local/describe/check/script/bundle runtime; shared types at the root,
 │   │                           sub-packages bootstrap, amqpx, pool, runner, scheduler, worker, local, describe, check,
 │   │                           pipeline, scerr, logtail, upload, canonical, dind, script, bundlerun ([runtime](runtime.md) §1.3)
@@ -449,6 +459,7 @@ Flat layout; Go module at the repo root.
 │   ├── bundle.schema.json      bundle info /scantor/bundle.json (allowlist, strict)
 │   ├── languages.json          the language table
 │   ├── managed-labels.json     managed label key set shared by Go internal/container and TS server/utils/labels.ts
+│   ├── daemon-overrides.json   the overridable daemon configuration keys and their bounds (Go internal/node, TS zod)
 │   ├── protocol/*.json         connector protocol message schemas
 │   ├── messages/*.json         AMQP message bodies (analysis, result, attempt)
 │   └── templates/<name>.json, <name>.fixtures.json
@@ -526,6 +537,7 @@ There is no `images/` directory: each Dockerfile lives with its component.
 │ orchestrator (alias orchestrator)  rabbitmq (alias rabbitmq)  rustfs (alias rustfs)              │
 │ master workers scantor-w-*      editors scantor-editor-*                                         │
 │ NOT attached: mongo, mongo-express, registry, traefik, cloudflared, node daemon                  │
+│ gateway :53 ◄── node resolver scantor-dns-* (host network; DNS of the master workers only)       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌──── network: scantor-egress (created at orchestrator boot; bridge, enable_icc=false, no services) ┐
 │ git workspace helpers (scantor-h-*)      test-run containers (scantor-t-*)                        │
@@ -546,7 +558,9 @@ Remote node host:
 ┌──── network: scantor-workers (created by the node daemon; bridge, enable_icc=false) ─────────────┐
 │ remote workers scantor-w-*  → outbound only to SCANTOR_PUBLIC_URL, AMQP/S3 public URLs, internet │
 │ workers of different scans and users on one node cannot reach each other                         │
+│ gateway :53 ◄── node resolver scantor-dns-* (host network; DNS of this network's workers only)   │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
+  host network:  egress helper (scantor-netpol-*, one-shot), node resolver (scantor-dns-*) on every node
 ```
 
 Networks that scantor creates itself (`scantor-egress`, `scantor-workers`) carry the managed labels with
@@ -562,14 +576,24 @@ Every node applies the egress deny list `SCANTOR_NODE_EGRESS_DENY` (cloud metada
 `NET_ADMIN` host-network helper on the `DOCKER-USER` chain. It is best effort: when it cannot be applied
 the daemon logs a warning and reports `egressDenyApplied: false` ([nodes](nodes.md)).
 
+Every node also runs a node resolver (D26, [nodes](nodes.md) §6.11): a host-network container bound only to port 53 of
+its worker network's gateway, never to a wildcard address. Workers keep exactly one network and Docker's embedded DNS
+(`127.0.0.11`), which still answers container and service names and forwards every other name to the resolver
+(`HostConfig.Dns`), from the worker's own network namespace. That traffic is local delivery on the host (INPUT), so
+`enable_icc=false` and `DOCKER-USER` do not apply to it, and the resolver answers only sources in the worker network's
+subnets. The resolver's own queries leave from the host network, where the egress deny chain does not apply; its
+server guard refuses the deny-list ranges and every private range itself, except for the host nameservers and the
+upstream and root servers of the node's environment. Test-run, editor, git helper and script-run containers keep
+Docker's DNS, so a task can resolve names differently in a test run than in a scan.
+
 ### 6.2 Trust zones
 
 | Zone | Members | Trusted with |
 |---|---|---|
-| **Z0 platform core** | orchestrator, mongo, rabbitmq (admin), rustfs (root keys), registry, built-in node daemon | everything; both orchestrator and node daemon hold the host Docker socket (root on the master) |
+| **Z0 platform core** | orchestrator, mongo, rabbitmq (admin), rustfs (root keys), registry, built-in node daemon and its node resolver | everything; both orchestrator and node daemon hold the host Docker socket (root on the master); the node resolver holds no credential, but it runs on the host network and answers the master workers' queries ([security](security.md) §6.23) |
 | **Z1 admin tools** | mongo-express, RabbitMQ management, RustFS console, Traefik dashboard | admin-only via forwardAuth `scantor_tools` cookie plus their own credentials; bound to `SCANTOR_ADMIN_BIND_ADDRESS` without Traefik |
 | **Z2 user code, master** | master workers, editors, test-run containers, script-run containers, describe/check containers, BuildKit RUN steps, workspace helpers | only their own scan's credentials (per-scan AMQP user, presigned URLs, worker token), their own run's script-run token, or the owner's editor API key; never infra root credentials |
-| **Z3 remote node** | remote node daemon and its workers | a node sees everything about the scans placed on it (configs including secrets, worker tokens, per-scan AMQP credentials); only add nodes you trust like the master |
+| **Z3 remote node** | remote node daemon, its node resolver and its workers | a node sees everything about the scans placed on it (configs including secrets, worker tokens, per-scan AMQP credentials); only add nodes you trust like the master. Master admins can change the node's daemon overrides within what the node operator allows (`SCANTOR_NODE_OVERRIDES`, D27) |
 | **Z4 users** | browsers, CLI, MCP clients, through the public URL or the tunnel URL | their own resources; admins everything |
 
 The tunnel (`cloudflared`) belongs to no zone that holds platform credentials: its only secret is its tunnel token,
@@ -598,6 +622,15 @@ reachable.
 | other workspace helpers, describe/check | – | – | – | – | – | – | – | – |
 | remote node daemon | `SCANTOR_PUBLIC_URL`, node principal | – | – | – | – | `SCANTOR_REGISTRY_PUBLIC_HOST`, node principal | its local socket | yes |
 | remote worker | `SCANTOR_PUBLIC_URL`, worker principal | – | cred via `SCANTOR_AMQP_PUBLIC_URL` | – | presigned PUT via `SCANTOR_S3_PUBLIC_URL` | – | – | yes, minus deny list |
+| node resolver (built-in and remote) | – | – | – | – | – | – | – | DNS only (port 53, UDP and TCP): its upstream servers or, iterative, the authoritative servers, minus private ranges and the deny list (servers of the node's environment excepted); the host nameservers for local names |
+
+Workers resolve names through their node's resolver: Docker's embedded DNS in the worker forwards every name it does
+not know itself to the resolver at the worker network's gateway, port 53, which answers only sources in that network's
+subnets ([nodes](nodes.md) §6.11). The resolver resolves the master's endpoint hosts (§8), the built-in local suffixes
+and `SCANTOR_NODE_DNS_LOCAL_DOMAINS` through the host nameservers, so split-horizon names of the master keep working
+(on a host without a usable nameserver they go to the mode's servers instead); everything else goes to its upstream
+servers (mode `recursive`) or to the root and authoritative servers (mode `iterative`). With mode `disabled`, or while
+the resolver is not `ready`, new workers keep Docker's DNS (the host's nameservers).
 
 Host-published ports bind to `SCANTOR_BIND_ADDRESS` (dashboard `SCANTOR_PORT` → orchestrator container
 port 3000, editor origin `SCANTOR_EDITOR_PORT` → orchestrator container port 3001, AMQP
@@ -638,15 +671,21 @@ scantor set **and** their name prefix.
 | `testRun` | `scantor-t-<testRunId>` | jobs runner (`testRun`) | draft image + injected runtime | worker hardening profile, never privileged | `scantor-egress` |
 | `scriptRun` | `scantor-s-<scriptRunId>` | jobs runner (`scriptRun`) | local script image by id + injected runtime (`runtime script`) | image user; `CapDrop ALL`, no `CapAdd`, `no-new-privileges`, `Init`, `PidsLimit 4096`, memory + 256 MiB, `OomScoreAdj 1000`, `local` logs 5 × 50 MiB, restart policy `no`, no mounts, never privileged ([scripts](scripts.md) §6.4) | `scantor-scripts` |
 | `editor` | `scantor-editor-<userId>` | editor manager | scantor-editor | 1000:1000, `CapDrop ALL`, read-only rootfs, no Docker socket ([editor](editor.md) §4) | `scantor-sandbox` |
-| `egressHelper` | `scantor-netpol-<nodeId>` | node daemon (one-shot) | the daemon's own scantor image | 0:0, `CapDrop ALL` + `CapAdd` `NET_ADMIN`, `NET_RAW`, read-only rootfs; tmpfs `/run`, bind `/run/xtables.lock` when present ([nodes](nodes.md) §9) | host |
+| `egressHelper` | `scantor-netpol-<nodeId>` | node daemon (one-shot) | the daemon's own scantor image | 0:0, `CapDrop ALL` + `CapAdd` `NET_ADMIN`, `NET_RAW`, read-only rootfs; tmpfs `/run`, bind `/run/xtables.lock` when present, `local` logs 1 MiB, `UsernsMode host` only under userns-remap ([nodes](nodes.md) §9) | host |
+| `resolver` | `scantor-dns-<nodeId>-<hash12>` (first 12 hex digits of its spec hash, label `scantor.spec-hash`) | node daemon (long-running, one per node; two only during a replacement) | the daemon's own scantor image (`scantor node resolver serve`) | 0:0, `CapDrop ALL` + `CapAdd` `NET_BIND_SERVICE`, `no-new-privileges`, read-only rootfs, tmpfs `/run`, memory 2 × cache + 768 MiB, `PidsLimit 1024`, restart policy `no` (the daemon restarts it), `UsernsMode host` only under userns-remap, no mounts ([nodes](nodes.md) §6.11) | host, bound only to `<worker network gateway>:53` |
+| `resolverProbe` | `scantor-dnsprobe-<nodeId>` | node daemon (one-shot) | the daemon's own scantor image (`scantor node resolver probe`) | 65534:65534, `CapDrop ALL`, `no-new-privileges`, read-only rootfs, 64 MiB, `PidsLimit 128`, `local` logs 1 MiB | the worker network (`HostConfig.Dns` = the gateway: the workers' path) |
 
 Healthchecks: every long-running container has one. Compose services define theirs in the compose files
-(`lint-compose` fails on a service without one, [deployment](deployment.md)); workers, test runs and script runs run the
-injected runtime's `scantor runtime healthcheck` against its heartbeat file ([runtime](runtime.md) §5.3), bundle
-images declare the same check in their image config ([tasks](tasks.md) §9.11), and editors probe code-server's
-`/healthz` ([editor](editor.md) §4). The one-shot `build` containers set
-`NONE`, so a task image's `HEALTHCHECK` never runs; helpers and the egress helper use the scantor image, which
-declares none. Health is reported by Docker only; no component restarts a container because of it.
+(`lint-compose` fails on a service without one, [deployment](deployment.md)); workers, test runs and script runs run
+the injected runtime's `scantor runtime healthcheck` against its heartbeat file ([runtime](runtime.md) §5.3), bundle
+images declare the same check in their image config ([tasks](tasks.md) §9.11), editors probe code-server's `/healthz`
+([editor](editor.md) §4), and the node resolver runs `scantor node resolver healthcheck`
+(`container.ResolverHealthcheck`: a fresh state file, a bound listener and a passing upstream check; its output is the
+resolver's stats line, [nodes](nodes.md) §6.11). The one-shot `build` and `resolverProbe` containers set `NONE`, so a
+task image's `HEALTHCHECK` never runs; helpers and the egress helper use the scantor image, which declares none.
+Health is informational, reported by Docker only, and no component restarts a container because of it, with one
+exception: the node resolver. Its health gates its blue/green replacement and whether new workers use it, and the
+daemon restarts a resolver that stays unhealthy for reasons other than its upstream servers or a bind error.
 
 Test-only containers: the test suite and `just test-go-integration` create containers named
 `scantor-test-*` with the label `scantor.test=true` (dev tooling uses `scantor.dev=true`). They are swept by
@@ -666,6 +705,14 @@ reach RustFS unchanged).
 | S3 for presigned PUT | `SCANTOR_S3_INTERNAL_URL` | `SCANTOR_S3_PUBLIC_URL` |
 | Registry host in image refs (daemon side) | `localhost:${SCANTOR_REGISTRY_PORT}` | `SCANTOR_REGISTRY_PUBLIC_HOST` |
 | Registry token realm (fixed in registry config) | `${SCANTOR_PUBLIC_URL}/api/registry/token` | same |
+
+The hello response carries `config.endpointHosts` ([api](api.md) §7.1): the sorted, unique host names (no IP literals)
+of every URL the orchestrator hands to the node's workers for its profile, namely the worker `SCANTOR_URL`, the AMQP
+URL, the S3 URL and the template data sources (`SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL`, `SCANTOR_CRUX_CACHE_URL`).
+One helper next to the endpoint-profile helpers computes them. The node resolver resolves exactly these names, plus
+the host of the daemon's own `SCANTOR_URL`, through the host nameservers, so a master or a data-source mirror that
+only internal DNS knows stays reachable for the workers whatever the resolver's mode, as long as the node host has a
+usable nameserver ([nodes](nodes.md) §6.11.6).
 
 Browsers always receive public URLs (`SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `SCANTOR_S3_PUBLIC_URL`),
 with one exception: a tunnel request gets the tunnel URL as its own origin for the MCP resource and `mcpUrl`, the
@@ -744,6 +791,11 @@ secret (API keys and node tokens are stored as hashes and survive); it is a disa
 - Byte sizes: a non-negative integer with an optional binary suffix `KiB`, `MiB`, `GiB`, `TiB`.
 - Invalid values for security-relevant variables abort startup; other invalid values log a warning and fall
   back to the default.
+- Daemon overrides (D27) are the one exception to environment-only configuration: an admin sets them through
+  the API for one running node daemon instance, they reach it with its assignments and end when that instance
+  stops, and nothing persists them on the node. They replace only the keys of `schemas/daemon-overrides.json`,
+  within the environment bounds, and only those the node operator allows with `SCANTOR_NODE_OVERRIDES`
+  ([nodes](nodes.md) §6.12). `.env.example` stays the only documentation of every default.
 - The orchestrator reads variables only in `server/utils/config.ts`; each Go component has exactly one
   `LoadConfig` built on `internal/envconf`. No other code reads the environment.
 - Which variables each Go role reads:
@@ -752,7 +804,7 @@ secret (API keys and node tokens are stored as hashes and survive); it is a disa
 |---|---|
 | CLI | credentials `SCANTOR_URL`, `SCANTOR_TOKEN` (the only credential source: no login command, no credentials file); `SCANTOR_CA_CERT` (custom CA for `SCANTOR_URL`); mode selectors `SCANTOR_DEV_MODE` (`local`\|`remote`) and `SCANTOR_WORKSPACE` (set in the editor: inside this tree `scantor push` only publishes); for local builds and runs (`validate`, `dev run`, `dev debug`) the optional overrides `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL`, `SCANTOR_CRUX_CACHE_URL` (template data sources), `SCANTOR_IMAGE_PREFIX` + `SCANTOR_IMAGE_TAG` (image references, §4.2) and `SCANTOR_MAX_WORKERS_PER_SCAN`, `SCANTOR_MAX_PROCESSES_PER_WORKER` (manifest rule M8, [tasks](tasks.md) §3.2). The CLI section of `.env.example` lists them all |
 | task pipeline (`scantor task …`, `scantor script build`, `scantor templates …`) | the CLI overrides above plus the pipeline limits of [tasks](tasks.md) §9.10, `SCANTOR_PUBLIC_URL` and `SCANTOR_REGISTRY_PUBLIC_HOST` (registry hosts rejected by Dockerfile rule D5, [tasks](tasks.md) §8.2; a native CLI leaves them unset and the server re-checks on publish) and, for `build --push` and for the pull of `bundle --pull` only, `SCANTOR_REGISTRY_PUSH_PASSWORD`: the derived password of the registry `orchestrator` credential (HKDF label `registry-push`, §9), which the bundle step sends only to the registry host of `--pull` and never writes into an image. The subprocess never receives `SCANTOR_SECRET` (least privilege). `SCANTOR_REGISTRY_PUSH_PASSWORD` is an internal contract set only by the orchestrator, like `SCANTOR_WORKER_TOKEN`, and is not configuration. The orchestrator passes its own values to every subprocess; a native CLI leaves them unset and the binary uses compiled-in defaults equal to the `.env.example` defaults |
-| node daemon | `SCANTOR_URL`, `SCANTOR_NODE_TOKEN` or (built-in node) `SCANTOR_NODE_BUILTIN=true` + `SCANTOR_SECRET`, the daemon variables of [nodes](nodes.md) §2 (`SCANTOR_NODE_MAX_WORKERS`, `_DIND`, `_EGRESS_DENY`, `_PIDS_LIMIT`, `_SHM_SIZE`, `_NOFILE`, `_WORKER_LOG_MAX_SIZE`, `_WORKER_LOG_MAX_FILES`, `_IMAGE_RETENTION`, `_PULL_TIMEOUT`; `SCANTOR_NODE_OFFLINE_AFTER`, `_STATUS_INTERVAL`, `_ASSIGNMENTS_WAIT` and `_MIN_FREE_DISK` are orchestrator variables delivered in the hello `config`), `SCANTOR_CA_CERT`, `SCANTOR_ALLOW_INSECURE_TRANSPORT`, `SCANTOR_LOG_LEVEL`, `SCANTOR_LOG_FORMAT` ([nodes](nodes.md) §2); everything else comes from the hello response and the assignments |
+| node daemon | `SCANTOR_URL`, `SCANTOR_NODE_TOKEN` or (built-in node) `SCANTOR_NODE_BUILTIN=true` + `SCANTOR_SECRET`, the daemon variables of [nodes](nodes.md) §2 (`SCANTOR_NODE_MAX_WORKERS`, `_DIND`, `_EGRESS_DENY`, `_PIDS_LIMIT`, `_SHM_SIZE`, `_NOFILE`, `_WORKER_LOG_MAX_SIZE`, `_WORKER_LOG_MAX_FILES`, `_IMAGE_RETENTION`, `_PULL_TIMEOUT`, the node resolver's `SCANTOR_NODE_DNS_MODE`, `_DNS_UPSTREAMS`, `_DNS_ROOT_SERVERS`, `_DNS_LOCAL_DOMAINS`, `_DNS_CACHE_SIZE`, `_DNS_MAX_LOOKUPS`, `_DNS_UPSTREAM_QPS`, `_DNS_AUTHORITATIVE_QPS`, and `SCANTOR_NODE_OVERRIDES`; `SCANTOR_NODE_OFFLINE_AFTER`, `_STATUS_INTERVAL`, `_ASSIGNMENTS_WAIT` and `_MIN_FREE_DISK` are orchestrator variables delivered in the hello `config`), `SCANTOR_CA_CERT`, `SCANTOR_ALLOW_INSECURE_TRANSPORT`, `SCANTOR_LOG_LEVEL`, `SCANTOR_LOG_FORMAT` ([nodes](nodes.md) §2); everything else comes from the hello response and the assignments, which also carry the daemon overrides (D27). The node resolver reads no `SCANTOR_*` variable: the daemon passes its whole configuration (log level and format included) as `--config`, and its container environment holds only `GOMAXPROCS` and `GOMEMLIMIT` ([nodes](nodes.md) §6.11) |
 | runtime | only what the node daemon puts into the worker environment (`SCANTOR_URL`, `SCANTOR_WORKER_TOKEN`, optional `SCANTOR_CA_CERT` and `SCANTOR_ALLOW_INSECURE_TRANSPORT`, and `SCANTOR_DIND=1` on DinD workers) plus the base-image ENV contract; everything else comes from `/api/runtime/bootstrap` (worker mode) or the local spec (local mode). Script mode reads only `SCANTOR_SCRIPT_CMD` and passes the container environment (`SCANTOR_URL`, `SCANTOR_SCRIPT_TOKEN`) unchanged to the script. Bundle mode reads its configuration from `/scantor/bundle.json` and its flags, plus the optional `SCANTOR_TRANCO_URL`, `SCANTOR_CRUX_URL`, `SCANTOR_CRUX_CACHE_URL` and `SCANTOR_CA_CERT` that a recipient passes with `docker run -e` ([runtime](runtime.md) §3.2) |
 
 ## 11. Flows
@@ -991,13 +1043,19 @@ All lifecycle routes only change intent in MongoDB (plus a job where noted); the
    computes an `instanceId` (Docker engine ID + boot nonce), and calls `POST /api/node/hello`. The
    orchestrator checks the token, the version compatibility window and the instance lease (a live lease of
    a different Docker engine → 409 `nodeInstanceConflict`; a restarted daemon on the same engine takes
-   over at once), stores reported info (arch, CPUs, memory, disk, effective DinD mode, capacity), sets
-   `online`, and returns the node id, profile, intervals and `minFreeDiskBytes`.
-4. The daemon applies the egress deny list, ensures `scantor-workers` (bridge, `enable_icc=false`),
-   rebuilds its state from containers labelled `scantor.managed=true` + `scantor.node=<nodeId>` named
-   `scantor-w-<workerId>` (adopt assigned, remove unassigned after the first assignments response), then
-   loops: assignments long-poll, reconcile, status every 10 s (a complete snapshot of its workers), image
-   GC after `SCANTOR_NODE_IMAGE_RETENTION` (immediately when free disk drops below `minFreeDiskBytes`).
+   over at once), stores reported info (arch, CPUs, memory, disk, effective DinD mode, capacity, the node
+   resolver's state) and the daemon configuration, clears the daemon overrides of a previous instance (event
+   `node.daemonOverridesCleared`), sets `online`, and returns the node id, profile, intervals,
+   `minFreeDiskBytes` and the endpoint hosts (§8).
+4. The daemon applies the egress deny list, ensures `scantor-workers` (bridge, `enable_icc=false`), starts
+   its node resolver manager as the first loop after the network check (never waiting for it: workers that
+   need a container in the first seconds wait at most a short settle window, then use Docker's DNS;
+   [nodes](nodes.md) §6.11), rebuilds its state from containers labelled `scantor.managed=true` +
+   `scantor.node=<nodeId>` named `scantor-w-<workerId>` (adopt assigned, remove unassigned after the first
+   assignments response), then loops: assignments long-poll (the desired set and the daemon overrides, applied
+   before the desired set, [nodes](nodes.md) §6.12), reconcile, status every 10 s (a complete snapshot of its
+   workers, the node resolver's state and the daemon configuration), image GC after
+   `SCANTOR_NODE_IMAGE_RETENTION` (immediately when free disk drops below `minFreeDiskBytes`).
 5. **Offline**: no status for `SCANTOR_NODE_OFFLINE_AFTER` → node `offline`, its non-terminal workers
    `lost` (their tokens stop validating immediately), events and conditions raised, replacements placed
    elsewhere (new worker ids; a new scheduler gets `epoch+1`). Messages held by lost workers return to the
@@ -1205,10 +1263,12 @@ request hook   security headers of the tunnel origin: HSTS, frame-src 'none', no
 | D19 | The connector is the authoritative validator; ajv runs only at scan and test-run start (with defaults), and the UI validates forms in the browser for feedback only (`@cfworker/json-schema`, [ui](ui.md) §6.1). | No double validation per analysis; the scan records exactly what ran. |
 | D20 | Restart clones into a new scan; delete is tombstoned. | No id reuse, no mixing of old and new in-flight messages, no resurrection by late results. |
 | D21 | All platform JSON is camelCase; ids are uuid v4 strings except analysis ids. | One convention across TS, Go, Python and Mongo. |
-| D22 | Environment-only configuration, documented only in `.env.example`; insecure dev secrets refused in public deployments. | Project rule; secure by default. |
+| D22 | Environment-only configuration, documented only in `.env.example`; insecure dev secrets refused in public deployments. The one exception is daemon overrides (D27): admin-set, per daemon instance, never persisted on the node. | Project rule; secure by default. |
 | D23 | Scripts are revision-less folders run on the master in one container per run, on an internal network with a run-scoped token, reading scans through a dedicated streaming API. | Evaluations iterate quickly on large data sets at internal bandwidth; the container can read only its owner's chosen scans and reach nothing else ([scripts](scripts.md) §15). |
 | D24 | Bundles bake the runtime into a derived revision image, a deliberate exception to D2. | A recipient has only Docker, so nothing could inject the runtime; the bundle records `scantorVersion`, a create rebuilds when it differs from the orchestrator's, and runtime fixes reach a bundle only when it is recreated ([runtime](runtime.md) §15.7). |
 | D25 | An optional Cloudflare Tunnel serves only the dashboard, the REST API and `/mcp` at a second https origin, `SCANTOR_TUNNEL_URL`. Its route targets `orchestrator:3000`, never Traefik, and cloudflared shares a network (`scantor-tunnel`) with the orchestrator alone; a tunnel request is recognised by socket peer and `Host` together; better-auth runs one instance per origin. | A master behind a firewall becomes reachable for users and web-hosted MCP clients without open ports, while the editor, S3, the registry, AMQP, the admin tools and the nodes stay on their own URLs. Per-origin instances keep the issuer, MCP resource, CSRF origin and passkey rpID exact for each origin. Traefik's entrypoints overwrite `X-Forwarded-For`, so a route through Traefik would lose the client address (§11.9). The tunnel's routes live in the Cloudflare account, out of scantor's sight, so the network, not the route, bounds what the tunnel can reach. |
+| D26 | Every node runs one node resolver: a host-network container of the daemon's own image (`scantor node resolver serve`, zdns linked into the single binary) bound only to port 53 of the worker network's gateway, in mode `recursive` (upstream servers), `iterative` (from the root servers) or `disabled` (Docker's DNS). Workers created while it is `ready` get it as their only `HostConfig.Dns` server, fixed for their life; the master's endpoint hosts and private names go through the host nameservers. Its health gates its blue/green replacement and the worker DNS choice, the one exception to "health is informational". | Thousands of worker processes per cluster share one cache and one fan-out per node instead of one stub per process, iterative mode gives scans resolution independent of a provider, and the upstream rate limits keep a fast scan from being blocked. Readiness requires a working upstream check and a probe through the workers' own path, so a firewalled node or a mistyped upstream falls back to Docker's DNS instead of failing every lookup. Port 53 is forced because Docker's `Dns` has no port; binding only the gateway never opens a resolver on the LAN. |
+| D27 | Daemon overrides: an admin replaces selected values of the daemon configuration (worker limits and settings, log level, every `dns.*` value) of one running daemon instance through `PATCH /api/nodes/{nodeId}/daemon-overrides`; they reach the daemon with its assignments and end when the instance stops (a hello with a new instance clears them). The daemon reports its whole daemon configuration (values and sources, never secrets), and the node operator limits the overridable keys with `SCANTOR_NODE_OVERRIDES`. | Admins tune capacity and name resolution of running nodes from the UI, the CLI or an agent without touching the node host, while the node's environment stays the operator's persistent source of truth: a restart restores it, security variables are never overridable, and an operator can refuse overrides entirely. |
 
 ## 13. Decisions made in this document
 
@@ -1275,8 +1335,8 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
     `api` component that shares the build slots, the hidden pipeline step `scantor task bundle` driven like
     `task build` but with the archive on fd 3, and `scantor runtime bundle` as the entrypoint of bundle images.
     No new container kind exists: the bundle image is built by BuildKit on the master and never runs there. The
-    two routes are not MCP tools (44 of 45 tool slots are used, and an archive of hundreds of MB is useless to an
-    agent); the guide `bundles` is an MCP resource.
+    two routes are not MCP tools (44 of 45 tool slots were used then, all 45 since item 23, and an archive of
+    hundreds of MB is useless to an agent); the guide `bundles` is an MCP resource.
 21. **Cloudflare Tunnel** (§11.9, D25): an optional compose service `cloudflared` (profile `cloudflare-tunnel`),
     two variables (`SCANTOR_TUNNEL_URL` for the orchestrator, `SCANTOR_CLOUDFLARE_TUNNEL_TOKEN` for cloudflared
     only), the classification of every dashboard-listener request as public or tunnel in `00.request`
@@ -1284,6 +1344,25 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
     new principal, scope, route, error code or container kind exists. `/api/runtime/*` is refused through the
     tunnel like the other machine prefixes, because workers reach the master only through the URLs of their
     endpoint profile (§8).
+22. **Node resolver** (D26, [nodes](nodes.md) §6.11): two container kinds, `resolver` (`scantor-dns-<nodeId>-<hash12>`,
+    identity labels `scantor.node` and `scantor.spec-hash`) and the one-shot `resolverProbe`
+    (`scantor-dnsprobe-<nodeId>`), the package `internal/resolver` (the only importer of zdns, and of `zmap/dns` for
+    the server), the hidden commands `scantor node resolver serve | healthcheck | probe`, eight `SCANTOR_NODE_DNS_*`
+    variables, the hello field `config.endpointHosts` (§8), the optional report `info.resolver` in hello, status
+    and the `Node` representation, the node events `node.resolverFailed` and `node.resolverReady`, and three gauges
+    `scantor_node_resolver_*` ([deployment](deployment.md) §13.1). The resolver runs with restart policy `no`: the
+    daemon restarts it, like workers, and leaves it running when the daemon stops. Test runs, editors, git
+    helpers and script runs keep Docker's DNS.
+23. **Daemon overrides** (D27, [nodes](nodes.md) §6.12): the overridable keys and their bounds in
+    `schemas/daemon-overrides.json` (read by Go and TS, tested against both), the variable `SCANTOR_NODE_OVERRIDES`,
+    the node document fields `daemonConfig` and `daemonOverrides` ([data model](data-model.md) §4.8), the
+    sub-resource `/api/nodes/{nodeId}/daemon-overrides` (`updateNodeDaemonOverrides`, the 45th and last MCP tool,
+    and `deleteNodeDaemonOverrides`), `include=daemonConfig` on `listNodes`, the 409 error code
+    `daemonOverridesUnavailable`, the assignments field `daemonOverrides` and the report `daemonConfig` in hello and
+    status, and the node events `node.daemonOverridesChanged` and `node.daemonOverridesCleared`. The persistent
+    `maxWorkers` of a node record keeps its JSON key and is called the admin worker limit; placement capacity is
+    the smaller of the daemon's value (override included) and that limit, so an admin can now raise a node above
+    its operator's `SCANTOR_NODE_MAX_WORKERS` unless the operator disallows the `maxWorkers` override.
 
 ## 14. Future extensions
 
@@ -1307,3 +1386,4 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
 | Bundle extensions (configs chosen at creation, for example from a test run; `scantor dev bundle <dir>` without the platform; `--resume` from `run.json`; a retry heap and schedule restarts; multi-arch and DinD bundles; a bundle list and a DELETE route) | The bundle info has a version (`v`) and an allowlist schema, `run.json` keeps the template resolutions, the bundle step takes the info on stdin from any producer, and bundles are a singular sub-resource whose documents already carry ids ([runtime](runtime.md) §19, [data model](data-model.md) §12). |
 | Revision retention | Task images are tagged per revision and referenced by digest; a retention job could delete manifests of revisions no scan references, and registry GC already reclaims blobs. |
 | Cloudflare Access in front of the tunnel URL | Tunnel requests are recognised in one place (`server/utils/tunnel.ts`); verifying the `Cf-Access-Jwt-Assertion` header against the team's keys there would add an identity check before scantor's own authentication, without touching better-auth or the public origin. |
+| Node resolver extensions (encrypted upstreams, test runs through a resolver, a resolver choice per scan, persistent daemon overrides) | The resolver's configuration is one versioned JSON document (`--config`) and its spec hash covers it, so new upstream kinds replace it blue/green; a test run would need only `HostConfig.Dns` and a listen address on `scantor-egress`; overrides are already a keyed, bounded document per node, which a persistent variant would store without an instance id ([nodes](nodes.md) §16). |

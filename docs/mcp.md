@@ -140,7 +140,7 @@ Scopes are cumulative. The **level** of a request decides which tools exist for 
 |---|---|---|
 | `scantor:read` | `read` | operations with `GET` or `x-read-only: true` (lists, gets, file reads, query, aggregate, guides) |
 | `scantor:write` | `write` | `read` plus every other `x-mcp` operation without `x-admin-only` |
-| `scantor:admin` | `admin` (only when the user's role is `admin`) | `write` plus `x-admin-only` operations (`list_nodes`) |
+| `scantor:admin` | `admin` (only when the user's role is `admin`) | `write` plus `x-admin-only` operations (`list_nodes`, `update_node_daemon_overrides`) |
 
 ```
 level = scopes ∋ scantor:admin && user.role == admin  → admin
@@ -454,8 +454,9 @@ the API allows through the tunnel ([api](api.md) §1.9). The REST header
 
 ## 5. Curated tool list
 
-44 operations have `x-mcp: true` ([api](api.md) §10). The generated tests fail above 45 (the curated cap,
-§10 decision 12). Level: R = read, W = write, A = admin. Hints: RO read-only, D destructive, I idempotent.
+45 operations have `x-mcp: true` ([api](api.md) §10), so the curated cap of 45 is reached (§10 decisions 12 and
+16); the generated tests fail above it. Level: R = read, W = write, A = admin. Hints: RO read-only, D destructive,
+I idempotent.
 
 | Tool | operationId | HTTP | Level | Hints | `untrusted_data` | `wait` |
 |---|---|---|---|---|---|---|
@@ -502,7 +503,8 @@ the API allows through the tunnel ([api](api.md) §1.9). The REST header
 | `restart_script_run` | `restartScriptRun` | `POST /api/script-runs/{scriptRunId}/restart` | W | – | script-run paths | yes |
 | `get_script_run_logs` | `getScriptRunLogs` | `GET /api/script-runs/{scriptRunId}/logs` | R | RO I | `lines` | – |
 | `read_script_run_output` | `readScriptRunOutput` | `GET /api/script-runs/{scriptRunId}/outputs/{outputId}/content` | R | RO I | `content`, `name`, `contentType` | – |
-| `list_nodes` | `listNodes` | `GET /api/nodes` | A | RO I | – | – |
+| `list_nodes` | `listNodes` | `GET /api/nodes` (`include: "daemonConfig"` adds every node's daemon configuration) | A | RO I | – | – |
+| `update_node_daemon_overrides` | `updateNodeDaemonOverrides` | `PATCH /api/nodes/{nodeId}/daemon-overrides` | A | – | – | – |
 
 "scan paths" = `stateReason`, `scheduling.error`, `conditions`; "script-run paths" = `errors`, `error`, `result`,
 `logTail`, `outputs`, `progress`, `checkpoint`. `cancelScan` and `cancelScriptRun` carry `x-destructive: true`
@@ -512,12 +514,12 @@ the API allows through the tunnel ([api](api.md) §1.9). The REST header
 |---|---|
 | uploads, task and script upload (tar.gz), git import/pull, workspace archives | binary or multi-step flows; agents use the file tools; git import needs credentials the user manages in the UI |
 | revision list, build log, source download | `get_revision` (with `latest`) carries the structured errors |
-| revision bundles (`createRevisionBundle`, `getRevisionBundle`) | a bundle is a Docker image archive of hundreds of MB for a human recipient, useless to an agent, and 44 of 45 slots are taken; the resource `scantor://guide/bundles` lets an agent explain bundles and ask the user to create one in the UI or with `scantor revisions bundle` |
+| revision bundles (`createRevisionBundle`, `getRevisionBundle`) | a bundle is a Docker image archive of hundreds of MB for a human recipient, useless to an agent, and every slot is taken; the resource `scantor://guide/bundles` lets an agent explain bundles and ask the user to create one in the UI or with `scantor revisions bundle` |
 | test-run list, stream, cancel, presigned file download | `test_task`/`get_test_run` with `wait` cover the loop; `read_test_run_file` returns file content inline |
 | analyses list, inline export, presigned file downloads | `query_analyses` (projection, `afterSeq`), `read_analysis_file` (file content inline) and `export_scan` (presigned URL) |
 | inflight, conditions, events, workers, worker logs | `get_scan` carries conditions and progress; the rest is operator detail for the UI/CLI |
 | account, API keys, OAuth apps, credentials, editor, tools | credential management must not be driven by an agent |
-| users, node management, metrics | admin operations stay in the UI/CLI; `list_nodes` is the read-only exception |
+| users, node management (create, update, delete, tokens, join, workers, events, `getNode`, `deleteNodeDaemonOverrides`), metrics | admin operations stay in the UI/CLI; the exceptions are `list_nodes` (read, also the daemon configurations with `include`) and `update_node_daemon_overrides` (decision 16), whose `null` members also remove overrides |
 | script delete, script-run list, presigned output and source downloads | deleting a script removes its runs and outputs (UI/CLI only); `get_script` carries the newest runs; `read_script_run_output` returns output content inline |
 | setup, node, runtime, script runtime, registry, forward-auth | machine or bootstrap principals |
 
@@ -668,14 +670,14 @@ Made in this document and flagged for lead review:
     `structuredContent`/`outputSchema` in v1.
 12. **Curated tool cap of 45** (raised from 30). Inline file reads (`read_analysis_file`,
     `read_test_run_file`) and the planned script tools need slots; the set stays curated (no list, admin or
-    operator noise: every exclusion of §5 still holds), and 45 is still below the tool counts at which common
-    clients degrade (truncated tool lists, worse tool selection). Raising it again is a deliberate decision
-    recorded here.
+    operator noise: every exclusion of §5 still holds, except the daemon overrides of decision 16), and 45 is
+    still below the tool counts at which common clients degrade (truncated tool lists, worse tool selection).
+    Raising it again is a deliberate decision recorded here.
 13. **File content inline as JSON**, not as MCP binary blocks or presigned URLs: one REST operation per file
     owner (analysis, test run) keeps ownership, masking and the authorization matrix of REST (MCP-6), works
     for clients that cannot reach the S3 origin, and stays within the result cap through paging.
-14. **Script tools** (13, bringing the catalogue to 44 of 45): create, edit, run, follow, cancel, restart and read
-    outputs; deletion, history and presigned downloads stay in the UI and CLI. A run without `settings.limit`
+14. **Script tools** (13, bringing the catalogue to 44 of 45 at the time): create, edit, run, follow, cancel,
+    restart and read outputs; deletion, history and presigned downloads stay in the UI and CLI. A run without `settings.limit`
     needs `confirm: true` through MCP (MCP-3), so an agent always tries a sample first and asks before reading
     every analysis. Script results, logs, errors, progress, checkpoints and outputs are code-derived and wrapped.
 15. **One authorization server per origin** ([auth](auth.md) §4.5): through the tunnel URL, `/mcp`, discovery and
@@ -683,6 +685,16 @@ Made in this document and flagged for lead review:
     such as claude.ai, which cannot reach a master behind a firewall, connect through the tunnel. Tokens stay
     bound to the origin that issued them, while clients and consents are shared. Tool calls keep using the
     loopback listener and carry no origin, because no tool returns an origin-dependent URL (§4.3).
+16. **One admin write tool for daemon overrides fills the last slot** (`update_node_daemon_overrides`, 45 of 45):
+    an operations agent can tune a node's capacity and name resolution ([nodes](nodes.md) §6.12) without the
+    node host, which is the node-management task agents are asked for most. Everything else about nodes stays
+    in the UI and the CLI. The read path is `list_nodes` with `include: "daemonConfig"`, so no `get_node` is
+    needed, and a patch with `null` members removes overrides, so `deleteNodeDaemonOverrides` is not a tool. The
+    tool needs level `admin`, the node operator bounds it (`SCANTOR_NODE_OVERRIDES`), every change is an event with
+    the admin's id, and a daemon restart undoes it ([security](security.md) OVR-1…7, MCP-9). It is not annotated
+    destructive: it discards no work or data. Its results need no `untrusted_data` wrapping: the daemon
+    configuration comes from the trusted node daemon, and the resolver's `error` is a fixed code
+    ([security](security.md) DNS-9). Another tool needs a deliberate cap raise.
 
 ## 11. Future extensions
 
@@ -696,4 +708,4 @@ Made in this document and flagged for lead review:
 | Prompts | MCP prompts such as "new task from template" built from the same guides. |
 | Scoped API keys | `apikey.permissions` can carry a level; §3.7 then reads it instead of defaulting to `write`. |
 | Multi-replica orchestrator | `sic_` capabilities move to a TTL collection, and the catalogue cache is per process anyway. The loopback call already reaches the same process. |
-| More tools | Raise the curated cap deliberately (one slot is left); the catalogue test and §5 change together. |
+| More tools | Raise the curated cap deliberately (no slot is left); the catalogue test and §5 change together. |

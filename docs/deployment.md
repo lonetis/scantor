@@ -35,7 +35,8 @@ volumes and variables. Variables are only *named* here and documented with their
  network: scantor-scripts (compose, internal: true): orchestrator, rustfs, script runs scantor-s-*
  network: scantor-tunnel (compose): orchestrator and cloudflared (profile cloudflare-tunnel; outbound to Cloudflare
    on port 7844, no host port) ──► orchestrator :3000
- host Docker daemon: builds (BuildKit), helpers, editors, test runs, script runs, master workers
+ host network: node resolver scantor-dns-* of the built-in node, bound only to the scantor-sandbox gateway :53
+ host Docker daemon: builds (BuildKit), helpers, editors, test runs, script runs, master workers, node resolver
 ```
 
 Host ports and the address variable they bind to. Only Traefik's and the registry's are in
@@ -115,7 +116,7 @@ through an SSH tunnel to `SCANTOR_ADMIN_BIND_ADDRESS`, for example
 | traefik | `traefik:v3.7` | same | Docker Hub |
 | cloudflared | `cloudflare/cloudflared:2026.11.1` | same | Docker Hub |
 | (spawned) editor | `${SCANTOR_IMAGE_PREFIX}scantor-editor:${SCANTOR_IMAGE_TAG}` | `scantor-editor:dev` | `editor/Dockerfile` target `editor` |
-| (spawned) helpers, egress helper | `${SCANTOR_IMAGE_PREFIX}scantor:${SCANTOR_IMAGE_TAG}` | `scantor:dev` | root `Dockerfile` |
+| (spawned) helpers, egress helper, node resolver and its probe | `${SCANTOR_IMAGE_PREFIX}scantor:${SCANTOR_IMAGE_TAG}` (the node daemon's own image for the last three) | `scantor:dev` | root `Dockerfile` |
 | (build base) | `${SCANTOR_IMAGE_PREFIX}scantor-base-{python,js,go}:${SCANTOR_IMAGE_TAG}` | `scantor-base-{python,js,go}:dev` | `connectors/<lang>/Dockerfile` |
 
 - In production `SCANTOR_IMAGE_PREFIX` points at GHCR (`ghcr.io/lonetis/`) and `SCANTOR_IMAGE_TAG`
@@ -177,10 +178,10 @@ Boot steps are in [architecture](architecture.md) §4.1. In addition, step 6 doe
 | command | `["node"]` (the image entrypoint is `scantor`) |
 | depends_on | `orchestrator` (`service_healthy`) |
 | healthcheck | `/usr/local/bin/scantor node healthcheck` every 30 s, 3 retries, `start_period` 60 s ([nodes](nodes.md) §7.1) |
-| other | `container_name: scantor-node`, `stop_grace_period: 30s`. Workers keep running when it stops ([nodes](nodes.md) §7.5). |
-| networks | `scantor` only (reaches `orchestrator:3000`). The workers it creates join `scantor-sandbox`. |
+| other | `container_name: scantor-node`, `stop_grace_period: 30s`. Workers and the node resolver keep running when it stops ([nodes](nodes.md) §7.5). |
+| networks | `scantor` only (reaches `orchestrator:3000`). The workers it creates join `scantor-sandbox`; its node resolver runs on the host network, bound to the `scantor-sandbox` gateway ([nodes](nodes.md) §6.11). |
 | volumes | `${SCANTOR_DOCKER_SOCKET}` at `/var/run/docker.sock` |
-| env | `SCANTOR_URL=${SCANTOR_INTERNAL_URL}`, `SCANTOR_NODE_BUILTIN=true`, `SCANTOR_SECRET`, `SCANTOR_NODE_MAX_WORKERS=${SCANTOR_BUILTIN_NODE_MAX_WORKERS}`, `SCANTOR_NODE_DIND=${SCANTOR_BUILTIN_NODE_DIND}`, `SCANTOR_NODE_EGRESS_DENY`, `SCANTOR_NODE_PIDS_LIMIT`, `SCANTOR_NODE_SHM_SIZE`, `SCANTOR_NODE_NOFILE`, `SCANTOR_NODE_WORKER_LOG_MAX_SIZE`, `SCANTOR_NODE_WORKER_LOG_MAX_FILES`, `SCANTOR_NODE_IMAGE_RETENTION`, `SCANTOR_NODE_PULL_TIMEOUT`, `SCANTOR_LOG_LEVEL`, `SCANTOR_LOG_FORMAT` |
+| env | `SCANTOR_URL=${SCANTOR_INTERNAL_URL}`, `SCANTOR_NODE_BUILTIN=true`, `SCANTOR_SECRET`, `SCANTOR_NODE_MAX_WORKERS=${SCANTOR_BUILTIN_NODE_MAX_WORKERS}`, `SCANTOR_NODE_DIND=${SCANTOR_BUILTIN_NODE_DIND}`, `SCANTOR_NODE_EGRESS_DENY`, `SCANTOR_NODE_PIDS_LIMIT`, `SCANTOR_NODE_SHM_SIZE`, `SCANTOR_NODE_NOFILE`, `SCANTOR_NODE_WORKER_LOG_MAX_SIZE`, `SCANTOR_NODE_WORKER_LOG_MAX_FILES`, `SCANTOR_NODE_IMAGE_RETENTION`, `SCANTOR_NODE_PULL_TIMEOUT`, `SCANTOR_NODE_DNS_MODE`, `SCANTOR_NODE_DNS_UPSTREAMS`, `SCANTOR_NODE_DNS_ROOT_SERVERS`, `SCANTOR_NODE_DNS_LOCAL_DOMAINS`, `SCANTOR_NODE_DNS_CACHE_SIZE`, `SCANTOR_NODE_DNS_MAX_LOOKUPS`, `SCANTOR_NODE_DNS_UPSTREAM_QPS`, `SCANTOR_NODE_DNS_AUTHORITATIVE_QPS`, `SCANTOR_NODE_OVERRIDES`, `SCANTOR_LOG_LEVEL`, `SCANTOR_LOG_FORMAT`. The node resolver and daemon override variables apply to the built-in node unchanged (no `SCANTOR_BUILTIN_NODE_*` alias) |
 
 ### 4.3 mongo
 
@@ -554,6 +555,15 @@ services:
       - SCANTOR_NODE_WORKER_LOG_MAX_FILES=${SCANTOR_NODE_WORKER_LOG_MAX_FILES}
       - SCANTOR_NODE_IMAGE_RETENTION=${SCANTOR_NODE_IMAGE_RETENTION}
       - SCANTOR_NODE_PULL_TIMEOUT=${SCANTOR_NODE_PULL_TIMEOUT}
+      - SCANTOR_NODE_DNS_MODE=${SCANTOR_NODE_DNS_MODE}
+      - SCANTOR_NODE_DNS_UPSTREAMS=${SCANTOR_NODE_DNS_UPSTREAMS}
+      - SCANTOR_NODE_DNS_ROOT_SERVERS=${SCANTOR_NODE_DNS_ROOT_SERVERS}
+      - SCANTOR_NODE_DNS_LOCAL_DOMAINS=${SCANTOR_NODE_DNS_LOCAL_DOMAINS}
+      - SCANTOR_NODE_DNS_CACHE_SIZE=${SCANTOR_NODE_DNS_CACHE_SIZE}
+      - SCANTOR_NODE_DNS_MAX_LOOKUPS=${SCANTOR_NODE_DNS_MAX_LOOKUPS}
+      - SCANTOR_NODE_DNS_UPSTREAM_QPS=${SCANTOR_NODE_DNS_UPSTREAM_QPS}
+      - SCANTOR_NODE_DNS_AUTHORITATIVE_QPS=${SCANTOR_NODE_DNS_AUTHORITATIVE_QPS}
+      - SCANTOR_NODE_OVERRIDES=${SCANTOR_NODE_OVERRIDES}
       - SCANTOR_LOG_LEVEL=${SCANTOR_LOG_LEVEL}
       - SCANTOR_LOG_FORMAT=${SCANTOR_LOG_FORMAT}
 
@@ -1075,6 +1085,10 @@ What hot reload covers:
   `*.localhost` and IP addresses always pass.
 - `SCANTOR_PUBLIC_URL` stays a localhost URL. The browser, the host Docker daemon (registry
   realm) and the CLI on the host all reach it there.
+- The built-in node runs its node resolver in the Docker host's network namespace (on Docker Desktop, its VM),
+  bound to the `scantor-sandbox` gateway. Like the workers it survives `just down`; the daemon of the next `just up`
+  adopts it, or replaces it when `scantor-sandbox` got another gateway, and `just prune` removes it
+  ([nodes](nodes.md) §6.11.9).
 - Traefik also works locally: `COMPOSE_PROFILES=traefik`, `SCANTOR_DOMAIN=scantor.localhost` (browsers
   resolve `*.localhost` to loopback), self-signed certificate, and the URL variables changed per §7.7.
   The `traefik` profile makes the deployment public for the startup guard (§8.2), so run `just init`
@@ -1396,6 +1410,8 @@ restart ([auth](auth.md)).
 | editors | `SCANTOR_EDITOR_MAX_RUNNING`, `SCANTOR_EDITOR_MEMORY_LIMIT`, `SCANTOR_EDITOR_CPUS`, `SCANTOR_EDITOR_PIDS_LIMIT`, `SCANTOR_EDITOR_IDLE_TIMEOUT` | [editor](editor.md) |
 | workspace helpers | `SCANTOR_HELPER_CONCURRENCY`, `SCANTOR_HELPER_CONCURRENCY_PER_USER`, `SCANTOR_HELPER_MEMORY_LIMIT`, `SCANTOR_HELPER_PIDS_LIMIT`, `SCANTOR_HELPER_TIMEOUT`, `SCANTOR_WORKSPACE_MAX_BYTES` | [editor](editor.md) §9 |
 | placement on full disks | `SCANTOR_NODE_MIN_FREE_DISK` | no new workers on a node below it; emergency image GC on the node |
+| node resolver memory and threads | `SCANTOR_NODE_DNS_CACHE_SIZE` | the resolver container's memory limit is 2 × the cache + 768 MiB (with `GOMEMLIMIT` at 80 % of it): one cache size for the answer cache and one for zdns' delegation cache in mode `iterative`, which is sized from it; `PidsLimit 1024`, `GOMAXPROCS` ≤ 16; on the master it comes on top of the infrastructure ([nodes](nodes.md) §6.11.2). The answer cache counts the estimated memory of its answers, not their wire size (a single A answer about 512 bytes), so a size holds fewer answers than its byte count suggests ([nodes](nodes.md) §6.11.7) |
+| node resolver lookups | `SCANTOR_NODE_DNS_MAX_LOOKUPS`, `SCANTOR_NODE_DNS_UPSTREAM_QPS`, `SCANTOR_NODE_DNS_AUTHORITATIVE_QPS` | lookups in flight per node (one client address starts at most a quarter of them and waits for at most half), queries per second to each upstream or authoritative server, and 64 queries per lookup; beyond them a query gets SERVFAIL at once instead of piling up. One client address holds at most 32 of the resolver's 1024 client TCP connections ([nodes](nodes.md) §6.11.7) |
 
 Sizing script runs: script-run containers run on the master's Docker daemon, outside placement, so their CPUs and
 memory (each run's `resources` + 256 MiB) come on top of the built-in node's workers and the infrastructure. The
@@ -1486,6 +1502,7 @@ configure:
 | network isolation | rootless Docker can disable traffic between containers only when root has loaded `br_netfilter` (`modprobe br_netfilter`, persisted in `/etc/modules-load.d/`). Without it the orchestrator refuses `scantor-egress` until `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true` accepts plain networks, and test runs and git helpers of different users can then reach each other ([nodes](nodes.md) §6.8, [security](security.md) R21) |
 | client addresses | the default port driver (`builtin`) of RootlessKit makes every connection come from one internal address, so all users share the per-IP authentication rate limits and logs show no client IP. The `slirp4netns` port driver (or the `pasta` network driver) keeps source addresses: `DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=slirp4netns` in the environment of the user's `docker.service` |
 | egress deny list | the egress helper finds no `DOCKER-USER` chain in the daemon's network namespace, so `egressDenyApplied` stays `false` ([nodes](nodes.md) §9); block the cloud metadata ranges in the host's firewall |
+| node resolver | current `dockerd-rootless.sh` starts RootlessKit with `--detach-netns`: host-network containers then join dockerd's own namespace, which does not hold the worker bridges, so the built-in node's resolver cannot bind the `scantor-sandbox` gateway (`failed`, `bindUnavailable`) and workers keep Docker's DNS. To use the resolver, set `DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS=false` in the environment of the user's `docker.service` (as for the port driver above) and restart it; host-network containers then share RootlessKit's namespace with the bridges. Otherwise set `SCANTOR_NODE_DNS_MODE=disabled` to skip it ([nodes](nodes.md) §6.11.1) |
 | data on NFS | the network filesystem refuses `chown` from rootless containers: `data-init` (§4.9) makes the MongoDB, RabbitMQ and RustFS directories world-writable, and the `prepare` helper does the same for the roots of workspaces and editor homes, whose user directories then get mode 0755 ([editor](editor.md) §9.4). Keep every such directory below a parent that only the deploying user can enter (`chmod 700`), or keep the data in named volumes, which live in the user's Docker data root (`~/.local/share/docker`). MongoDB and RabbitMQ are not meant for network filesystems anyway (§5.1). |
 
 ### 10.2 Cloudflare Tunnel
@@ -1577,6 +1594,19 @@ The flow, snippets, requirements and lifecycle are in [nodes](nodes.md) §4, §7
 admin creates the node in the UI and runs the shown `docker run` or compose snippet on a Docker host
 that can reach the master over HTTPS. The node needs no inbound ports.
 
+Node-side requirements of the node resolver ([nodes](nodes.md) §6.11):
+
+| Need | Why | If it is missing |
+|---|---|---|
+| outbound DNS (UDP and TCP port 53) to the upstream servers of `SCANTOR_NODE_DNS_UPSTREAMS` (mode `recursive`), or to any DNS server on the internet (mode `iterative`) | the resolver answers the workers' lookups through them | the resolver is `degraded` and new workers keep Docker's DNS; where the network allows DNS only to the site's resolver, set `SCANTOR_NODE_DNS_UPSTREAMS=host` |
+| nothing on `0.0.0.0:53` of the node host (a DNS server such as dnsmasq, unbound or Pi-hole bound to every address) | the resolver binds port 53 of the worker network's gateway | `failed` with `bindInUse`; bind the host's server to its own interfaces (dnsmasq `bind-interfaces`, unbound `interface:`) |
+| the host firewall accepts traffic from the worker subnet to the gateway on port 53 | Docker's embedded DNS in each worker forwards to the gateway | `unreachable`; allow it by address: `ufw allow from <subnet> to <gateway> port 53 proto udp`, and the same with `proto tcp` (the daemon log names both; firewalld's `docker` zone already accepts it) |
+| rootful Docker, or rootless Docker without `--detach-netns` | the resolver must see the worker bridge | `failed` with `bindUnavailable` (§10.1) |
+| a usable host nameserver: the host's `/etc/resolv.conf` (IPv4 link-local servers such as GCE's `169.254.169.254` work; IPv6 link-local and zoned ones do not) or a `dns` setting in Docker's `daemon.json` | the master's host names, the private reverse zones and `SCANTOR_NODE_DNS_LOCAL_DOMAINS` resolve through it | those names go to the upstream or root servers (the resolver logs "no usable host nameservers"), so a master that only internal DNS knows cannot be resolved by the workers, and its names reach those servers |
+
+A node that cannot meet these still resolves names: whenever its resolver is not `ready`, new workers use Docker's
+DNS (the host's nameservers), so the resolver is never a single point of failure for them.
+
 Master-side prerequisites for remote nodes:
 
 | Need | Traefik mode | Without Traefik (private network only) |
@@ -1637,6 +1667,9 @@ table is the complete metric catalogue; other documents ([queue](queue.md) §6.1
 | `scantor_nodes` | gauge | `state` | nodes by state |
 | `scantor_node_heartbeat_age_seconds` | gauge | `node` | seconds since the last status |
 | `scantor_node_disk_free_bytes`, `scantor_node_workers_capacity` | gauge | `node` | capacity |
+| `scantor_node_resolver_ready` | gauge | `node` | 1 while the node resolver is `ready`, else 0 ([nodes](nodes.md) §6.11.5) |
+| `scantor_node_resolver_qps` | gauge | `node` | queries per second the node resolver answers, as last reported |
+| `scantor_node_resolver_cache_hit_ratio` | gauge | `node` | cache hits / queries of the node resolver since it started |
 | `scantor_rabbitmq_alarm` | gauge | `type` (`memory`, `disk`) | 1 while active |
 | `scantor_jobs` | gauge | `kind`, `state` | background jobs |
 | `scantor_editors` | gauge | `state` | editor containers |
@@ -1661,6 +1694,9 @@ monitoring profile scrapes them. RabbitMQ runs without its Prometheus plugin (§
   `docker compose logs -f <service>`.
 - Worker logs stay on their node (rotated) and are tailed on demand from the UI ([nodes](nodes.md) §7.3).
   Per-analysis log tails are stored on the analysis ([data model](data-model.md) §4.6).
+- The node resolver logs in the node daemon's level and format to Docker's `local` driver (10 MiB × 3 files):
+  one line with its stats every 60 s, its start, binds and checks, never a line per query below `debug`. Read it
+  with `docker logs scantor-dns-<nodeId>-<hash12>` on the node host ([nodes](nodes.md) §6.11.8).
 - `/api/health` (public) reports the component status for load balancers and uptime checks.
 
 ## 14. Maintenance recipes
@@ -1754,6 +1790,7 @@ API keys and remote node tokens survive, because they are stored as hashes.
 | Move the master to a new host | backup (§12) → restore on the new host with the same `.env` → change DNS. Remote nodes reconnect on their own. |
 | Rename the compose project or the `mongo` service | not supported: the Traefik constraint and the replica-set member `mongo:27017` depend on them |
 | Free disk on the master quickly | `just registry-gc`; delete old tasks; `docker builder prune --keep-storage <size>` |
+| Remove a node resolver left behind (a decommissioned node, a stale resolver on the gateway) | stop the node daemon first, then `docker rm -f $(docker ps -aq --filter label=scantor.kind=resolver)`; a running daemon starts its resolver again ([nodes](nodes.md) §6.11.9) |
 
 ## 15. Troubleshooting
 
@@ -1775,6 +1812,15 @@ API keys and remote node tokens survive, because they are stored as hashes.
 | connecting claude.ai fails before or right after the consent page because its redirect URI is refused | `https://claude.ai` is missing from `SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS` | add it and recreate the orchestrator |
 | no passkey sign-in on the tunnel URL | the passkey belongs to another relying-party ID (§10.2) | sign in with a password on the tunnel URL and add a passkey there, or set a `SCANTOR_PASSKEY_RP_ID` that is a registrable suffix of both hosts (changing it voids existing passkeys) |
 | the CLI or an MCP client gets an HTML challenge page from the tunnel URL | Bot Fight Mode or another Cloudflare challenge | turn it off for the zone, or on Pro and above skip Super Bot Fight Mode for the tunnel host (§10.2) |
+| a node's resolver is `failed` with `bindUnavailable` | rootless Docker with RootlessKit `--detach-netns` | §10.1, or `SCANTOR_NODE_DNS_MODE=disabled` |
+| a node's resolver is `failed` with `bindInUse`, or a host DNS server no longer starts after the upgrade | a DNS server on the host holds or wants `0.0.0.0:53` | bind the host's DNS server to its interfaces (dnsmasq `bind-interfaces` or `except-interface=br-*`, unbound `interface:`) (§11) |
+| a node's resolver is `unreachable` | the host firewall drops traffic from the worker subnet to the gateway's port 53 | allow it by address, UDP and TCP (§11) |
+| a node's resolver is `degraded` (`upstreamUnreachable`) | outbound DNS is blocked except to the site's own resolver | allow UDP and TCP 53 to the upstream servers, or `SCANTOR_NODE_DNS_UPSTREAMS=host` (§11) |
+| a node's resolver is `failed` with `createFailed` and a `detail` starting "resolver config:" | the node resolver configuration the daemon built from its environment and overrides is invalid (the daemon log has the whole error) | fix `SCANTOR_NODE_DNS_*` or `SCANTOR_NODE_EGRESS_DENY` on the node, or remove the node's `dns` daemon overrides ([nodes](nodes.md) §6.11.6) |
+| workers of a node cannot resolve the master's hosts; the node's resolver logs "no usable host nameservers" | the node host's resolv.conf has no nameserver the resolver can use, so local names go to the upstream or root servers | give Docker a `dns` setting in `daemon.json` (§11) |
+| the node page says the node "has not reported a valid daemon configuration"; daemon overrides answer 409 `notReported` | an older daemon, a daemon still connecting, or a report the orchestrator stored as null (its log says "node sent an invalid sub-report") | upgrade the daemon or wait for its first status; an invalid report names its issues in the orchestrator log |
+| a `dns.upstreams` or `dns.rootServers` daemon override is refused with "private and special-purpose servers can only be configured in the node environment" | the server is in a private or special-purpose range, or (rejected by the daemon) inside the node's `SCANTOR_NODE_EGRESS_DENY` | set it in `SCANTOR_NODE_DNS_UPSTREAMS` or `SCANTOR_NODE_DNS_ROOT_SERVERS` on the node, which the resolver trusts ([nodes](nodes.md) §6.12.2) |
+| workers see lookup timeouts and SERVFAIL at high query rates, the kernel log says `nf_conntrack: table full, dropping packet`, or `info.resolver.stats.conntrackUsed` approaches 1 | Docker's embedded DNS opens a new socket for every forwarded query, so every lookup of a worker creates a connection-tracking entry on the host that lives about 30 s (UDP); with a table of 262144 entries that is about 8700 new lookups per second for the whole host, A and AAAA counting twice, next to the workers' own connections | raise the table: `sysctl -w net.netfilter.nf_conntrack_max=1048576` (persist it in `/etc/sysctl.d/`; about 300 bytes of kernel memory per entry), optionally `net.netfilter.nf_conntrack_udp_timeout=10`; raise `net.core.rmem_max` (the resolver asks for up to 4 MiB of receive buffer) for bursts; lower `processes` or spread the scan over more nodes |
 
 ## 16. Decisions made in this document
 
@@ -1826,6 +1872,10 @@ fixed subdomains of 14, are flagged for lead review:
     overwrite `X-Forwarded-For`. The peer is the fixed service name `cloudflared`, so the feature adds only two
     variables (`SCANTOR_TUNNEL_URL`, `SCANTOR_CLOUDFLARE_TUNNEL_TOKEN`); the token reaches cloudflared through
     `environment` only, and its metrics listener stays on the container's loopback.
+17. **The node resolver and daemon override variables reach the built-in node unchanged** (no
+    `SCANTOR_BUILTIN_NODE_*` alias): the master needs no other default than remote nodes, and the compose files pass
+    each as a plain `${VAR}` to the `node` service. The resolver itself needs no compose service: the daemon runs it
+    as a managed container ([nodes](nodes.md) §6.11), so `docker compose down` leaves it running like the workers.
 
 ## 17. Backbone change requests (written here as if applied)
 

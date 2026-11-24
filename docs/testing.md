@@ -151,7 +151,8 @@ project dependencies (§7.5).
 | `internal/keys` | HKDF derivations against the shared vectors in `tests/corpora/keys-vectors.json`, read by relative path (the orchestrator's vitest suite checks the same file) |
 | root package (`embed.go`) | non-empty embedded scaffold for every language in `languages.json` (guards the `go.mod.tmpl` rule) |
 | `internal/cli` | output formats (`-o json`), exit codes 0/1/2/3, `localhost` → `host.docker.internal` rewrite when containerized; every command group against an `httptest` fake orchestrator (request shapes, waits, downloads), including `scripts` (`run --follow`, Ctrl-C detach, `--cancel-on-interrupt`, `scantor push` of a script folder) and the hidden `script build` and `workspace --script` |
-| `internal/node` | assignment validation ([nodes](nodes.md) §6.10), the container spec per DinD mode, reconcile and worker recognition ([security](security.md) LBL-5), the per-pull credential (MC-8), image GC, `egress-apply` backend detection (nft/legacy) with a fake command runner, and the daemon against a fake Docker engine and an `httptest` fake orchestrator |
+| `internal/node` | assignment validation ([nodes](nodes.md) §6.10), the container spec per DinD mode, reconcile and worker recognition ([security](security.md) LBL-5), the per-pull credential (MC-8), image GC, `egress-apply` backend detection (nft/legacy) with a fake command runner, and the daemon against a fake Docker engine and an `httptest` fake orchestrator; the node resolver manager (create, adopt and replace order, a failed replacement keeps the old resolver, backoff, `disabled` with and without workers, the unauthorized purge, a kept resolver restarted with backoff in mode `disabled`, foreign and misnamed resolvers, no image, an invalid configuration (`createFailed`, no container), the resolver container spec and the probe and egress helper specs field by field (the `local` log driver, `UsernsMode` under userns-remap), spec hash determinism, every environment server trusted, the worker DNS choice with its settle window and gateway check, probe cadence, the two-failure rule and probe infrastructure errors that keep `ready`, health from the newest parsed health check whatever its exit code; the fake engine has IPAM gateways, health logs and `ContainerRestart`) and daemon overrides (apply, reject, the allow-list, unknown keys, override servers in private, special-purpose or deny-listed ranges, the sources of the daemon configuration, the bounded report) |
+| `internal/resolver` | with `resolvertest` (an in-process authoritative fake on real loopback UDP and TCP sockets, never `net.Pipe`) and the dialer's address-rewriting hook: strict configuration, router precedence (local names and domains, the probe name, `invalid.`, `onion.`, only exact `localhost.`), request checks, ACL, EDNS, BADVERS, truncation and TCP, client TCP connections (ACL at accept, the total and per-client caps, idle and per-connection limits, the accept backoff), cache TTL rules, the bound and the 16 KiB limit, the heap of hostile record shapes within the counted bytes, failure caching only for remote causes, name-level NXDOMAIN, flights, slot deadlines and the per-client caps (one client cannot hold the waiting cap), the server guard (glue `169.254.169.254`, `10.0.0.1`, `127.0.0.53` never dialled; exceptions per route; trusted and host servers), the query budget (NXNS-style delegations end after 64 queries; a dial without file descriptors is a local failure), the self-checks skipping the rate limits, capture (the UDP wrapper stays a `PacketConn`; spoofed IDs ignored; the trimming of iterative replies, so hostile delegations keep zdns' cache small), verbatim recursive answers with the NXDOMAIN SOA and one wire query per NXDOMAIN, the zdns cache purge and its size, the iterative chain (CNAME across zones, DNAME, loops, failed targets, out-of-bailiwick records ignored), local names without host nameservers, the parsing of resolv.conf and `/proc/net`, the recovered fatal log call, the log-level mapping (no line per query at `info`), the upstream and IPv6 checks, the drain, the state file and the healthcheck; on Linux also the reuseport steering (a replacement takes no query before its upstream check, a departing resolver steers away, a blue/green hand-over loses no query) |
 
 - Integration tests (`//go:build integration`) need Docker and name what they create with the test flag
   `-name-prefix` (default `scantor-test-`):
@@ -172,8 +173,10 @@ project dependencies (§7.5).
     `ACCESS_REFUSED` kill switch, and scheduler backpressure with real nacks;
   - `internal/node`: the worker lifecycle on the real engine (labels, HostConfig, live resize, crash
     backoff, log upload, adoption, recreation, removal; needs the containerd image store, otherwise it
-    skips) and `egress-apply` applied inside a scratch container's network namespace, never on the
-    host firewall.
+    skips), `egress-apply` applied inside a scratch container's network namespace, never on the
+    host firewall, and a real node resolver container that binds the gateway of a `scantor-test-*` network,
+    passes the probe, parses its health output and is replaced blue/green under a continuous query loop with no
+    failed lookup.
 
   Tests skip with a reason when the images they need are not present locally.
 
@@ -221,7 +224,17 @@ control (`test/ui/tunnel.test.ts`), the instance info's retry and download check
 tunnel
 cases in the `config`, `startup-guard`, `trusted-proxy`, `client-ip`, `auth-policy`, `auth-indexes`,
 `credential-lookup`, `instance-info`, `security-headers` and `wait` tests of `test/utils/`, in
-`test/middleware/script-runtime-auth.test.ts` (404 before the peer check's 403) and in `test/ui/navigation.test.ts`.
+`test/middleware/script-runtime-auth.test.ts` (404 before the peer check's 403) and in `test/ui/navigation.test.ts`;
+the node resolver and daemon overrides ([nodes](nodes.md) §6.11, §6.12): the lenient sub-reports of status and hello
+(an invalid `daemonConfig` or `info.resolver` is stored as null, never a 400; a report at the daemon's caps is
+stored), the merge patch and its 409 reasons (`invalidState` after three lost races), a hello of a new instance
+clearing the overrides, statuses storing the daemon configuration only for the current instance, `updateNode` and
+`revokeNodeToken` without `daemonConfig`, the assignments' `daemonOverrides`, the node events (`node.resolverReady`
+after a recovery through `starting` or a new instance, each change recorded once by overlapping reports) and
+resolver gauges, the endpoint-hosts helper, the MCP catalogue of 45, the bounds of `schemas/daemon-overrides.json`
+against the zod schemas (`test/shared/daemon-overrides.test.ts`), and the DNS servers of overrides, whose
+always-refused ranges must equal those of `internal/resolver/dialer.go` (`test/shared/dns-servers.test.ts`); the UI
+tests cover the resolver card's "unknown" rows and the overrides buttons' blockers.
 
 Integration tests are `*.integration.test.ts` files next to the unit tests. They skip themselves unless
 their gate holds, so `just test-orchestrator` (no Docker socket, non-root) runs only unit tests. `just
@@ -405,13 +418,17 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
  │    └── compose project "scantor" = docker-compose.prod.yml + docker-compose.ports.yml + tests/docker/stack.tests.yml (profile traefik)
  │         traefik :443/:80 published on 0.0.0.0 of the runner ─┐  default cert = test CA wildcard
  │         orchestrator · mongo · rabbitmq · rustfs · registry · mongo-express · node (built-in, pool shared)
- │         fixtures   (tranco/crux/crux-cache/ntfy on :8089 as fixtures.scantor.localhost; git behind Traefik as git.scantor.localhost)
+ │         (the built-in node's resolver: host network = the runner's namespace, on the scantor-sandbox gateway :53,
+ │          upstream 172.17.0.1 = dnsmasq)
+ │         fixtures   (tranco/crux/crux-cache/ntfy on :8089 as fixtures.scantor.localhost; git behind Traefik as git.scantor.localhost;
+ │                    fake DNS zone on :53, published as 1053 on the runner: 172.17.0.1:1053)
  │         tunnel     stand-in Cloudflare Tunnel: traefik:v3.7, alias cloudflared on scantor-tunnel, :8443 on 0.0.0.0,
  │                    https://tunnel.scantor.localhost:8443 → http://orchestrator:3000 (Host kept, X-Forwarded-For appended)
  │         remote-node  docker:29.9-dind on its own network scantor-remote (own dockerd: bip 10.20.0.1/24,
  │                      pools 10.21.0.0/16, dns 172.17.0.1, trusts the test CA)       ┐ simulated remote node
  │              └── scantor-node  scantor:dev `scantor node`, started with createNode's   ┘ "remote-1", pool "remote"
- │                                join command (+ SCANTOR_CA_CERT); workers next to it
+ │                                join command (+ SCANTOR_CA_CERT and the stack's DNS settings); workers and its
+ │                                node resolver (on the scantor-workers gateway inside the DinD) next to it
  │              workers on the remote dockerd reach the master only via https://*.scantor.localhost
  └── playwright (Node 24 from the image) → https://scantor.localhost (Chromium resolves *.localhost to 127.0.0.1)
 ```
@@ -423,7 +440,10 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
   processes and for every inner container, because the inner dockerd and its embedded DNS forward to
   dnsmasq on that address; Traefik publishes `443`/`80` on `0.0.0.0` of the runner
   (`SCANTOR_TRAEFIK_BIND_ADDRESS=0.0.0.0`), so the same URL works from the browser, from Node, from master
-  workers and from workers inside the remote node's own dockerd. The inner dockerd itself resolves the
+  workers and from workers inside the remote node's own dockerd. Workers reach dnsmasq through their node
+  resolver: `stack.env` sets `SCANTOR_NODE_DNS_UPSTREAMS=172.17.0.1` (dnsmasq), and the master's hosts and the
+  fixtures host are endpoint hosts ([architecture](architecture.md) §8), which every resolver sends to its host
+  nameservers, dnsmasq again. The inner dockerd itself resolves the
   registry token realm (`SCANTOR_PUBLIC_URL`) the same way, which exercises the hairpin requirement of
   [deployment](deployment.md) §15 for every push and pull. Every other host port keeps the shipped
   loopback `SCANTOR_BIND_ADDRESS`/`SCANTOR_ADMIN_BIND_ADDRESS` ([security](security.md) CFG-3, BLD-11): the
@@ -480,6 +500,8 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
 | `SCANTOR_SCRIPT_RUN_TIMEOUT` | `10m` | a run a failed test leaves behind ends soon, and the caps on `timeoutMs` are testable |
 | `SCANTOR_SCRIPT_RUN_MAX_LOG_BYTES` | `2MiB` | the smallest log cap: the head-and-tail retention is testable with a small run |
 | `SCANTOR_SCRIPT_RUN_MAX_OUTPUTS` | `10` | the output limit is testable with a few outputs |
+| `SCANTOR_NODE_DNS_UPSTREAMS` | `172.17.0.1` | node resolvers forward to the runner's dnsmasq, so `*.scantor.localhost` and the examples' names (`siteN.example`, the `reverse-dns` PTRs) resolve as before; the nested stack has no IPv6, and the suite must not depend on public resolvers. `172.17.0.1` is a private address the resolver's guard refuses unless configured in the environment, which makes it a trusted server ([nodes](nodes.md) §6.11.6) |
+| `SCANTOR_NODE_DNS_MAX_LOOKUPS` | `100` | dnsmasq forwards at most 150 queries at once (`dns-forward-max`), so the resolvers never overrun it |
 
 - The stand-in Cloudflare Tunnel is the service `tunnel` of `stack.tests.yml` (container `scantor-tunnel-stand-in`):
   the stack's own `traefik:v3.7` image (no extra pull) with the network alias `cloudflared` on `scantor-tunnel`, the
@@ -501,7 +523,9 @@ is attached to (the outer Docker allocates from 172.17–31 and 192.168).
   wget …`, helpers/tunnel.ts).
 - The remote node is a single `docker:29.9-dind` container on its own network `scantor-remote`: the node
   daemon runs **inside** it, started by `join-remote-node.mjs` with the exact `dockerRun` command of
-  `createNode` plus `-e SCANTOR_CA_CERT`. A daemon outside the DinD with `DOCKER_HOST` pointing at it would
+  `createNode` plus `-e SCANTOR_CA_CERT` and the stack's `SCANTOR_NODE_DNS_UPSTREAMS` and
+  `SCANTOR_NODE_DNS_MAX_LOOKUPS` (as `-e`; the throwaway DinD daemons of the security and e2e specs get the same, so
+  no test node silently uses public resolvers). A daemon outside the DinD with `DOCKER_HOST` pointing at it would
   fail its self-inspection ([nodes](nodes.md) §2), which disables the egress helper. The DinD's own dockerd
   uses `--dns 172.17.0.1` (containers of a DinD on a user-defined network cannot use the embedded DNS) and
   address ranges that cannot collide with the runner's, appends the test CA to its system bundle (the
@@ -529,7 +553,7 @@ failures and normal exits all tear down. Playwright and the keep-alive wait run 
 | 7. the stack's `.env` | write `/run/scantor-test/.env`: `/src/.env.example`, overridden by `stack.env` (so compose interpolation and the orchestrator's `env_file` see the empty `SCANTOR_IMAGE_PREFIX` and `SCANTOR_IMAGE_TAG=dev`, never the shipped GHCR values), with every other `-insecure-dev` value replaced by 48 random hex characters (the `just init` merge of [deployment](deployment.md) §8.3), a random `SCANTOR_ADMIN_PASSWORD` and the CA PEM as `SCANTOR_CA_CERT` (double-quoted, `\n`-escaped); a `stack.env` key missing from `.env.example` fails | exit 1 |
 | 8. stack | pull every image that `compose config --images` names and that is absent locally, with `docker pull` retried 4× like the build; after phase 6 only the pinned third-party images (including the remote node's `docker:29.9-dind`) can be absent (once per cache volume locally, on every CI run). Then `docker compose -p scantor --project-directory /run/scantor-test -f /src/docker-compose.prod.yml -f /src/docker-compose.ports.yml -f /opt/scantor-test/stack.tests.yml up -d --pull never` (profiles from `COMPOSE_PROFILES` in the project `.env`) | exit 1 |
 | 8a. wait | poll `https://scantor.localhost/api/health` until `status: ok` and every component `ok` (≤ 300 s) | dump `compose ps` and `compose logs --tail 200`, exit 1 |
-| 8b. remote node | `node join-remote-node.mjs`: sign in as the seeded admin (one sign-in), `createNode {name: "remote-1", pool: "remote", labels: {zone: "remote"}}`, `docker save scantor:dev \| docker exec -i scantor-remote-node docker load`, run the `dockerRun` of the response inside the remote node with `-e SCANTOR_CA_CERT`, wait ≤ 120 s until the node is `online`, write `{id, name, pool, labels, token}` to `/run/scantor-test/remote-node.json` (0600) | the node daemon's log tail, exit 1 |
+| 8b. remote node | `node join-remote-node.mjs`: sign in as the seeded admin (one sign-in), `createNode {name: "remote-1", pool: "remote", labels: {zone: "remote"}}`, `docker save scantor:dev \| docker exec -i scantor-remote-node docker load`, run the `dockerRun` of the response inside the remote node with `-e SCANTOR_CA_CERT` and the `SCANTOR_NODE_DNS_*` settings of `stack.env`, wait ≤ 120 s until the node is `online`, write `{id, name, pool, labels, token}` to `/run/scantor-test/remote-node.json` (0600) | the node daemon's log tail, exit 1 |
 | 8c. playwright | `npm ci` into the node_modules volume when `package-lock.json` changed (stamp `node_modules/.scantor-package-lock.json`); remove `tests/.auth`; write `SCANTOR_PUBLIC_URL`, `SCANTOR_EDITOR_URL`, `SCANTOR_TUNNEL_URL`, `SCANTOR_ADMIN_EMAIL`, `SCANTOR_ADMIN_PASSWORD`, `SCANTOR_SECRET`, `SCANTOR_AUTH_RATE_LIMIT_SCALE`, `NODE_EXTRA_CA_CERTS`, `SCANTOR_TEST_WORKERS`, the host uid/gid and `CI` to `/etc/profile.d/scantor-test.sh`; run `scantor-test-playwright "$@"` (`tests/docker/playwright.sh`: sources that file, runs `npx playwright test` in `/work/tests`, hands `playwright-report/`, `test-results/` and `.auth/` to `SCANTOR_TEST_HOST_UID:GID`); keep its exit code | a non-zero exit code: write `compose ps -a`, every service's log, the remote node daemon's log and the inner dockerd's log (with timestamps, gzipped) to `test-results/stack-logs/`, since phase 9 removes the stack and the broker or reconciler failures behind many test failures show only there |
 | 8d. keep alive | `SCANTOR_TEST_KEEP_ALIVE=true` → touch `/run/scantor-test/ready`, print how to use `just test-exec` and `just test-down`, and block until interrupted | – |
 | 9. cleanup | `compose down -v --remove-orphans` (same project flags as phase 8, when the `.env` exists); remove every container with label `scantor.managed=true`, `scantor.test=true` or `com.docker.compose.project=scantor` (workers, helpers, editors, test-run and build containers, test-created orchestrators); remove app-created networks (`scantor-egress`, label `scantor.kind=network`) and the project's networks; remove the project's volumes and the boot-created volumes `scantor-workspaces` and `scantor-editor-home`; remove task and draft images (`*/tasks/*`) and images labelled `scantor.test=true`; keep platform images and build cache; stop dockerd cleanly (the cache volume stays consistent); hand the reports to the host user; exit with the Playwright exit code (or the failing phase's) | best effort, logs every failure |
@@ -594,7 +618,9 @@ Fails loudly (every error is thrown; nothing is swallowed):
    UI login happens in setup.
 4. Fetch `/api/docs/openapi.json` and save it to `.auth/openapi.json` (used by the generic client and the
    authz matrix).
-5. Verify the built-in node (`builtin`) and `remote-1` are `online` (`listNodes`).
+5. Verify the built-in node (`builtin`) and `remote-1` are `online` (`listNodes`), and wait until both report
+   `info.resolver.state` `ready`: workers created before that would keep Docker's DNS for their whole life
+   ([nodes](nodes.md) §6.11.5), and every spec that asserts the resolver path relies on it.
 
 ### 7.7 Fixtures (`fixtures.ts`)
 
@@ -666,8 +692,9 @@ choose (git imports of the fixture repositories, `git-*`) repeat within a worker
   a `SecretStr` (`writeOnly`) and an upload field; the result echoes the config with the secret's SHA-256
   and carries a FileRef; TypeScript and Go variants to compare describe output are still to be added),
   `netprobe` (TCP connect attempts to the `host:port` targets of its task config, returns reachability; mode
-  `env` returns the names of its environment variables), `nondeterministic` (custom schedule yielding random
-  items slowly), `big-result` (exceeds `SCANTOR_MAX_RESULT_BYTES`), `crashy` (modes `exit` (code 3),
+  `env` returns the names of its environment variables; mode `resolve` looks up each name of its task config
+  with the system resolver and returns the addresses or the error per name), `nondeterministic` (custom
+  schedule yielding random items slowly), `big-result` (exceeds `SCANTOR_MAX_RESULT_BYTES`), `crashy` (modes `exit` (code 3),
   `memory` (allocates beyond its limit), `hang` (past the timeout), `ok`), `no-hello` (an `ENV
   SCANTOR_CONNECTOR_CMD` whose process never sends `hello`: the revision fails at describe), `hostile-label`
   (Dockerfile with forbidden `LABEL`s, literal and ARG-expanded: the revision fails at static), `hostile-output`
@@ -708,6 +735,14 @@ choose (git imports of the fixture repositories, `git-*`) repeat within a worker
   - every request is logged to stdout as one JSON line (`method`, `host`, `path` without the query, `status`,
     `userAgent`, `ms`), so specs can assert what schedulers and test runs fetched and with which User-Agent
     (TPL-008).
+  - a fake DNS server on port 53 (UDP and TCP), published as `1053` on the runner (`172.17.0.1:1053`), a standalone
+    `github.com/zmap/dns` server of its own (`dns.go`, zone `fixturesZone`, tested by `dns_test.go`): a single zone
+    that answers everything it knows authoritatively (AA=1) with
+    no delegations, and NXDOMAIN otherwise (`*.scantor.test`: A, CNAME chains within and across names, NODATA).
+    A node resolver in mode `iterative` with the root servers `172.17.0.1:1053` resolves through it (NODE-041).
+    zdns sends every delegated query to port 53, so a fake root on another port can never refer: referrals,
+    glue, delegation caching and the server guard are covered by the `internal/resolver` unit tests with the
+    dialer's address-rewriting hook, never end to end.
 
 ## 8. Suites
 
@@ -885,6 +920,12 @@ security.md cites (`tests/security/<name>.spec.ts`); the other mitigations are c
 | `downloads.spec.ts` | `hostile-output` files `x.html`, `x.svg`, `x.png` and a name with CR/LF/quotes | html/svg served as attachment with `application/octet-stream`; png inline as `image/png`; the name sanitised in `Content-Disposition`; unsigned GET → 403; a foreign-origin preflight refused; revision source downloads are `application/gzip` attachments; links expire; inline file reads (`readAnalysisFile`) answer only JSON, html/svg as `utf8` strings and png as `base64` |
 | `bundles.spec.ts` | a ready bundle of `tasks/echo`, unpacked with every layer ([security](security.md) §6.21) | no HKDF-derived value of `helpers/keys.ts`, API key (`sk_scantor_` + 64 letters), stack hostname, `SCANTOR_REGISTRY_PUBLIC_HOST`, `localhost:<registry port>/tasks` or owner, task or revision id in any byte; `manifest.json` `RepoTags` and the `index.json` annotations name only `localhost/scantor/<task>:<n>`; the image config has the entrypoint `/scantor/scantor runtime bundle`, the runtime healthcheck, `WorkingDir` `/work` and no `scantor.*`, `com.docker.compose.*` or `traefik.*` label; `/scantor/bundle.json` validates against `schemas/bundle.schema.json` |
 
+The node resolver's container spec runs on a throwaway node daemon in its own DinD (the egress-helper pattern of
+`sandbox.spec.ts`, with the stack's DNS settings): field by field (host network, the capabilities, read-only rootfs,
+restart policy `no`, the healthcheck turning healthy, only `<gateway>:53` bound, one resolver per node, the probe
+container; NODE-036). The client ACL (NODE-042) only reads the shared nodes: the built-in node and remote-1 answer
+their worker network and refuse the same query from another network of their host (`scantor`, `bridge`).
+
 The test-created orchestrator containers (`helpers/orchestrator.ts`) never run the reconciler
 (`SCANTOR_COMPONENTS=api`), so their boot sweep cannot delete the main stack's per-scan RabbitMQ users. They
 share only the stack's RabbitMQ (boot step 5 only asserts the global topology, which is idempotent) and get
@@ -920,6 +961,8 @@ never timing. Cases run serially after all other projects.
 | lost analyses retried | a `throws` scan whose analyses are `retrying` with a long `backoff.initialMs`; delete the scan queue with its delayed messages through the RabbitMQ management API (the reconciler recreates it empty) | after `SCANTOR_SCAN_STALL_AFTER` the documents are `lost` with their config and the scan ends; `retryFailedAnalyses` resets them; scan `completed` with `succeeded == total` |
 | cloudflared impersonated | `docker stop` the stand-in tunnel, then a container with the network alias `cloudflared` on `scantor-sandbox`, and one on `scantor-scripts`, as the only answer to the name (the orchestrator's own resolver returns its address); `docker start` the stand-in afterwards | its tunnel-host requests → 421 across several lookups, its public-host requests → 200 (the sandbox and scripts subnets never count, TUN-1); the tunnel URL serves again once the stand-in is back |
 | broker alarm | lower RabbitMQ's memory watermark (`rabbitmqctl set_vm_memory_high_watermark absolute 1`) during a running scan, restore it after 20 s | while the alarm lasts `startScan` returns 503 `brokerAlarm` and the running scan shows the `brokerAlarm` condition; afterwards the condition clears and the scan completes with exact counts |
+| node resolver restart | `docker stop -t 30 scantor-node` inside the remote node (remote-1's daemon), with the resolver still answering the worker network, then `docker start scantor-node`; then `docker kill` remote-1's resolver | the resolver keeps answering while the daemon is stopped; the new daemon instance adopts it (same container id and `StartedAt`, same spec) and reports it `ready`; after the kill the daemon starts the same container again (within 120 s) and it is `ready` and answers again (NODE-040) |
+| daemon overrides across an orchestrator restart | set a daemon override on the built-in node before the orchestrator-restart case, reset it in `finally` | the override and the reported daemon configuration survive the orchestrator restart, because the built-in daemon keeps its instance (NODE-046) |
 
 Excluded because they cannot be made deterministic in this environment: retry-failed racing late results,
 killing the orchestrator exactly between a `bulkWrite` and the counter update, disk alarms, clock-skew
@@ -1003,7 +1046,15 @@ Flake avoidance (agentor's pitfalls):
     with an `InformationalError` "socket idle timeout" that reached the worker uncaught and failed its next test,
     although every step of that test passed. The `mcp` project covers the SDK clients. ESLint enforces the rule
     for `tests/ui/` (no global `fetch`, no SDK client or helper that connects one).
-19. The stack's orchestrator trusts every address that `cloudflared` resolves to on a network it is attached to
+19. **DNS tests.** Never assert query counts at upstream or fixture servers in end-to-end specs (retries, two
+    resolvers sharing the gateway during a replacement, and Docker's own retries make them unstable), and never
+    compare resolver stats across a replacement (a new resolver starts its counters and cache from zero). After a
+    `dns.*` override wait for the new spec hash in `info.resolver.spec` and for the old resolver container to be
+    gone. A test that breaks resolution and repairs it waits more than 5 s, the failure cache of the resolver.
+    The node resolvers of the built-in node and of `remote-1` are shared: a spec reads them, and only the chaos
+    project restarts them or changes their overrides (rule 4); everything else runs on throwaway DinD nodes or
+    a `FakeNode`.
+20. The stack's orchestrator trusts every address that `cloudflared` resolves to on a network it is attached to
     (outside `scantor-sandbox` and `scantor-scripts`) as the tunnel's peer, and Docker's DNS answers the name from
     the first of its networks that has it, which can be `scantor-sandbox` before `scantor-tunnel`. A container with
     the alias `cloudflared` on `scantor-sandbox` or `scantor-scripts` therefore takes the name over from the stand-in

@@ -3,9 +3,9 @@
 Every failure in scantor, whether your code raised it, an analysis ran out of time, a process crashed or
 the platform had a problem, is recorded as one structured error with a type that decides what happens
 next. This guide explains the error types, how to raise them from your code, how attempts, backoff,
-timeouts and crashes work, how scans protect themselves from failing en masse, how to run failed
-analyses again, where errors show up in the web UI, the CLI, the API and MCP, and how to get a push
-notification when a scan finishes or runs into trouble.
+timeouts and crashes work, what name resolution failures look like in workers, how scans protect themselves
+from failing en masse, how to run failed analyses again, where errors show up in the web UI, the CLI, the API
+and MCP, and how to get a push notification when a scan finishes or runs into trouble.
 
 ## The error object
 
@@ -141,6 +141,36 @@ code, the OOM flag, the restart count and the end of the container log, and the 
 container with a growing delay (5 s up to 5 min). An analysis that kills every worker that receives it
 is given up after the instance's delivery limit (10 deliveries by default) and stored as `failed` with a
 non-retryable `crash`: "every worker that received this analysis died while processing it".
+
+## Name resolution in workers
+
+Workers resolve host names through their node's DNS resolver, a cache that every worker of the node shares
+([remote nodes](remote-nodes.md#name-resolution)). Your code keeps using the system resolver as usual (Python
+`socket.getaddrinfo` and every HTTP client on top of it, Node's `dns.lookup`, Go's `net.Resolver`). What to expect:
+
+- A lookup ends within 3 seconds, with an answer or a failure. A server failure or a timeout is a temporary DNS
+  error (`EAI_AGAIN` in Python and Node, a `*net.DNSError` with `IsTemporary` in Go): raise `Retry` for it, or
+  record it in the result when unreachable targets are an expected outcome. A name that does not exist is "not
+  found" (`EAI_NONAME` in Python, `ENOTFOUND` in Node, `IsNotFound` in Go), which retries do not change.
+- Answers are cached for their TTL, at most one hour. A name that does not exist is remembered for at most 15
+  minutes, and a server failure for 5 seconds, so other scans on the same node may get your answers from the cache.
+- Each worker gets a fair share: a lookup that needs more than 64 queries (very long or broken delegation chains,
+  hostile zones) fails like a server failure, and a worker that keeps very many lookups waiting at once gets
+  server failures beyond its share. Neither is cached.
+- The resolver returns no DNSSEC records (no `AD` flag), refuses zone transfers (AXFR, IXFR), answers `ANY` with
+  a minimal reply when it resolves from the root servers, and sends at most 1232 bytes over UDP (larger answers
+  come over TCP).
+- Names under `invalid.` and `onion.` never resolve, and `localhost` is `127.0.0.1` and `::1`. The master's host
+  names and private names (`internal`, `home.arpa`, the reverse zones of private addresses and the domains the node
+  operator lists) are resolved by the node host's own DNS (by the resolver's upstream or root servers when the host
+  has none).
+- When a node's resolver is not ready, or its operator turned it off, new workers use Docker's DNS (the node host's
+  nameservers), which may answer differently.
+- **Test runs differ**: a test run on the master uses the master's Docker DNS, never a node's resolver, so a task
+  can resolve a name differently in a test run than in a scan.
+- **Measuring DNS**: when your task studies DNS itself (resolver behaviour, DNSSEC, TTLs, particular servers), send
+  the queries to the servers you study with a DNS library instead of the system resolver, so neither the cache nor
+  the node's resolver shapes your data.
 
 ## Errors in `schedule`
 

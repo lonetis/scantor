@@ -32,7 +32,10 @@ Python scripts.
 - **Test before you publish**: test runs on the platform or locally, immutable numbered revisions
   (`echo@3`), and every publish check (manifest, Dockerfile policy, type check) available locally.
 - **Scale out**: workers run on the master and on any number of remote nodes. Nodes connect outbound
-  only, so they work behind NAT and firewalls. Pools and labels choose where a scan runs.
+  only, so they work behind NAT and firewalls. Pools and labels choose where a scan runs. Every node runs
+  its own DNS resolver with one cache for all its workers, resolving through upstream servers or
+  iteratively from the root servers, and admins can adjust a running node's worker limit, worker settings
+  and DNS from the web UI, the CLI or an agent.
 - **Live control**: pause, resume, scale workers and processes while a scan runs, cancel, retry failed
   analyses, restart.
 - **Robust execution**: retries with backoff, per-analysis timeouts, crash recovery, a circuit breaker
@@ -128,7 +131,10 @@ nodes keep using the public URL. It works with or without Traefik.
 
 **Rootless Docker.** A host where you have only a rootless Docker daemon works with `.env` settings alone:
 the daemon socket (`SCANTOR_DOCKER_SOCKET`), unprivileged Traefik ports and, without the `br_netfilter` kernel
-module, `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true`. The "DOCKER HOST" section of `.env.example` lists them.
+module, `SCANTOR_ALLOW_UNISOLATED_NETWORKS=true`. The "DOCKER HOST" section of `.env.example` lists them. The
+built-in node's DNS resolver also needs RootlessKit without `--detach-netns`
+(`DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS=false` for the user's `docker.service`); otherwise its workers use
+Docker's DNS.
 
 **Data locations.** By default every service keeps its data in a named Docker volume. To store a service's
 data elsewhere, for example MongoDB on one disk and RabbitMQ on another, set its variable in the "DATA LOCATIONS"
@@ -136,8 +142,9 @@ section of `.env.example` to a host directory. Each service is configured on its
 
 **Remote nodes.** Any Docker host can add capacity. As an admin, create a node under **Admin → Nodes**
 (or with `scantor nodes create <name>`) and run the `docker run` command it shows on the node host. The
-node connects outbound over HTTPS and needs no open ports. See [remote nodes](docs/guide/remote-nodes.md)
-for TLS, private networks, pools and Docker-in-Docker.
+node connects outbound over HTTPS and needs no open ports; its DNS resolver also needs outbound DNS, without
+which its workers use the host's own DNS. See [remote nodes](docs/guide/remote-nodes.md) for TLS,
+private networks, pools, name resolution, daemon overrides and Docker-in-Docker.
 
 ## Architecture
 

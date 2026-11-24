@@ -1520,9 +1520,12 @@ SB-1), runtime injected with entrypoint `/scantor/scantor runtime local --spec /
 spec and referenced uploads are part of the injection tar, [runtime](runtime.md) §3.1) and the runtime
 healthcheck of local mode ([runtime](runtime.md) §5.3), events on stdout,
 files in `/scantor/out`. Template data sources (Tranco, CrUX, crux-cache) are fetched from
-inside this container, never by the orchestrator. A job attempt first removes a leftover of that name
-(from an earlier attempt) and at its end removes the container it created by its id, never by its name:
-after a lost lease another runner may already run the test run in a new container of the same name.
+inside this container, never by the orchestrator. The container resolves names through Docker's DNS on the
+master (the master's nameservers), not through a node resolver as scan workers do ([nodes](nodes.md) §6.11), so a
+task can resolve a name differently in a test run than in a scan ([errors and retries](guide/errors-and-retries.md)).
+A job attempt first removes a leftover of that name (from an earlier attempt) and at its end removes the container
+it created by its id, never by its name: after a lost lease another runner may already run the test run in a new
+container of the same name.
 
 ### 11.3 Local mode
 

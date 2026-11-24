@@ -12,12 +12,12 @@ This file is the index for agents developing this repository. `README.md` is use
 
 | Path | Contents |
 |---|---|
-| `cmd/scantor/`, `internal/` | the single Go binary (module root `go.mod`): CLI, node daemon, runtime, task and script build pipeline, workspace helpers, templates, conformance harness, shared packages |
+| `cmd/scantor/`, `internal/` | the single Go binary (module root `go.mod`): CLI, node daemon, node resolver (`internal/resolver`, the only zdns importer), runtime, task and script build pipeline, workspace helpers, templates, conformance harness, shared packages |
 | `orchestrator/` | Nuxt 4 + Nuxt UI 4 app: `app/` (UI), `server/` (`api/` routes, `routes/` `/mcp`, `middleware/`, `plugins/`, `services/`, `utils/`), `shared/` (types, zod schemas), `test/` (vitest) |
 | `connectors/` | per-language connector libraries (`python`, `js` = `@scantor/connector` for TS and JS, `go`); each Dockerfile builds a base image; `python` also holds the script SDK `scantor.script` |
 | `scaffolds/` | task starters per language (rendered by `scantor init`; Go `go.mod`/`go.sum` stored as `*.tmpl`) and the script starter `python-script/` (`scantor scripts init`, `createScript`) |
 | `tasks/` | example tasks; together they cover every language and every template |
-| `schemas/` | canonical JSON: manifest, script manifest, describe output, bundle info, `languages.json`, `managed-labels.json`, protocol, AMQP messages, templates (+ fixtures) |
+| `schemas/` | canonical JSON: manifest, script manifest, describe output, bundle info, `languages.json`, `managed-labels.json`, `daemon-overrides.json` (overridable daemon keys and bounds), protocol, AMQP messages, templates (+ fixtures) |
 | `editor/` | `scantor-editor` image (code-server); its `toolchain` stage is also the devcontainer |
 | `tests/` | dockerized Playwright suites, shared corpora, fixture tasks and scripts (`fixtures/tasks/`, `fixtures/scripts/`; `files-report` is the end-to-end script the scripts guide quotes), `FEATURES.md`, generated `TESTS.md` |
 | `docs/`, `docs/guide/` | internal specifications; user guides (embedded into the binary and the orchestrator image, served over MCP) |
@@ -39,6 +39,8 @@ README. The most important terms:
 | master / orchestrator | the central deployment / its Nuxt app (UI, REST `/api/*`, `/mcp`, editor origin, ingestor, reconciler) |
 | tunnel / tunnel URL / tunnel request | the optional Cloudflare Tunnel of the master (service `cloudflared`, profile `cloudflare-tunnel`, routed straight to `orchestrator:3000`) / `SCANTOR_TUNNEL_URL`, a second https origin for the dashboard, REST API and `/mcp` only (`SCANTOR_PUBLIC_URL` stays canonical) / a request whose socket peer is `cloudflared` **and** whose `Host` is the tunnel host; never "external URL"; write "Cloudflare Tunnel" or "tunnel URL" where "SSH tunnel" could be meant |
 | node (built-in, remote) | a Docker host running a node daemon (`scantor node`); never "agent" or "runner" |
+| node resolver | the DNS server of a node: one host-network container `scantor-dns-<nodeId>-<hash12>` (kind `resolver`, the daemon's own image, `scantor node resolver serve`) bound only to port 53 of the worker network's gateway, resolving through zdns recursively (upstream servers) or iteratively (root servers); say "upstream servers", "root servers", "host nameservers"; never "DNS proxy" or "zdns server" |
+| daemon configuration / daemon override | what a node daemon runs with (environment or defaults with overrides applied; reported, never secrets) / an admin-set value replacing one of it in the running daemon instance until it stops; never "node settings", "runtime config", "effective configuration", "runtime override"; the persistent `Node.maxWorkers` is the "admin worker limit", never an override |
 | task | a folder: `scantor.yaml` (manifest), `Dockerfile` (`FROM ${SCANTOR_BASE}`), entry file with types and `schedule`/`run` |
 | revision | an immutable numbered build of a task (`echo@3`); never "version" or "release" |
 | template | a reusable schedule implemented once in Go (`single`, `list`, `range`, `repeat`, `tranco`, `crux`, `cidr`) |
@@ -53,10 +55,10 @@ README. The most important terms:
 
 ## Architecture in ten lines
 
-1. One static Go binary is the CLI, the node daemon, the runtime (`scantor runtime`), the task pipeline (`scantor task pack | check-static | build | bundle`, and `scantor script build`) and the workspace helpers.
+1. One static Go binary is the CLI, the node daemon (with its node resolver, hidden `scantor node resolver serve | healthcheck | probe`), the runtime (`scantor runtime`), the task pipeline (`scantor task pack | check-static | build | bundle`, and `scantor script build`) and the workspace helpers.
 2. The orchestrator is one Node process; `SCANTOR_COMPONENTS` selects `api`, `ingestor`, `reconciler`. Infra: MongoDB (rs0), RabbitMQ, RustFS (S3), registry, optional Traefik and Cloudflare Tunnel (`cloudflared`, a second origin for the dashboard, REST API and `/mcp` only).
 3. Handlers only record intent; the level-triggered reconciler converges (topology, placement, assignments, completion); leased jobs do long work (builds, test runs, deletes, retries, exports, bundles).
-4. Nodes connect outbound only: they long-poll their desired workers and reconcile local containers; every consumer injects the runtime binary into task containers (never baked into images, except into bundles, D24).
+4. Nodes connect outbound only: they long-poll their desired workers and daemon overrides and reconcile local containers; each runs a node resolver (zdns, host network, bound to its worker network's gateway :53) that new workers use as their DNS server while it is ready (D26); every consumer injects the runtime binary into task containers (never baked into images, except into bundles, D24).
 5. Workers run the task image; the runtime speaks NDJSON over fd 3/4 with connector processes. Templates and all retry, timeout, upload and error logic live once in Go.
 6. The scheduler streams `schedule` output into a per-scan quorum queue (confirms, backpressure, checkpoints); runners consume with prefetch 1 per process and retry through delayed delivery.
 7. The ingestor writes analyses with guarded upserts keyed `<scanId>-<seq>`; the recount is authoritative and completion is one conditional update.
@@ -93,8 +95,11 @@ Run the narrowest suite first (`just test-go ./internal/taskpipe/...`, `just tes
 ## Conventions
 
 - **Configuration only through environment variables**, documented (with defaults) only in
-  `.env.example`; docs name variables but never state defaults. The orchestrator reads the environment
-  only in `server/utils/config.ts`; each Go component has exactly one `LoadConfig` built on
+  `.env.example`; docs name variables but never state defaults. The one exception is daemon overrides (D27):
+  admins set them through the API for one running node daemon instance, they arrive with its assignments, end
+  when it stops and are never persisted on the node; only the keys of `schemas/daemon-overrides.json` within the
+  environment bounds, and only those the node's `SCANTOR_NODE_OVERRIDES` allows. The orchestrator reads the
+  environment only in `server/utils/config.ts`; each Go component has exactly one `LoadConfig` built on
   `internal/envconf`, and only `internal/cli` passes `os.Getenv`/`os.LookupEnv` in. Compose passes
   `${VAR}` without defaults. Dev secrets end in `-insecure-dev`.
 - **camelCase JSON** everywhere (TS, Go, Python wire, Mongo); ids are uuid v4 except analysis ids.
@@ -129,8 +134,11 @@ Run the narrowest suite first (`just test-go ./internal/taskpipe/...`, `just tes
 - **Healthchecks everywhere**: every compose service defines one (`lint-compose`), except a one-shot service such as
   `data-init` (`restart: "no"`, dependents wait for `service_completed_successfully`); every long-running container
   scantor creates sets one in its spec (runtime containers `container.RuntimeHealthcheck` in Go and
-  `RUNTIME_HEALTHCHECK` in `server/utils/docker.ts`, the editor `EDITOR_HEALTHCHECK`), one-shot containers set
-  `NONE`. Health is informational: nothing restarts a container because of it.
+  `RUNTIME_HEALTHCHECK` in `server/utils/docker.ts`, the editor `EDITOR_HEALTHCHECK`, the node resolver
+  `container.ResolverHealthcheck`), one-shot containers (also the resolver probe) set `NONE`. Health is
+  informational: nothing restarts a container because of it, with one exception: the node resolver's health gates
+  its blue/green replacement and the worker DNS choice, and the daemon restarts a resolver that stays unhealthy for
+  another reason than its upstream servers or a bind error.
 - **Data locations**: every persistent volume has a `SCANTOR_*_DATA` variable (default the volume name, or a host
   path): compose mounts use it as the source (`lint-compose`), the orchestrator binds `scantor-workspaces` and
   `scantor-editor-home` to the path ([docs/deployment.md](docs/deployment.md) §5.1). A new data volume gets one too.
@@ -165,7 +173,7 @@ model, api) wins and the other doc is fixed.
 | [docs/runtime.md](docs/runtime.md) | the injected runtime: modes, bootstrap, AMQP, process pool, retries, uploads, local mode |
 | [docs/templates.md](docs/templates.md) | template internals: resolve, estimate, streaming, data sources |
 | [docs/queue.md](docs/queue.md) | RabbitMQ topology, message formats, the ingestor, recount, completion, stall detection |
-| [docs/nodes.md](docs/nodes.md) | the node daemon, worker container spec, placement, egress rules, node security |
+| [docs/nodes.md](docs/nodes.md) | the node daemon, worker container spec, the node resolver (§6.11), daemon overrides (§6.12), placement, egress rules, node security |
 | [docs/editor.md](docs/editor.md) | the browser editor, its origin and proxy, workspace helpers, git import |
 | [docs/mcp.md](docs/mcp.md) | the MCP server: OAuth, tool generation and curation, untrusted data, guides |
 | [docs/ui.md](docs/ui.md) | UI pages, components, forms, polling, CSP |
@@ -200,6 +208,9 @@ model, api) wins and the other doc is fixed.
   `docs/guide/scripts.md` and `scaffolds/python-script/`. The guide's `<!-- scantor:excerpt -->` blocks
   must stay lines of the fixture files, and every public `ScriptContext` member, `Analysis` file helper
   and `ctx.map` keyword must appear in it (`connectors/python/tests/test_script_guide.py`).
+- **Overridable daemon setting** (a new key, a changed bound) → `schemas/daemon-overrides.json` first (Go
+  `internal/node` and TS `shared/schemas/nodes.ts` read and test against it), then `.env.example` and
+  [docs/nodes.md](docs/nodes.md) §2 and §6.12.2; the key joins the `SCANTOR_NODE_OVERRIDES` vocabulary.
 - **Event type, level or data of a notifying event** → the trigger matchers in
   `orchestrator/server/services/notifications/triggers.ts`, the trigger catalog
   `orchestrator/shared/utils/notifications.ts` and the trigger table of [docs/api.md](docs/api.md) §4.3.
@@ -239,3 +250,9 @@ model, api) wins and the other doc is fixed.
 - Docker Desktop: containers cannot reach ports published on the VM's loopback even with `--network host` (some Go integration tests run only on Linux/CI); macOS AirPlay also holds port 5000, so check the registry at `127.0.0.1:5000`.
 - `scantor-egress` has inter-container traffic disabled: containers on it cannot reach each other (no test servers there).
 - A remote node against the dev stack needs the public endpoints on `host.docker.internal`, a DinD with `--dns` and `--insecure-registry` ([docs/development.md](docs/development.md) §5); restore `.env` afterwards.
+- The node resolver (`scantor-dns-*`, kind `resolver`) outlives its daemon like workers: `just down` and `docker compose down` leave it running, a restarted daemon adopts or replaces it, and only `just prune`, the test runner's cleanup or `docker rm -f $(docker ps -aq --filter label=scantor.kind=resolver)` remove it. A stale one on a gateway shows as `foreignResolver`.
+- The node resolver must bind port 53 of the worker network's gateway (Docker's `Dns` has no port): a host DNS server on `0.0.0.0:53` gives `bindInUse`, a host firewall that drops bridge → gateway :53 gives `unreachable`, and outbound DNS that is blocked gives `degraded`; in each case new workers fall back to Docker's DNS.
+- Rootless Docker with RootlessKit `--detach-netns` (the current default of `dockerd-rootless.sh`) puts host-network containers outside the namespace of the bridges, so the node resolver cannot bind (`bindUnavailable`); `DOCKERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS=false` in the user's `docker.service` fixes it.
+- The node resolver trusts exactly the servers of the node's environment (`trustedServers` = `SCANTOR_NODE_DNS_UPSTREAMS` and `_ROOT_SERVERS`, whatever their address); a daemon-override server in a private or special-purpose range (`resolver.AlwaysRefused`) is refused by the API (400), the UI, the CLI and the daemon, whose copies of the range list are drift-tested (`test/shared/dns-servers.test.ts`). Without a usable host nameserver, local names go to the mode's servers.
+- The node resolver's answer cache counts estimated memory, not wire bytes (`SCANTOR_NODE_DNS_CACHE_SIZE` holds fewer answers than its byte count suggests: one A answer counts about 512 bytes), and in iterative mode zdns' delegation cache is sized from it; replies of the iterative route are trimmed before zdns parses them. Its reuseport hand-over (`internal/resolver/handover.go`) assumes at most two resolvers per address.
+- The test stack's node resolvers forward to the runner's dnsmasq (`SCANTOR_NODE_DNS_UPSTREAMS=172.17.0.1` in `stack.env`, also passed to `remote-1` and throwaway DinD daemons) so `*.scantor.localhost` keeps resolving; global setup waits for `info.resolver.state` `ready` on `builtin` and `remote-1`. The fixtures server's fake DNS (`172.17.0.1:1053`) never refers, so referrals are tested only in `internal/resolver` unit tests.
