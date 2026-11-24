@@ -180,8 +180,7 @@ test.describe('MCP tool catalogue', () => {
       const client = await connectMcpWithKey(adminKey.key)
       try {
         const { tools } = await client.listTools()
-        expect(tools.length).toBe(45)
-        expect(tools.length).toBeLessThanOrEqual(45)
+        expect(tools).toHaveLength(CATALOGUE.length)
         expect(toolNames(tools)).toEqual(CATALOGUE.map((tool) => tool.name).sort())
 
         // The table is the OpenAPI document's x-mcp operations, named snake_case(operationId).

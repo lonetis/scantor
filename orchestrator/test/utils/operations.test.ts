@@ -1,12 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  buildOperationRegistry,
-  expectedScopeFor,
-  MAX_MCP_OPERATIONS,
-  matchOperation,
-  type OpenApiDocument,
-  publishedOpenApiDocument,
-} from '../../server/utils/operations'
+import { buildOperationRegistry, expectedScopeFor, matchOperation, type OpenApiDocument, publishedOpenApiDocument } from '../../server/utils/operations'
 import { routeOpenApiDocument } from '../helpers/route-openapi'
 
 function op(operationId: string, scope: string, extra: Record<string, unknown> = {}) {
@@ -88,21 +81,22 @@ describe('buildOperationRegistry', () => {
     expect(problems.getK?.[0]).toMatch(/does not match the route prefix \(owner or admin\)/)
   })
 
-  it('accepts exactly MAX_MCP_OPERATIONS MCP operations', () => {
+  it('accepts any number of MCP operations (docs/mcp.md §10 decision 12)', () => {
     const paths: OpenApiDocument['paths'] = {}
-    for (let index = 0; index < MAX_MCP_OPERATIONS; index++) paths[`/api/m${index}`] = { get: op(`getM${index}`, 'owner', { 'x-mcp': true }) }
-    expect(buildOperationRegistry({ paths }).problems).toEqual([])
+    for (let index = 0; index < 500; index++) paths[`/api/m${index}`] = { get: op(`getM${index}`, 'owner', { 'x-mcp': true }) }
+    const result = buildOperationRegistry({ paths })
+    expect(result.operations.filter((operation) => operation.mcp)).toHaveLength(500)
+    expect(result.problems).toEqual([])
+    for (const operation of result.operations) expect(operation.problems, operation.operationId).toEqual([])
   })
 
-  it('reports duplicate operationIds and more than 45 MCP operations', () => {
+  it('reports duplicate operationIds', () => {
     const paths: OpenApiDocument['paths'] = { '/api/x': { get: op('getX', 'owner'), post: op('getX', 'owner') } }
-    for (let index = 0; index < 46; index++) paths![`/api/m${index}`] = { get: op(`getM${index}`, 'owner', { 'x-mcp': true }) }
     const result = buildOperationRegistry({ paths })
-    expect(result.problems).toContain('operationId getX is used 2 times')
-    expect(result.problems).toContain('46 operations have x-mcp: true (maximum 45)')
-    expect(result.operations.filter((operation) => operation.operationId === 'getX').every((operation) => operation.problems.includes('duplicate operationId'))).toBe(
-      true,
-    )
+    expect(result.problems).toEqual(['operationId getX is used 2 times'])
+    expect(
+      result.operations.filter((operation) => operation.operationId === 'getX').every((operation) => operation.problems.includes('duplicate operationId')),
+    ).toBe(true)
   })
 })
 
@@ -112,11 +106,6 @@ describe('the API route files', () => {
   it('follow the extension rules', () => {
     expect(registry.problems).toEqual([])
     for (const operation of registry.operations) expect(operation.problems, operation.operationId).toEqual([])
-  })
-
-  it('fill the MCP tool cap exactly (docs/mcp.md §10 decision 12: a new tool replaces one or raises the cap deliberately)', () => {
-    expect(MAX_MCP_OPERATIONS).toBe(45)
-    expect(registry.operations.filter((operation) => operation.mcp)).toHaveLength(MAX_MCP_OPERATIONS)
   })
 
   it('include the daemon overrides routes of the nodes admin', () => {

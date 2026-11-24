@@ -1257,7 +1257,7 @@ request hook   security headers of the tunnel origin: HSTS, frame-src 'none', no
 | D13 | The orchestrator process never touches workspace content; throwaway helper containers do. | Tar/zip slip, symlink and git CVEs cannot reach the process holding the Docker socket and root credentials. |
 | D14 | Editor on a separate origin served by a dedicated orchestrator listener (container port 3001), code-server on a unix socket only, owner-only, rotating `editor` API key that never carries admin power. | Workspace JS cannot ride the dashboard session; nothing listens on a network; nothing but the editor is reachable on the editor origin. |
 | D15 | better-auth with the Mongo adapter (string uuid ids), `disableSignUp`, setup token for the first admin. | Proven auth stack; no open registration; no setup takeover. |
-| D16 | MCP tools generated from OpenAPI and curated to ≤ 45 with `x-mcp` ([mcp](mcp.md) §10 decision 12); OAuth scopes `scantor:read`, `scantor:write`, `scantor:admin`. | One source of truth; good tool selection; least privilege for agents. |
+| D16 | MCP tools generated from OpenAPI and curated with `x-mcp`, without a fixed cap ([mcp](mcp.md) §10 decision 12); OAuth scopes `scantor:read`, `scantor:write`, `scantor:admin`. | One source of truth; good tool selection; least privilege for agents. |
 | D17 | MongoDB single-node replica set with `--noscripting`; user queries via a read-only user with a recursive allowlist. | Transactions and change streams; no server-side JS; no cross-tenant query escapes. |
 | D18 | Test runs are a platform feature (draft images, local mode). | Browser editor and MCP agents can test without publishing or local Docker. |
 | D19 | The connector is the authoritative validator; ajv runs only at scan and test-run start (with defaults), and the UI validates forms in the browser for feedback only (`@cfworker/json-schema`, [ui](ui.md) §6.1). | No double validation per analysis; the scan records exactly what ran. |
@@ -1335,8 +1335,8 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
     `api` component that shares the build slots, the hidden pipeline step `scantor task bundle` driven like
     `task build` but with the archive on fd 3, and `scantor runtime bundle` as the entrypoint of bundle images.
     No new container kind exists: the bundle image is built by BuildKit on the master and never runs there. The
-    two routes are not MCP tools (44 of 45 tool slots were used then, all 45 since item 23, and an archive of
-    hundreds of MB is useless to an agent); the guide `bundles` is an MCP resource.
+    two routes are not MCP tools (an archive of hundreds of MB is useless to an agent); the guide `bundles` is an
+    MCP resource.
 21. **Cloudflare Tunnel** (§11.9, D25): an optional compose service `cloudflared` (profile `cloudflare-tunnel`),
     two variables (`SCANTOR_TUNNEL_URL` for the orchestrator, `SCANTOR_CLOUDFLARE_TUNNEL_TOKEN` for cloudflared
     only), the classification of every dashboard-listener request as public or tunnel in `00.request`
@@ -1356,7 +1356,7 @@ items stand as written. Items 13–16 record round-1 rulings that this document 
 23. **Daemon overrides** (D27, [nodes](nodes.md) §6.12): the overridable keys and their bounds in
     `schemas/daemon-overrides.json` (read by Go and TS, tested against both), the variable `SCANTOR_NODE_OVERRIDES`,
     the node document fields `daemonConfig` and `daemonOverrides` ([data model](data-model.md) §4.8), the
-    sub-resource `/api/nodes/{nodeId}/daemon-overrides` (`updateNodeDaemonOverrides`, the 45th and last MCP tool,
+    sub-resource `/api/nodes/{nodeId}/daemon-overrides` (`updateNodeDaemonOverrides`, an admin MCP tool,
     and `deleteNodeDaemonOverrides`), `include=daemonConfig` on `listNodes`, the 409 error code
     `daemonOverridesUnavailable`, the assignments field `daemonOverrides` and the report `daemonConfig` in hello and
     status, and the node events `node.daemonOverridesChanged` and `node.daemonOverridesCleared`. The persistent

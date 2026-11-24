@@ -43,8 +43,9 @@ the system context is in [architecture](architecture.md).
   declared in `server/api/health.get.ts`. Request and response schemas are separate (`StartScan` vs `Scan`).
 - A generated test ([testing](testing.md)) fails when an operation lacks `x-scantor-scope` or `x-mcp`, when
   `x-admin-only` disagrees with the scope, when `x-session-only` appears with a scope other than `owner` or
-  `admin`, when `x-destructive` appears on a `DELETE`, when an `operationId` is duplicated, or when more
-  than 45 operations have `x-mcp: true` ([mcp](mcp.md) §10 decision 12).
+  `admin`, when `x-destructive` appears on a `DELETE`, when an `operationId` is duplicated, or when a machine
+  operation (scope `node`, `worker`, `scriptRun`, `setup` or `tools`) has `x-mcp: true`. Any number of
+  operations may be MCP tools ([mcp](mcp.md) §10 decision 12).
 
 ### 1.2 Principals and scopes
 
@@ -2034,8 +2035,8 @@ The dashboard's `/editor` page only embeds the editor origin in an iframe.
 
 ## 10. MCP-exposed operations
 
-45 operations have `x-mcp: true` (at most 45, so the cap is reached, [mcp](mcp.md) §10 decisions 12 and 16); tool name =
-`snake_case(operationId)`. Read tools need `scantor:read`, write tools `scantor:write`, admin tools
+The operations with `x-mcp: true` are the MCP tools, without a fixed cap ([mcp](mcp.md) §5, §10 decision 12);
+tool name = `snake_case(operationId)`. Read tools need `scantor:read`, write tools `scantor:write`, admin tools
 `scantor:admin`. Tools returning analysis configs, results, logs or file contents wrap that content as
 `{"untrusted_data": …}`; responses are capped at 256 KiB with a truncation note ([mcp](mcp.md)). `/mcp`
 also accepts scantor API keys (`Authorization: Bearer sk_scantor_…` or `x-api-key`); their level is
@@ -2054,10 +2055,10 @@ also accepts scantor API keys (`Authorization: Bearer sk_scantor_…` or `x-api-
 | admin | `list_nodes` (with `include: "daemonConfig"` for every node's daemon configuration) | `update_node_daemon_overrides` |
 
 Not exposed: `createRevisionBundle` and `getRevisionBundle` (`x-mcp: false`). A bundle is an archive of hundreds
-of MB that an agent can neither use nor hand on, and every tool slot is taken; the bundles guide is an
-MCP resource (`scantor://guide/bundles`), so an agent can explain bundles and ask the user to create one in the
-UI or with `scantor revisions bundle`. `getNode` (`list_nodes` with `include` carries the same daemon configuration)
-and `deleteNodeDaemonOverrides` (a patch with `null` members removes overrides too) are not exposed either.
+of MB that an agent can neither use nor hand on; the bundles guide is an MCP resource (`scantor://guide/bundles`),
+so an agent can explain bundles and ask the user to create one in the UI or with `scantor revisions bundle`.
+`getNode` (`list_nodes` with `include` carries the same daemon configuration) and `deleteNodeDaemonOverrides` (a
+patch with `null` members removes overrides too) are not exposed either.
 
 ## 11. Decisions made in this document
 
@@ -2103,8 +2104,8 @@ Item 18 records a round-1 ruling.
 19. **Scripts** get three user tags (`scripts`, `script-files`, `script-runs`) and a machine API
     (`/api/script-runtime/*`, scope `scriptRun`) bound to a network as well as a token; the analysis stream is
     NDJSON with checkpoint lines instead of pages, and output bytes move as presigned multipart uploads
-    ([scripts](scripts.md) §15). MCP gets 13 script tools (44 of 45 then, 45 with item 22); a run over all
-    analyses needs `confirm: true` through MCP, like a large scan.
+    ([scripts](scripts.md) §15). MCP gets 13 script tools; a run over all analyses needs `confirm: true` through
+    MCP, like a large scan.
 20. **A revision's bundle is a singular sub-resource** (`…/revisions/{revision}/bundle`) without a bundle id in
     the path: one bundle per revision, created idempotently by `POST` and read by `GET`, replaced instead of
     listed or deleted, and resolved like every revision route (`resolveTask` + `resolveTaskRevision`). Its
@@ -2125,7 +2126,7 @@ Item 18 records a round-1 ruling.
     for a node that is online but runs an older daemon. Daemon-reported sub-reports (`daemonConfig`,
     `info.resolver`) are parsed apart from the heartbeat and never fail it (§7.3), and their wire names keep
     `overridesRev`/`appliedOverridesRev` apart from the assignments `rev`/`appliedRev`. `updateNodeDaemonOverrides`
-    is the 45th and last MCP tool ([mcp](mcp.md) §10 decision 16).
+    is an admin MCP tool ([mcp](mcp.md) §10 decision 16).
 
 ## 12. Future extensions
 
@@ -2138,7 +2139,7 @@ Item 18 records a round-1 ruling.
 | Per-process multiplexing | State poll `busy[]` already carries `executionId`; no API change. |
 | Organisations / shared tasks | The scope model (`owner`) is enforced by one helper; a future `org` principal adds a membership check there. |
 | More notification channels (webhooks, email) | `NotificationSettings` holds one object per channel kind beside `ntfy`, triggers are one catalog (`shared/utils/notifications.ts`), and delivery is one job kind that can dispatch by channel. |
-| More MCP tools | Raise the curated limit deliberately (45 of 45 are used); the generated test enforces the cap. |
+| More MCP tools | Set `x-mcp: true` on the route ([mcp](mcp.md) §8); the catalogue is generated and has no fixed cap, so only the curation of [mcp](mcp.md) §5 decides. |
 | Scheduled or local script runs | New routes calling the same run start service; the script runtime API needs no change ([scripts](scripts.md) §16). |
 | API versioning | A future breaking change would add `/api/v2/*` routes beside the current ones; machine APIs already negotiate versions. |
 | Scoped or read-only API keys | `apikey.permissions` exists; the operation registry already knows `x-read-only`, `x-admin-only` and `x-session-only`, so a key level maps onto the same checks as MCP levels. |

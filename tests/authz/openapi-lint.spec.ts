@@ -10,7 +10,6 @@ import { expect, test } from '../fixtures'
 
 const METHODS = ['get', 'put', 'post', 'delete', 'patch'] as const
 const SCOPES = ['owner', 'admin', 'public', 'node', 'worker', 'setup', 'tools', 'scriptRun']
-const MAX_MCP_OPERATIONS = 45
 
 /** Verbs an operationId may start with (docs/api.md §1.1: `list…`, `get…`, `create…`, … ). */
 const VERBS = new Set([
@@ -186,10 +185,9 @@ test.describe('OpenAPI lint', () => {
     }
   })
 
-  test('at most 45 operations are MCP tools, none of them a machine operation', { tag: ['@OAS-002'] }, () => {
+  test('no machine operation is an MCP tool', { tag: ['@OAS-002'] }, () => {
     const tools = operations.filter(({ op }) => op['x-mcp'] === true)
     expect(tools.length).toBeGreaterThan(0)
-    expect(tools.length).toBeLessThanOrEqual(MAX_MCP_OPERATIONS)
     for (const { operationId, op } of tools) expect.soft(MACHINE_SCOPES, `${operationId} is an MCP tool`).not.toContain(op['x-scantor-scope'])
   })
 

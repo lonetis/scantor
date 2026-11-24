@@ -5,8 +5,6 @@ import { OPERATION_SCOPES, type OperationScope } from '#shared/utils/enums'
 // operation is 404 (deny by default, so a route without OpenAPI metadata is unreachable), a matching path with
 // another method is 405. Entries carry the scantor extensions of docs/api.md §1.1.
 
-/** The curated MCP tool cap (docs/mcp.md §5, §10 decision 12): raised only deliberately, with the tests and docs. */
-export const MAX_MCP_OPERATIONS = 45
 const HTTP_METHODS = ['get', 'put', 'post', 'delete', 'patch', 'head', 'options'] as const
 
 export interface Operation {
@@ -73,7 +71,7 @@ export function operationProblems(op: Omit<Operation, 'problems'>, raw: Record<s
 
 export interface OperationRegistry {
   operations: Operation[]
-  /** document-level problems (duplicate operationIds, too many MCP tools) */
+  /** document-level problems (duplicate operationIds) */
   problems: string[]
 }
 
@@ -107,8 +105,6 @@ export function buildOperationRegistry(document: OpenApiDocument): OperationRegi
   const problems: string[] = []
   for (const [operationId, count] of seen) if (count > 1) problems.push(`operationId ${operationId} is used ${count} times`)
   for (const op of operations) if ((seen.get(op.operationId) ?? 0) > 1) op.problems.push('duplicate operationId')
-  const mcpCount = operations.filter((op) => op.mcp).length
-  if (mcpCount > MAX_MCP_OPERATIONS) problems.push(`${mcpCount} operations have x-mcp: true (maximum ${MAX_MCP_OPERATIONS})`)
   return { operations, problems }
 }
 

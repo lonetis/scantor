@@ -455,9 +455,9 @@ and [templates](templates.md).
 ### 9.1 Add an API route
 
 1. Choose the tag, `operationId` (camelCase, verb first), path and scope (`x-scantor-scope`). Decide
-   `x-mcp`: default `false`; `true` only for operations an agent needs in the authoring or scan loop,
-   keeping the total ≤ 45 ([mcp](mcp.md) §10 decision 12). Set `x-admin-only` iff scope is `admin`;
-   `x-read-only` for side-effect-free POSTs.
+   `x-mcp`: default `false`; `true` only for operations an agent needs in the authoring or scan loop and
+   that no exclusion of [mcp](mcp.md) §5 covers (no fixed tool cap, [mcp](mcp.md) §10 decision 12). Set
+   `x-admin-only` iff scope is `admin`; `x-read-only` for side-effect-free POSTs.
 2. Add the representation to `shared/types/<area>.ts` and the request schema to `shared/schemas/<area>.ts`.
 3. Create `server/api/<path>.<method>.ts` with `defineRouteMeta` first, then the thin handler (§7).
    Long-running work becomes a job; ownership through `loadOwned`; status codes per [api](api.md) §1.6.

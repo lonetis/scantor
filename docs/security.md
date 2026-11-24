@@ -582,8 +582,8 @@ Additional generated cases:
 `tests/authz/openapi-lint.spec.ts` complements the matrix. It fails when an operation lacks `x-scantor-scope`
 or `x-mcp`, when `x-admin-only` disagrees with scope `admin`, when `x-session-only` or `x-destructive` is
 misplaced ([api](api.md) §1.1), when the scope disagrees with the route prefix ([auth](auth.md) §5.4), when
-an operationId is duplicated or not camelCase verb-first, when more than 45 operations have `x-mcp: true`,
-when a request body has no schema, or when a route file exists without OpenAPI metadata.
+an operationId is duplicated or not camelCase verb-first, when a machine operation has `x-mcp: true`, when a
+request body has no schema, or when a route file exists without OpenAPI metadata.
 
 ## 8. Security test inventory
 

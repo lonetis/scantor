@@ -454,9 +454,9 @@ the API allows through the tunnel ([api](api.md) §1.9). The REST header
 
 ## 5. Curated tool list
 
-45 operations have `x-mcp: true` ([api](api.md) §10), so the curated cap of 45 is reached (§10 decisions 12 and
-16); the generated tests fail above it. Level: R = read, W = write, A = admin. Hints: RO read-only, D destructive,
-I idempotent.
+Every operation with `x-mcp: true` ([api](api.md) §10) is a tool, and this table lists them all; the catalogue
+tests keep the two equal. `x-mcp` decides which operations become tools, not how many (§10 decision 12). Level:
+R = read, W = write, A = admin. Hints: RO read-only, D destructive, I idempotent.
 
 | Tool | operationId | HTTP | Level | Hints | `untrusted_data` | `wait` |
 |---|---|---|---|---|---|---|
@@ -514,7 +514,7 @@ I idempotent.
 |---|---|
 | uploads, task and script upload (tar.gz), git import/pull, workspace archives | binary or multi-step flows; agents use the file tools; git import needs credentials the user manages in the UI |
 | revision list, build log, source download | `get_revision` (with `latest`) carries the structured errors |
-| revision bundles (`createRevisionBundle`, `getRevisionBundle`) | a bundle is a Docker image archive of hundreds of MB for a human recipient, useless to an agent, and every slot is taken; the resource `scantor://guide/bundles` lets an agent explain bundles and ask the user to create one in the UI or with `scantor revisions bundle` |
+| revision bundles (`createRevisionBundle`, `getRevisionBundle`) | a bundle is a Docker image archive of hundreds of MB for a human recipient, useless to an agent; the resource `scantor://guide/bundles` lets an agent explain bundles and ask the user to create one in the UI or with `scantor revisions bundle` |
 | test-run list, stream, cancel, presigned file download | `test_task`/`get_test_run` with `wait` cover the loop; `read_test_run_file` returns file content inline |
 | analyses list, inline export, presigned file downloads | `query_analyses` (projection, `afterSeq`), `read_analysis_file` (file content inline) and `export_scan` (presigned URL) |
 | inflight, conditions, events, workers, worker logs | `get_scan` carries conditions and progress; the rest is operator detail for the UI/CLI |
@@ -613,9 +613,8 @@ completion, query and aggregate, export ([testing](testing.md) §8.4).
    the cap of §4.5.
 3. If the response can contain target-, code- or third-party-derived values, add the paths to
    `orchestrator/server/services/mcp/untrusted.ts`.
-4. Add the tool to the table in §5 and to [api](api.md) §10. If the total would exceed 45, remove a tool or
-   raise the cap deliberately (`MAX_MCP_OPERATIONS` in `server/utils/operations.ts`, the generated tests and
-   the docs that state it) with a justification in §10.
+4. Add the tool to the table in §5 and to [api](api.md) §10. No count limits the catalogue, but a tool has to
+   earn its place: an agent needs it in its loop, and it is not one of the exclusions of §5 (§10 decision 12).
 5. Mention it in the instructions section of `docs/guide/mcp.md` if agents should use it in the loop, and in
    `skills/` if a skill workflow uses it.
 6. Update the expected tool set in `tests/mcp/tools.spec.ts`, then run the tests: the MCP catalogue test
@@ -633,7 +632,7 @@ Spec files follow the layout of [testing](testing.md) §2 (MCP specs in `tests/m
 | Spec | Covers |
 |---|---|
 | `tests/mcp/oauth.spec.ts` | discovery documents; DCR with allowed and rejected redirect URIs (`SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS`); a CIMD `client_id` whose metadata host is private is refused (the positive CIMD path is a vitest unit test with an injected fetcher, [testing](testing.md) §4.2); PKCE code flow; consent level selection; `scantor:admin` stripped for non-admins; refresh; `revokeOAuthApp` → next call 401; banned user → 401 |
-| `tests/mcp/tools.spec.ts` | catalogue equals §5 (names, levels, annotations, ≤ 45); level filtering of `tools/list` and `tools/call`; `untrusted_data` wrapping; structured errors; `wait` clamp; inline file reads with paging; `confirmationRequired` of `start_script_run` without `settings.limit` |
+| `tests/mcp/tools.spec.ts` | catalogue equals §5 (names, levels, annotations); level filtering of `tools/list` and `tools/call`; `untrusted_data` wrapping; structured errors; `wait` clamp; inline file reads with paging; `confirmationRequired` of `start_script_run` without `settings.limit` |
 | `tests/mcp/limits.spec.ts` | 256 KiB cap and truncation (§4.5) with a large fixture result, including the note block |
 | `tests/mcp/guides.spec.ts` | instructions section present and ≤ 8 KiB; guide resources; `get_authoring_guide` for every language |
 | `tests/mcp/drift.spec.ts` | every tool named in the instructions, `docs/guide/` and `skills/` exists |
@@ -668,24 +667,24 @@ Made in this document and flagged for lead review:
     the user guide are a single file.
 11. **Tool errors are JSON** `{"error": {httpStatus, code, message, details}}` text blocks, with no
     `structuredContent`/`outputSchema` in v1.
-12. **Curated tool cap of 45** (raised from 30). Inline file reads (`read_analysis_file`,
-    `read_test_run_file`) and the planned script tools need slots; the set stays curated (no list, admin or
-    operator noise: every exclusion of §5 still holds, except the daemon overrides of decision 16), and 45 is
-    still below the tool counts at which common clients degrade (truncated tool lists, worse tool selection).
-    Raising it again is a deliberate decision recorded here.
+12. **No fixed tool cap**: `x-mcp` curates which operations become tools, not how many. The set stays curated
+    (no list, admin or operator noise: every exclusion of §5 still holds, except the daemon overrides of
+    decision 16), because long tool lists degrade tool selection in common clients; a new tool is judged by
+    whether an agent needs it, not by a count. The catalogue was capped at 30 and then at 45 tools until the cap
+    was dropped, since a number says nothing about whether a tool belongs.
 13. **File content inline as JSON**, not as MCP binary blocks or presigned URLs: one REST operation per file
     owner (analysis, test run) keeps ownership, masking and the authorization matrix of REST (MCP-6), works
     for clients that cannot reach the S3 origin, and stays within the result cap through paging.
-14. **Script tools** (13, bringing the catalogue to 44 of 45 at the time): create, edit, run, follow, cancel,
-    restart and read outputs; deletion, history and presigned downloads stay in the UI and CLI. A run without `settings.limit`
-    needs `confirm: true` through MCP (MCP-3), so an agent always tries a sample first and asks before reading
-    every analysis. Script results, logs, errors, progress, checkpoints and outputs are code-derived and wrapped.
+14. **Script tools** (13): create, edit, run, follow, cancel, restart and read outputs; deletion, history and
+    presigned downloads stay in the UI and CLI. A run without `settings.limit` needs `confirm: true` through MCP
+    (MCP-3), so an agent always tries a sample first and asks before reading every analysis. Script results, logs,
+    errors, progress, checkpoints and outputs are code-derived and wrapped.
 15. **One authorization server per origin** ([auth](auth.md) §4.5): through the tunnel URL, `/mcp`, discovery and
     OAuth use the tunnel's issuer `<tunnel URL>/api/auth` and resource `<tunnel URL>/mcp`, so web-hosted clients
     such as claude.ai, which cannot reach a master behind a firewall, connect through the tunnel. Tokens stay
     bound to the origin that issued them, while clients and consents are shared. Tool calls keep using the
     loopback listener and carry no origin, because no tool returns an origin-dependent URL (§4.3).
-16. **One admin write tool for daemon overrides fills the last slot** (`update_node_daemon_overrides`, 45 of 45):
+16. **One admin write tool for daemon overrides** (`update_node_daemon_overrides`):
     an operations agent can tune a node's capacity and name resolution ([nodes](nodes.md) §6.12) without the
     node host, which is the node-management task agents are asked for most. Everything else about nodes stays
     in the UI and the CLI. The read path is `list_nodes` with `include: "daemonConfig"`, so no `get_node` is
@@ -694,7 +693,7 @@ Made in this document and flagged for lead review:
     the admin's id, and a daemon restart undoes it ([security](security.md) OVR-1…7, MCP-9). It is not annotated
     destructive: it discards no work or data. Its results need no `untrusted_data` wrapping: the daemon
     configuration comes from the trusted node daemon, and the resolver's `error` is a fixed code
-    ([security](security.md) DNS-9). Another tool needs a deliberate cap raise.
+    ([security](security.md) DNS-9).
 
 ## 11. Future extensions
 
@@ -708,4 +707,4 @@ Made in this document and flagged for lead review:
 | Prompts | MCP prompts such as "new task from template" built from the same guides. |
 | Scoped API keys | `apikey.permissions` can carry a level; §3.7 then reads it instead of defaulting to `write`. |
 | Multi-replica orchestrator | `sic_` capabilities move to a TTL collection, and the catalogue cache is per process anyway. The loopback call already reaches the same process. |
-| More tools | Raise the curated cap deliberately (no slot is left); the catalogue test and §5 change together. |
+| More tools | A route with `x-mcp: true` becomes a tool without bridge code (§8), and no cap limits their number; the catalogue test and §5 change together. |

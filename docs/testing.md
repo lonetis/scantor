@@ -231,7 +231,7 @@ stored), the merge patch and its 409 reasons (`invalidState` after three lost ra
 clearing the overrides, statuses storing the daemon configuration only for the current instance, `updateNode` and
 `revokeNodeToken` without `daemonConfig`, the assignments' `daemonOverrides`, the node events (`node.resolverReady`
 after a recovery through `starting` or a new instance, each change recorded once by overlapping reports) and
-resolver gauges, the endpoint-hosts helper, the MCP catalogue of 45, the bounds of `schemas/daemon-overrides.json`
+resolver gauges, the endpoint-hosts helper, the MCP tool catalogue, the bounds of `schemas/daemon-overrides.json`
 against the zod schemas (`test/shared/daemon-overrides.test.ts`), and the DNS servers of overrides, whose
 always-refused ranges must equal those of `internal/resolver/dialer.go` (`test/shared/dns-servers.test.ts`); the UI
 tests cover the resolver card's "unknown" rows and the overrides buttons' blockers.
@@ -846,7 +846,7 @@ the tunnel URL.
 
 | Spec | Covers |
 |---|---|
-| `tools.spec.ts` | `tools/list` equals the curated table of [mcp](mcp.md) §5 and [api](api.md) §10 (names, levels, annotations, ≤ 45), names `^[a-z0-9_]{1,64}$`, descriptions present, read-only annotations follow GET/`x-read-only`, `destructiveHint` follows `DELETE`/`x-destructive`; level filtering of `tools/list` and `tools/call` (`scantor:read` sees no write tools; the admin tool only for admins with `scantor:admin`); `untrusted_data` wrapping; structured JSON errors; `wait` clamped to 50; `read_analysis_file` content paged with `offset`/`nextOffset`; `start_script_run` without `settings.limit` answers `confirmationRequired` |
+| `tools.spec.ts` | `tools/list` equals the curated table of [mcp](mcp.md) §5 and [api](api.md) §10 (names, levels, annotations), names `^[a-z0-9_]{1,64}$`, descriptions present, read-only annotations follow GET/`x-read-only`, `destructiveHint` follows `DELETE`/`x-destructive`; level filtering of `tools/list` and `tools/call` (`scantor:read` sees no write tools; the admin tool only for admins with `scantor:admin`); `untrusted_data` wrapping; structured JSON errors; `wait` clamped to 50; `read_analysis_file` content paged with `offset`/`nextOffset`; `start_script_run` without `settings.limit` answers `confirmationRequired` |
 | `oauth.spec.ts` | discovery documents; DCR with http loopback, private-use-scheme and allowed https redirects, https loopback redirects and non-loopback redirects outside `SCANTOR_MCP_ALLOWED_REDIRECT_ORIGINS` rejected at registration and at authorization; a CIMD `client_id` whose metadata host is private is refused (the positive CIMD path is a vitest unit test, §4.2); PKCE code flow; consent level selection; `scantor:admin` stripped for non-admins; refresh; `revokeOAuthApp` → next call 401; banned user → 401 |
 | `apikey.spec.ts` | `default` and `editor` API keys on `/mcp` (level `write`; `admin` only for an admin's `default` key); an admin's `editor` key has no admin tools; an invalid key gets 401 with the OAuth challenge ([mcp](mcp.md) §3.7) |
 | `agent-loop.spec.ts` | a serial loop using tools only: `create_task` (python, template `range`) → `read_task_file` (manifest, entry) → `write_task_files` (change `run`) → `test_task` (`wait=50`) → `publish_revision` (`wait`) → `start_scan` → `get_scan` (`wait`) until completed → `query_analyses` → `aggregate_analyses` → `export_scan` → `get_export`; asserts `{untrusted_data: …}` wrapping on analysis content and structured build errors after a deliberately broken edit |
@@ -860,9 +860,9 @@ the tunnel URL.
 `openapi-lint.spec.ts` fails when an operation lacks `x-scantor-scope` or `x-mcp`, when `x-admin-only`
 disagrees with scope `admin`, when the scope disagrees with the route prefix ([auth](auth.md) §5.4), when
 `x-session-only` appears with a scope other than `owner` or `admin`, when `x-destructive` appears on a
-`DELETE`, when an `operationId` is duplicated or not camelCase verb-first, when more than 45 operations
-have `x-mcp: true`, when a request body has no schema, or when a route file exists without OpenAPI
-metadata ([api](api.md) §1.1).
+`DELETE`, when an `operationId` is duplicated or not camelCase verb-first, when a machine operation (scope
+`node`, `worker`, `scriptRun`, `setup` or `tools`) has `x-mcp: true`, when a request body has no schema, or when
+a route file exists without OpenAPI metadata ([api](api.md) §1.1).
 
 `matrix.spec.ts` is generated at runtime from the OpenAPI document. Its principals, seeded resources,
 expectations per scope and the additional generated cases (create references, lists, caller-scoped names,

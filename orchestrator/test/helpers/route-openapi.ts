@@ -7,7 +7,7 @@ import type { OpenApiDocument } from '../../server/utils/operations'
 // The OpenAPI document of the API route files, built like Nitro's static extraction (docs/mcp.md §4.1): the literal
 // argument of each handler's defineRouteMeta (test/api/route-meta.test.ts keeps it literal), its path from the file
 // name (`[param]` → `{param}`, `index` → the directory), `$global` components merged into the document. Unit tests
-// use it to check the real operations (MCP tool count, extension rules, bounds) without starting Nitro.
+// use it to check the real operations (MCP tool catalogue, extension rules, bounds) without starting Nitro.
 
 const API_ROOT = fileURLToPath(new URL('../../server/api', import.meta.url))
 const METHOD_FILE = /^(.+)\.(get|put|post|delete|patch)\.ts$/
