@@ -2,9 +2,9 @@
 import type { DropdownMenuItem, TableColumn } from '@nuxt/ui'
 import type { ScantorNode } from '#shared/types/nodes'
 
-// Nodes list of /admin/nodes (docs/ui.md §5.15): state, cordon, pool, labels, capacity and warnings per node, with
-// row actions. Rotate, revoke and delete are disabled for the built-in node, whose token is derived from
-// SCANTOR_SECRET; its menu says so above them.
+// Nodes list of /admin/nodes (docs/ui.md §5.15): state, cordon, pool, labels, capacity and warnings (including a node
+// resolver that cannot serve) per node, with row actions. Rotate, revoke and delete are disabled for the built-in
+// node, whose token is derived from SCANTOR_SECRET; its menu says so above them.
 const props = withDefaults(defineProps<{
   nodes: ScantorNode[]
   loading?: boolean
@@ -25,7 +25,7 @@ const table = useTemplateRef('table')
 const getRowId = tableRowId((node: ScantorNode) => node.id)
 useTableRowIds(table, getRowId)
 
-/** Effective worker capacity: min(reported maxWorkers, admin override). */
+/** Effective worker capacity: min(reported maxWorkers, admin worker limit). */
 function capacity(node: ScantorNode): number | null {
   const reported = node.info?.maxWorkers ?? null
   if (reported === null) return node.maxWorkers
@@ -38,6 +38,8 @@ function warnings(node: ScantorNode): string[] {
   if (node.info?.networkIsolated === false) result.push('Network not isolated')
   const offset = node.info?.clockOffsetMs
   if (offset !== undefined && Math.abs(offset) > CLOCK_SKEW_MS) result.push(`Clock off by ${formatDuration(Math.abs(offset))}`)
+  const resolver = resolverWarning(node.info?.resolver)
+  if (resolver) result.push(resolver)
   return result
 }
 
@@ -133,7 +135,7 @@ const hasWarnings = computed(() => props.nodes.some((node) => warnings(node).len
       <BytesText :bytes="row.original.info?.diskFreeBytes ?? null" />
     </template>
     <template #workers-cell="{ row }">
-      <span class="tabular-nums" :title="row.original.maxWorkers !== null ? `admin limit ${row.original.maxWorkers}` : undefined">
+      <span class="tabular-nums" :title="row.original.maxWorkers !== null ? `admin worker limit ${row.original.maxWorkers}` : undefined">
         {{ row.original.activeWorkers }} / {{ capacity(row.original) ?? '–' }}
       </span>
     </template>

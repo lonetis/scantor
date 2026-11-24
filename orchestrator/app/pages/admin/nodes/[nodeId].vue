@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import type { TableColumn } from '@nuxt/ui'
 import type { ScantorEvent } from '#shared/types/events'
+import type { ScantorNode } from '#shared/types/nodes'
 import type { ScanWorker } from '#shared/types/workers'
 
-// Node detail (docs/ui.md §5.15): every reported info field, the lease holder, the workers on the node and the
-// node's events. Polls every 10 s while visible.
+// Node detail (docs/ui.md §5.15): every reported info field, the lease holder, the node resolver, the daemon
+// configuration with its daemon overrides (edit, reset), the workers on the node and the node's events. Polls every
+// 10 s while visible.
 definePageMeta({ admin: true })
+
+const toast = useToast()
+const { confirm } = useConfirm()
 
 const route = useRoute()
 const nodeId = computed(() => String(route.params.nodeId))
@@ -13,6 +18,12 @@ const activeOnly = ref(true)
 const workerStates = computed<WorkerState[]>(() => (activeOnly.value ? [...ACTIVE_WORKER_STATES] : []))
 const detail = useNode(nodeId, { workerStates })
 const node = detail.node
+const daemonConfig = computed(() => node.value?.daemonConfig ?? null)
+const rejected = computed(() => (daemonConfig.value ? rejectedOverrides(daemonConfig.value) : []))
+const editBlocker = computed(() => (node.value ? editOverridesBlocker(node.value) : null))
+const resetBlocker = computed(() => (node.value ? resetOverridesBlocker(node.value) : null))
+const overridesOpen = ref(false)
+const resetting = ref(false)
 
 useHead({ title: () => `${node.value?.name ?? 'Node'} · scantor` })
 
@@ -36,7 +47,7 @@ const infoRows = computed<InfoRow[]>(() => {
   const rows: InfoRow[] = [
     { label: 'Endpoint profile', value: current.endpointProfile },
     { label: 'Pool', value: current.pool, mono: true },
-    { label: 'Worker limit', value: current.maxWorkers === null ? 'none' : String(current.maxWorkers) },
+    { label: 'Admin worker limit', value: current.maxWorkers === null ? 'none' : String(current.maxWorkers) },
     { label: 'Token', value: current.tokenPrefix ? `${current.tokenPrefix}…` : '–', mono: true },
     { label: 'Token rotated', value: formatAbsoluteTime(current.tokenRotatedAt) || 'never' },
     { label: 'Assignments revision', value: String(current.assignmentsRev) },
@@ -73,6 +84,32 @@ const leaseRows = computed<InfoRow[]>(() => {
     { label: 'Lease renewed', value: formatAbsoluteTime(instance.lastSeenAt) },
   ]
 })
+
+function onOverridesSaved(saved: ScantorNode): void {
+  toast.add({ title: `Daemon overrides of ${saved.name} saved`, color: 'success', icon: 'i-lucide-check' })
+}
+
+async function resetOverrides(): Promise<void> {
+  const current = node.value
+  if (!current) return
+  const confirmed = await confirm({
+    title: `Reset the daemon overrides of ${current.name}`,
+    description:
+      'Every daemon override of this node is removed and the daemon returns to its environment values; a changed resolver setting replaces the node resolver. The admin worker limit stays.',
+    confirmLabel: 'Reset overrides',
+    confirmColor: 'warning',
+  })
+  if (!confirmed) return
+  resetting.value = true
+  try {
+    await detail.deleteNodeDaemonOverrides(current.id)
+    toast.add({ title: `Daemon overrides of ${current.name} reset`, color: 'success', icon: 'i-lucide-check' })
+  } catch (error) {
+    console.error('[nodes] resetting the daemon overrides failed', error)
+  } finally {
+    resetting.value = false
+  }
+}
 
 const workerColumns: TableColumn<ScanWorker>[] = [
   { accessorKey: 'id', header: 'Worker' },
@@ -137,21 +174,85 @@ const eventColumns: TableColumn<ScantorEvent>[] = [
             <UBadge v-for="(value, key) in node.labels" :key="key" :label="`${key}=${value}`" color="neutral" variant="soft" size="xs" class="font-mono" />
           </div>
         </UCard>
-        <UCard :ui="{ body: 'p-4 sm:p-4' }">
-          <p class="section-label mb-2">Lease</p>
-          <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
-            <template v-for="row in leaseRows" :key="row.label">
-              <dt class="text-xs text-muted">{{ row.label }}</dt>
-              <dd :class="row.mono ? 'font-mono text-xs' : ''">{{ row.value }}</dd>
-            </template>
-            <dt class="text-xs text-muted">Last seen</dt>
-            <dd><RelativeTime :value="node.lastSeenAt" /></dd>
-            <dt class="text-xs text-muted">Active workers</dt>
-            <dd class="tabular-nums">{{ node.activeWorkers }}</dd>
-          </dl>
-        </UCard>
+        <div class="space-y-4">
+          <UCard :ui="{ body: 'p-4 sm:p-4' }">
+            <p class="section-label mb-2">Lease</p>
+            <dl class="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+              <template v-for="row in leaseRows" :key="row.label">
+                <dt class="text-xs text-muted">{{ row.label }}</dt>
+                <dd :class="row.mono ? 'font-mono text-xs' : ''">{{ row.value }}</dd>
+              </template>
+              <dt class="text-xs text-muted">Last seen</dt>
+              <dd><RelativeTime :value="node.lastSeenAt" /></dd>
+              <dt class="text-xs text-muted">Active workers</dt>
+              <dd class="tabular-nums">{{ node.activeWorkers }}</dd>
+            </dl>
+          </UCard>
+          <NodeResolverCard :resolver="node.info?.resolver" />
+        </div>
       </div>
       <USkeleton v-else-if="!detail.error.value" class="h-48 w-full" />
+
+      <section v-if="node" class="mt-6 space-y-2" aria-labelledby="node-daemon-config-heading" data-testid="daemon-config">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="node-daemon-config-heading" class="section-label">Daemon configuration</h2>
+          <div class="flex items-center gap-2">
+            <UTooltip :text="editBlocker ?? ''" :disabled="!editBlocker">
+              <span>
+                <UButton label="Edit overrides" icon="i-lucide-pencil" size="sm" :disabled="Boolean(editBlocker)" @click="overridesOpen = true" />
+              </span>
+            </UTooltip>
+            <UTooltip :text="resetBlocker ?? ''" :disabled="!resetBlocker">
+              <span>
+                <UButton
+                  label="Reset overrides"
+                  icon="i-lucide-rotate-ccw"
+                  color="neutral"
+                  variant="outline"
+                  size="sm"
+                  :loading="resetting"
+                  :disabled="Boolean(resetBlocker)"
+                  @click="resetOverrides"
+                />
+              </span>
+            </UTooltip>
+          </div>
+        </div>
+        <p class="text-xs text-muted">Overrides last until the daemon restarts. The admin worker limit is separate and persistent.</p>
+        <template v-if="daemonConfig">
+          <p class="flex flex-wrap gap-x-1 text-xs text-muted">
+            <span>Reported <RelativeTime :value="daemonConfig.reportedAt" /></span>
+            <span v-if="daemonConfig.overriddenAt">· overrides changed <RelativeTime :value="daemonConfig.overriddenAt" /></span>
+            <span v-if="daemonConfig.overriddenBy" class="inline-flex items-center gap-1" data-testid="daemon-overrides-by">
+              by <IdChip :id="daemonConfig.overriddenBy" :copy-label="`Copy id of admin ${daemonConfig.overriddenBy}`" />
+            </span>
+          </p>
+          <UAlert
+            v-if="daemonConfig.pending"
+            color="info"
+            variant="subtle"
+            icon="i-lucide-loader-circle"
+            title="Overrides pending"
+            :description="`The daemon has not applied the latest overrides yet (revision ${daemonConfig.overridesRev}, applied ${daemonConfig.appliedOverridesRev}).`"
+          />
+          <UAlert v-if="rejected.length > 0" color="error" variant="subtle" icon="i-lucide-circle-alert" title="The daemon rejected overrides">
+            <template #description>
+              <ul class="list-inside list-disc">
+                <li v-for="entry in rejected" :key="entry.key">{{ entry.label }}: {{ entry.message }}</li>
+              </ul>
+            </template>
+          </UAlert>
+          <UAlert v-if="daemonConfig.warnings.length > 0" color="warning" variant="subtle" icon="i-lucide-triangle-alert" title="Configuration warnings">
+            <template #description>
+              <ul class="list-inside list-disc">
+                <li v-for="(warning, index) in daemonConfig.warnings" :key="index">{{ stripEscapes(warning) }}</li>
+              </ul>
+            </template>
+          </UAlert>
+          <NodeDaemonConfigTable :config="daemonConfig" />
+        </template>
+        <p v-else class="text-sm text-muted">{{ DAEMON_CONFIG_MISSING_TEXT }}.</p>
+      </section>
 
       <section v-if="node" class="mt-6 space-y-2" aria-labelledby="node-workers-heading">
         <div class="flex items-center justify-between gap-2">
@@ -229,6 +330,8 @@ const eventColumns: TableColumn<ScantorEvent>[] = [
         </UTable>
         <LoadMoreButton :has-more="detail.events.hasMore.value" :loading="detail.events.loading.value" @load="detail.events.loadMore()" />
       </section>
+
+      <NodeDaemonOverridesModal v-model:open="overridesOpen" :node="node" :actions="detail" @saved="onOverridesSaved" />
     </template>
   </UDashboardPanel>
 </template>

@@ -1,5 +1,6 @@
-// Status colors, icons and labels for every state machine of the data model
-// (docs/data-model.md §6, docs/ui.md §10). Components never pick status colors themselves.
+// Status colors, icons and labels for every state machine of the data model (docs/data-model.md §6, docs/ui.md §10),
+// the node resolver states and the sources of a daemon configuration value. Components never pick status colors
+// themselves.
 
 export type StatusColor = 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral'
 
@@ -12,6 +13,8 @@ export type StatusKind =
   | 'scriptRun'
   | 'worker'
   | 'node'
+  | 'resolver'
+  | 'daemonConfigSource'
   | 'export'
   | 'bundle'
   | 'job'
@@ -98,6 +101,19 @@ const STATUS_STYLES = {
     online: { color: 'success', icon: 'i-lucide-server', pulse: true },
     offline: { color: 'error', icon: 'i-lucide-server-off' },
     revoked: { color: 'neutral', icon: 'i-lucide-shield-off' },
+  },
+  resolver: {
+    starting: { color: 'info', icon: 'i-lucide-loader-circle' },
+    ready: { color: 'success', icon: 'i-lucide-circle-check' },
+    degraded: { color: 'warning', icon: 'i-lucide-triangle-alert' },
+    unreachable: { color: 'warning', icon: 'i-lucide-unplug' },
+    failed: { color: 'error', icon: 'i-lucide-circle-x' },
+    disabled: { color: 'neutral', icon: 'i-lucide-circle-off' },
+  },
+  daemonConfigSource: {
+    env: { color: 'info', icon: 'i-lucide-variable' },
+    default: { color: 'neutral', icon: 'i-lucide-circle-dot' },
+    override: { color: 'warning', icon: 'i-lucide-pencil' },
   },
   export: {
     queued: { color: 'neutral', icon: 'i-lucide-clock' },

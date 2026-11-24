@@ -14,7 +14,7 @@ export interface NodeFormActions {
 
 <script setup lang="ts">
 // Add a remote node or edit one (docs/ui.md §5.15): name (slug), pool (default "shared"), labels (≤ 32) and an
-// optional worker limit; editing also offers the cordon switch. The built-in node keeps its name. Errors stay
+// optional admin worker limit; editing also offers the cordon switch. The built-in node keeps its name. Errors stay
 // inline; a created node is handed to the caller, which shows its token once.
 const props = defineProps<{
   mode: 'create' | 'edit'
@@ -108,7 +108,11 @@ async function submit(event: FormSubmitEvent<NodeForm>): Promise<void> {
             @update:model-value="state.labels = stringRecord($event)"
           />
         </UFormField>
-        <UFormField label="Worker limit" name="maxWorkers" help="Caps the node below its reported capacity. Empty = no limit.">
+        <UFormField
+          label="Admin worker limit"
+          name="maxWorkers"
+          help="Persistent cap: the node's capacity is the smaller of this and the daemon's max workers. Empty = no limit."
+        >
           <NumberInput
             :model-value="state.maxWorkers"
             :min="0"

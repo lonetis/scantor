@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { STATUS_STATES, severityRank, statusMeta } from '../../app/utils/status'
 import type { StatusKind } from '../../app/utils/status'
+import type { DaemonConfigSource } from '../../shared/types/nodes'
 import {
   ANALYSIS_STATUSES,
   EDITOR_STATES,
@@ -16,6 +17,7 @@ import {
   TEST_RUN_STATES,
   WORKER_STATES,
 } from '../../shared/utils/enums'
+import { RESOLVER_STATES } from '../../shared/schemas/nodes'
 
 // docs/ui.md §10: the state → color table is normative.
 const EXPECTED: Record<StatusKind, Record<string, string>> = {
@@ -27,6 +29,8 @@ const EXPECTED: Record<StatusKind, Record<string, string>> = {
   scriptRun: { queued: 'neutral', building: 'info', running: 'info', completed: 'success', failed: 'error', cancelled: 'neutral' },
   worker: { pending: 'warning', assigned: 'info', pulling: 'info', starting: 'info', running: 'success', backoff: 'error', draining: 'warning', stopped: 'neutral', lost: 'error' },
   node: { pending: 'neutral', online: 'success', offline: 'error', revoked: 'neutral' },
+  resolver: { starting: 'info', ready: 'success', degraded: 'warning', unreachable: 'warning', failed: 'error', disabled: 'neutral' },
+  daemonConfigSource: { env: 'info', default: 'neutral', override: 'warning' },
   export: { queued: 'neutral', running: 'info', ready: 'success', failed: 'error', cancelled: 'neutral' },
   job: { queued: 'neutral', running: 'info', succeeded: 'success', failed: 'error', cancelled: 'neutral' },
   editor: { starting: 'info', running: 'success', stopping: 'warning', stopped: 'neutral' },
@@ -79,6 +83,8 @@ describe('statusMeta', () => {
       ['scriptRun', SCRIPT_RUN_STATES],
       ['worker', WORKER_STATES],
       ['node', NODE_STATES],
+      ['resolver', RESOLVER_STATES],
+      ['daemonConfigSource', ['env', 'default', 'override'] satisfies DaemonConfigSource[]],
       ['export', EXPORT_STATES],
       ['job', JOB_STATES],
       ['editor', EDITOR_STATES],

@@ -1,12 +1,13 @@
 import { computed, ref, shallowRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
-import type { CreateNodeBody, NodeForm, UpdateNodeBody } from '#shared/schemas/nodes'
+import type { CreateNodeBody, NodeForm, UpdateNodeBody, UpdateNodeDaemonOverridesBody } from '#shared/schemas/nodes'
 import { isSlug } from '#shared/utils/slug'
 import type { NodeJoin, NodeWithToken, ScantorNode } from '#shared/types/nodes'
 import type { ScanWorker } from '#shared/types/workers'
 import type { ScantorEvent } from '#shared/types/events'
 
 // Node administration (docs/api.md §4.17, docs/ui.md §5.15). The list and the detail poll every 10 s while the
-// page is visible. Mutations throw ApiError so modals can show errors inline; they never toast on their own.
+// page is visible. Mutations throw ApiError so modals can show errors inline; they never toast on their own, except
+// the ones the pages call after a confirmation (delete, token, reset of the daemon overrides).
 
 export const NODES_POLL_MS = 10_000
 
@@ -113,6 +114,18 @@ export function useNodes(filters: MaybeRefOrGetter<NodeFilters>) {
     return api<NodeJoin>(`/api/nodes/${nodeId}/join`)
   }
 
+  async function updateNodeDaemonOverrides(nodeId: string, body: UpdateNodeDaemonOverridesBody): Promise<ScantorNode> {
+    const node = await patchDaemonOverrides(api, nodeId, body)
+    replace(node)
+    return node
+  }
+
+  async function deleteNodeDaemonOverrides(nodeId: string): Promise<ScantorNode> {
+    const node = await deleteDaemonOverrides(api, nodeId)
+    replace(node)
+    return node
+  }
+
   return {
     nodes,
     loaded,
@@ -126,14 +139,33 @@ export function useNodes(filters: MaybeRefOrGetter<NodeFilters>) {
     rotateNodeToken,
     revokeNodeToken,
     getNodeJoin,
+    updateNodeDaemonOverrides,
+    deleteNodeDaemonOverrides,
   }
 }
 
-/** One node with its workers and events (`/admin/nodes/:nodeId`). */
+type Api = ReturnType<typeof useApi>
+
+/** updateNodeDaemonOverrides: a merge patch of the daemon overrides; errors stay inline in the modal. */
+function patchDaemonOverrides(api: Api, nodeId: string, body: UpdateNodeDaemonOverridesBody): Promise<ScantorNode> {
+  return api<ScantorNode>(`/api/nodes/${nodeId}/daemon-overrides`, { method: 'PATCH', body, toast: false })
+}
+
+/** deleteNodeDaemonOverrides, called after a confirmation: a failure toasts. */
+function deleteDaemonOverrides(api: Api, nodeId: string): Promise<ScantorNode> {
+  return api<ScantorNode>(`/api/nodes/${nodeId}/daemon-overrides`, { method: 'DELETE' })
+}
+
+/**
+ * One node with its workers and events (`/admin/nodes/:nodeId`), and the changes of its daemon overrides, whose
+ * response replaces the node.
+ */
 export function useNode(nodeId: MaybeRefOrGetter<string>, options: { workerStates: MaybeRefOrGetter<WorkerState[]> }) {
   const api = useApi()
   const node = shallowRef<ScantorNode | null>(null)
   const error = shallowRef<ApiError | null>(null)
+  /** Counts the changes of `node` other than reads: a read that started before one is stale and not applied. */
+  let generation = 0
 
   const workers = useCursorList<ScanWorker>(
     (cursor) =>
@@ -149,8 +181,10 @@ export function useNode(nodeId: MaybeRefOrGetter<string>, options: { workerState
   )
 
   async function load(): Promise<void> {
+    const read = generation
     try {
-      node.value = await api<ScantorNode>(`/api/nodes/${toValue(nodeId)}`, { background: true })
+      const current = await api<ScantorNode>(`/api/nodes/${toValue(nodeId)}`, { background: true })
+      if (read === generation) node.value = current
       error.value = null
     } catch (cause) {
       error.value = toApiError(cause)
@@ -161,6 +195,7 @@ export function useNode(nodeId: MaybeRefOrGetter<string>, options: { workerState
 
   const poll = usePoll(load, { intervalMs: NODES_POLL_MS })
   watch(() => toValue(nodeId), () => {
+    generation++
     node.value = null
     void poll.refresh()
   })
@@ -168,5 +203,30 @@ export function useNode(nodeId: MaybeRefOrGetter<string>, options: { workerState
     workers.reset().catch((cause: unknown) => console.error('[nodes] loading workers failed', cause))
   })
 
-  return { node, error, workers, events, refreshing: poll.running, refresh: poll.refresh }
+  function apply(changed: ScantorNode): ScantorNode {
+    if (changed.id === toValue(nodeId)) {
+      generation++
+      node.value = changed
+    }
+    return changed
+  }
+
+  async function updateNodeDaemonOverrides(id: string, body: UpdateNodeDaemonOverridesBody): Promise<ScantorNode> {
+    return apply(await patchDaemonOverrides(api, id, body))
+  }
+
+  async function deleteNodeDaemonOverrides(id: string): Promise<ScantorNode> {
+    return apply(await deleteDaemonOverrides(api, id))
+  }
+
+  return {
+    node,
+    error,
+    workers,
+    events,
+    refreshing: poll.running,
+    refresh: poll.refresh,
+    updateNodeDaemonOverrides,
+    deleteNodeDaemonOverrides,
+  }
 }
