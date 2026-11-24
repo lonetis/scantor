@@ -304,6 +304,10 @@ export const REQUESTS: Record<string, OperationRequests> = {
   deleteNode: { valid: none },
   listNodeWorkers: { valid: none },
   listNodeEvents: { valid: none },
+  // On the admin's throwaway target, a node without a daemon instance, a valid patch ends in 409
+  // daemonOverridesUnavailable (an allowed answer); `safe` fails validation.
+  updateNodeDaemonOverrides: { valid: () => ({ body: { maxWorkers: 4 } }), safe: () => ({ body: {} }) },
+  deleteNodeDaemonOverrides: { valid: none },
 
   // ── node API ──────────────────────────────────────────────────────────────────────────────────────
   nodeHello: {

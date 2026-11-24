@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 # Image scantor-test-fixtures (docs/testing.md §7.9): the fixtures server of the test stack. It serves the
-# Tranco and CrUX fakes of internal/templates/templatestest and read-only git smart-HTTP repositories
-# with fixture tasks. Build context: the repository root (docker-bake.hcl target test-fixtures),
-# filtered by Dockerfile.dockerignore next to this file.
+# Tranco and CrUX fakes of internal/templates/templatestest, read-only git smart-HTTP repositories with
+# fixture tasks, the ntfy fake and, on port 53, the authoritative DNS zone of the node resolver's iterative
+# tests. Build context: the repository root (docker-bake.hcl target test-fixtures), filtered by
+# Dockerfile.dockerignore next to this file.
 
 FROM golang:1.27.3-alpine3.24 AS build
 WORKDIR /src
@@ -13,7 +14,7 @@ COPY internal ./internal
 COPY schemas ./schemas
 COPY scaffolds ./scaffolds
 COPY docs/guide ./docs/guide
-COPY tests/docker/fixtures/main.go tests/docker/fixtures/ntfy.go ./tests/docker/fixtures/
+COPY tests/docker/fixtures/main.go tests/docker/fixtures/ntfy.go tests/docker/fixtures/dns.go ./tests/docker/fixtures/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/scantor-test-fixtures ./tests/docker/fixtures
@@ -31,5 +32,5 @@ COPY --from=build /out/scantor-test-fixtures /usr/local/bin/scantor-test-fixture
 # The server writes per-test repository copies, so it owns /srv/git.
 COPY --from=repos --chown=65534:65534 /srv/git /srv/git
 USER 65534:65534
-EXPOSE 8089
+EXPOSE 8089 53/udp 53/tcp
 ENTRYPOINT ["/usr/local/bin/scantor-test-fixtures"]

@@ -1,7 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import type { APIRequestContext } from '@playwright/test'
-import type { Node, NodeInfo, NodeWithToken } from '#shared/types/nodes'
+import type { Node, NodeInfo, NodeResolverReport, NodeWithToken } from '#shared/types/nodes'
 import { ApiClient, ApiError, ok } from './api-client'
+import { FakeDaemonConfig, fakeResolverReport, type AssignedOverrides, type FakeDaemonConfigOptions } from './fake-daemon'
 import type { OpenApiIndex } from './openapi'
 import { SMALL_SETTINGS } from './scans'
 import { unique } from './unique'
@@ -12,7 +13,9 @@ import { newApiContext } from './users'
 // reports the capacity a test chooses and, unless the test sets worker reports, no containers, so the workers placed
 // on it stay `assigned` (and drained ones become `stopped` after two reports) while placement decisions are
 // observable through the scan, its workers and events. Only scans whose nodeSelector names the node's unique pool are
-// ever placed on it.
+// ever placed on it. On request it also reports a node resolver and a daemon configuration, and applies the daemon
+// overrides of its assignments like the real daemon (helpers/fake-daemon.ts), so the capacity it reports follows a
+// maxWorkers override.
 
 type HostInfo = Omit<NodeInfo, 'version' | 'clockOffsetMs'>
 
@@ -24,6 +27,15 @@ export interface FakeWorkerReport {
   error?: { code: 'imagePullFailed' | 'createFailed' | 'platformMismatch'; message: string }
 }
 
+export interface FakeNodeOptions {
+  pool?: string
+  info?: Partial<HostInfo>
+  /** report a node resolver (fakeResolverReport with these fields); none by default */
+  resolver?: Partial<NodeResolverReport>
+  /** report a daemon configuration and apply daemon overrides; none by default */
+  daemonConfig?: FakeDaemonConfigOptions
+}
+
 const GIB = 1024 ** 3
 
 export class FakeNode {
@@ -33,6 +45,10 @@ export class FakeNode {
   /** the worker entries of every status report */
   private workers: FakeWorkerReport[] = []
   readonly instanceId = `${randomUUID()}:${randomBytes(4).toString('hex')}`
+  /** the node resolver report of hello and status; null reports none */
+  readonly resolver: NodeResolverReport | null
+  /** the daemon configuration; null reports none */
+  readonly config: FakeDaemonConfig | null
 
   private constructor(
     private readonly adminApi: ApiClient,
@@ -41,10 +57,15 @@ export class FakeNode {
     readonly created: NodeWithToken,
     readonly info: HostInfo,
     readonly version: string,
-  ) {}
+    options: FakeNodeOptions,
+  ) {
+    this.resolver = options.resolver ? fakeResolverReport(options.resolver) : null
+    const { values, ...rest } = options.daemonConfig ?? {}
+    this.config = options.daemonConfig ? new FakeDaemonConfig({ ...rest, values: { maxWorkers: info.maxWorkers, ...values } }) : null
+  }
 
   /** Creates the node (admin) and brings it online: hello, then a status report every 4 s. */
-  static async start(adminApi: ApiClient, openapi: OpenApiIndex, options: { pool?: string; info?: Partial<HostInfo> } = {}): Promise<FakeNode> {
+  static async start(adminApi: ApiClient, openapi: OpenApiIndex, options: FakeNodeOptions = {}): Promise<FakeNode> {
     const nodes = ok(await adminApi.listNodes(), 'listNodes').items
     const builtin = nodes.find((node: Node) => node.builtIn)
     const version = ok(await adminApi.getHealth(), 'getHealth').version
@@ -67,7 +88,7 @@ export class FakeNode {
       networkIsolated: true,
       ...options.info,
     }
-    const node = new FakeNode(adminApi, context, new ApiClient(context, openapi), created, info, version)
+    const node = new FakeNode(adminApi, context, new ApiClient(context, openapi), created, info, version, options)
     try {
       await node.hello()
       await node.report()
@@ -95,6 +116,11 @@ export class FakeNode {
     return this.created.node.pool
   }
 
+  /** The capacity this daemon reports: its info with the daemon override of maxWorkers applied. */
+  private get reportedInfo(): HostInfo {
+    return this.config ? { ...this.info, maxWorkers: this.config.values.maxWorkers } : this.info
+  }
+
   private headers(): Record<string, string> {
     return {
       Authorization: `Bearer ${this.created.token}`,
@@ -105,10 +131,17 @@ export class FakeNode {
   }
 
   private async hello(): Promise<void> {
+    const info = this.reportedInfo
     ok(
       await this.daemon.call('nodeHello', {
         headers: this.headers(),
-        body: { instanceId: this.instanceId, version: this.version, info: this.info, containers: [] },
+        body: {
+          instanceId: this.instanceId,
+          version: this.version,
+          info: this.resolver ? { ...info, resolver: this.resolver } : info,
+          containers: [],
+          ...(this.config ? { daemonConfig: this.config.report() } : {}),
+        },
       }),
       'nodeHello',
     )
@@ -121,9 +154,9 @@ export class FakeNode {
     await this.report()
   }
 
-  /** One status report: the node's capacity and the worker entries the test set (none by default). */
+  /** One status report: the node's capacity, the worker entries the test set (none by default) and what it runs. */
   async report(): Promise<void> {
-    const { info } = this
+    const info = this.reportedInfo
     ok(
       await this.daemon.call('postNodeStatus', {
         headers: this.headers(),
@@ -140,12 +173,30 @@ export class FakeNode {
             maxWorkers: info.maxWorkers,
             egressDenyApplied: info.egressDenyApplied,
             networkIsolated: info.networkIsolated,
+            ...(this.resolver ? { resolver: this.resolver } : {}),
           },
           workers: this.workers,
+          ...(this.config ? { daemonConfig: this.config.report() } : {}),
         },
       }),
       'postNodeStatus',
     )
+  }
+
+  /**
+   * What the daemon does with every assignments response: applies the daemon overrides of its instance, then reports
+   * the result (with the overridden capacity) in a status. Returns the overrides the response carried.
+   */
+  async syncOverrides(): Promise<AssignedOverrides> {
+    const response = await this.daemon.call<{ daemonOverrides: AssignedOverrides }>('getNodeAssignments', {
+      headers: this.headers(),
+      query: { rev: -1, wait: 0 },
+    })
+    const { daemonOverrides } = ok(response, 'getNodeAssignments')
+    this.config?.apply(daemonOverrides)
+    await this.beating
+    await this.report()
+    return daemonOverrides
   }
 
   /** The node's desired workers (docs/api.md §7.2), with the worker tokens the runtime API takes. */
@@ -188,7 +239,7 @@ export class FakeNodes {
     private readonly openapi: OpenApiIndex,
   ) {}
 
-  async start(options: { pool?: string; info?: Partial<HostInfo> } = {}): Promise<FakeNode> {
+  async start(options: FakeNodeOptions = {}): Promise<FakeNode> {
     const node = await FakeNode.start(this.adminApi, this.openapi, options)
     this.nodes.push(node)
     return node

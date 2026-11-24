@@ -10,7 +10,7 @@ test-index --check`); never edit it by hand.
 
 ## Playwright projects
 
-### api (290 tests)
+### api (302 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -30,6 +30,7 @@ test-index --check`); never edit it by hand.
 | `api/jobs.spec.ts` | jobs of the tenant; jobs without a user | 3 |
 | `api/metrics.spec.ts` | GET /api/metrics | 4 |
 | `api/node-api.spec.ts` | hello; instance lease; assignments; removing a node; node detail | 11 |
+| `api/node-daemon.spec.ts` | the node resolver report; the daemon configuration; daemon overrides | 12 |
 | `api/nodes.spec.ts` | listing nodes; creating nodes; join instructions; updating nodes; node tokens; the built-in node | 11 |
 | `api/notifications.spec.ts` | notifications | 5 |
 | `api/registry-token.spec.ts` | token flows; granted access; errors; grant lifetime | 7 |
@@ -67,7 +68,7 @@ test-index --check`); never edit it by hand.
 | `authz/matrix.spec.ts` | authorization matrix | 32 |
 | `authz/openapi-lint.spec.ts` | OpenAPI lint | 10 |
 
-### security (221 tests)
+### security (223 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -84,6 +85,7 @@ test-index --check`); never edit it by hand.
 | `security/env-example.spec.ts` | lint-env | 36 |
 | `security/hostile-labels.spec.ts` | hostile labels | 3 |
 | `security/insecure-secrets.spec.ts` | startup guard; SCANTOR_SECRET change; secrets derived from SCANTOR_SECRET | 14 |
+| `security/node-resolver.spec.ts` | the node resolver container; the node resolver’s clients | 2 |
 | `security/query-injection.spec.ts` | query injection | 4 |
 | `security/rate-limits.spec.ts` | auth rate limits | 4 |
 | `security/sandbox.spec.ts` | worker containers; reachability; egress deny list; short-lived containers; worker logs; node daemon boundaries | 15 |
@@ -94,7 +96,7 @@ test-index --check`); never edit it by hand.
 | `security/traefik.spec.ts` | Traefik | 12 |
 | `security/tunnel.spec.ts` | tunnel requests; the tunnel URL setting | 6 |
 
-### mcp (53 tests)
+### mcp (54 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -105,10 +107,10 @@ test-index --check`); never edit it by hand.
 | `mcp/limits.spec.ts` | MCP response cap | 2 |
 | `mcp/oauth.spec.ts` | MCP OAuth discovery; MCP OAuth clients; MCP OAuth authorization; MCP OAuth revocation | 16 |
 | `mcp/smoke.spec.ts` | MCP plumbing; MCP transport | 5 |
-| `mcp/tools.spec.ts` | MCP tool catalogue; MCP tool calls | 13 |
+| `mcp/tools.spec.ts` | MCP tool catalogue; MCP tool calls | 14 |
 | `mcp/tunnel.spec.ts` | MCP through the tunnel URL | 4 |
 
-### e2e (195 tests)
+### e2e (200 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
@@ -121,6 +123,7 @@ test-index --check`); never edit it by hand.
 | `e2e/files.spec.ts` | file references; file limits; storage quota | 4 |
 | `e2e/lifecycle.spec.ts` | recounts and delete; pause, resume and scale; retry-failed; progress; broker topology and completion | 14 |
 | `e2e/limits.spec.ts` | result size; analysis config size | 2 |
+| `e2e/node-resolver.spec.ts` | the shared nodes; a node of its own | 5 |
 | `e2e/placement.spec.ts` | desired workers; pending reasons; capacity; user worker cap; node choice; placement events | 9 |
 | `e2e/privileged.spec.ts` | publishing; running privileged revisions; test runs | 3 |
 | `e2e/remote-node.spec.ts` | remote node | 2 |
@@ -131,14 +134,14 @@ test-index --check`); never edit it by hand.
 | `e2e/templates.spec.ts` | template single; template list; template range; template repeat; template tranco; template crux; template cidr; wrapped templates; resolution on resume; test runs and template data; data sources | 18 |
 | `e2e/workers.spec.ts` | crash loops and memory; drain and stop; process slots; image pulls | 11 |
 
-### ui (264 tests)
+### ui (266 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
 | `ui/a11y.spec.ts` | dashboard accessibility | 18 |
 | `ui/access.spec.ts` | CLI & MCP access: API keys; CLI & MCP access: downloads and MCP; CLI & MCP access: authorized apps; CLI & MCP access: revoking a real authorized app | 9 |
 | `ui/account.spec.ts` | account page of the tenant; account changes | 7 |
-| `ui/admin-nodes.spec.ts` | nodes table; adding a node; node actions; node page | 11 |
+| `ui/admin-nodes.spec.ts` | nodes table; adding a node; node actions; node page; node resolver and daemon configuration | 13 |
 | `ui/admin-tools.spec.ts` | infrastructure tools; API links, health and jobs | 8 |
 | `ui/admin-users.spec.ts` | users table; creating and editing users; banning and deleting users | 8 |
 | `ui/auth.spec.ts` | sign-in page; signed-in visits to /login; session loss; admin user menu | 16 |
@@ -162,11 +165,11 @@ test-index --check`); never edit it by hand.
 | `ui/test-run.spec.ts` | test runs | 8 |
 | `ui/tunnel.spec.ts` | signing in through the tunnel URL; the dashboard through the tunnel URL; the admin through the tunnel URL | 7 |
 
-### chaos (23 tests)
+### chaos (25 tests)
 
 | Spec | Describe blocks | Tests |
 |---|---|---|
-| `chaos/chaos.spec.ts` | faults of one scan; the remote node remote-1; platform components; an orchestrator restart during a scan and a build; the Cloudflare Tunnel; logs | 23 |
+| `chaos/chaos.spec.ts` | faults of one scan; the remote node remote-1; platform components; an orchestrator restart during a scan and a build; the Cloudflare Tunnel; logs | 25 |
 
 ## Feature coverage
 
@@ -552,6 +555,17 @@ test-index --check`); never edit it by hand.
 | NODE-033 | A failed image pull puts the worker in state error with code imagePullFailed and raises the scan … | e2e/workers.spec.ts › image pulls › a failed image pull leaves the worker pulling with imagePullFailed and raises the condition; the scan runs once the image is back<br>e2e/workers.spec.ts › image pulls › imagePullFailed clears when the node reports the containers of the pulled image<br>e2e/workers.spec.ts › image pulls › imagePullFailed clears when the runtime bootstraps before the node reports the containers |
 | NODE-034 | The daemon runs a one-shot egress helper scantor-netpol-<nodeId> (host network, NET_ADMIN and … | security/sandbox.spec.ts › egress deny list › where egressDenyApplied is true the deny rules are installed and 169.254.169.254 is unreachable from workers<br>security/sandbox.spec.ts › node daemon boundaries › a node daemon connects only with the CA of SCANTOR_CA_CERT, then runs its one-shot egress helper on the host network with NET_ADMIN and NET_RAW only |
 | NODE-035 | A scan with nodeSelector.pool = "remote" runs end to end on remote-1 over the public endpoint … | e2e/remote-node.spec.ts › remote node › a scan with pool remote runs end to end on remote-1 over the public endpoint profile |
+| NODE-036 | Every node runs one node resolver container scantor-dns-<nodeId>-<hash12> from the daemon's own … | security/node-resolver.spec.ts › the node resolver container › every node runs one hardened node resolver on the host network that binds only its gateway, and probes it with a one-shot container |
+| NODE-037 | Workers on the built-in node and on remote-1 resolve through their node's resolver: their … | e2e/node-resolver.spec.ts › the shared nodes › workers on the built-in node and on remote-1 resolve through their node resolver |
+| NODE-038 | The node resolver report of a daemon's hello and status is stored and represented as info.resolver … | api/node-daemon.spec.ts › the node resolver report › info.resolver holds the report of hello and status, and its state changes are events<br>api/node-daemon.spec.ts › the node resolver report › a resolver that recovers through starting or a daemon restart records node.resolverReady with the state it recovered from<br>api/node-daemon.spec.ts › the node resolver report › overlapping status reports record each resolver state change once<br>api/node-daemon.spec.ts › the node resolver report › a daemon without a node resolver reports none |
+| NODE-039 | A dns.* daemon override replaces the node resolver blue/green: a container with the new spec hash … | e2e/node-resolver.spec.ts › a node of its own › a dns override replaces the node resolver blue/green while lookups through the worker network keep being answered |
+| NODE-040 | The node resolver outlives its daemon: after a daemon restart the new daemon instance adopts the … | chaos/chaos.spec.ts › the remote node remote-1 › remote-1's node resolver keeps serving while its daemon restarts, is adopted by the new daemon and is started again after docker kill |
+| NODE-041 | With SCANTOR_NODE_DNS_MODE=iterative and a root server of its own (SCANTOR_NODE_DNS_ROOT_SERVERS), … | e2e/node-resolver.spec.ts › a node of its own › in iterative mode the node resolver resolves from its root server |
+| NODE-042 | A node resolver answers only its worker network: a query from another network of the same Docker … | security/node-resolver.spec.ts › the node resolver’s clients › a node resolver answers its worker network and refuses queries from any other network of its host |
+| NODE-043 | GET /api/nodes/{id} returns daemonConfig with the daemon's values (every daemon setting, dns … | api/node-daemon.spec.ts › the daemon configuration › the shared nodes report their configuration with sources and without any secret<br>api/node-daemon.spec.ts › the daemon configuration › a fake daemon’s report is represented with its values, sources and warnings; a malformed one is stored as null<br>api/node-daemon.spec.ts › the daemon configuration › a daemon configuration at the caps of the daemon’s report is stored whole, one above 64 KiB as null<br>api/node-daemon.spec.ts › the daemon configuration › scantor nodes daemon-config prints every setting with its value, source and variable<br>mcp/tools.spec.ts › MCP tool calls › an admin reads the daemon configuration with list_nodes and sets daemon overrides with update_node_daemon_overrides |
+| NODE-044 | PATCH /api/nodes/{id}/daemon-overrides (admin) applies a JSON merge patch to the daemon overrides … | api/node-daemon.spec.ts › daemon overrides › a merge patch sets the overrides of the current instance, the daemon applies them, and DELETE removes them<br>api/node-daemon.spec.ts › daemon overrides › scantor nodes daemon-overrides set and reset change the overrides; set refuses invalid servers before it sends anything<br>api/node-daemon.spec.ts › daemon overrides › the hello of another daemon instance ends the overrides of the previous one<br>api/node-daemon.spec.ts › daemon overrides › overrides need a daemon instance that reported its configuration and allows the keys, and valid values |
+| NODE-045 | Daemon overrides take effect in the running daemon: a maxWorkers override becomes the node's … | e2e/node-resolver.spec.ts › a node of its own › daemon overrides change the running daemon: capacity, the settings of new workers, and a restart ends them<br>e2e/node-resolver.spec.ts › a node of its own › a maxWorkers override raises the placement capacity of a node above its daemon’s setting |
+| NODE-046 | Daemon overrides of the built-in node survive an orchestrator restart: the daemon instance keeps … | chaos/chaos.spec.ts › an orchestrator restart during a scan and a build › the built-in node's daemon overrides survive the restart |
 | REG-001 | GET /api/registry/token?service=scantor-registry&scope=repository:tasks/<id>:pull with Basic … | api/registry-token.spec.ts › token flows › GET with a node credential returns an ES256 token for its assigned repository |
 | REG-002 | POST /api/registry/token with the form grant_type=password, username=node, password=snt_… and scope … | api/registry-token.spec.ts › token flows › POST with a password grant form returns an access token |
 | REG-003 | The granted access is the requested access intersected with what is allowed: a node gets pull only … | api/registry-token.spec.ts › granted access › a node gets pull on the repositories of its own assignments only |
@@ -647,10 +661,10 @@ test-index --check`); never edit it by hand.
 | TOOLS-002 | GET /api/tools/forward-auth answers 200 with X-Scantor-User for a valid admin tools cookie on a … | api/tools.spec.ts › forwardAuth › a valid admin cookie on a tool host is allowed with X-Scantor-User<br>api/tools.spec.ts › forwardAuth › other hosts and missing, expired, forged or non-admin cookies get 401 text; browsers are sent to the session<br>api/tools.spec.ts › forwardAuth › an admin banned a moment ago is refused at once |
 | TOOLS-003 | Through Traefik, traefik., rabbitmq., mongo-express. and rustfs.<domain> are reachable only with an … | api/tools.spec.ts › tool hosts through Traefik › every tool host needs an admin tools cookie<br>api/tools.spec.ts › tool hosts through Traefik › a client-supplied X-Forwarded-Host is ignored<br>api/tools.spec.ts › tool hosts through Traefik › behind the cookie each tool still asks for its own credentials |
 | TOOLS-004 | RabbitMQ management accepts only the admin user, mongo-express runs read-only, and the bucket … | security/downloads.spec.ts › downloads › the bucket answers CORS preflights only from the dashboard origin, and only for GET<br>security/sandbox.spec.ts › reachability › the RabbitMQ management API rejects the scan user and accepts the admin; the object store answers only signed requests<br>security/sandbox.spec.ts › reachability › mongo-express runs read-only |
-| MCP-001 | tools/list equals the curated table of 44 tools (at most 45): names are snake_case(operationId) … | mcp/tools.spec.ts › MCP tool catalogue › tools/list of an admin key equals the curated table with names, titles, descriptions and annotations |
+| MCP-001 | tools/list equals the curated table of 45 tools (at most 45): names are snake_case(operationId) … | mcp/tools.spec.ts › MCP tool catalogue › tools/list of an admin key equals the curated table with names, titles, descriptions and annotations |
 | MCP-002 | A scantor:read grant sees only read tools (GET plus query_analyses and aggregate_analyses), and … | mcp/apikey.spec.ts › MCP with API keys › a user's default key works as Bearer and as x-api-key with the write level<br>mcp/apikey.spec.ts › MCP with API keys › an admin's default key has the admin level and lists the nodes<br>mcp/apikey.spec.ts › MCP with API keys › an admin's editor key has the write level without admin tools<br>mcp/oauth.spec.ts › MCP OAuth authorization › consent decides the level: scope is required, admin is stripped for users, Read only grants read, Deny returns access_denied<br>mcp/oauth.spec.ts › MCP OAuth authorization › an admin who approves Admin gets the admin tool, and Read and write keeps it hidden<br>mcp/tools.spec.ts › MCP tool catalogue › tools/list of an admin key equals the curated table with names, titles, descriptions and annotations<br>mcp/tools.spec.ts › MCP tool catalogue › a default key of a user has the write level: no admin tool, and calling it is an unknown tool<br>mcp/tools.spec.ts › MCP tool catalogue › a scantor:read grant lists only the read tools and cannot call a write tool |
 | MCP-003 | wait on publish_revision, get_revision, test_task, get_test_run, get_scan, export_scan, get_export, … | mcp/tools.spec.ts › MCP tool catalogue › the wait tools advertise wait with a maximum of 50 seconds<br>mcp/tools.spec.ts › MCP tool calls › a settled scan answers at once with _wait settled, and pausing it is a structured 409 invalidState<br>mcp/tools.spec.ts › MCP tool calls › a scan that does not settle answers after the wait with _wait timeout<br>mcp/tools.spec.ts › MCP tool calls › a wait above 50 is clamped to 50 seconds |
-| MCP-004 | A non-2xx REST response becomes isError with {error: {httpStatus, code, message, details}} (plus … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only<br>mcp/tools.spec.ts › MCP tool calls › a settled scan answers at once with _wait settled, and pausing it is a structured 409 invalidState<br>mcp/tools.spec.ts › MCP tool calls › REST errors become structured tool errors with status, code, message and details<br>mcp/tools.spec.ts › MCP tool calls › arguments that violate the input schema give the structured 400 validationFailed error |
+| MCP-004 | A non-2xx REST response becomes isError with {error: {httpStatus, code, message, details}} (plus … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only<br>mcp/tools.spec.ts › MCP tool calls › a settled scan answers at once with _wait settled, and pausing it is a structured 409 invalidState<br>mcp/tools.spec.ts › MCP tool calls › an admin reads the daemon configuration with list_nodes and sets daemon overrides with update_node_daemon_overrides<br>mcp/tools.spec.ts › MCP tool calls › REST errors become structured tool errors with status, code, message and details<br>mcp/tools.spec.ts › MCP tool calls › arguments that violate the input schema give the structured 400 validationFailed error |
 | MCP-005 | Target- and task-derived values are wrapped as {untrusted_data: …} (for example get_analysis … | mcp/agent-loop.spec.ts › MCP agent loop › an agent authors, tests, publishes, runs and analyses a task with tools only<br>mcp/tools.spec.ts › MCP tool calls › values derived from targets and task code are wrapped as untrusted data, absent and null values are not |
 | MCP-006 | Tool results are capped at 256 KiB: the longest fitting prefix of the list is kept with _truncated … | mcp/limits.spec.ts › MCP response cap › a query over large results keeps the longest fitting prefix with a note, and long strings are shortened<br>mcp/limits.spec.ts › MCP response cap › a truncated query sets nextCursor to the seq of the last returned analysis |
 | MCP-007 | No MCP tool manages credentials or identity (API keys, OAuth apps, users, git credentials, editor … | mcp/tools.spec.ts › MCP tool catalogue › no tool manages credentials or identity, and secret config values arrive as *** |
@@ -674,7 +688,7 @@ test-index --check`); never edit it by hand.
 | SEC-004 | A task whose earlier build stage is FROM an external image with ONBUILD triggers fails the revision … | security/dockerfile-policy.spec.ts › Dockerfile policy › an external stage image with ONBUILD triggers fails the build with the image and its line |
 | SEC-005 | A task with LABEL keys starting with traefik., com.docker.compose. or scantor. (any case), quoted, … | security/hostile-labels.spec.ts › hostile labels › forbidden LABEL keys are rejected statically, literal, quoted, in any case and ARG-expanded |
 | SEC-006 | Forbidden labels inherited from a base image pass the static check but fail the revision in phase … | security/hostile-labels.spec.ts › hostile labels › forbidden labels inherited from the base image pass the static check, fail the build and leave no image |
-| SEC-007 | Every container scantor creates (worker, helper, build, test run, script run, editor, egress … | security/hostile-labels.spec.ts › hostile labels › an image with Traefik and compose labels swapped into a ready revision runs with the managed labels and gets no route<br>security/insecure-secrets.spec.ts › secrets derived from SCANTOR_SECRET › the editor cookie the helpers derive opens the running editor<br>security/sandbox.spec.ts › worker containers › a worker on the built-in node runs with the hardening profile on scantor-sandbox, with only its assignment environment<br>security/sandbox.spec.ts › worker containers › a worker on a remote node joins scantor-workers, where workers of other scans cannot reach it<br>security/sandbox.spec.ts › short-lived containers › a test run runs on scantor-egress with the worker hardening profile and reaches no platform service<br>security/sandbox.spec.ts › short-lived containers › describe and check containers run without network, tokens or added capabilities, and are removed<br>security/sandbox.spec.ts › short-lived containers › workspace helpers run as 1000:1000 without network, read-only, with only the user’s volume, and are removed<br>security/sandbox.spec.ts › node daemon boundaries › a node daemon connects only with the CA of SCANTOR_CA_CERT, then runs its one-shot egress helper on the host network with NET_ADMIN and NET_RAW only<br>security/script-runs.spec.ts › script runs › a script-run container runs hardened on scantor-scripts only and reaches nothing but the orchestrator and the object store |
+| SEC-007 | Every container scantor creates (worker, helper, build, test run, script run, editor, egress … | security/hostile-labels.spec.ts › hostile labels › an image with Traefik and compose labels swapped into a ready revision runs with the managed labels and gets no route<br>security/insecure-secrets.spec.ts › secrets derived from SCANTOR_SECRET › the editor cookie the helpers derive opens the running editor<br>security/node-resolver.spec.ts › the node resolver container › every node runs one hardened node resolver on the host network that binds only its gateway, and probes it with a one-shot container<br>security/sandbox.spec.ts › worker containers › a worker on the built-in node runs with the hardening profile on scantor-sandbox, with only its assignment environment<br>security/sandbox.spec.ts › worker containers › a worker on a remote node joins scantor-workers, where workers of other scans cannot reach it<br>security/sandbox.spec.ts › short-lived containers › a test run runs on scantor-egress with the worker hardening profile and reaches no platform service<br>security/sandbox.spec.ts › short-lived containers › describe and check containers run without network, tokens or added capabilities, and are removed<br>security/sandbox.spec.ts › short-lived containers › workspace helpers run as 1000:1000 without network, read-only, with only the user’s volume, and are removed<br>security/sandbox.spec.ts › node daemon boundaries › a node daemon connects only with the CA of SCANTOR_CA_CERT, then runs its one-shot egress helper on the host network with NET_ADMIN and NET_RAW only<br>security/script-runs.spec.ts › script runs › a script-run container runs hardened on scantor-scripts only and reaches nothing but the orchestrator and the object store |
 | SEC-008 | Defence in depth: a pre-built image carrying traefik.* and com.docker.compose.project=scantor … | security/hostile-labels.spec.ts › hostile labels › an image with Traefik and compose labels swapped into a ready revision runs with the managed labels and gets no route |
 | SEC-009 | A RUN step that connects to 169.254.169.254 fails during a build on a node that reports … | security/sandbox.spec.ts › egress deny list › where egressDenyApplied is true the deny rules are installed and 169.254.169.254 is unreachable from workers<br>security/sandbox.spec.ts › egress deny list › a RUN step that connects to 169.254.169.254 fails the build on the master |
 | SEC-010 | Master workers (netprobe on the built-in node) cannot open TCP connections to MongoDB, the registry … | security/sandbox.spec.ts › reachability › master workers cannot reach MongoDB, the registry or mongo-express, by name, address or published port<br>security/sandbox.spec.ts › reachability › the RabbitMQ management API rejects the scan user and accepts the admin; the object store answers only signed requests |
@@ -703,7 +717,7 @@ test-index --check`); never edit it by hand.
 | OPS-005 | lint-env fails when a non-configuration variable (SCANTOR_WORKER_TOKEN, SCANTOR_SCRIPT_TOKEN, … | security/env-example.spec.ts › lint-env › the checkout passes every rule<br>security/env-example.spec.ts › lint-env › SCANTOR_WORKER_TOKEN must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_SCRIPT_TOKEN must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_DIND must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_REGISTRY_PUSH_PASSWORD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_LANGUAGE must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_CONNECTOR_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_CHECK_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_DEBUG_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_DEBUG_PORT must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_SCRIPT_CMD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROTOCOL_IN_FD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROTOCOL_OUT_FD must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROTOCOL_VERSIONS must not appear in .env.example<br>security/env-example.spec.ts › lint-env › SCANTOR_PROCESS_INDEX must not appear in .env.example |
 | OPS-006 | Traefik redirects http:// permanently to https://, serves the operator's default certificate (the … | security/traefik.spec.ts › Traefik › http:// redirects permanently to https:// on every host<br>security/traefik.spec.ts › Traefik › the test CA's wildcard certificate is served for every host and the SNI TCP router<br>security/traefik.spec.ts › Traefik › the Traefik dashboard API is reachable only with an admin's tools cookie |
 | OPS-007 | Traefik routes each host to its target: scantor. to the orchestrator, editor. to the editor … | security/traefik.spec.ts › Traefik › routing › the apex host reaches the orchestrator<br>security/traefik.spec.ts › Traefik › routing › the editor host reaches the editor listener, not the API<br>security/traefik.spec.ts › Traefik › routing › the registry host reaches the registry with token auth<br>security/traefik.spec.ts › Traefik › routing › the s3 host reaches the object store with the Host header preserved<br>security/traefik.spec.ts › Traefik › routing › the traefik host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the rabbitmq host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the mongo-express host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the rustfs host is reached only through forwardAuth<br>security/traefik.spec.ts › Traefik › routing › the amqp host is a TLS TCP router to RabbitMQ |
-| OPS-008 | Every long-running container scantor creates has a Docker healthcheck: workers and test runs run … | security/editor-isolation.spec.ts › the editor container › is hardened, has no Docker socket and cannot be reached from a master worker<br>security/sandbox.spec.ts › worker containers › a worker on the built-in node runs with the hardening profile on scantor-sandbox, with only its assignment environment<br>security/sandbox.spec.ts › short-lived containers › a test run runs on scantor-egress with the worker hardening profile and reaches no platform service<br>security/sandbox.spec.ts › short-lived containers › describe and check containers run without network, tokens or added capabilities, and are removed |
+| OPS-008 | Every long-running container scantor creates has a Docker healthcheck: workers and test runs run … | security/editor-isolation.spec.ts › the editor container › is hardened, has no Docker socket and cannot be reached from a master worker<br>security/node-resolver.spec.ts › the node resolver container › every node runs one hardened node resolver on the host network that binds only its gateway, and probes it with a one-shot container<br>security/sandbox.spec.ts › worker containers › a worker on the built-in node runs with the hardening profile on scantor-sandbox, with only its assignment environment<br>security/sandbox.spec.ts › short-lived containers › a test run runs on scantor-egress with the worker hardening profile and reaches no platform service<br>security/sandbox.spec.ts › short-lived containers › describe and check containers run without network, tokens or added capabilities, and are removed |
 | OPS-009 | Each service's data location is set in .env: a SCANTOR_*_DATA variable holding a host path stores … | security/data-locations.spec.ts › data locations › a service keeps its data in the host directory of its variable, the others in their volumes<br>security/data-locations.spec.ts › data locations › the orchestrator binds scantor-workspaces to the directory of SCANTOR_WORKSPACES_DATA |
 | TUNNEL-001 | With SCANTOR_TUNNEL_URL set, a request from the cloudflared peer whose Host is the tunnel URL's … | api/tunnel.spec.ts › the tunnel URL › serves the dashboard, the REST API and /mcp |
 | TUNNEL-002 | The tunnel URL's host from any other peer (straight to the dashboard listener, from a container on … | security/tunnel.spec.ts › tunnel requests › the tunnel host from any other peer and any other host from the tunnel peer get 421 before any route<br>security/tunnel.spec.ts › tunnel requests › containers on scantor-sandbox and scantor-scripts get 421 for the tunnel host |
@@ -922,6 +936,7 @@ test-index --check`); never edit it by hand.
 | UI-ADMIN-012 | Deleting a user requires typing their email, shows the purge job's progress on the row, and removes … | ui/admin-users.spec.ts › banning and deleting users › Delete needs the email, shows the purge job on the row and removes it with "User deleted"<br>ui/admin-users.spec.ts › banning and deleting users › a failed purge job shows a toast and unlocks the row for another try<br>ui/admin-users.spec.ts › banning and deleting users › a cancelled purge job shows a toast and unlocks the row for another try |
 | UI-ADMIN-013 | With Traefik, the admin tools page shows cards for RabbitMQ management, mongo-express, the RustFS … | ui/admin-tools.spec.ts › infrastructure tools › "Open RabbitMQ management" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open mongo-express" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open RustFS console" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › "Open Traefik dashboard" sets the tools cookie and reaches the tool through forwardAuth<br>ui/admin-tools.spec.ts › infrastructure tools › without Traefik the page says so and shows the bind address instead of links |
 | UI-ADMIN-014 | The admin tools page links the API reference, the OpenAPI document and the metrics, and shows the … | ui/admin-tools.spec.ts › API links, health and jobs › links the API reference, the OpenAPI document and the metrics<br>ui/admin-tools.spec.ts › API links, health and jobs › shows the health report, also when it answers 503<br>ui/admin-tools.spec.ts › API links, health and jobs › the jobs table lists other users' jobs, filters by kind and state and puts failed jobs first |
+| UI-ADMIN-015 | The node page shows a "Node resolver" region (state badge, mode, address, error, whether its … | ui/admin-nodes.spec.ts › node resolver and daemon configuration › the node page shows the node resolver and the daemon configuration, and edits and resets daemon overrides<br>ui/admin-nodes.spec.ts › node resolver and daemon configuration › without a reported daemon configuration only the reset is offered, a starting resolver’s health is unknown, and the nodes table warns of a failed resolver |
 | UI-ACCT-001 | The account page has Profile, Password, Passkeys, Sessions, Notifications and Editor sections that … | ui/account.spec.ts › account page of the tenant › has Profile, Password, Passkeys, Sessions, Notifications and Editor sections that load and fail on their own<br>ui/account.spec.ts › account page of the tenant › a failed account load offers "Retry" |
 | UI-ACCT-002 | The profile saves the name ("Saved") and changes the email ("Email changed"), and shows role, … | ui/account.spec.ts › account changes › the profile saves the name, changes the email and shows role and limits |
 | UI-ACCT-003 | Changing the password takes the current one, a new one and its confirmation, signs out other … | ui/account.spec.ts › account changes › changing the password checks the current one and signs out other sessions by default |
@@ -970,6 +985,8 @@ None.
 - `internal/node`
 - `internal/protocol`
 - `internal/redact`
+- `internal/resolver`
+- `internal/resolver/resolvertest`
 - `internal/runtime`
 - `internal/runtime/bootstrap`
 - `internal/runtime/bundlerun`
@@ -1060,6 +1077,7 @@ None.
 - `orchestrator/test/services/jobs/user-purge.test.ts`
 - `orchestrator/test/services/mcp/arguments.test.ts`
 - `orchestrator/test/services/mcp/bridge.test.ts`
+- `orchestrator/test/services/mcp/catalogue.test.ts`
 - `orchestrator/test/services/mcp/discovery.test.ts`
 - `orchestrator/test/services/mcp/loopback-call.test.ts`
 - `orchestrator/test/services/mcp/origins.test.ts`
@@ -1069,13 +1087,20 @@ None.
 - `orchestrator/test/services/mcp/tools.test.ts`
 - `orchestrator/test/services/mcp/truncate.test.ts`
 - `orchestrator/test/services/mcp/untrusted.test.ts`
+- `orchestrator/test/services/metrics/collect.test.ts`
 - `orchestrator/test/services/metrics/registry.test.ts`
 - `orchestrator/test/services/nodes/assignments-shutdown.test.ts`
 - `orchestrator/test/services/nodes/assignments.test.ts`
+- `orchestrator/test/services/nodes/daemon-overrides.test.ts`
 - `orchestrator/test/services/nodes/join.test.ts`
 - `orchestrator/test/services/nodes/lease.test.ts`
+- `orchestrator/test/services/nodes/mappers.test.ts`
 - `orchestrator/test/services/nodes/node-api.integration.test.ts`
 - `orchestrator/test/services/nodes/offline.test.ts`
+- `orchestrator/test/services/nodes/overrides.test.ts`
+- `orchestrator/test/services/nodes/profile.test.ts`
+- `orchestrator/test/services/nodes/reports-flow.test.ts`
+- `orchestrator/test/services/nodes/reports.test.ts`
 - `orchestrator/test/services/nodes/schemas.test.ts`
 - `orchestrator/test/services/nodes/status.test.ts`
 - `orchestrator/test/services/nodes/transport.test.ts`
@@ -1153,6 +1178,8 @@ None.
 - `orchestrator/test/services/tools/cookie.test.ts`
 - `orchestrator/test/services/tools/forward-auth.test.ts`
 - `orchestrator/test/services/uploads/uploads.test.ts`
+- `orchestrator/test/shared/daemon-overrides.test.ts`
+- `orchestrator/test/shared/dns-servers.test.ts`
 - `orchestrator/test/shared/error-codes.test.ts`
 - `orchestrator/test/shared/git-url.test.ts`
 - `orchestrator/test/shared/notifications.test.ts`
@@ -1166,6 +1193,7 @@ None.
 - `orchestrator/test/ui/clipboard.test.ts`
 - `orchestrator/test/ui/consent.test.ts`
 - `orchestrator/test/ui/cursor-list.test.ts`
+- `orchestrator/test/ui/daemon-config.test.ts`
 - `orchestrator/test/ui/dialog-focus.test.ts`
 - `orchestrator/test/ui/errors.test.ts`
 - `orchestrator/test/ui/exports-follow.test.ts`
@@ -1175,6 +1203,8 @@ None.
 - `orchestrator/test/ui/instance.test.ts`
 - `orchestrator/test/ui/json-pointer.test.ts`
 - `orchestrator/test/ui/navigation.test.ts`
+- `orchestrator/test/ui/node-resolver.test.ts`
+- `orchestrator/test/ui/nodes-daemon-overrides.test.ts`
 - `orchestrator/test/ui/nodes-filters.test.ts`
 - `orchestrator/test/ui/query-console.test.ts`
 - `orchestrator/test/ui/revisions.test.ts`

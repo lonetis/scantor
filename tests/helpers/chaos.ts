@@ -12,6 +12,7 @@ import type { Worker } from '#shared/types/workers'
 import { ApiError, ok, type ApiClient } from './api-client'
 import { CONTAINERS, docker, innerDocker, stackEnv } from './docker'
 import { env } from './env'
+import { nodeDnsEnv } from './node-resolver'
 import { SMALL_SETTINGS } from './scans'
 import { removeDir } from './tasks'
 
@@ -632,16 +633,19 @@ export async function remoteDaemonLogs(since: string): Promise<string> {
 
 /**
  * Replaces remote-1's daemon with the join command of a (rotated) token, exactly as the runner joined it
- * (tests/docker/join-remote-node.mjs): `docker run` inside the remote node with the test CA as SCANTOR_CA_CERT.
- * Then records the new token in remote-node.json, which other specs read.
+ * (tests/docker/join-remote-node.mjs): `docker run` inside the remote node with the test CA as SCANTOR_CA_CERT and the
+ * node resolver settings of stack.env. Then records the new token in remote-node.json, which other specs read.
  */
 export async function rejoinRemoteDaemon(join: NodeJoin, token: string): Promise<void> {
   const match = /^docker run (.*) (\S+) node$/.exec(join.dockerRun.replace('${SCANTOR_NODE_TOKEN}', token))
   if (!match) throw new Error('unexpected join command shape')
-  const caPem = await readFile(env.caCertFile, 'utf8')
+  const passed = { SCANTOR_CA_CERT: await readFile(env.caCertFile, 'utf8'), ...nodeDnsEnv() }
   await innerDocker.remote(['rm', '-f', 'scantor-node'], { allowFailure: true })
-  const started = await innerDocker.exec(CONTAINERS.remoteNode, ['sh', '-c', `docker run -e SCANTOR_CA_CERT ${match[1]} ${match[2]} node`], {
-    env: { SCANTOR_CA_CERT: caPem },
+  const names = Object.keys(passed)
+    .map((name) => `-e ${name}`)
+    .join(' ')
+  const started = await innerDocker.exec(CONTAINERS.remoteNode, ['sh', '-c', `docker run ${names} ${match[1]} ${match[2]} node`], {
+    env: passed,
   })
   if (started.exitCode !== 0) throw new Error(`starting remote-1's daemon failed: ${started.stderr.replaceAll(token, '<token>')}`)
   writeFileSync(env.paths.remoteNode, JSON.stringify({ ...readRemoteNode(), token }, null, 2), { mode: 0o600 })

@@ -1,8 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import type { APIRequestContext } from '@playwright/test'
-import type { Node, NodeInfo, NodeWithToken } from '#shared/types/nodes'
+import type { Node, NodeInfo, NodeResolverReport, NodeWithToken } from '#shared/types/nodes'
 import { ApiClient, ApiError, ok, type ApiResponse, type CallOptions } from './api-client'
 import { stateContext } from './api-platform-tenant'
+import { FakeDaemonConfig, fakeResolverReport, type AssignedOverrides, type FakeDaemonConfigOptions } from './fake-daemon'
 import type { OpenApiIndex } from './openapi'
 import { SMALL_SETTINGS } from './scans'
 import { deleteTaskOrLeaveToPurge } from './api-platform-cleanup'
@@ -14,7 +15,9 @@ import { newApiContext } from './users'
 // (docs/api.md §7) with a node token, so placement, assignments, worker tokens and registry grants can be tested
 // without containers; a runtime client that speaks the runtime API (docs/api.md §8) with the worker tokens the
 // assignments carry; and raw registry token requests (docs/api.md §6). Fake nodes get a unique pool, so only scans
-// whose nodeSelector names that pool are placed on them; they are deleted at the end of the test.
+// whose nodeSelector names that pool are placed on them; they are deleted at the end of the test. On request a fake
+// daemon also reports a node resolver and its daemon configuration and applies daemon overrides
+// (helpers/fake-daemon.ts).
 
 /** A worker of the desired set (docs/api.md §7.2). */
 export interface Assignment {
@@ -44,6 +47,8 @@ export interface AssignmentsResponse {
   rev: number
   workers: Assignment[]
   logRequests: LogRequest[]
+  /** the daemon overrides of the calling instance (`{rev: 0, values: {}}` without any) */
+  daemonOverrides: AssignedOverrides
 }
 
 export interface HelloResponse {
@@ -56,7 +61,18 @@ export interface HelloResponse {
     drainGraceMs: number
     registry: { host: string; username: string }
     minFreeDiskBytes: number
+    /** the host names of every URL the node's workers get, which its node resolver asks the host nameservers for */
+    endpointHosts: string[]
   }
+}
+
+/**
+ * What a daemon reports besides its capacity: `info.resolver` and `daemonConfig` (absent: a daemon without them).
+ * Typed loosely, so a test can send a sub-report the orchestrator must refuse to store.
+ */
+export interface DaemonReport {
+  resolver?: unknown
+  daemonConfig?: unknown
 }
 
 /** One entry of a status report (docs/api.md §7.3). */
@@ -125,15 +141,23 @@ export class FakeDaemon {
     return this.api.call<T>(operationId, { ...options, headers: this.headers(options.headers) })
   }
 
-  hello(info: HostInfo, containers: { workerId: string; containerId: string; state: string; specHash: string }[] = []) {
-    return this.call<HelloResponse>('nodeHello', { body: { instanceId: this.instanceId, version: this.version, info, containers } })
+  hello(info: HostInfo, containers: { workerId: string; containerId: string; state: string; specHash: string }[] = [], report: DaemonReport = {}) {
+    return this.call<HelloResponse>('nodeHello', {
+      body: {
+        instanceId: this.instanceId,
+        version: this.version,
+        info: report.resolver === undefined ? info : { ...info, resolver: report.resolver },
+        containers,
+        ...(report.daemonConfig === undefined ? {} : { daemonConfig: report.daemonConfig }),
+      },
+    })
   }
 
   assignments(query: { rev?: number; wait?: number } = {}) {
     return this.call<AssignmentsResponse>('getNodeAssignments', { query })
   }
 
-  status(info: HostInfo, workers: WorkerReport[], options: { appliedRev?: number; clockOffsetMs?: number } = {}) {
+  status(info: HostInfo, workers: WorkerReport[], options: { appliedRev?: number; clockOffsetMs?: number } & DaemonReport = {}) {
     return this.call<{ serverTime: number; rev: number; nextStatusMs: number }>('postNodeStatus', {
       body: {
         instanceId: this.instanceId,
@@ -148,8 +172,10 @@ export class FakeDaemon {
           maxWorkers: info.maxWorkers,
           egressDenyApplied: info.egressDenyApplied,
           networkIsolated: info.networkIsolated,
+          ...(options.resolver === undefined ? {} : { resolver: options.resolver }),
         },
         workers,
+        ...(options.daemonConfig === undefined ? {} : { daemonConfig: options.daemonConfig }),
       },
     })
   }
@@ -166,19 +192,33 @@ export interface FakeNodeOptions {
   maxWorkers?: number
   /** capacity reported in hello; os/arch default to the built-in node's platform (the task images' platform) */
   info?: Partial<HostInfo>
+  /** report a node resolver (helpers/fake-daemon.ts fakeResolverReport with these fields); none by default */
+  resolver?: Partial<NodeResolverReport>
+  /** report a daemon configuration and apply daemon overrides; none by default (a daemon older than overrides) */
+  daemonConfig?: FakeDaemonConfigOptions
 }
 
 /**
  * A remote node created by the admin plus the daemon that serves it. `online()` says hello and starts a heartbeat
  * (a status report every few seconds, well inside SCANTOR_NODE_OFFLINE_AFTER) that reports the workers in
- * `reports`. `dispose()` stops the heartbeat and deletes the node (its workers become lost).
+ * `reports`, and its node resolver and daemon configuration when the node was created with them. Like the real
+ * daemon it sends one report at a time: hello, the heartbeat and the reports a test asks for wait for the one in
+ * flight. `dispose()` stops the heartbeat and deletes the node (its workers become lost).
  */
 export class FakeNode {
   readonly reports = new Map<string, WorkerReport>()
   /** unexpected heartbeat answers (a heartbeat that gets 401 after a revoke stops quietly) */
   readonly heartbeatErrors: string[] = []
+  /** the node resolver report of hello and status; null reports none */
+  resolver: NodeResolverReport | null
+  /** the daemon configuration; null reports none */
+  readonly config: FakeDaemonConfig | null
+  /** whether every heartbeat first reads the assignments and applies their daemon overrides, like the daemon */
+  followOverrides = false
   private timer: NodeJS.Timeout | null = null
   private beating: Promise<void> | null = null
+  /** the last report sent or queued (settled, never rejected): the next one starts after it */
+  private sending: Promise<unknown> = Promise.resolve()
   private disposed = false
 
   private constructor(
@@ -187,7 +227,12 @@ export class FakeNode {
     readonly created: NodeWithToken,
     readonly daemon: FakeDaemon,
     readonly info: HostInfo,
-  ) {}
+    options: FakeNodeOptions,
+  ) {
+    this.resolver = options.resolver ? fakeResolverReport(options.resolver) : null
+    const { values, ...rest } = options.daemonConfig ?? {}
+    this.config = options.daemonConfig ? new FakeDaemonConfig({ ...rest, values: { maxWorkers: info.maxWorkers, ...values } }) : null
+  }
 
   static async create(adminApi: ApiClient, openapi: OpenApiIndex, options: FakeNodeOptions = {}): Promise<FakeNode> {
     const builtin = await builtinNode(adminApi)
@@ -213,7 +258,7 @@ export class FakeNode {
       networkIsolated: true,
       ...options.info,
     }
-    return new FakeNode(adminApi, context, created, new FakeDaemon(new ApiClient(context, openapi), created.token, version), info)
+    return new FakeNode(adminApi, context, created, new FakeDaemon(new ApiClient(context, openapi), created.token, version), info, options)
   }
 
   get id(): string {
@@ -233,11 +278,67 @@ export class FakeNode {
     return new FakeDaemon(this.daemon.api, this.daemon.token, this.daemon.version, engineId)
   }
 
+  /** The capacity this daemon reports: its info with the daemon override of maxWorkers applied. */
+  get reportedInfo(): HostInfo {
+    return this.config ? { ...this.info, maxWorkers: this.config.values.maxWorkers } : this.info
+  }
+
+  /** The node resolver and daemon configuration parts of hello and status. */
+  daemonReport(): DaemonReport {
+    return {
+      ...(this.resolver ? { resolver: this.resolver } : {}),
+      ...(this.config ? { daemonConfig: this.config.report() } : {}),
+    }
+  }
+
+  /**
+   * Runs `send` (a hello or status, built when it runs) after every report before it has settled: a daemon never has
+   * two reports in flight, so the orchestrator sees its reports in the order the test sent them.
+   */
+  private serialized<T>(send: () => Promise<T>): Promise<T> {
+    const run = this.sending.then(send)
+    this.sending = run.catch(() => undefined)
+    return run
+  }
+
   /** Says hello (the node becomes online) and starts the heartbeat. */
   async online(heartbeatMs = 4000): Promise<HelloResponse> {
-    const hello = ok(await this.daemon.hello(this.info), 'nodeHello')
+    const hello = ok(await this.serialized(() => this.daemon.hello(this.reportedInfo, [], this.daemonReport())), 'nodeHello')
     this.startHeartbeat(heartbeatMs)
     return hello
+  }
+
+  /**
+   * A daemon restart on the same engine: a new instance (new nonce) that starts from its environment again and says
+   * hello, which ends the daemon overrides of the previous instance.
+   */
+  async restartDaemon(): Promise<HelloResponse> {
+    await this.stopHeartbeat()
+    this.daemon.restart()
+    this.config?.reset()
+    return this.online()
+  }
+
+  /**
+   * Replaces fields of the node resolver report and reports it at once (after the report in flight, which may still
+   * carry the previous state).
+   */
+  async setResolver(fields: Partial<NodeResolverReport>): Promise<void> {
+    this.resolver = fakeResolverReport({ ...this.resolver, ...fields })
+    await this.report()
+  }
+
+  /**
+   * What the daemon does with every assignments response: reads the daemon overrides of its instance and applies them
+   * (helpers/fake-daemon.ts), then reports the result in a status. Returns the overrides the response carried.
+   */
+  syncOverrides(): Promise<AssignedOverrides> {
+    return this.serialized(async () => {
+      const response = ok(await this.daemon.assignments({ rev: -1, wait: 0 }), 'getNodeAssignments')
+      this.config?.apply(response.daemonOverrides)
+      ok(await this.daemon.status(this.reportedInfo, [...this.reports.values()], this.daemonReport()), 'postNodeStatus')
+      return response.daemonOverrides
+    })
   }
 
   /** From now on the heartbeat reports these workers as running containers (a draining one then never counts as gone). */
@@ -254,16 +355,19 @@ export class FakeNode {
     }
   }
 
-  /** Sends one status report now (the reports of `reports`). */
+  /**
+   * Sends one status report (the reports of `reports`, the node resolver and the daemon configuration) once the report
+   * in flight has settled.
+   */
   async report(): Promise<void> {
-    ok(await this.daemon.status(this.info, [...this.reports.values()]), 'postNodeStatus')
+    ok(await this.serialized(() => this.daemon.status(this.reportedInfo, [...this.reports.values()], this.daemonReport())), 'postNodeStatus')
   }
 
   startHeartbeat(intervalMs = 4000): void {
     this.stopTimer()
     this.timer = setInterval(() => {
       if (this.beating) return
-      this.beating = this.beat().finally(() => {
+      this.beating = this.serialized(() => this.beat()).finally(() => {
         this.beating = null
       })
     }, intervalMs)
@@ -271,7 +375,16 @@ export class FakeNode {
 
   private async beat(): Promise<void> {
     try {
-      const response = await this.daemon.status(this.info, [...this.reports.values()])
+      if (this.followOverrides && this.config) {
+        const assignments = await this.daemon.assignments({ rev: -1, wait: 0 })
+        if (assignments.status === 401 || assignments.status === 409) {
+          this.stopTimer()
+          return
+        }
+        if (assignments.status !== 200) this.heartbeatErrors.push(`assignments answered ${assignments.status}: ${JSON.stringify(assignments.body)}`)
+        else this.config.apply(assignments.body.daemonOverrides)
+      }
+      const response = await this.daemon.status(this.reportedInfo, [...this.reports.values()], this.daemonReport())
       if (response.status === 401 || response.status === 409) {
         this.stopTimer()
       } else if (response.status !== 200) {
@@ -288,9 +401,11 @@ export class FakeNode {
     this.timer = null
   }
 
+  /** Stops the heartbeat and waits for the reports in flight. */
   async stopHeartbeat(): Promise<void> {
     this.stopTimer()
     await this.beating
+    await this.sending
   }
 
   /** Long-polls the assignments until `accept` holds; returns that response. */

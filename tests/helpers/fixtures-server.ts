@@ -6,7 +6,8 @@ import { env } from './env'
 // http://fixtures.<domain>:8089 and read-only git repositories on https://git.<domain> (through Traefik with the test
 // CA). Pull tests copy a repository per test and move the copy's main branch through the control API. The server logs
 // every request as one JSON line, which `fixturesRequests` reads back. Its ntfy fake records the push notifications
-// the orchestrator publishes per topic (`ntfyMessages`).
+// the orchestrator publishes per topic (`ntfyMessages`), and its DNS server (the root server of node resolvers in
+// iterative mode) logs every query (`fixturesDnsQueries`).
 
 export const FIXTURES_URL = `http://fixtures.${env.domain}:8089`
 export const GIT_URL = `https://git.${env.domain}`
@@ -61,6 +62,34 @@ export async function fixturesRequests(since: Date): Promise<FixturesRequest[]> 
     .filter((line) => line.startsWith('{'))
     .map((line) => JSON.parse(line) as FixturesRequest & { msg: string })
     .filter((entry) => entry.msg === 'request')
+}
+
+/**
+ * The DNS server of the fixtures server (tests/docker/fixtures/dns.go): the authoritative root zone of names below
+ * scantor.test, published on the runner as 1053, so node resolvers reach it at this address.
+ */
+export const FIXTURES_DNS_SERVER = '172.17.0.1:1053'
+
+/** One query of the fixtures DNS server's log. */
+export interface FixturesDnsQuery {
+  time: string
+  proto: 'udp' | 'tcp'
+  remote: string
+  /** the question name, lowercase and fully qualified (`a.scantor.test.`) */
+  name: string
+  type: string
+  rcode: string
+  answers: number
+}
+
+/** The DNS queries the fixtures server logged since `since`, oldest first. */
+export async function fixturesDnsQueries(since: Date): Promise<FixturesDnsQuery[]> {
+  const { stdout } = await docker(['logs', '--since', since.toISOString(), CONTAINERS.fixtures])
+  return stdout
+    .split('\n')
+    .filter((line) => line.startsWith('{'))
+    .map((line) => JSON.parse(line) as FixturesDnsQuery & { msg: string })
+    .filter((entry) => entry.msg === 'dns query')
 }
 
 /** The ntfy fake behind SCANTOR_NTFY_URL (tests/docker/fixtures/ntfy.go). */

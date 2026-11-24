@@ -62,6 +62,22 @@ import { CONTAINERS, docker as runDocker, REMOTE_NODE_NETWORK, stackEnv } from '
 import { env } from '../helpers/env'
 import { stackKeys } from '../helpers/keys'
 import { containerAddress, NetworkPeer, orchestratorLookup, TUNNEL_HOST } from '../helpers/tunnel'
+import {
+  daemonConfigOf,
+  deleteDaemonOverrides,
+  networkAddresses,
+  patchDaemonOverrides,
+  PROBE_NAME,
+  probeAnswer,
+  REMOTE_ENGINE,
+  resolverContainers,
+  resolverOf,
+  servingResolver,
+  waitForOverridesApplied,
+  waitForResolverReady,
+  withDnsClient,
+  WORKER_NETWORK,
+} from '../helpers/node-resolver'
 import { cancelAndDeleteScan, scanCounts, SMALL_SETTINGS, startScan, waitForScanState as waitForScanStateLongPoll } from '../helpers/scans'
 import {
   allScriptRunLogs,
@@ -592,6 +608,57 @@ test.describe('the remote node remote-1', () => {
   )
 
   test(
+    "remote-1's node resolver keeps serving while its daemon restarts, is adopted by the new daemon and is started again after docker kill",
+    { tag: ['@NODE-040'] },
+    async ({ adminApi, docker }) => {
+      test.setTimeout(420_000)
+      const remote = readRemoteNode()
+      const before = await waitForResolverReady(adminApi, remote.id)
+      const report = resolverOf(before)
+      const resolver = await servingResolver(REMOTE_ENGINE, remote.id, report.spec)
+      const { gateway } = await networkAddresses(REMOTE_ENGINE, WORKER_NETWORK)
+      const answered = () =>
+        withDnsClient(REMOTE_ENGINE, WORKER_NETWORK, { dns: gateway }, async (client) => {
+          const lookup = await client.lookup(PROBE_NAME, 'txt')
+          expect(probeAnswer(lookup), lookup.output).toEqual({ node: remote.id, spec: report.spec })
+        })
+
+      // The daemon stops (SIGTERM); its resolver stays and keeps answering the worker network.
+      try {
+        await docker.remote(['stop', '-t', '30', 'scantor-node'], { timeoutMs: 60_000 })
+        expect(await remoteContainerState('scantor-node')).toMatchObject({ Running: false, ExitCode: 0 })
+        await answered()
+      } finally {
+        await docker.remote(['start', 'scantor-node'])
+      }
+
+      // The new daemon instance adopts it: the same container, never restarted, ready again.
+      const adopted = await waitFor(
+        'the new daemon instance with a ready node resolver',
+        () => getNode(adminApi, remote.id),
+        (node) => node.state === 'online' && node.instance?.startedAt !== before.instance?.startedAt && node.info?.resolver?.state === 'ready',
+        { timeoutMs: 180_000 },
+      )
+      expect(resolverOf(adopted).spec).toBe(report.spec)
+      const kept = await servingResolver(REMOTE_ENGINE, remote.id, report.spec)
+      expect(kept.Id).toBe(resolver.Id)
+      expect(kept.State.StartedAt).toBe(resolver.State.StartedAt)
+
+      // Killed, the resolver is started again by the daemon (its restart policy is `no`): the same container.
+      await docker.remote(['kill', resolver.Id])
+      const restarted = await waitFor(
+        'the killed node resolver running again',
+        () => resolverContainers(REMOTE_ENGINE, remote.id),
+        (containers) => containers.length === 1 && containers[0]!.State.Running && containers[0]!.State.StartedAt !== resolver.State.StartedAt,
+        { timeoutMs: 120_000 },
+      )
+      expect(restarted[0]!.Id).toBe(resolver.Id)
+      await waitForResolverReady(adminApi, remote.id)
+      await answered()
+    },
+  )
+
+  test(
     'a partitioned remote-1 goes offline, its workers are lost and replaced on the built-in node, and its stale containers are removed after it returns',
     { tag: ['@CHAOS-006', '@SCHED-010'] },
     async ({ api, adminApi, scans, probe, docker }) => {
@@ -998,9 +1065,41 @@ script = Script(run=run, config=Config, result=Summary)
   }
 }
 
+/** A daemon override of the built-in node set before the orchestrator restart (NODE-046). */
+interface BuiltinOverride {
+  nodeId: string
+  imageRetentionMs: number
+  rev: number
+  /** the daemon instance that applied it */
+  instanceStartedAt: string
+  setAt: number
+}
+
+/**
+ * Overrides the image retention of the built-in node's daemon (harmless: it only delays the image GC) and waits until
+ * the daemon applied it.
+ */
+async function overrideBuiltin(adminApi: ApiClient): Promise<BuiltinOverride> {
+  const builtin = await builtinNode(adminApi)
+  const current = daemonConfigOf(await getNode(adminApi, builtin.id)).values.imageRetentionMs
+  const imageRetentionMs = current + 3_600_000 <= 31_536_000_000 ? current + 3_600_000 : current - 3_600_000
+  const setAt = Date.now()
+  ok(await patchDaemonOverrides(adminApi, builtin.id, { imageRetentionMs }), 'updateNodeDaemonOverrides')
+  const applied = await waitForOverridesApplied(adminApi, builtin.id, (config) => config.values.imageRetentionMs === imageRetentionMs)
+  return { nodeId: builtin.id, imageRetentionMs, rev: daemonConfigOf(applied).overridesRev, instanceStartedAt: applied.instance!.startedAt, setAt }
+}
+
+/** Removes every daemon override of the built-in node and waits until its daemon is back on its environment. */
+async function resetBuiltinOverrides(adminApi: ApiClient): Promise<void> {
+  const builtin = await builtinNode(adminApi)
+  ok(await deleteDaemonOverrides(adminApi, builtin.id), 'deleteNodeDaemonOverrides')
+  await waitForOverridesApplied(adminApi, builtin.id, (config) => Object.keys(config.overrides).length === 0)
+}
+
 test.describe('an orchestrator restart during a scan and a build', () => {
-  // One restart serves five tests: the orchestrator is stopped while a scan is running, a revision is building and a
-  // script run is running, inspected while stopped, and started with MongoDB paused, which holds the boot window open.
+  // One restart serves six tests: the orchestrator is stopped while a scan is running, a revision is building, a
+  // script run is running and the built-in node has a daemon override, inspected while stopped, and started with
+  // MongoDB paused, which holds the boot window open.
   interface Restart {
     scanId: string
     total: number
@@ -1023,10 +1122,14 @@ test.describe('an orchestrator restart during a scan and a build', () => {
   }
   let restart: Restart | undefined
   const created: { scanId?: string; taskName?: string; scriptName?: string } = {}
+  // The built-in node's override, or why setting it failed: only its own test (NODE-046) fails for that.
+  let builtinOverride: BuiltinOverride | Error | undefined
 
   test.beforeAll(async ({ keyApi, adminApi, user, probe, docker }) => {
     test.setTimeout(600_000)
     await waitForHealthyPlatform(adminApi)
+    // First, so that waiting for the daemon to apply it delays none of the timed work below.
+    builtinOverride = await overrideBuiltin(adminApi).catch((error: unknown) => (error instanceof Error ? error : new Error(String(error))))
     const dir = await writeChaosTask({ slowBuildSeconds: 75 })
     const taskName = unique('chaos-slow-build')
     created.taskName = taskName
@@ -1124,7 +1227,9 @@ test.describe('an orchestrator restart during a scan and a build', () => {
     }
   })
 
-  test.afterAll(async ({ keyApi }) => {
+  test.afterAll(async ({ keyApi, adminApi }) => {
+    // The shared built-in node gets its environment back whatever happened (the test resets it too).
+    await resetBuiltinOverrides(adminApi)
     // The script's deletion cancels a run a failed test left behind; its job is not waited for.
     if (created.scriptName) {
       const deleted = await keyApi.call('deleteScript', { path: { script: created.scriptName } })
@@ -1159,6 +1264,29 @@ test.describe('an orchestrator restart during a scan and a build', () => {
       expect(ticks).toEqual(Array.from({ length: RESTART_TICKS }, (_, n) => `tick ${n}`))
     },
   )
+
+  test("the built-in node's daemon overrides survive the restart", { tag: ['@NODE-046'] }, async ({ adminApi }) => {
+    try {
+      if (builtinOverride instanceof Error) throw builtinOverride
+      const set = builtinOverride!
+      // The daemon kept its instance across the restart, so its overrides stay set and applied.
+      const node = await waitForOverridesApplied(adminApi, set.nodeId, (config) => config.overridesRev === set.rev)
+      const config = daemonConfigOf(node)
+      expect(config.overrides).toEqual({ imageRetentionMs: set.imageRetentionMs })
+      expect(config).toMatchObject({
+        overridesRev: set.rev,
+        appliedOverridesRev: set.rev,
+        pending: false,
+        values: { imageRetentionMs: set.imageRetentionMs },
+        sources: { imageRetentionMs: 'override' },
+      })
+      expect(node.instance?.startedAt).toBe(set.instanceStartedAt)
+      const cleared = (await nodeEvents(adminApi, set.nodeId)).filter((e) => e.type === 'node.daemonOverridesCleared' && Date.parse(e.at) >= set.setAt)
+      expect(cleared).toEqual([])
+    } finally {
+      await resetBuiltinOverrides(adminApi)
+    }
+  })
 
   test('a scan running across the restart completes with exact counts and no node goes offline', { tag: ['@CHAOS-002'] }, async ({ api, adminApi, scans }) => {
     test.setTimeout(450_000)
@@ -1297,7 +1425,11 @@ test.describe('logs', () => {
       /\bssr_[0-9a-f-]{36}\.[A-Za-z0-9_-]{8,}/,
     ]
     const scantorComponent = (name: string) =>
-      name === CONTAINERS.orchestrator || name === CONTAINERS.node || name === 'scantor-node' || name.startsWith('scantor-w-')
+      name === CONTAINERS.orchestrator ||
+      name === CONTAINERS.node ||
+      name === 'scantor-node' ||
+      name.startsWith('scantor-w-') ||
+      name.startsWith('scantor-dns-')
 
     const local = (args: string[]) => runDocker(args, { allowFailure: true })
     const remote = (args: string[]) => docker.remote(args, { allowFailure: true })

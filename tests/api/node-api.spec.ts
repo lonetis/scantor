@@ -91,6 +91,20 @@ test.describe('hello', () => {
       drainGraceMs: durationMs(stack.SCANTOR_WORKER_DRAIN_GRACE!),
       registry: { host: stack.SCANTOR_REGISTRY_PUBLIC_HOST, username: 'node' },
       minFreeDiskBytes: byteSize(stack.SCANTOR_NODE_MIN_FREE_DISK!),
+      // The hosts of every URL the workers of a node with the public endpoint profile get: the API, AMQP, S3 and the
+      // template data sources (the node resolver asks the host nameservers for them).
+      endpointHosts: [
+        ...new Set(
+          [
+            stack.SCANTOR_PUBLIC_URL,
+            stack.SCANTOR_AMQP_PUBLIC_URL,
+            stack.SCANTOR_S3_PUBLIC_URL,
+            stack.SCANTOR_TRANCO_URL,
+            stack.SCANTOR_CRUX_URL,
+            stack.SCANTOR_CRUX_CACHE_URL,
+          ].map((url) => new URL(url!).hostname),
+        ),
+      ].sort(),
     })
     expect(hello.body.config.registry.host).not.toContain(env.publicUrl)
 

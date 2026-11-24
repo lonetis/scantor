@@ -284,6 +284,7 @@ test.describe('MCP OAuth authorization', () => {
         const writeTools = await toolNames(stripped.tokens.access_token)
         expect(writeTools).toContain('start_scan')
         expect(writeTools).not.toContain('list_nodes')
+        expect(writeTools).not.toContain('update_node_daemon_overrides')
 
         // "Read only": only scantor:read, only read tools.
         const readOnly = await authorize(session, { client, scope: ADMIN_MCP_SCOPES, consentScope: 'offline_access scantor:read' })
@@ -306,10 +307,12 @@ test.describe('MCP OAuth authorization', () => {
       await withSession(env.paths.adminState, async (session) => {
         const admin = await authorize(session, { client, scope: ADMIN_MCP_SCOPES, consentScope: ADMIN_MCP_SCOPES })
         expect(scopesOf(admin.tokens.access_token)).toContain('scantor:admin')
-        expect(await toolNames(admin.tokens.access_token)).toContain('list_nodes')
+        expect(await toolNames(admin.tokens.access_token)).toEqual(expect.arrayContaining(['list_nodes', 'update_node_daemon_overrides']))
 
         const write = await authorize(session, { client, scope: ADMIN_MCP_SCOPES, consentScope: DEFAULT_MCP_SCOPES })
-        expect(await toolNames(write.tokens.access_token)).not.toContain('list_nodes')
+        const writeTools = await toolNames(write.tokens.access_token)
+        expect(writeTools).not.toContain('list_nodes')
+        expect(writeTools).not.toContain('update_node_daemon_overrides')
       })
     } finally {
       // The consent belongs to the shared admin: remove it again.

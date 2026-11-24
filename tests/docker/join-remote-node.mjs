@@ -1,7 +1,8 @@
 // Joins the simulated remote node of the test stack (docs/testing.md §7.4, phase 8b): signs in as the
 // seeded admin, creates the node "remote-1" (pool "remote", label zone=remote), loads the node image into
 // the remote node's own dockerd and runs the join command of createNode there, with the test CA as
-// SCANTOR_CA_CERT. Waits until the node is online and writes its id and token to
+// SCANTOR_CA_CERT and the node resolver settings of stack.env (SCANTOR_NODE_DNS_*, the values the built-in
+// node gets through compose). Waits until the node is online and writes its id and token to
 // /run/scantor-test/remote-node.json for white-box tests. Runs inside the runner with Node's fetch
 // (NODE_EXTRA_CA_CERTS trusts the test CA); exits non-zero with a message on any failure.
 import { execFile, spawn } from 'node:child_process'
@@ -13,6 +14,8 @@ const run = promisify(execFile)
 const container = 'scantor-remote-node'
 const node = { name: 'remote-1', pool: 'remote', labels: { zone: 'remote' } }
 const outputFile = '/run/scantor-test/remote-node.json'
+// stack.env lies next to this script in the runner image (/opt/scantor-test).
+const stackEnvFile = new URL('./stack.env', import.meta.url)
 
 function required(name) {
   const value = process.env[name]
@@ -22,6 +25,15 @@ function required(name) {
 
 const publicUrl = required('SCANTOR_PUBLIC_URL')
 const caPem = readFileSync(required('NODE_EXTRA_CA_CERTS'), 'utf8')
+
+/** The SCANTOR_NODE_DNS_* settings of stack.env as [name, value] pairs. */
+function nodeDnsSettings() {
+  return readFileSync(stackEnvFile, 'utf8')
+    .split('\n')
+    .map((line) => /^(SCANTOR_NODE_DNS_[A-Z0-9_]+)=(.*)$/.exec(line))
+    .filter((match) => match !== null)
+    .map(([, name, value]) => [name, value])
+}
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -91,9 +103,18 @@ async function main() {
   console.log(`[join-remote-node] loading ${image} into ${container}`)
   await loadImage(image)
 
-  // The join command exactly as the UI shows it, plus the test CA (passed through by name).
+  // The join command exactly as the UI shows it, plus the test CA and the node resolver settings (passed through by
+  // name).
+  const passed = [['SCANTOR_CA_CERT', caPem], ...nodeDnsSettings()]
   console.log(`[join-remote-node] starting the node daemon of ${node.name} (${created.node.id})`)
-  await run('docker', ['exec', '-e', `SCANTOR_CA_CERT=${caPem}`, container, 'sh', '-c', `docker run -e SCANTOR_CA_CERT ${match[1]} ${image} node`])
+  await run('docker', [
+    'exec',
+    ...passed.flatMap(([name, value]) => ['-e', `${name}=${value}`]),
+    container,
+    'sh',
+    '-c',
+    `docker run ${passed.map(([name]) => `-e ${name}`).join(' ')} ${match[1]} ${image} node`,
+  ])
 
   await until(`${node.name} to be online`, 120_000, async () => {
     const { json } = await api('GET', `/api/nodes/${created.node.id}`)

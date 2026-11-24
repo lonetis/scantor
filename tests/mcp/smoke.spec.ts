@@ -30,6 +30,7 @@ test.describe('MCP plumbing', () => {
     const { tools } = await mcp.client.listTools()
     expect(tools.map((t) => t.name)).toContain('list_scans')
     expect(tools.map((t) => t.name)).not.toContain('list_nodes')
+    expect(tools.map((t) => t.name)).not.toContain('update_node_daemon_overrides')
   })
 })
 

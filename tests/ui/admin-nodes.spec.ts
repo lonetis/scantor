@@ -2,17 +2,21 @@ import type { Locator, Page } from '@playwright/test'
 import type { ItemList } from '#shared/types/common'
 import type { Node, NodeWithToken } from '#shared/types/nodes'
 import { ok, type ApiClient } from '../helpers/api-client'
+import { NodeTracker } from '../helpers/api-platform-nodes'
 import { env } from '../helpers/env'
+import { waitForNode, waitForOverridesApplied } from '../helpers/node-resolver'
 import { expectToast } from '../helpers/ui'
 import {
   alertBox,
   deleteNodesNamed,
   expectStorageWithout,
   expectToastAnywhere,
+  isApiRequest,
   openPage,
   patchJsonResponse,
   recordApiRequests,
   reloadPage,
+  revisitTab,
   nodeRoutedContext,
   workerTenant,
 } from '../helpers/ui-shell-tasks'
@@ -23,7 +27,8 @@ const test = base.extend({ user: [workerTenant, { scope: 'worker' }], context: n
 
 // The nodes pages (docs/ui.md §5.15). Every test creates its own unjoined nodes in a pool of its own and deletes them
 // afterwards; the built-in node and remote-1 are only read (docs/testing.md §9). Warnings that only a misconfigured
-// host reports are answered by a patched listNodes response.
+// host reports are answered by a patched listNodes response, and node resolvers and daemon configurations come from fake
+// daemons (helpers/api-platform-nodes.ts), which also apply the daemon overrides the page saves.
 
 // The seeded admin's saved session; overriding the storage state also spares the worker's tenant (and its sign-in).
 test.use({ role: 'admin', storageState: env.paths.adminState })
@@ -518,7 +523,7 @@ test.describe('node page', () => {
 
       const fact = (label: string) => page.locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]')
       await expect(fact('Pool')).toHaveText(node.pool)
-      await expect(fact('Worker limit')).toHaveText('2')
+      await expect(fact('Admin worker limit')).toHaveText('2')
       await expect(fact('Token')).toHaveText(`${node.tokenPrefix}…`)
       await expect(fact('Endpoint profile')).toHaveText(node.endpointProfile)
       await expect(fact('Lease')).toHaveText('no daemon instance holds the lease')
@@ -574,4 +579,123 @@ test.describe('node page', () => {
     await openPage(page, '/admin/nodes/5d1f7c2a-3b4e-4f60-9a71-8c2b3d4e5f60')
     await expect(alertBox(page, 'Node not found')).toBeVisible()
   })
+})
+
+test.describe('node resolver and daemon configuration', () => {
+  /** A section of the node page by its heading (docs/ui.md §5.15). */
+  const section = (page: Page, title: string) => page.getByRole('region', { name: title, exact: true })
+  /** The value of a row of the node resolver card. */
+  const resolverFact = (card: Locator, label: string) => card.locator('dt', { hasText: new RegExp(`^${label}$`) }).locator('xpath=following-sibling::dd[1]')
+  /** The row of the daemon configuration table that names an environment variable. */
+  const settingRow = (page: Page, variable: string) =>
+    section(page, 'Daemon configuration')
+      .getByRole('row')
+      .filter({ has: page.getByText(variable, { exact: true }) })
+
+  test(
+    'the node page shows the node resolver and the daemon configuration, and edits and resets daemon overrides',
+    { tag: ['@UI-ADMIN-015'] },
+    async ({ page, adminApi, openapi }) => {
+      test.setTimeout(180_000)
+      // A fake daemon (helpers/api-platform-nodes.ts) that reports both and applies overrides with every heartbeat.
+      const nodes = new NodeTracker(adminApi, openapi)
+      try {
+        const fake = await nodes.fake({ resolver: { address: '10.99.0.1' }, daemonConfig: { fromEnv: ['dns.mode'] } })
+        fake.followOverrides = true
+        await fake.online()
+        await waitForNode(adminApi, fake.id, 'its report', (node) => !!node.daemonConfig && node.info?.resolver?.state === 'ready', 30_000)
+        await openPage(page, `/admin/nodes/${fake.id}`)
+
+        const resolver = page.getByRole('region', { name: 'Node resolver', exact: true })
+        await expect(resolver).toHaveAttribute('data-testid', 'node-resolver')
+        await expect(resolver.locator('[data-state="ready"]')).toBeVisible()
+        await expect(resolver).toContainText('recursive')
+        await expect(resolver).toContainText('10.99.0.1')
+        await expect(resolverFact(resolver, 'Upstream check')).toHaveText('servers answer')
+        await expect(resolverFact(resolver, 'IPv6')).toHaveText('not used')
+
+        const config = section(page, 'Daemon configuration')
+        await expect(config).toContainText('Overrides last until the daemon restarts.')
+        for (const header of ['Setting', 'Value', 'Source']) await expect(config.getByRole('columnheader', { name: header, exact: true })).toBeVisible()
+        await expect(settingRow(page, 'SCANTOR_NODE_DNS_MODE')).toContainText('recursive')
+        await expect(settingRow(page, 'SCANTOR_NODE_DNS_MODE')).toContainText('env')
+        await expect(settingRow(page, 'SCANTOR_NODE_MAX_WORKERS')).toContainText(String(fake.info.maxWorkers))
+        await expect(settingRow(page, 'SCANTOR_NODE_MAX_WORKERS')).toContainText('default')
+
+        // Edit overrides: the dialog saves the changed key only.
+        await page.getByRole('button', { name: 'Edit overrides' }).click()
+        const dialog = page.getByRole('dialog')
+        await expect(dialog).toBeVisible()
+        await dialog.getByRole('spinbutton', { name: 'Max workers', exact: true }).fill('5')
+        const patch = page.waitForRequest((request) => isApiRequest(request, 'PATCH', `/api/nodes/${fake.id}/daemon-overrides`))
+        await dialog.getByRole('button', { name: /^save/i }).click()
+        expect((await patch).postDataJSON()).toEqual({ maxWorkers: 5 })
+        await expect(dialog).toBeHidden()
+        await waitForOverridesApplied(adminApi, fake.id, (applied) => applied.values.maxWorkers === 5)
+        await revisitTab(page)
+        await expect(settingRow(page, 'SCANTOR_NODE_MAX_WORKERS')).toContainText('5')
+        await expect(settingRow(page, 'SCANTOR_NODE_MAX_WORKERS')).toContainText('override')
+        // Who changed the overrides last: the admin of this session.
+        const adminId = ok(await adminApi.getAccount(), 'getAccount').id
+        await expect(page.getByTestId('daemon-overrides-by').locator(`code[data-id="${adminId}"]`)).toBeVisible()
+
+        // Reset overrides: after a confirmation, every override goes.
+        await page.getByRole('button', { name: 'Reset overrides' }).click()
+        const confirm = page.getByRole('dialog', { name: /reset/i })
+        const reset = page.waitForRequest((request) => isApiRequest(request, 'DELETE', `/api/nodes/${fake.id}/daemon-overrides`))
+        await confirm.getByRole('button', { name: 'Reset overrides' }).click()
+        await reset
+        await waitForOverridesApplied(adminApi, fake.id, (applied) => Object.keys(applied.overrides).length === 0)
+        await revisitTab(page)
+        await expect(settingRow(page, 'SCANTOR_NODE_MAX_WORKERS')).toContainText('default')
+        await expect(settingRow(page, 'SCANTOR_NODE_MAX_WORKERS')).toContainText(String(fake.info.maxWorkers))
+      } finally {
+        await nodes.dispose()
+      }
+    },
+  )
+
+  test(
+    'without a reported daemon configuration only the reset is offered, a starting resolver’s health is unknown, and the nodes table warns of a failed resolver',
+    { tag: ['@UI-ADMIN-015'] },
+    async ({ page, adminApi, openapi }) => {
+      const nodes = new NodeTracker(adminApi, openapi)
+      try {
+        // A daemon older than daemon overrides: nothing to edit; the reset needs no report (it is idempotent).
+        const old = await nodes.fake()
+        await old.online()
+        await openPage(page, `/admin/nodes/${old.id}`)
+        await expect(section(page, 'Daemon configuration')).toContainText(
+          'The node has not reported a valid daemon configuration (an old daemon or an invalid report).',
+        )
+        await expect(page.getByTestId('node-resolver')).toContainText("Not reported by the node's daemon.")
+        await expect(page.getByRole('button', { name: 'Edit overrides' })).toBeDisabled()
+        await expect(page.getByRole('button', { name: 'Reset overrides' })).toBeEnabled()
+        await page.getByRole('button', { name: 'Reset overrides' }).click()
+        const reset = page.waitForRequest((request) => isApiRequest(request, 'DELETE', `/api/nodes/${old.id}/daemon-overrides`))
+        await page.getByRole('dialog', { name: /reset/i }).getByRole('button', { name: 'Reset overrides' }).click()
+        await reset
+        await expectToast(page, `Daemon overrides of ${old.name} reset`)
+
+        // A resolver that is still starting: whether its servers answer and whether it uses IPv6 are not known yet.
+        const starting = await nodes.fake({ resolver: { state: 'starting', upstreamOk: false, stats: null } })
+        await starting.online()
+        await openPage(page, `/admin/nodes/${starting.id}`)
+        const resolver = page.getByTestId('node-resolver')
+        await expect(resolver.locator('[data-state="starting"]')).toBeVisible()
+        await expect(resolverFact(resolver, 'Upstream check')).toHaveText('unknown')
+        await expect(resolverFact(resolver, 'IPv6')).toHaveText('unknown')
+
+        // A node whose resolver failed is flagged in the nodes table.
+        const failing = await nodes.fake({ resolver: { state: 'failed', error: 'bindInUse', upstreamOk: false, stats: null } })
+        await failing.online()
+        await waitForNode(adminApi, failing.id, 'a failed resolver', (node) => node.info?.resolver?.state === 'failed', 30_000)
+        await openPage(page, '/admin/nodes')
+        await filterByPool(page, failing.pool, 1)
+        await expect(nodeRow(page, failing.id).locator(`[aria-label^="${failing.name}: Node resolver"]`)).toBeVisible()
+      } finally {
+        await nodes.dispose()
+      }
+    },
+  )
 })

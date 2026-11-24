@@ -8,6 +8,7 @@ import type { Worker } from '#shared/types/workers'
 import { ok, type ApiClient } from '../helpers/api-client'
 import { CONTAINERS, docker, stackEnv } from '../helpers/docker'
 import { stackKeys } from '../helpers/keys'
+import { nodeDnsEnv } from '../helpers/node-resolver'
 import { startScan, waitForScanState } from '../helpers/scans'
 import {
   captureContainers,
@@ -766,11 +767,13 @@ test.describe('node daemon boundaries', () => {
           250,
         )
         await copyImageInto(image, dind)
-        // The join command of createNode (docs/nodes.md §4), optionally with the CA.
+        // The join command of createNode (docs/nodes.md §4) with the stack's node resolver settings, optionally with the
+        // CA.
+        const dns = Object.entries(nodeDnsEnv()).flatMap(([name, value]) => ['-e', `${name}=${value}`])
         const daemon = (name: string, extra: string[]) =>
           docker([
             ...[...engine, 'run', '-d', '--name', name, '-v', '/var/run/docker.sock:/var/run/docker.sock'],
-            ...['-e', `SCANTOR_URL=${created.join.env.SCANTOR_URL}`, '-e', `SCANTOR_NODE_TOKEN=${created.token}`, ...extra, image, 'node'],
+            ...['-e', `SCANTOR_URL=${created.join.env.SCANTOR_URL}`, '-e', `SCANTOR_NODE_TOKEN=${created.token}`, ...dns, ...extra, image, 'node'],
           ])
 
         // Without the test CA the TLS verification fails; the token is never logged.
@@ -813,6 +816,8 @@ test.describe('node daemon boundaries', () => {
         expect(helper.HostConfig.SecurityOpt).toContain('no-new-privileges:true')
         expect(helper.HostConfig.ReadonlyRootfs).toBe(true)
         expect(helper.HostConfig.Privileged).toBe(false)
+        // Its result is read from its log, so it logs with the local driver whatever the engine's default.
+        expect(helper.HostConfig.LogConfig).toEqual({ Type: 'local', Config: { 'max-size': '1m', 'max-file': '1', compress: 'false' } })
         // One-shot: removed once it has run.
         await expect.poll(() => docker([...engine, 'inspect', helper.Id], { allowFailure: true }).then((r) => r.exitCode), { timeout: 30_000 }).not.toBe(0)
       } finally {

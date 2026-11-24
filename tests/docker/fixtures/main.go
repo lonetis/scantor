@@ -12,6 +12,9 @@
 //     (fast-forward, divergence) never share state;
 //   - /ntfy/ and /control/ntfy/{topic}: the ntfy fake (ntfy.go) behind SCANTOR_NTFY_URL, which records the
 //     push notifications the orchestrator publishes.
+//
+// Next to the HTTP port it serves DNS on port 53 (UDP and TCP, dns.go): the authoritative root zone of a
+// fake internet with names below scantor.test, the root server of node resolvers in iterative mode.
 package main
 
 import (
@@ -54,6 +57,22 @@ func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	data := templatestest.NewHandler(templatestest.DefaultDataSet(time.Now()))
 
+	// A DNS server that cannot bind or stops ends the process, so the container's health shows it.
+	z, err := newZone(".", fixturesZone)
+	if err != nil {
+		log.Error("invalid fixtures zone", "err", err)
+		os.Exit(1)
+	}
+	dnsServers, err := startDNS(log, dnsListenAddress, z)
+	if err != nil {
+		log.Error("dns server failed", "err", err)
+		os.Exit(1)
+	}
+	go func() {
+		log.Error("dns server stopped", "err", <-dnsServers.errs)
+		os.Exit(1)
+	}()
+
 	mux := http.NewServeMux()
 	mux.Handle("/tranco/", data)
 	mux.Handle("/crux/", data)
@@ -71,7 +90,7 @@ func main() {
 		Handler:           logRequests(log, mux),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
-	log.Info("fixtures server listening", "address", listenAddress, "gitRoot", gitRoot)
+	log.Info("fixtures server listening", "address", listenAddress, "dns", dnsListenAddress, "gitRoot", gitRoot)
 	if err := server.ListenAndServe(); err != nil {
 		log.Error("server stopped", "err", err)
 		os.Exit(1)

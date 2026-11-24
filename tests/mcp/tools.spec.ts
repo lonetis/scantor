@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { ProtocolError, type Client, type Tool } from '@modelcontextprotocol/client'
+import type { Node } from '#shared/types/nodes'
+import { ok } from '../helpers/api-client'
+import { NodeTracker } from '../helpers/api-platform-nodes'
 import { connectMcpWithKey } from '../helpers/mcp'
 import { createTemporaryKey, type TemporaryKey } from '../helpers/mcp-accounts'
 import { authorize } from '../helpers/mcp-oauth'
@@ -128,6 +131,7 @@ const CATALOGUE: CatalogueEntry[] = [
   entry('get_script_run_logs', 'getScriptRunLogs', 'read', 'RO I', ['lines']),
   entry('read_script_run_output', 'readScriptRunOutput', 'read', 'RO I', ['content', 'name', 'contentType']),
   entry('list_nodes', 'listNodes', 'admin', 'RO I'),
+  entry('update_node_daemon_overrides', 'updateNodeDaemonOverrides', 'admin', ''),
 ]
 
 const UNTRUSTED_NOTE =
@@ -176,7 +180,7 @@ test.describe('MCP tool catalogue', () => {
       const client = await connectMcpWithKey(adminKey.key)
       try {
         const { tools } = await client.listTools()
-        expect(tools.length).toBe(44)
+        expect(tools.length).toBe(45)
         expect(tools.length).toBeLessThanOrEqual(45)
         expect(toolNames(tools)).toEqual(CATALOGUE.map((tool) => tool.name).sort())
 
@@ -217,6 +221,7 @@ test.describe('MCP tool catalogue', () => {
     const { tools } = await mcpKey.listTools()
     expect(toolNames(tools)).toEqual(namesUpTo('write'))
     await expectUnknownTool(mcpKey, 'list_nodes')
+    await expectUnknownTool(mcpKey, 'update_node_daemon_overrides')
   })
 
   test('a scantor:read grant lists only the read tools and cannot call a write tool', { tag: ['@MCP-002'] }, async ({ user }) => {
@@ -272,7 +277,8 @@ test.describe('MCP tool catalogue', () => {
             tool.name,
           ).toEqual([])
           expect(tool.name).not.toMatch(/key|oauth|user|credential|editor|session|token|password|setup/)
-          if (operation.tags.includes('nodes')) expect(tool.name, 'the only node tool is the read-only list').toBe('list_nodes')
+          // Node management stays in the UI and the CLI: the node tools are the read-only list and the daemon overrides.
+          if (operation.tags.includes('nodes')) expect(['list_nodes', 'update_node_daemon_overrides'], 'a node tool').toContain(tool.name)
         }
       } finally {
         await client.close()
@@ -334,6 +340,50 @@ test.describe('MCP tool calls', () => {
     expect(elapsed).toBeGreaterThanOrEqual(45_000)
     expect(elapsed).toBeLessThan(90_000)
   })
+
+  test(
+    'an admin reads the daemon configuration with list_nodes and sets daemon overrides with update_node_daemon_overrides',
+    { tag: ['@NODE-043', '@MCP-004'] },
+    async ({ adminApi, openapi }) => {
+      const key = await createTemporaryKey(adminApi, unique('mcp-overrides'))
+      const nodes = new NodeTracker(adminApi, openapi)
+      try {
+        const client = await connectMcpWithKey(key.key)
+        try {
+          // The configuration only with include: daemonConfig, and never a token.
+          const plain = await callOk<{ items: { builtIn: boolean; daemonConfig?: unknown }[] }>(client, 'list_nodes', {})
+          expect(plain.items.find((node) => node.builtIn)).not.toHaveProperty('daemonConfig')
+          const included = await callOk<{ items: Node[] }>(client, 'list_nodes', { include: 'daemonConfig' })
+          const builtin = included.items.find((node) => node.builtIn)!
+          expect(builtin.daemonConfig?.values).toMatchObject({ builtIn: true, dns: { upstreams: ['172.17.0.1'] } })
+          expect(JSON.stringify(included)).not.toMatch(/snt_[A-Za-z0-9_-]{20,}/)
+
+          // A node without a daemon instance: the structured 409.
+          const pending = ok(await nodes.create({ name: unique('mcp-overrides'), pool: unique('pool') }), 'createNode')
+          const unavailable = await callToolError(client, 'update_node_daemon_overrides', { nodeId: pending.node.id, maxWorkers: 3 })
+          expect(unavailable).toMatchObject({ httpStatus: 409, code: 'daemonOverridesUnavailable', details: { reason: 'noInstance' } })
+
+          // A daemon that reported its configuration: the overrides are set and pending until it applies them.
+          const fake = await nodes.fake({ daemonConfig: {} })
+          await fake.online()
+          await expect.poll(async () => ok(await adminApi.call<Node>('getNode', { path: { nodeId: fake.id } }), 'getNode').daemonConfig ?? null).not.toBeNull()
+          const updated = await callOk<Node>(client, 'update_node_daemon_overrides', { nodeId: fake.id, maxWorkers: 3, dns: { mode: 'iterative' } })
+          expect(updated.daemonConfig).toMatchObject({ overrides: { maxWorkers: 3, dns: { mode: 'iterative' } }, pending: true })
+          const invalid = await callToolError(client, 'update_node_daemon_overrides', { nodeId: fake.id, maxWorkers: 0 })
+          expect(invalid).toMatchObject({ httpStatus: 400, code: 'validationFailed' })
+          // A private upstream only the node environment may name.
+          const privateServer = await callToolError(client, 'update_node_daemon_overrides', { nodeId: fake.id, dns: { upstreams: ['10.0.0.2'] } })
+          expect(privateServer).toMatchObject({ httpStatus: 400, code: 'validationFailed' })
+          expect(JSON.stringify(privateServer)).toContain('private and special-purpose servers can only be configured in the node environment')
+        } finally {
+          await client.close()
+        }
+      } finally {
+        await nodes.dispose()
+        await key.dispose()
+      }
+    },
+  )
 
   test('REST errors become structured tool errors with status, code, message and details', { tag: ['@MCP-004'] }, async ({ mcpKey }) => {
     const invalid = await callToolError(mcpKey, 'list_scans', { state: 'bogus' })

@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises'
-import { request } from '@playwright/test'
+import { request, type APIRequestContext } from '@playwright/test'
 import type { Health } from '#shared/types/instance'
 import type { ItemList } from '#shared/types/common'
 import type { Node } from '#shared/types/nodes'
@@ -12,6 +12,9 @@ import { signIn } from './helpers/users'
 // stops the run here instead of surfacing as hundreds of unrelated test failures.
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** The nodes every run shares: the built-in node and the simulated remote node. */
+const SHARED_NODES = ['builtin', 'remote-1']
 
 async function waitForHealth(): Promise<void> {
   const context = await request.newContext({ baseURL: env.publicUrl })
@@ -84,11 +87,30 @@ export default async function globalSetup(): Promise<void> {
     const nodes = await admin.get('/api/nodes')
     if (!nodes.ok()) throw new Error(`listNodes answered ${nodes.status()}: ${await nodes.text()}`)
     const items = ((await nodes.json()) as ItemList<Node>).items
-    for (const name of ['builtin', 'remote-1']) {
+    for (const name of SHARED_NODES) {
       const node = items.find((n) => n.name === name)
       if (node?.state !== 'online') throw new Error(`node ${name} is ${node ? node.state : 'missing'}, expected online`)
     }
+    await waitForNodeResolvers(admin)
   } finally {
     await admin.dispose()
+  }
+}
+
+/**
+ * Waits until the node resolvers of the shared nodes are ready (docs/nodes.md §6.11). A worker created before is
+ * given Docker's own DNS for its whole life, so specs that look at how workers resolve would see the wrong path.
+ */
+async function waitForNodeResolvers(admin: APIRequestContext): Promise<void> {
+  const deadline = Date.now() + 180_000
+  let last: Record<string, unknown> = {}
+  for (;;) {
+    const response = await admin.get('/api/nodes')
+    if (!response.ok()) throw new Error(`listNodes answered ${response.status()}: ${await response.text()}`)
+    const items = ((await response.json()) as ItemList<Node>).items
+    last = Object.fromEntries(SHARED_NODES.map((name) => [name, items.find((n) => n.name === name)?.info?.resolver ?? null]))
+    if (SHARED_NODES.every((name) => (last[name] as { state?: string } | null)?.state === 'ready')) return
+    if (Date.now() > deadline) throw new Error(`the node resolvers of ${SHARED_NODES.join(' and ')} are not ready after 180 s: ${JSON.stringify(last)}`)
+    await sleep(2000)
   }
 }

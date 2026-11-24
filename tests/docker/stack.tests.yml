@@ -5,7 +5,10 @@
 
 services:
   # Tranco and CrUX fakes on :8089 (plain HTTP, reached as fixtures.<domain>:8089) and git smart-HTTP
-  # repositories behind Traefik as https://git.<domain> (docs/testing.md §7.9).
+  # repositories behind Traefik as https://git.<domain> (docs/testing.md §7.9). Its DNS zone (port 53 in the
+  # container) is published as 1053 on the runner, so every node resolver reaches it at 172.17.0.1:1053 as its
+  # root server in iterative mode (a node resolver binds port 53 of its worker network's gateway, and the
+  # runner's dnsmasq holds 53 on 172.17.0.1).
   fixtures:
     image: scantor-test-fixtures:${SCANTOR_IMAGE_TAG}
     restart: unless-stopped
@@ -22,6 +25,8 @@ services:
       - traefik.http.services.fixtures-git.loadbalancer.server.port=8089
     ports:
       - "8089:8089"
+      - "1053:53/udp"
+      - "1053:53/tcp"
     networks:
       - scantor
 

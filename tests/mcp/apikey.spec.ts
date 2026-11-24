@@ -16,7 +16,7 @@ const test = withMcpTenants(base)
 const CHALLENGE_SCOPE = 'offline_access scantor:read scantor:write scantor:admin'
 
 /** Tools that only the admin level has. */
-const ADMIN_TOOLS = ['list_nodes']
+const ADMIN_TOOLS = ['list_nodes', 'update_node_daemon_overrides']
 /** A sample of write-level tools. */
 const WRITE_TOOLS = ['create_task', 'write_task_files', 'publish_revision', 'start_scan', 'cancel_scan']
 
