@@ -160,6 +160,7 @@ flowchart LR
     traefik{{"<b>traefik</b> · optional<br/>0.0.0.0:443 · 0.0.0.0:80<br/>TLS for every public port"}}
     cloudflared{{"<b>cloudflared</b> · optional<br/>Cloudflare Tunnel, no open port<br/>web UI · /api · /mcp"}}
     bnode["<b>node daemon</b><br/>the built-in node<br/>starts <b>workers</b> here"]
+    bdns["<b>node resolver</b><br/>DNS of the workers here"]
     orch["<b>orchestrator</b><br/>127.0.0.1:3000<br/>web UI · /api · /mcp<br/>127.0.0.1:3001<br/>browser editor origin"]
     editor["<b>editor</b> · one per user<br/>code-server, no port<br/>edits <b>task</b> folders"]
     mongo[("<b>mongo</b><br/>127.0.0.1:27017 admin<br/>tasks · revisions · scans<br/>analyses + results")]
@@ -171,6 +172,7 @@ flowchart LR
 
   subgraph REMOTE["🏠 Remote node · behind NAT"]
     rnode["<b>node daemon</b><br/>scantor node container<br/>no open port"]
+    rdns["<b>node resolver</b> · zdns<br/>host network<br/>worker network gateway :53<br/>one cache for all workers"]
     sched["<b>scheduler worker</b><br/>one per scan, runs a<br/><b>template</b> or schedule()"]
     subgraph RUNNER["<b>runner workers</b>"]
       p1("<b>process</b> 1<br/>run(analysis)")
@@ -180,11 +182,13 @@ flowchart LR
   end
 
   targets(("🌐 scan<br/>targets"))
+  dns(("🌐 upstream or<br/>root servers"))
 
   browser & cli & agent --> orch
   traefik -.- orch
   cloudflared -.- orch
   bnode -->|"④ assignments"| orch
+  bnode -->|"starts"| bdns
   orch -.->|"relays"| editor
   orch -->|"⑦ store results"| mongo
   mexp --> mongo
@@ -194,26 +198,33 @@ flowchart LR
 
   rnode -->|"④ assignments"| orch
   rnode -->|"④ pull image"| registry
-  rnode -->|"starts"| sched & RUNNER
+  rnode -->|"starts"| sched & RUNNER & rdns
   sched -->|"⑤ analyses"| rabbit
   RUNNER -->|"⑥ analyses · results"| rabbit
   RUNNER -->|"files"| rustfs
   RUNNER -->|"⑥ scan"| targets
+  sched & RUNNER -->|"resolve names"| rdns
+  rdns -->|"recursive · iterative"| dns
 
   classDef dyn stroke-dasharray: 5 4
-  class editor,sched dyn
+  class editor,sched,rdns,bdns dyn
   style RUNNER stroke-dasharray: 5 4
 ```
 
 Each outer frame is a host. Inside the master and the remote node every shape is a Docker container,
-except the rounded processes inside a runner worker; dashed ones are started by scantor on demand. Arrows point from the side that opens the connection: a remote node only connects out
-to the master, so it works behind NAT and firewalls. The master's built-in node runs workers exactly like
-a remote node. Ports and addresses are the defaults of [`.env.example`](.env.example), and every host
-port maps to the same container port. Public ports bind to `SCANTOR_BIND_ADDRESS`, admin ports to
-`SCANTOR_ADMIN_BIND_ADDRESS`. To reach the master from other machines, enable Traefik, which serves every
-public port on `:443` by host name (`<domain>`, `editor.`, `amqp.`, `s3.`, `registry.`), or bind the
-public ports to a reachable address. The optional `cloudflared` connects out to Cloudflare and serves the web UI,
-`/api` and `/mcp` at a second URL, the tunnel URL, without any open port.
+except the rounded processes inside a runner worker; dashed ones are started by scantor itself: workers and
+editors on demand, and one node resolver by every node daemon. Arrows point from the side that opens the
+connection: a remote node only connects out to the master, so it works behind NAT and firewalls. Workers resolve
+names through the node resolver of their node, a DNS server on the host network that listens only on port 53 of
+the worker network's gateway and keeps one cache for all workers of the node. It resolves recursively through
+upstream servers or iteratively from the root servers; while it is disabled or not ready, new workers use Docker's
+DNS instead. The master's built-in node runs workers and its node resolver exactly like a remote node. Ports
+and addresses are the defaults of [`.env.example`](.env.example), and every host port maps to the same container
+port. Public ports bind to `SCANTOR_BIND_ADDRESS`, admin ports to `SCANTOR_ADMIN_BIND_ADDRESS`. To reach the
+master from other machines, enable Traefik, which serves every public port on `:443` by host name (`<domain>`,
+`editor.`, `amqp.`, `s3.`, `registry.`), or bind the public ports to a reachable address. The optional
+`cloudflared` connects out to Cloudflare and serves the web UI, `/api` and `/mcp` at a second URL, the tunnel URL,
+without any open port.
 
 1. A user writes a **task** in the browser editor, with the CLI or through an LLM agent, and publishes it.
 2. The orchestrator builds the task into the image of a new **revision** and pushes it to the registry.
@@ -223,7 +234,8 @@ public ports to a reachable address. The optional `cloudflared` connects out to 
 5. The scheduler worker runs a **template** or the task's `schedule` and queues one message per
    **analysis**.
 6. Each runner worker runs `processes` connector **processes**. A process takes one analysis at a time,
-   runs `run` against its target, uploads the files to S3 and publishes the result.
+   runs `run` against its target, resolving names through the node resolver, uploads the files to S3 and
+   publishes the result.
 7. The orchestrator stores the results in MongoDB, where you query and export them.
 
 ## Concepts
