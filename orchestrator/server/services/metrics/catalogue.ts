@@ -37,6 +37,13 @@ export const nodesByState = m.gauge('scantor_nodes', 'Nodes by state', ['state']
 export const nodeHeartbeatAge = m.gauge('scantor_node_heartbeat_age_seconds', 'Seconds since the last status of each node', ['node'])
 export const nodeDiskFree = m.gauge('scantor_node_disk_free_bytes', 'Free disk reported by each node', ['node'])
 export const nodeWorkersCapacity = m.gauge('scantor_node_workers_capacity', 'Worker capacity of each node', ['node'])
+export const nodeResolverReady = m.gauge('scantor_node_resolver_ready', '1 while the node resolver of an online node is ready, else 0', ['node'])
+export const nodeResolverQps = m.gauge('scantor_node_resolver_qps', 'Queries per second the node resolver of an online node answers', ['node'])
+export const nodeResolverCacheHitRatio = m.gauge(
+  'scantor_node_resolver_cache_hit_ratio',
+  'Share of the queries of the node resolver of an online node answered from its cache since it started',
+  ['node'],
+)
 export const rabbitmqAlarm = m.gauge('scantor_rabbitmq_alarm', '1 while a RabbitMQ resource alarm is active', ['type'])
 export const jobsByKindAndState = m.gauge('scantor_jobs', 'Background jobs by kind and state', ['kind', 'state'])
 export const editorsByState = m.gauge('scantor_editors', 'Editor containers by state', ['state'])

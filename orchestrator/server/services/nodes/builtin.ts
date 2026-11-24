@@ -30,6 +30,8 @@ export async function upsertBuiltinNode(keys: Keyring, log: Logger, now = new Da
         info: null,
         assignmentsRev: 0,
         lastSeenAt: null,
+        daemonConfig: null,
+        daemonOverrides: null,
         createdBy: null,
         createdAt: now,
       },

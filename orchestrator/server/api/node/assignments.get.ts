@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'getNodeAssignments',
     summary: 'Long-poll the desired worker set of a node',
     description:
-      'Called by the node daemon. Returns the complete desired worker set of the calling node (one assignment per worker in states assigned … backoff, with image@digest, limits, capabilities and the worker environment) plus open on-demand log requests. Returns at once when the node\'s assignments revision is greater than rev, otherwise after wait seconds (0–60) with the current set. Every managed container not listed must be stopped and removed. Requires the instance lease (X-Scantor-Instance-Id), else 409 nodeInstanceConflict.',
+      'Called by the node daemon. Returns the complete desired worker set of the calling node (one assignment per worker in states assigned … backoff, with image@digest, limits, capabilities and the worker environment) plus open on-demand log requests and the daemon overrides of the polling instance (applied before the worker set). Returns at once when the node\'s assignments revision is greater than rev, otherwise after wait seconds (0–60) with the current set. Every managed container not listed must be stopped and removed. Requires the instance lease (X-Scantor-Instance-Id), else 409 nodeInstanceConflict.',
     'x-scantor-scope': 'node',
     'x-mcp': false,
     parameters: [
@@ -19,7 +19,7 @@ defineRouteMeta({
           'application/json': {
             schema: {
               type: 'object',
-              required: ['serverTime', 'rev', 'workers', 'logRequests'],
+              required: ['serverTime', 'rev', 'workers', 'logRequests', 'daemonOverrides'],
               properties: {
                 serverTime: { type: 'integer' },
                 rev: { type: 'integer' },
@@ -59,6 +59,15 @@ defineRouteMeta({
                     type: 'object',
                     required: ['requestId', 'workerId', 'tailBytes'],
                     properties: { requestId: { type: 'string', format: 'uuid' }, workerId: { type: 'string', format: 'uuid' }, tailBytes: { type: 'integer' } },
+                  },
+                },
+                daemonOverrides: {
+                  type: 'object',
+                  description: 'the complete daemon overrides of the polling instance; rev 0 and no values when it has none',
+                  required: ['rev', 'values'],
+                  properties: {
+                    rev: { type: 'integer', minimum: 0, description: 'reported back as daemonConfig.appliedOverridesRev once applied' },
+                    values: { type: 'object', description: 'only overridden keys (schemas/daemon-overrides.json), dns nested' },
                   },
                 },
               },

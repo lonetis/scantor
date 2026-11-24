@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'listNodeEvents',
     summary: 'List the events of a node',
     description:
-      'Admin only. Events that reference this node, newest first: node.online, node.offline, node.revoked, node.tokenRotated, node.instanceConflict and worker events of workers on the node. Filter by type (an exact type, or a prefix ending in ".", for example "worker."); page with cursor and limit.',
+      'Admin only. Events that reference this node, newest first: node.online, node.offline, node.revoked, node.tokenRotated, node.instanceConflict, node.daemonOverridesChanged, node.daemonOverridesCleared, node.resolverFailed, node.resolverReady and worker events of workers on the node. Filter by type (an exact type, or a prefix ending in ".", for example "worker."); page with cursor and limit.',
     'x-scantor-scope': 'admin',
     'x-mcp': false,
     'x-admin-only': true,

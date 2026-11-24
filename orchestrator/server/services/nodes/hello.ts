@@ -5,13 +5,17 @@ import { apiError } from '../../utils/errors'
 import type { Logger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
 import type { NodePrincipal } from '../../utils/principal'
-import { recordEvent } from './events'
+import { type EventInput, recordEvent, recordEvents } from './events'
 import { checkLeaseHolder, evaluateHelloLease, type NodeInstance } from './lease'
-import { endpointUrls } from './profile'
+import { overrideKeys } from './overrides'
+import { endpointHosts, endpointUrls } from './profile'
+import { parseNodeSubReports, resolverFailedStateUpdate, resolverTransitionEvent } from './reports'
 
 // POST /api/node/hello (docs/api.md §7.1, docs/nodes.md §5.2): instance lease, host info, `online`, and the node's
 // identity and orchestrator-side configuration. Later node requests must come from the lease holder
-// (requireLeaseHolder), otherwise 409 nodeInstanceConflict sends the daemon back to hello.
+// (requireLeaseHolder), otherwise 409 nodeInstanceConflict sends the daemon back to hello. Hello also stores the
+// instance's daemon configuration and resolver state (docs/nodes.md §6.11, §6.12) and ends the daemon overrides of
+// a previous instance: overrides last until their daemon instance stops.
 
 export const INSTANCE_ID_HEADER = 'x-scantor-instance-id'
 
@@ -25,6 +29,8 @@ export interface NodeHelloResponse {
     drainGraceMs: number
     registry: { host: string; username: 'node' }
     minFreeDiskBytes: number
+    /** host names the node resolver resolves through the host nameservers (profile.ts endpointHosts) */
+    endpointHosts: string[]
   }
 }
 
@@ -41,6 +47,11 @@ export type NodeConfigSettings = Pick<
   | 'amqpPublicUrl'
   | 'registryPort'
   | 'registryPublicHost'
+  | 's3InternalUrl'
+  | 's3PublicUrl'
+  | 'trancoUrl'
+  | 'cruxUrl'
+  | 'cruxCacheUrl'
 >
 
 export function helloResponse(node: NodeDoc, config: NodeConfigSettings, now: Date): NodeHelloResponse {
@@ -54,6 +65,7 @@ export function helloResponse(node: NodeDoc, config: NodeConfigSettings, now: Da
       drainGraceMs: config.workerDrainGraceMs,
       registry: { host: endpointUrls(node.endpointProfile, config).registryHost, username: 'node' },
       minFreeDiskBytes: config.nodeMinFreeDiskBytes,
+      endpointHosts: endpointHosts(node.endpointProfile, config),
     },
   }
 }
@@ -95,34 +107,69 @@ export async function handleHello(principal: NodePrincipal, body: NodeHelloBody,
       startedAt: sameInstance && node.instance ? node.instance.startedAt : now,
       lastSeenAt: now,
     }
+    const reports = parseNodeSubReports(body, node._id, log, now)
+    const { resolver: _reportedResolver, ...reportedInfo } = body.info
+    // Hello replaces the info: a daemon without a resolver report (an older one) leaves none behind.
     const info: NonNullable<NodeDoc['info']> = {
-      ...body.info,
+      ...reportedInfo,
       version: body.version,
       ...(node.info?.clockOffsetMs !== undefined ? { clockOffsetMs: node.info.clockOffsetMs } : {}),
+      ...(reports.resolver !== undefined ? { resolver: reports.resolver } : {}),
     }
-    // Conditional on the lease holder that was evaluated, so two concurrent hellos cannot both win.
-    const updated = await nodes.findOneAndUpdate(
+    // Conditional on the lease holder that was evaluated, so two concurrent hellos cannot both win. Overrides last
+    // until their daemon instance stops: another instance starts without them. The document before the update tells
+    // which overrides ended (one set just before this update included); the update changes no identity field.
+    const previous = await nodes.findOneAndUpdate(
       { _id: node._id, 'instance.id': node.instance?.id ?? null, state: { $ne: 'revoked' } },
-      { $set: { instance, info, state: 'online', lastSeenAt: now, updatedAt: now } },
-      { returnDocument: 'after' },
+      {
+        $set: {
+          instance,
+          info,
+          state: 'online',
+          lastSeenAt: now,
+          updatedAt: now,
+          daemonConfig: reports.daemonConfig ?? null,
+          ...(sameInstance ? {} : { daemonOverrides: null }),
+          ...resolverFailedStateUpdate(reports.resolver),
+        },
+      },
+      { returnDocument: 'before' },
     )
-    if (!updated) continue
+    if (!previous) continue
+    const clearedKeys = !sameInstance && previous.daemonOverrides ? overrideKeys(previous.daemonOverrides.values) : []
+    const events: EventInput[] = []
     if (node.state !== 'online' || !sameInstance) {
-      await recordEvent({
+      events.push({
         type: 'node.online',
         level: 'info',
         nodeId: node._id,
         message: decision.takeover ? `node ${node.name} restarted on the same engine and took over its lease` : `node ${node.name} is online`,
         data: { instanceId: body.instanceId },
+        at: now,
       })
     }
+    if (clearedKeys.length > 0) {
+      events.push({
+        type: 'node.daemonOverridesCleared',
+        level: 'info',
+        nodeId: node._id,
+        message: `the daemon overrides of node ${node.name} (${clearedKeys.join(', ')}) ended with their daemon instance`,
+        data: { instanceId: body.instanceId, keys: clearedKeys },
+        at: now,
+      })
+    }
+    // From the document before the update: the resolver state and the failing state it may recover from.
+    const resolverEvent = resolverTransitionEvent(previous, previous.info?.resolver, reports.resolver, now)
+    if (resolverEvent) events.push(resolverEvent)
+    await recordEvents(events, log)
     log.info('node hello', {
       nodeId: node._id,
       version: body.version,
       takeover: decision.takeover,
       adoptedContainers: body.containers?.length ?? 0,
+      ...(clearedKeys.length > 0 ? { clearedOverrides: clearedKeys } : {}),
     })
-    return helloResponse(updated, config, now)
+    return helloResponse(previous, config, now)
   }
   throw conflict(0)
 }

@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'nodeHello',
     summary: 'Register a node daemon instance',
     description:
-      'Called by the node daemon (scantor node) at start with its node token. Registers the daemon instance (instanceId = Docker engine id + ":" + boot nonce) under the node lease, stores the reported host info, sets the node online and returns its identity, endpoint profile and the orchestrator-side intervals. A live lease of a different Docker engine answers 409 nodeInstanceConflict with details.retryAfterMs; a restarted daemon on the same engine takes the lease over. Versions outside the supported window get 426 incompatibleVersion.',
+      'Called by the node daemon (scantor node) at start with its node token. Registers the daemon instance (instanceId = Docker engine id + ":" + boot nonce) under the node lease, stores the reported host info, node resolver state and daemon configuration, ends the daemon overrides of a previous instance, sets the node online and returns its identity, endpoint profile, the orchestrator-side intervals and the endpoint hosts. A live lease of a different Docker engine answers 409 nodeInstanceConflict with details.retryAfterMs; a restarted daemon on the same engine takes the lease over. Versions outside the supported window get 426 incompatibleVersion.',
     'x-scantor-scope': 'node',
     'x-mcp': false,
     requestBody: {
@@ -35,6 +35,37 @@ defineRouteMeta({
                   maxWorkers: { type: 'integer', minimum: 0 },
                   egressDenyApplied: { type: 'boolean' },
                   networkIsolated: { type: 'boolean', description: 'false while containers on the node network can reach each other' },
+                  resolver: {
+                    type: ['object', 'null'],
+                    description:
+                      'the node resolver state (Node.info.resolver); parsed apart from the body: an invalid or oversized report is stored as null, never refused',
+                    required: ['mode', 'state'],
+                    properties: {
+                      mode: { type: 'string', enum: ['recursive', 'iterative', 'disabled'] },
+                      state: { type: 'string', enum: ['starting', 'ready', 'degraded', 'unreachable', 'failed', 'disabled'] },
+                      address: { type: 'string' },
+                      kept: { type: 'boolean' },
+                      error: { type: ['string', 'null'], description: 'a code of a fixed vocabulary, never log text' },
+                      detail: { type: 'string', maxLength: 256 },
+                      since: { type: 'string', format: 'date-time' },
+                      spec: { type: 'string' },
+                      ipv6: { type: 'boolean' },
+                      upstreamOk: { type: 'boolean' },
+                      stats: { type: ['object', 'null'] },
+                    },
+                  },
+                },
+              },
+              daemonConfig: {
+                type: ['object', 'null'],
+                description:
+                  'the daemon configuration of this instance (appliedOverridesRev, values, sources, warnings, rejected; at most 64 KiB); parsed apart from the body: an invalid or oversized report is stored as null, never refused',
+                properties: {
+                  appliedOverridesRev: { type: 'integer', minimum: 0 },
+                  values: { type: 'object' },
+                  sources: { type: ['object', 'null'] },
+                  warnings: { type: ['array', 'null'], items: { type: 'string' } },
+                  rejected: { type: ['object', 'null'] },
                 },
               },
               containers: {
@@ -81,7 +112,7 @@ defineRouteMeta({
                 },
                 config: {
                   type: 'object',
-                  required: ['statusIntervalMs', 'assignmentsWaitSeconds', 'offlineAfterMs', 'drainGraceMs', 'registry', 'minFreeDiskBytes'],
+                  required: ['statusIntervalMs', 'assignmentsWaitSeconds', 'offlineAfterMs', 'drainGraceMs', 'registry', 'minFreeDiskBytes', 'endpointHosts'],
                   properties: {
                     statusIntervalMs: { type: 'integer' },
                     assignmentsWaitSeconds: { type: 'integer' },
@@ -89,6 +120,12 @@ defineRouteMeta({
                     drainGraceMs: { type: 'integer' },
                     registry: { type: 'object', required: ['host', 'username'], properties: { host: { type: 'string' }, username: { type: 'string', enum: ['node'] } } },
                     minFreeDiskBytes: { type: 'integer' },
+                    endpointHosts: {
+                      type: 'array',
+                      items: { type: 'string' },
+                      description:
+                        'sorted host names (no IP literals) of the worker SCANTOR_URL, AMQP, S3 and template data source URLs of the node profile; the node resolver resolves them through the host nameservers',
+                    },
                   },
                 },
               },

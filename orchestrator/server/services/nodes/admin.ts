@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { Filter } from 'mongodb'
-import type { CreateNodeBody, ListNodesQuery, UpdateNodeBody } from '#shared/schemas/nodes'
+import type { CreateNodeBody, ListNodesQuery, UpdateNodeBody, UpdateNodeDaemonOverridesBody } from '#shared/schemas/nodes'
 import type { Page } from '#shared/types/common'
 import type { Event } from '#shared/types/events'
 import type { Node, NodeJoin, NodeWithToken } from '#shared/types/nodes'
@@ -17,12 +17,23 @@ import { scantorVersion } from '../../utils/version'
 import { notifyAssignmentsChanged } from './assignments'
 import { recordEvent } from './events'
 import { buildNodeJoin, NODE_TOKEN_PLACEHOLDER } from './join'
-import { toApiEvent, toApiNode, toApiWorker } from './mappers'
+import { type ApiNodeOptions, toApiEvent, toApiNode, toApiWorker } from './mappers'
+import {
+  changedOverrideKeys,
+  type DaemonOverridesUnavailableReason,
+  instanceDaemonConfig,
+  instanceOverrides,
+  mergeDaemonOverrides,
+  overrideAllowed,
+  overrideKeys,
+  patchedOverrideKeys,
+} from './overrides'
 import { markNodeWorkersLost } from './workers'
 
 // Node administration (docs/api.md §4.17, docs/auth.md §10.1, docs/data-model.md §6.7). Tokens are generated here,
 // shown once and stored only as hashes. The built-in node cannot be deleted, rotated, revoked or renamed (409
-// builtInNode). Revocation and deletion mark the node's workers `lost` at once; placement replaces them.
+// builtInNode). Revocation and deletion mark the node's workers `lost` at once; placement replaces them. Daemon
+// overrides (docs/nodes.md §6.12) change the running daemon instance only; they reach it with the assignments.
 
 function isDuplicateKey(error: unknown): boolean {
   return (error as { code?: unknown } | null)?.code === 11000
@@ -45,9 +56,21 @@ async function activeWorkerCounts(nodeIds: string[]): Promise<Map<string, number
   return new Map(rows.map((row) => [row._id, row.count]))
 }
 
-async function toApiNodes(docs: NodeDoc[]): Promise<Node[]> {
+async function toApiNodes(docs: NodeDoc[], options: ApiNodeOptions = {}): Promise<Node[]> {
   const counts = await activeWorkerCounts(docs.map((doc) => doc._id))
-  return docs.map((doc) => toApiNode(doc, counts.get(doc._id) ?? 0))
+  return docs.map((doc) => toApiNode(doc, counts.get(doc._id) ?? 0, options))
+}
+
+/** One node with its daemon configuration (getNode and the daemon overrides routes). */
+async function toApiNodeWithConfig(doc: NodeDoc): Promise<Node> {
+  const [node] = await toApiNodes([doc], { daemonConfig: true })
+  return node!
+}
+
+/** One node without its daemon configuration (updateNode, revokeNodeToken: like listNodes, docs/api.md §2). */
+async function loadApiNode(nodeId: string): Promise<Node> {
+  const [node] = await toApiNodes([await loadNode(nodeId)])
+  return node!
 }
 
 export async function loadNode(nodeId: string): Promise<NodeDoc> {
@@ -67,12 +90,11 @@ export async function listNodes(query: ListNodesQuery): Promise<{ items: Node[] 
   if (query.state) filter.state = query.state
   if (query.pool) filter.pool = query.pool
   const docs = await useCollections().nodes.find(filter).sort({ builtIn: -1, name: 1 }).toArray()
-  return { items: await toApiNodes(docs) }
+  return { items: await toApiNodes(docs, { daemonConfig: query.include === 'daemonConfig' }) }
 }
 
 export async function getNode(nodeId: string): Promise<Node> {
-  const [node] = await toApiNodes([await loadNode(nodeId)])
-  return node!
+  return toApiNodeWithConfig(await loadNode(nodeId))
 }
 
 export async function createNode(body: CreateNodeBody & { pool: string; labels: Record<string, string> }, adminId: string, log: Logger): Promise<NodeWithToken> {
@@ -95,6 +117,8 @@ export async function createNode(body: CreateNodeBody & { pool: string; labels: 
     info: null,
     assignmentsRev: 0,
     lastSeenAt: null,
+    daemonConfig: null,
+    daemonOverrides: null,
     createdBy: adminId,
     createdAt: now,
     updatedAt: now,
@@ -126,7 +150,7 @@ export async function updateNode(nodeId: string, body: UpdateNodeBody): Promise<
   }
   // Pool and labels are part of the node principal (token cache).
   invalidateNodeTokenCache()
-  return getNode(node._id)
+  return loadApiNode(node._id)
 }
 
 export async function deleteNode(nodeId: string, adminId: string, log: Logger): Promise<void> {
@@ -171,7 +195,7 @@ export async function rotateNodeToken(nodeId: string, log: Logger): Promise<Node
 export async function revokeNodeToken(nodeId: string, log: Logger): Promise<Node> {
   const node = await loadNode(nodeId)
   assertNotBuiltIn(node, 'revoked')
-  if (node.state === 'revoked' && node.tokenHash === null) return getNode(node._id)
+  if (node.state === 'revoked' && node.tokenHash === null) return loadApiNode(node._id)
   const now = new Date()
   await useCollections().nodes.updateOne(
     { _id: node._id },
@@ -188,7 +212,138 @@ export async function revokeNodeToken(nodeId: string, log: Logger): Promise<Node
     data: { lostWorkers: lost.length },
     at: now,
   }, log)
-  return getNode(node._id)
+  return loadApiNode(node._id)
+}
+
+// ── daemon overrides (docs/nodes.md §6.12) ──────────────────────────────────
+
+/** Attempts of a daemon overrides change that lost a race against another write of the node. */
+const MAX_OVERRIDE_ATTEMPTS = 3
+
+function overridesUnavailable(node: NodeDoc, reason: DaemonOverridesUnavailableReason, message: string, keys?: string[]) {
+  return apiError('daemonOverridesUnavailable', message, { reason, state: node.state, ...(keys ? { keys } : {}) })
+}
+
+/**
+ * The daemon instance whose overrides an admin may change: it holds the lease of a node that is not revoked, it
+ * reported a valid daemon configuration, and its SCANTOR_NODE_OVERRIDES allows every key the patch sets (removing is
+ * always allowed); otherwise 409 daemonOverridesUnavailable with `details.reason`. `notReported` covers a daemon
+ * that predates daemon overrides, one whose report the orchestrator stored as null (invalid or oversized, logged) and
+ * one that has not reported yet.
+ */
+function overridableInstance(node: NodeDoc, patch: UpdateNodeDaemonOverridesBody): string {
+  if (!node.instance || node.state === 'revoked') {
+    throw overridesUnavailable(node, 'noInstance', `node ${node.name} has no running daemon instance`)
+  }
+  const config = instanceDaemonConfig(node)
+  if (!config) {
+    throw overridesUnavailable(
+      node,
+      'notReported',
+      `node ${node.name} has not reported a valid daemon configuration (an old daemon or an invalid report; see the orchestrator log)`,
+    )
+  }
+  const refused = patchedOverrideKeys(patch).filter((key) => !overrideAllowed(config.values.overrides, key))
+  if (refused.length > 0) {
+    throw overridesUnavailable(
+      node,
+      'notAllowed',
+      `the daemon of node ${node.name} does not accept overrides of ${refused.join(', ')} (SCANTOR_NODE_OVERRIDES)`,
+      refused,
+    )
+  }
+  return node.instance.id
+}
+
+/** The filter part that matches the stored overrides exactly as they were read (missing and null alike). */
+function storedOverridesFilter(node: NodeDoc): Filter<NodeDoc> {
+  const stored = node.daemonOverrides
+  return stored ? { 'daemonOverrides.instanceId': stored.instanceId, 'daemonOverrides.rev': stored.rev } : { daemonOverrides: null }
+}
+
+/**
+ * Applies a JSON merge patch to the daemon overrides of the node's running daemon instance. The update is conditional
+ * on the instance and the overrides revision that were read; after a lost race the patch is merged again into the
+ * fresh node. A change bumps the assignments revision (the daemon applies it at once) and records
+ * `node.daemonOverridesChanged`; a patch that changes nothing writes nothing.
+ */
+export async function updateNodeDaemonOverrides(nodeId: string, patch: UpdateNodeDaemonOverridesBody, adminId: string, log: Logger): Promise<Node> {
+  const { nodes } = useCollections()
+  let node = await loadNode(nodeId)
+  for (let attempt = 0; attempt < MAX_OVERRIDE_ATTEMPTS; attempt++) {
+    const instanceId = overridableInstance(node, patch)
+    const current = instanceOverrides(node)
+    const before = current?.values ?? {}
+    const values = mergeDaemonOverrides(before, patch)
+    const keys = changedOverrideKeys(before, values)
+    if (keys.length === 0) return toApiNodeWithConfig(node)
+    const now = new Date()
+    const rev = (current?.rev ?? 0) + 1
+    const result = await nodes.updateOne(
+      { _id: node._id, 'instance.id': instanceId, state: { $ne: 'revoked' }, 'daemonConfig.instanceId': instanceId, ...storedOverridesFilter(node) },
+      { $set: { daemonOverrides: { instanceId, values, rev, updatedAt: now, updatedBy: adminId }, updatedAt: now } },
+    )
+    if (result.matchedCount === 0) {
+      node = await loadNode(node._id)
+      continue
+    }
+    await notifyAssignmentsChanged(node._id)
+    await recordEvent(
+      {
+        type: 'node.daemonOverridesChanged',
+        level: 'info',
+        nodeId: node._id,
+        message: `the daemon overrides of node ${node.name} changed: ${keys.join(', ')}`,
+        data: { by: adminId, keys, cleared: false },
+        at: now,
+      },
+      log,
+    )
+    log.info('daemon overrides changed', { nodeId: node._id, keys, rev, by: adminId })
+    // Read again: the notification bumped the assignments revision.
+    return getNode(node._id)
+  }
+  throw apiError('invalidState', `the daemon overrides of node ${node.name} changed concurrently; try again`, { state: node.state })
+}
+
+/**
+ * Removes every daemon override of the node's running daemon instance; idempotent (a node without overrides is
+ * returned as it is). Like a change, the reset bumps the overrides revision and records `node.daemonOverridesChanged`.
+ */
+export async function deleteNodeDaemonOverrides(nodeId: string, adminId: string, log: Logger): Promise<Node> {
+  const { nodes } = useCollections()
+  let node = await loadNode(nodeId)
+  for (let attempt = 0; attempt < MAX_OVERRIDE_ATTEMPTS; attempt++) {
+    const current = instanceOverrides(node)
+    const keys = current ? overrideKeys(current.values) : []
+    if (!current || keys.length === 0) return toApiNodeWithConfig(node)
+    const now = new Date()
+    const rev = current.rev + 1
+    const result = await nodes.updateOne(
+      { _id: node._id, 'instance.id': current.instanceId, state: { $ne: 'revoked' }, ...storedOverridesFilter(node) },
+      { $set: { daemonOverrides: { instanceId: current.instanceId, values: {}, rev, updatedAt: now, updatedBy: adminId }, updatedAt: now } },
+    )
+    if (result.matchedCount === 0) {
+      node = await loadNode(node._id)
+      continue
+    }
+    await notifyAssignmentsChanged(node._id)
+    await recordEvent(
+      {
+        type: 'node.daemonOverridesChanged',
+        level: 'info',
+        nodeId: node._id,
+        message: `the daemon overrides of node ${node.name} were reset: ${keys.join(', ')}`,
+        data: { by: adminId, keys, cleared: true },
+        at: now,
+      },
+      log,
+    )
+    log.info('daemon overrides reset', { nodeId: node._id, keys, rev, by: adminId })
+    // Read again: the notification bumped the assignments revision.
+    return getNode(node._id)
+  }
+  throw apiError('invalidState', `the daemon overrides of node ${node.name} changed concurrently; try again`, { state: node.state })
 }
 
 export async function getNodeJoin(nodeId: string): Promise<NodeJoin> {

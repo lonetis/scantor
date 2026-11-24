@@ -1,4 +1,4 @@
-import type { NodeDoc, ScanDoc, WorkerDoc } from '../../../server/types/documents'
+import type { DaemonConfigDoc, NodeDoc, ScanDoc, WorkerDoc } from '../../../server/types/documents'
 import type { LogFields, Logger, LogLevelName } from '../../../server/utils/logger'
 
 // Builders and a recording logger for the node, runtime and registry tests: plain documents with readable defaults,
@@ -73,6 +73,72 @@ export function nodeDoc(overrides: Partial<NodeDoc> = {}): NodeDoc {
     createdBy: USER_ID,
     createdAt: T0,
     updatedAt: T0,
+    ...overrides,
+  }
+}
+
+/** A daemon configuration report of a daemon of this release, as sent in hello and status (docs/nodes.md §6.12). */
+export const DAEMON_CONFIG_REPORT = {
+  appliedOverridesRev: 3,
+  values: {
+    url: 'https://scantor.example.com',
+    builtIn: false,
+    maxWorkers: 16,
+    dind: 'disabled',
+    egressDeny: ['169.254.0.0/16', '100.100.100.200/32'],
+    allowUnisolatedNetworks: false,
+    allowInsecureTransport: false,
+    caCertificates: [{ subject: 'CN=corp root', sha256: 'ab'.repeat(32), notAfter: '2030-01-01T00:00:00.000Z' }],
+    pidsLimit: 256,
+    shmSizeBytes: 67108864,
+    nofile: 65536,
+    workerLogMaxSizeBytes: 10485760,
+    workerLogMaxFiles: 3,
+    imageRetentionMs: 604800000,
+    pullTimeoutMs: 600000,
+    logLevel: 'info',
+    logFormat: 'json',
+    overrides: 'all',
+    dns: {
+      mode: 'iterative',
+      upstreams: ['1.1.1.1', '8.8.8.8'],
+      rootServers: [],
+      localDomains: ['corp.example'],
+      cacheSizeBytes: 268435456,
+      maxLookups: 1000,
+      upstreamQps: 0,
+      authoritativeQps: 200,
+    },
+  },
+  sources: { maxWorkers: 'override', url: 'env', dns: { mode: 'override', upstreams: 'default' } },
+  warnings: ['SCANTOR_NODE_DNS_CACHE_SIZE: "lots" is not a byte size; using the default'],
+  rejected: { dns: { upstreams: 'not allowed on this node' } },
+}
+
+/** A node resolver report (`info.resolver`, docs/nodes.md §6.11). */
+export const RESOLVER_REPORT = {
+  mode: 'recursive',
+  state: 'ready',
+  address: '10.10.0.1',
+  kept: false,
+  error: null,
+  since: '2026-10-21T09:58:00.000Z',
+  spec: `sha256:${'c0'.repeat(32)}`,
+  ipv6: false,
+  upstreamOk: true,
+  stats: { queries: 120345, cacheHits: 98000, lookups: 20100, failures: 340, inflight: 12, qps: 850.5, conntrackUsed: 0.05 },
+}
+
+/** The stored form of DAEMON_CONFIG_REPORT for the daemon instance `instanceId`. */
+export function daemonConfigDoc(instanceId: string, overrides: Partial<DaemonConfigDoc> = {}): DaemonConfigDoc {
+  return {
+    instanceId,
+    appliedOverridesRev: 0,
+    values: structuredClone(DAEMON_CONFIG_REPORT.values) as DaemonConfigDoc['values'],
+    sources: structuredClone(DAEMON_CONFIG_REPORT.sources) as DaemonConfigDoc['sources'],
+    warnings: [],
+    rejected: {},
+    reportedAt: T0,
     ...overrides,
   }
 }

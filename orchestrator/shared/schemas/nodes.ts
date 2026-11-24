@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { dnsServerProblem, dnsServerProblemMessage } from '../utils/dns-servers'
 import { DIND_MODES, NODE_STATES, WORKER_STATES } from '../utils/enums'
 import { NODE_LABEL_KEY_PATTERN, NODE_LABEL_VALUE_MAX_LENGTH, NODE_LABELS_MAX, SLUG_PATTERN } from '../utils/slug'
 import { cursorQuery, MAX_PAGE_LIMIT, qInt, qList } from './common'
@@ -119,25 +120,25 @@ export const DAEMON_OVERRIDE_KEYS = [
 ] as const
 export type DaemonOverrideKey = (typeof DAEMON_OVERRIDE_KEYS)[number]
 
-const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
-const IPV6 = /^[0-9A-Fa-f:.]{2,45}$/
-const PORT = /^([1-9]\d{0,3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])$/
-
-/** A DNS server: an IP address, `ip:port` or `[v6]:port` (IPv6 without brackets has no port). */
-export function isDnsServer(value: string): boolean {
-  if (IPV4.test(value)) return true
-  const bracketed = /^\[([^\]]+)\]:(\d+)$/.exec(value)
-  if (bracketed) return IPV6.test(bracketed[1]!) && bracketed[1]!.includes(':') && PORT.test(bracketed[2]!)
-  const v4port = /^([\d.]+):(\d+)$/.exec(value)
-  if (v4port) return IPV4.test(v4port[1]!) && PORT.test(v4port[2]!)
-  return value.includes(':') && IPV6.test(value)
-}
-
 const DOMAIN = /^(?=.{1,253}$)([a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)(\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)*$/
 
 const bounded = (key: keyof typeof DAEMON_OVERRIDE_BOUNDS) => z.number().int().min(DAEMON_OVERRIDE_BOUNDS[key].min).max(DAEMON_OVERRIDE_BOUNDS[key].max)
-const dnsServer = () => z.string().trim().max(64).refine(isDnsServer, 'must be an IP address, ip:port or [v6]:port')
-const dnsServerOrHost = () => z.string().trim().max(64).refine((v) => v === 'host' || isDnsServer(v), 'must be an IP address, ip:port, [v6]:port or host')
+/**
+ * A DNS server of a daemon override (shared/utils/dns-servers.ts): an IP address, ip:port or [v6]:port that is unicast,
+ * without zone and outside the ranges only the node environment may name; `host` (the host nameservers) where allowed.
+ */
+const overrideDnsServer = (allowHost: boolean) =>
+  z
+    .string()
+    .trim()
+    .max(64)
+    .superRefine((value, ctx) => {
+      if (allowHost && value === 'host') return
+      const problem = dnsServerProblem(value, { override: true })
+      if (problem) ctx.addIssue({ code: 'custom', message: dnsServerProblemMessage(problem, allowHost) })
+    })
+const dnsServer = () => overrideDnsServer(false)
+const dnsServerOrHost = () => overrideDnsServer(true)
 const domainName = () =>
   z
     .string()
@@ -233,6 +234,167 @@ export const instanceIdSchema = z.string().regex(INSTANCE_ID, 'must be "<engine 
 const count = (max: number) => z.number().int().min(0).max(max)
 const byteCount = () => z.number().int().min(0).max(Number.MAX_SAFE_INTEGER)
 
+// ── daemon-reported sub-reports (docs/nodes.md §7.1) ────────────────────────
+// `daemonConfig` and `info.resolver` of hello and status are parsed apart from the heartbeat
+// (server/services/nodes/reports.ts): the strict bodies take them as unknown, and a sub-report above
+// NODE_SUB_REPORT_MAX_BYTES or failing these lenient schemas is stored as null, never a 400. Lenient: unknown keys
+// are stripped, null lists of a Go daemon become empty ones, and every key is optional except daemonConfig.values and
+// the resolver's mode and state (a new daemon-reported key is always optional, so a daemon of the previous minor
+// release keeps its report). The list limits (64 CA certificates, 256 egress deny entries, 64 warnings of at most 1024
+// characters) are at least the caps of the daemon's report (internal/node settings.go), so the report of every
+// configuration a daemon accepts fits.
+
+/**
+ * The largest daemon-reported sub-report (its JSON) the orchestrator stores: room for a daemon configuration with
+ * every list at its limit (certificates, deny list, 64 local domains of 253 characters, warnings).
+ */
+export const NODE_SUB_REPORT_MAX_BYTES = 65_536
+const DAEMON_CONFIG_SOURCES = ['env', 'default', 'override'] as const
+/** A node resolver error is a code of a fixed vocabulary (docs/nodes.md §6.11), never log text. */
+const RESOLVER_ERROR_CODE = /^[a-z][A-Za-z0-9]{0,63}$/
+/** A resolver detail holds addresses and numbers: no quotes, brackets of markup or control characters. */
+const RESOLVER_DETAIL = /^[A-Za-z0-9 .:,;/[\]()=%+_-]*$/
+const OVERRIDE_KEY = /^[a-z][A-Za-z0-9]{0,63}(\.[a-z][A-Za-z0-9]{0,63})?$/
+
+const reportedInt = () => byteCount().optional()
+// `.optional()` outside the transform keeps an absent key absent (and never stored as null).
+const reportedList = <T extends z.ZodType>(item: T, max: number) =>
+  z
+    .array(item)
+    .max(max)
+    .nullable()
+    .transform((list) => list ?? [])
+    .optional()
+
+/** A tree of the daemon configuration keys with one leaf schema (sources, rejected messages). */
+function daemonConfigTree<T extends z.ZodType>(leaf: T) {
+  const optional = leaf.optional()
+  return z.object({
+    url: optional,
+    builtIn: optional,
+    maxWorkers: optional,
+    dind: optional,
+    egressDeny: optional,
+    allowUnisolatedNetworks: optional,
+    allowInsecureTransport: optional,
+    caCertificates: optional,
+    pidsLimit: optional,
+    shmSizeBytes: optional,
+    nofile: optional,
+    workerLogMaxSizeBytes: optional,
+    workerLogMaxFiles: optional,
+    imageRetentionMs: optional,
+    pullTimeoutMs: optional,
+    logLevel: optional,
+    logFormat: optional,
+    overrides: optional,
+    dns: z
+      .object({
+        mode: optional,
+        upstreams: optional,
+        rootServers: optional,
+        localDomains: optional,
+        cacheSizeBytes: optional,
+        maxLookups: optional,
+        upstreamQps: optional,
+        authoritativeQps: optional,
+      })
+      .optional(),
+  })
+}
+
+/** The values of a reported daemon configuration (docs/nodes.md §6.12). */
+export const reportedDaemonConfigValues = z.object({
+  url: z.string().max(2048).optional(),
+  builtIn: z.boolean().optional(),
+  maxWorkers: reportedInt(),
+  dind: z.enum(DIND_MODES).optional(),
+  egressDeny: reportedList(z.string().max(64), 256),
+  allowUnisolatedNetworks: z.boolean().optional(),
+  allowInsecureTransport: z.boolean().optional(),
+  caCertificates: reportedList(z.object({ subject: z.string().max(1024), sha256: z.string().max(64), notAfter: z.iso.datetime({ offset: true }) }), 64),
+  pidsLimit: reportedInt(),
+  shmSizeBytes: reportedInt(),
+  nofile: reportedInt(),
+  workerLogMaxSizeBytes: reportedInt(),
+  workerLogMaxFiles: reportedInt(),
+  imageRetentionMs: reportedInt(),
+  pullTimeoutMs: reportedInt(),
+  logLevel: z.enum(DAEMON_LOG_LEVELS).optional(),
+  logFormat: z.enum(['json', 'text']).optional(),
+  // A Go daemon sends null for an unset allow-list; nothing is allowed then.
+  overrides: z
+    .union([z.literal('all'), z.literal('none'), z.array(z.string().regex(OVERRIDE_KEY)).max(64)])
+    .nullable()
+    .transform((value) => value ?? 'none')
+    .optional(),
+  dns: z
+    .object({
+      mode: z.enum(RESOLVER_MODES).optional(),
+      upstreams: reportedList(z.string().max(64), 64),
+      rootServers: reportedList(z.string().max(64), 64),
+      localDomains: reportedList(z.string().max(253), 256),
+      cacheSizeBytes: reportedInt(),
+      maxLookups: reportedInt(),
+      upstreamQps: reportedInt(),
+      authoritativeQps: reportedInt(),
+    })
+    .optional(),
+})
+export type ReportedDaemonConfigValues = z.output<typeof reportedDaemonConfigValues>
+
+/** `daemonConfig` of hello and status: the daemon configuration of the reporting instance. */
+export const daemonConfigReport = z.object({
+  appliedOverridesRev: byteCount().optional().default(0),
+  values: reportedDaemonConfigValues,
+  sources: daemonConfigTree(z.enum(DAEMON_CONFIG_SOURCES))
+    .nullish()
+    .transform((tree) => tree ?? {}),
+  warnings: z
+    .array(z.string().max(1024))
+    .max(64)
+    .nullish()
+    .transform((list) => list ?? []),
+  rejected: daemonConfigTree(z.string().max(1024))
+    .nullish()
+    .transform((tree) => tree ?? {}),
+})
+export type DaemonConfigReport = z.output<typeof daemonConfigReport>
+
+const resolverCounter = () => byteCount().default(0)
+const resolverRate = () => z.number().min(0).max(1e15).default(0)
+
+/** `info.resolver` of hello and status: the state of the node resolver (docs/nodes.md §6.11). */
+export const nodeResolverReport = z.object({
+  mode: z.enum(RESOLVER_MODES),
+  state: z.enum(RESOLVER_STATES),
+  address: z.string().max(64).optional(),
+  kept: z.boolean().default(false),
+  error: z
+    .string()
+    .regex(RESOLVER_ERROR_CODE)
+    .nullish()
+    .transform((code) => code ?? null),
+  detail: z.string().max(256).regex(RESOLVER_DETAIL).optional(),
+  since: z.iso.datetime({ offset: true }).optional(),
+  spec: z.string().max(80).optional(),
+  ipv6: z.boolean().default(false),
+  upstreamOk: z.boolean().default(false),
+  stats: z
+    .object({
+      queries: resolverCounter(),
+      cacheHits: resolverCounter(),
+      lookups: resolverCounter(),
+      failures: resolverCounter(),
+      inflight: resolverCounter(),
+      qps: resolverRate(),
+      conntrackUsed: resolverRate(),
+    })
+    .nullish()
+    .transform((stats) => stats ?? null),
+})
+export type NodeResolverReportInput = z.output<typeof nodeResolverReport>
+
 export const nodeHelloBody = z.strictObject({
   instanceId: instanceIdSchema,
   version: VERSION,
@@ -249,6 +411,8 @@ export const nodeHelloBody = z.strictObject({
     maxWorkers: count(100_000),
     egressDenyApplied: z.boolean(),
     networkIsolated: z.boolean().optional(),
+    /** nodeResolverReport, parsed apart (above) */
+    resolver: z.unknown().optional(),
   }),
   containers: z
     .array(
@@ -262,6 +426,8 @@ export const nodeHelloBody = z.strictObject({
     .max(10_000)
     .nullable()
     .default([]),
+  /** daemonConfigReport, parsed apart (above) */
+  daemonConfig: z.unknown().optional(),
 })
 export type NodeHelloBody = z.infer<typeof nodeHelloBody>
 
@@ -312,8 +478,12 @@ export const nodeStatusBody = z.strictObject({
     maxWorkers: count(100_000),
     egressDenyApplied: z.boolean(),
     networkIsolated: z.boolean().optional(),
+    /** nodeResolverReport, parsed apart (above) */
+    resolver: z.unknown().optional(),
   }),
   workers: z.array(nodeWorkerReport).max(10_000).nullable().default([]),
+  /** daemonConfigReport, parsed apart (above) */
+  daemonConfig: z.unknown().optional(),
 })
 export type NodeStatusBody = z.infer<typeof nodeStatusBody>
 

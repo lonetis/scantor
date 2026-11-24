@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'postNodeStatus',
     summary: 'Report node status',
     description:
-      'Called by the node daemon every status interval and after local changes. The body is a complete snapshot of the node\'s workers (every worker of its desired set plus every managed worker container that still exists; removed workers are repeated three times) and its capacity, clock offset and free disk. Updates worker states, applied limits and container details, raises crashLoop and imagePullFailed, and keeps the node online. Entries for workers not assigned to this node are ignored. A rev greater than appliedRev tells the daemon to poll assignments now. Requires the instance lease, else 409 nodeInstanceConflict.',
+      'Called by the node daemon every status interval and after local changes. The body is a complete snapshot of the node\'s workers (every worker of its desired set plus every managed worker container that still exists; removed workers are repeated three times) and its capacity, clock offset, free disk, node resolver state and daemon configuration. Updates worker states, applied limits and container details, raises crashLoop and imagePullFailed, records node resolver state changes (node.resolverFailed, node.resolverReady), and keeps the node online. Entries for workers not assigned to this node are ignored. A rev greater than appliedRev tells the daemon to poll assignments now. Requires the instance lease, else 409 nodeInstanceConflict.',
     'x-scantor-scope': 'node',
     'x-mcp': false,
     parameters: [{ name: 'X-Scantor-Instance-Id', in: 'header', required: false, schema: { type: 'string' } }],
@@ -33,7 +33,17 @@ defineRouteMeta({
                   maxWorkers: { type: 'integer' },
                   egressDenyApplied: { type: 'boolean' },
                   networkIsolated: { type: 'boolean', description: 'false while containers on the node network can reach each other' },
+                  resolver: {
+                    type: ['object', 'null'],
+                    description:
+                      'the node resolver state, as in hello; parsed apart from the body: an invalid or oversized report is stored as null, never refused; absent keeps the stored one',
+                  },
                 },
+              },
+              daemonConfig: {
+                type: ['object', 'null'],
+                description:
+                  'the daemon configuration of this instance, as in hello; stored for the instance holding the lease; parsed apart from the body: an invalid or oversized report is stored as null, never refused; absent keeps the stored one',
               },
               workers: {
                 type: 'array',

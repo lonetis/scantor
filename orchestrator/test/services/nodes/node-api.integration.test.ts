@@ -1,7 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { NodeHelloBody, NodeStatusBody } from '../../../shared/schemas/nodes'
-import { createNode, deleteNode, listNodeEvents, listNodes, listNodeWorkers, revokeNodeToken, rotateNodeToken, updateNode } from '../../../server/services/nodes/admin'
+import {
+  createNode,
+  deleteNode,
+  deleteNodeDaemonOverrides,
+  listNodeEvents,
+  listNodes,
+  listNodeWorkers,
+  revokeNodeToken,
+  rotateNodeToken,
+  updateNode,
+  updateNodeDaemonOverrides,
+} from '../../../server/services/nodes/admin'
 import { buildNodeAssignments, closeAssignmentWaiters, notifyAssignmentsChanged, waitForAssignments } from '../../../server/services/nodes/assignments'
 import { upsertBuiltinNode } from '../../../server/services/nodes/builtin'
 import { handleHello, requireLeaseHolder } from '../../../server/services/nodes/hello'
@@ -13,8 +24,9 @@ import type { Config } from '../../../server/utils/config'
 import { useKeys } from '../../../server/utils/keys'
 import { useCollections } from '../../../server/utils/mongo'
 import { invalidateNodeTokenCache, resolveNodeToken } from '../../../server/utils/node-tokens'
+import type { NodePrincipal } from '../../../server/utils/principal'
 import { resolveWorkerToken } from '../../../server/utils/worker-tokens'
-import { DIGEST, recordingLogger, scanDoc, workerDoc } from './helpers'
+import { DAEMON_CONFIG_REPORT, DIGEST, RESOLVER_REPORT, recordingLogger, scanDoc, workerDoc } from './helpers'
 import {
   connectIntegrationDatabase,
   disconnectIntegrationDatabase,
@@ -30,7 +42,8 @@ import {
  * The node API and node administration against a real MongoDB replica set (docs/api.md §4.17, §7, docs/nodes.md
  * §5, §7, docs/auth.md §10.1, §10.2, docs/data-model.md §6.6, §6.7): the built-in node upsert, token lifecycle,
  * the instance lease, assignments with their long-poll and wake-ups (in process and through the change stream),
- * status snapshots, offline detection, log answers and the registry grants derived from assignments.
+ * status snapshots, offline detection, log answers, the registry grants derived from assignments, and the daemon
+ * configuration with its daemon overrides (docs/nodes.md §6.12) on node documents from before them.
  */
 
 const log = recordingLogger()
@@ -151,6 +164,8 @@ describe.skipIf(!integrationEnabled)('node API against MongoDB', () => {
         drainGraceMs: 30_000,
         registry: { host: 'registry.example.com', username: 'node' },
         minFreeDiskBytes: 5 * 1024 ** 3,
+        // The public URL, the default AMQP and S3 public URLs (localhost) and the default data sources.
+        endpointHosts: ['localhost', 'raw.githubusercontent.com', 'scantor.example.com', 'tranco-list.eu'],
       })
       const node = (await useCollections().nodes.findOne({ _id: nodeId }))!
       expect(node).toMatchObject({ state: 'online', instance: { id: 'engine-a:1', version: '1.4.0' }, info: { arch: 'arm64', cpus: 8 } })
@@ -404,6 +419,77 @@ describe.skipIf(!integrationEnabled)('node API against MongoDB', () => {
       expect((await workers.findOne({ _id: worker }))?.stateReason?.code).toBe('nodeDeleted')
       expect(await resolveNodeToken(token)).toBeNull()
       await expectApiError(deleteNode(nodeId, ADMIN, log), 'notFound')
+    })
+  })
+
+  describe('daemon configuration and daemon overrides', () => {
+    let nodeId: string
+    let principal: NodePrincipal
+
+    beforeAll(async () => {
+      const created = await createNode({ name: 'it-overrides', pool: 'shared', labels: {} }, ADMIN, log)
+      nodeId = created.node.id
+      principal = (await resolveNodeToken(created.token))!
+      // A node document from before daemon overrides: neither field exists.
+      await useCollections().nodes.updateOne({ _id: nodeId }, { $unset: { daemonConfig: '', daemonOverrides: '' } })
+    })
+
+    it('refuses overrides until the running instance reported its configuration', async () => {
+      expect(await expectApiError(updateNodeDaemonOverrides(nodeId, { maxWorkers: 4 }, ADMIN, log), 'daemonOverridesUnavailable')).toEqual({
+        reason: 'noInstance',
+        state: 'pending',
+      })
+      await handleHello(principal, hello('engine-o:1'), config, log)
+      expect(await expectApiError(updateNodeDaemonOverrides(nodeId, { maxWorkers: 4 }, ADMIN, log), 'daemonOverridesUnavailable')).toEqual({
+        reason: 'notReported',
+        state: 'online',
+      })
+    })
+
+    it('stores the reported configuration and changes the overrides of a node from before them', async () => {
+      await handleHello(principal, { ...hello('engine-o:1', { resolver: RESOLVER_REPORT }), daemonConfig: DAEMON_CONFIG_REPORT }, config, log)
+      // The fields are still missing; the null-aware condition matches the missing overrides.
+      await useCollections().nodes.updateOne({ _id: nodeId }, { $unset: { daemonOverrides: '' } })
+      const node = await updateNodeDaemonOverrides(nodeId, { maxWorkers: 4, dns: { mode: 'iterative' } }, ADMIN, log)
+      expect(node.daemonConfig).toMatchObject({
+        values: { maxWorkers: 16 },
+        overrides: { maxWorkers: 4, dns: { mode: 'iterative' } },
+        overridesRev: 1,
+        pending: true,
+        overriddenBy: ADMIN,
+      })
+      expect(node.info?.resolver).toMatchObject({ state: 'ready', since: RESOLVER_REPORT.since })
+      const stored = (await useCollections().nodes.findOne({ _id: nodeId }))!
+      expect((await buildNodeAssignments(stored, config)).daemonOverrides).toEqual({ rev: 1, values: { maxWorkers: 4, dns: { mode: 'iterative' } } })
+      expect((await listNodeEvents(nodeId, { type: 'node.daemonOverridesChanged' })).items[0]?.data).toEqual({
+        by: ADMIN,
+        keys: ['maxWorkers', 'dns.mode'],
+        cleared: false,
+      })
+    })
+
+    it('reports the overrides applied once a status of the instance says so', async () => {
+      const node = (await useCollections().nodes.findOne({ _id: nodeId }))!
+      await handleStatus(
+        node,
+        { ...status('engine-o:1', []), daemonConfig: { ...DAEMON_CONFIG_REPORT, appliedOverridesRev: 1 } },
+        { nodeStatusIntervalMs: 10_000, nodeOfflineAfterMs: 60_000 },
+        log,
+      )
+      const [listed] = (await listNodes({ include: 'daemonConfig' })).items.filter((item) => item.id === nodeId)
+      expect(listed?.daemonConfig).toMatchObject({ overridesRev: 1, appliedOverridesRev: 1, pending: false })
+    })
+
+    it('resets the overrides and ends them with the next daemon instance', async () => {
+      const reset = await deleteNodeDaemonOverrides(nodeId, ADMIN, log)
+      expect(reset.daemonConfig).toMatchObject({ overrides: {}, overridesRev: 2, pending: true })
+      await updateNodeDaemonOverrides(nodeId, { logLevel: 'debug' }, ADMIN, log)
+      await handleHello(principal, { ...hello('engine-o:2'), daemonConfig: DAEMON_CONFIG_REPORT }, config, log)
+      const node = (await useCollections().nodes.findOne({ _id: nodeId }))!
+      expect(node.daemonOverrides).toBeNull()
+      expect(node.daemonConfig?.instanceId).toBe('engine-o:2')
+      expect((await buildNodeAssignments(node, config)).daemonOverrides).toEqual({ rev: 0, values: {} })
+      expect((await listNodeEvents(nodeId, { type: 'node.daemonOverridesCleared' })).items[0]?.data).toEqual({ instanceId: 'engine-o:2', keys: ['logLevel'] })
     })
   })
 })

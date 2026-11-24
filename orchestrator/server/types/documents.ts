@@ -35,6 +35,8 @@ import type {
   WorkerState,
 } from '#shared/utils/enums'
 import type { NotificationTrigger } from '#shared/utils/notifications'
+import type { DaemonConfigReport, NodeResolverReportInput } from '#shared/schemas/nodes'
+import type { DaemonOverrideValues, ResolverState } from '#shared/types/nodes'
 
 // MongoDB document types of every scantor collection, including internal fields (docs/data-model.md §4).
 // Server-only: API representations live in shared/types and are produced by mappers. Timestamps are BSON Dates.
@@ -474,12 +476,53 @@ export interface NodeDoc {
     /** absent until a daemon that reports it has connected (docs/nodes.md §6.8) */
     networkIsolated?: boolean
     clockOffsetMs?: number
+    /** absent until a daemon that runs a node resolver reported it; null when its report was invalid (§6.11) */
+    resolver?: NodeResolverDoc | null
   } | null
   assignmentsRev: number
   lastSeenAt: Date | null
+  /** the configuration reported by a daemon instance (docs/nodes.md §6.12); absent on nodes created before it */
+  daemonConfig?: DaemonConfigDoc | null
+  /** the daemon overrides an admin set for one daemon instance; absent on nodes created before them */
+  daemonOverrides?: DaemonOverridesDoc | null
+  /**
+   * internal: the failing state (failed, degraded, unreachable) the node resolver last entered and has not yet been
+   * reported `ready` after; it outlives hello, which replaces `info`, so a recovery through `starting` still records
+   * `node.resolverReady` (docs/nodes.md §6.11.5). Absent or null otherwise.
+   */
+  resolverFailedState?: ResolverState | null
   createdBy: string | null
   createdAt: Date
   updatedAt: Date
+}
+
+/** The node resolver part of a daemon report (docs/nodes.md §6.11). */
+export type NodeResolverDoc = Omit<NodeResolverReportInput, 'since'> & {
+  /** when the resolver entered its state (the time of the report when the daemon did not say) */
+  since: Date
+}
+
+/** The daemon configuration as reported by the daemon instance `instanceId` (docs/nodes.md §6.12). */
+export interface DaemonConfigDoc {
+  instanceId: string
+  appliedOverridesRev: number
+  /** as reported: a daemon of an older release lacks the keys added after it (docs/nodes.md §7.1) */
+  values: DaemonConfigReport['values']
+  sources: DaemonConfigReport['sources']
+  warnings: string[]
+  rejected: DaemonConfigReport['rejected']
+  reportedAt: Date
+}
+
+/** Daemon overrides of the daemon instance `instanceId`; they end when another instance says hello. */
+export interface DaemonOverridesDoc {
+  instanceId: string
+  values: DaemonOverrideValues
+  /** incremented by every change; the daemon reports the revision it applied (`appliedOverridesRev`) */
+  rev: number
+  updatedAt: Date
+  /** the admin who changed them last */
+  updatedBy: string | null
 }
 
 // ── credentials, uploads (§4.9, §4.10) ──────────────────────────────────────

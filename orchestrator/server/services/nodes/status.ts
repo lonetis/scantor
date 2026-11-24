@@ -9,6 +9,7 @@ import { clearScanCondition, raiseScanCondition } from '../runtime/conditions'
 import { type EventInput, recordEvent, recordEvents } from './events'
 import { leaseRemainingMs } from './lease'
 import { tailBytesOf } from './logs'
+import { type NodeSubReports, parseNodeSubReports, resolverFailedStateUpdate, resolverTransitionEvent } from './reports'
 import { workerExpiresAt } from './workers'
 
 // POST /api/node/status (docs/api.md §7.3, docs/nodes.md §7): the node's heartbeat and a complete snapshot of its
@@ -17,7 +18,8 @@ import { workerExpiresAt } from './workers'
 // limits, raises `crashLoop` and `imagePullFailed`, and completes drains: a `draining` worker reported `removed`, or
 // absent from two consecutive reports, is `stopped`. Entries for workers that are not assigned to the reporting
 // node are ignored and logged. Scheduler crashes are counted by the reconciler's scheduler supervision from the
-// `container.lastExit` stored here.
+// `container.lastExit` stored here. The daemon configuration and the resolver state are stored for the reporting
+// instance (parsed apart, server/services/nodes/reports.ts); resolver state changes become node events.
 
 /** Consecutive reports without a draining worker after which it counts as stopped. */
 export const DRAIN_ABSENT_REPORTS = 2
@@ -206,20 +208,44 @@ export interface StatusSettings {
   nodeOfflineAfterMs: number
 }
 
-/** Stores the node part of a report; the update requires the reporting instance to still hold the lease. */
-async function recordNodeReport(node: NodeDoc, body: NodeStatusBody, settings: StatusSettings, now: Date): Promise<number> {
+/** The node as it was right before a status report was stored (the atomic before-image of the update). */
+export type NodeBeforeReport = Pick<NodeDoc, '_id' | 'name' | 'state' | 'assignmentsRev' | 'resolverFailedState'> & {
+  info?: Pick<NonNullable<NodeDoc['info']>, 'resolver'> | null
+}
+
+/**
+ * Stores the node part of a report; the update requires the reporting instance to still hold the lease, so the
+ * daemon configuration is stored only for the instance that reported it. Sub-reports the body does not carry keep
+ * their stored value. Returns the node before the update: state changes (online, resolver) are judged against it, so
+ * two overlapping reports record each change once.
+ */
+async function recordNodeReport(node: NodeDoc, body: NodeStatusBody, reports: NodeSubReports, settings: StatusSettings, now: Date): Promise<NodeBeforeReport> {
   const { nodes } = useCollections()
-  const info = {
+  const { resolver: _reportedResolver, ...reportedInfo } = body.info
+  const info: NonNullable<NodeDoc['info']> = {
     ...(node.info ?? { hostname: '', os: '', arch: '', kernel: '', dockerVersion: '' }),
-    ...body.info,
+    ...reportedInfo,
     clockOffsetMs: body.clockOffsetMs,
+    ...(reports.resolver !== undefined ? { resolver: reports.resolver } : {}),
   }
-  const updated = await nodes.findOneAndUpdate(
+  const previous = await nodes.findOneAndUpdate(
     { _id: node._id, 'instance.id': body.instanceId, state: { $ne: 'revoked' }, tokenHash: { $type: 'string' } },
-    { $set: { info, lastSeenAt: now, 'instance.lastSeenAt': now, 'instance.version': body.info.version, state: 'online', updatedAt: now } },
-    { returnDocument: 'after', projection: { assignmentsRev: 1 } },
+    {
+      $set: {
+        info,
+        lastSeenAt: now,
+        'instance.lastSeenAt': now,
+        'instance.version': body.info.version,
+        state: 'online',
+        updatedAt: now,
+        ...(reports.daemonConfig !== undefined ? { daemonConfig: reports.daemonConfig } : {}),
+        ...resolverFailedStateUpdate(reports.resolver),
+      },
+    },
+    // The update leaves assignmentsRev alone, so the value before it is the current one.
+    { returnDocument: 'before', projection: { name: 1, state: 1, assignmentsRev: 1, resolverFailedState: 1, 'info.resolver': 1 } },
   )
-  if (updated) return updated.assignmentsRev
+  if (previous) return previous
   // The lease or the token changed between the lease check and this update.
   const current = await nodes.findOne({ _id: node._id }, { projection: { state: 1, tokenHash: 1, instance: 1 } })
   if (!current || current.state === 'revoked' || !current.tokenHash) throw apiError('unauthorized', 'unknown or revoked node token')
@@ -231,10 +257,14 @@ async function recordNodeReport(node: NodeDoc, body: NodeStatusBody, settings: S
 export async function handleStatus(node: NodeDoc, body: NodeStatusBody, settings: StatusSettings, log: Logger): Promise<NodeStatusResponse> {
   const { workers } = useCollections()
   const now = new Date()
-  const rev = await recordNodeReport(node, body, settings, now)
-  if (node.state !== 'online') {
+  const reports = parseNodeSubReports(body, node._id, log, now)
+  const previous = await recordNodeReport(node, body, reports, settings, now)
+  const rev = previous.assignmentsRev
+  if (previous.state !== 'online') {
     await recordEvent({ type: 'node.online', level: 'info', nodeId: node._id, message: `node ${node.name} is online again`, data: { instanceId: body.instanceId }, at: now }, log)
   }
+  const resolverEvent = resolverTransitionEvent(previous, previous.info?.resolver, reports.resolver, now)
+  if (resolverEvent) await recordEvent(resolverEvent, log)
 
   const active = await workers.find({ nodeId: node._id, state: { $in: [...ACTIVE_WORKER_STATES] } }).toArray()
   const plan = planStatus({ workers: active, reports: body.workers ?? [], absences: drainAbsences, now })

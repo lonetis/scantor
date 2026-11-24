@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import {
   buildOperationRegistry,
   expectedScopeFor,
+  MAX_MCP_OPERATIONS,
   matchOperation,
   type OpenApiDocument,
   publishedOpenApiDocument,
 } from '../../server/utils/operations'
+import { routeOpenApiDocument } from '../helpers/route-openapi'
 
 function op(operationId: string, scope: string, extra: Record<string, unknown> = {}) {
   return { operationId, tags: ['t'], 'x-scantor-scope': scope, 'x-mcp': false, ...extra }
@@ -86,6 +88,12 @@ describe('buildOperationRegistry', () => {
     expect(problems.getK?.[0]).toMatch(/does not match the route prefix \(owner or admin\)/)
   })
 
+  it('accepts exactly MAX_MCP_OPERATIONS MCP operations', () => {
+    const paths: OpenApiDocument['paths'] = {}
+    for (let index = 0; index < MAX_MCP_OPERATIONS; index++) paths[`/api/m${index}`] = { get: op(`getM${index}`, 'owner', { 'x-mcp': true }) }
+    expect(buildOperationRegistry({ paths }).problems).toEqual([])
+  })
+
   it('reports duplicate operationIds and more than 45 MCP operations', () => {
     const paths: OpenApiDocument['paths'] = { '/api/x': { get: op('getX', 'owner'), post: op('getX', 'owner') } }
     for (let index = 0; index < 46; index++) paths![`/api/m${index}`] = { get: op(`getM${index}`, 'owner', { 'x-mcp': true }) }
@@ -95,6 +103,38 @@ describe('buildOperationRegistry', () => {
     expect(result.operations.filter((operation) => operation.operationId === 'getX').every((operation) => operation.problems.includes('duplicate operationId'))).toBe(
       true,
     )
+  })
+})
+
+describe('the API route files', () => {
+  const registry = buildOperationRegistry(routeOpenApiDocument())
+
+  it('follow the extension rules', () => {
+    expect(registry.problems).toEqual([])
+    for (const operation of registry.operations) expect(operation.problems, operation.operationId).toEqual([])
+  })
+
+  it('fill the MCP tool cap exactly (docs/mcp.md §10 decision 12: a new tool replaces one or raises the cap deliberately)', () => {
+    expect(MAX_MCP_OPERATIONS).toBe(45)
+    expect(registry.operations.filter((operation) => operation.mcp)).toHaveLength(MAX_MCP_OPERATIONS)
+  })
+
+  it('include the daemon overrides routes of the nodes admin', () => {
+    const byId = Object.fromEntries(registry.operations.map((operation) => [operation.operationId, operation]))
+    expect(byId.updateNodeDaemonOverrides).toMatchObject({
+      method: 'PATCH',
+      pathTemplate: '/api/nodes/{nodeId}/daemon-overrides',
+      scope: 'admin',
+      adminOnly: true,
+      mcp: true,
+    })
+    expect(byId.deleteNodeDaemonOverrides).toMatchObject({
+      method: 'DELETE',
+      pathTemplate: '/api/nodes/{nodeId}/daemon-overrides',
+      scope: 'admin',
+      adminOnly: true,
+      mcp: false,
+    })
   })
 })
 

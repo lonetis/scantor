@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { ChangeStream } from 'mongodb'
+import type { DaemonOverrideValues } from '#shared/types/nodes'
 import { ACTIVE_WORKER_STATES, type WorkerState } from '#shared/utils/enums'
 import type { NodeDoc, RevisionDoc, ScanDoc, WorkerDoc } from '../../types/documents'
 import { shutdownSignal } from '../../utils/boot'
@@ -7,11 +8,13 @@ import type { Config } from '../../utils/config'
 import { type Logger, useLogger } from '../../utils/logger'
 import { useCollections } from '../../utils/mongo'
 import { mintWorkerToken } from '../../utils/worker-tokens'
+import { assignedDaemonOverrides } from './overrides'
 import { endpointUrls } from './profile'
 
 // The desired worker set of a node (docs/api.md §7.2, docs/nodes.md §5.3): `GET /api/node/assignments?rev&wait`
 // returns at once when `nodes.assignmentsRev > rev`, otherwise after `wait` seconds; the response is always the
-// complete set, computed from `workers` (states assigned … backoff) and the open on-demand log requests.
+// complete set, computed from `workers` (states assigned … backoff), the open on-demand log requests and the daemon
+// overrides of the polling instance (docs/nodes.md §6.12).
 //
 // Waking: notifyAssignmentsChanged bumps `assignmentsRev` and wakes waiting long-polls of this process at once; a
 // change stream on `nodes` wakes them when another process (for example a separate reconciler component) bumped
@@ -52,6 +55,8 @@ export interface NodeAssignmentsResponse {
   rev: number
   workers: Assignment[]
   logRequests: LogRequest[]
+  /** the complete daemon overrides of the instance; `{rev: 0, values: {}}` when it has none */
+  daemonOverrides: { rev: number; values: DaemonOverrideValues }
 }
 
 /** Container limits of an assignment (docs/api.md §7.2). */
@@ -168,6 +173,7 @@ export async function buildNodeAssignments(node: NodeDoc, config: AssignmentCont
     rev: node.assignmentsRev,
     workers: sorted.map((worker) => toAssignment(worker, ctx)),
     logRequests: openLogRequests(active, now),
+    daemonOverrides: assignedDaemonOverrides(node),
   }
 }
 
@@ -285,8 +291,9 @@ function useWaiters(): AssignmentWaiters {
 }
 
 /**
- * Bumps the node's assignments revision (docs/data-model.md §4.8: incremented on every change of the desired set
- * or log requests) and wakes its long-polls. Placement calls it after changing the desired workers of a node.
+ * Bumps the node's assignments revision (docs/data-model.md §4.8: incremented on every change of the desired set,
+ * log requests or daemon overrides) and wakes its long-polls. Placement calls it after changing the desired workers
+ * of a node.
  */
 export async function notifyAssignmentsChanged(nodeId: string): Promise<void> {
   await useCollections().nodes.updateOne({ _id: nodeId }, { $inc: { assignmentsRev: 1 }, $set: { updatedAt: new Date() } })

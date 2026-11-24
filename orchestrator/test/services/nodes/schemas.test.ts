@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import {
   createNodeBody,
   listNodeEventsQuery,
+  listNodesQuery,
   nodeAssignmentsQuery,
   nodeFormSchema,
   nodeHelloBody,
   nodeStatusBody,
   updateNodeBody,
+  updateNodeDaemonOverridesBody,
   workerLogsBody,
 } from '../../../shared/schemas/nodes'
 
@@ -64,6 +66,20 @@ describe('node API bodies', () => {
     expect(nodeStatusBody.safeParse({ ...STATUS, workers: [{ workerId: 'x', state: 'error', error: { code: 'other', message: '' } }] }).success).toBe(false)
   })
 
+  it('takes the daemon-reported sub-reports as they are, so a bad one never fails the heartbeat', () => {
+    for (const daemonConfig of [{ values: 'not an object' }, null, 42, { values: {}, extra: true }]) {
+      expect(nodeHelloBody.safeParse({ ...HELLO, daemonConfig }).success).toBe(true)
+      expect(nodeStatusBody.safeParse({ ...STATUS, daemonConfig }).success).toBe(true)
+    }
+    for (const resolver of [{ state: 'exploded' }, null, 'x']) {
+      expect(nodeHelloBody.safeParse({ ...HELLO, info: { ...HELLO.info, resolver } }).success).toBe(true)
+      expect(nodeStatusBody.safeParse({ ...STATUS, info: { ...STATUS.info, resolver } }).success).toBe(true)
+    }
+    // The rest of the bodies stays strict.
+    expect(nodeStatusBody.safeParse({ ...STATUS, info: { ...STATUS.info, resolvers: {} } }).success).toBe(false)
+    expect(nodeStatusBody.safeParse({ ...STATUS, daemonConfigs: {} }).success).toBe(false)
+  })
+
   it('parses the assignments query and caps wait at 60 s', () => {
     expect(nodeAssignmentsQuery.parse({ rev: '41', wait: '25' })).toEqual({ rev: 41, wait: 25 })
     expect(nodeAssignmentsQuery.parse({ rev: '0', wait: '0' })).toEqual({ rev: 0, wait: 0 })
@@ -107,6 +123,25 @@ describe('node administration bodies', () => {
     expect(nodeFormSchema(false).safeParse(form).success).toBe(false)
     expect(nodeFormSchema(true).safeParse({ ...form, name: 'renamed' }).success).toBe(false)
     expect(nodeFormSchema(false).safeParse({ ...form, name: 'scan-eu-1' }).success).toBe(true)
+  })
+
+  it('adds the daemon configuration to listNodes only on request', () => {
+    expect(listNodesQuery.parse({ include: 'daemonConfig' })).toEqual({ include: 'daemonConfig' })
+    expect(listNodesQuery.safeParse({ include: 'tokens' }).success).toBe(false)
+  })
+
+  it('takes a JSON merge patch of daemon overrides with at least one key', () => {
+    expect(updateNodeDaemonOverridesBody.safeParse({}).success).toBe(false)
+    expect(updateNodeDaemonOverridesBody.parse({ maxWorkers: null, dns: { mode: 'iterative', upstreams: null } })).toEqual({
+      maxWorkers: null,
+      dns: { mode: 'iterative', upstreams: null },
+    })
+    expect(updateNodeDaemonOverridesBody.parse({ dns: null })).toEqual({ dns: null })
+    expect(updateNodeDaemonOverridesBody.safeParse({ url: 'https://elsewhere.example' }).success).toBe(false)
+    expect(updateNodeDaemonOverridesBody.safeParse({ dns: { upstreams: [] } }).success).toBe(false)
+    expect(updateNodeDaemonOverridesBody.safeParse({ dns: { upstreams: ['dns.google'] } }).success).toBe(false)
+    expect(updateNodeDaemonOverridesBody.safeParse({ dns: { localDomains: ['bad domain'] } }).success).toBe(false)
+    expect(updateNodeDaemonOverridesBody.safeParse({ maxWorkers: 0 }).success).toBe(false)
   })
 
   it('accepts event type prefixes', () => {

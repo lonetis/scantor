@@ -3,7 +3,8 @@ defineRouteMeta({
     tags: ['nodes'],
     operationId: 'getNode',
     summary: 'Get a node',
-    description: 'Admin only. One node with its state, lease holder (version, start, last contact), reported capacity and active worker count.',
+    description:
+      'Admin only. One node with its state, lease holder (version, start, last contact), reported capacity, node resolver state, active worker count and the daemon configuration of its running daemon instance (values, their sources, daemon overrides and whether the daemon applied them).',
     'x-scantor-scope': 'admin',
     'x-mcp': false,
     'x-admin-only': true,

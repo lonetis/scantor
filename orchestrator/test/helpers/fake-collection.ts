@@ -262,6 +262,11 @@ export class FakeCollection<T extends Document = Document> {
     return { acknowledged: true, insertedId: copy._id }
   }
 
+  async insertMany(docs: T[]) {
+    for (const doc of docs) await this.insertOne(doc)
+    return { acknowledged: true, insertedCount: docs.length }
+  }
+
   async findOne(filter: Doc = {}, options: FindOptions = {}): Promise<T | null> {
     const found = sortDocs(this.select(filter), options.sort)[0]
     return found ? (project(found, options.projection) as T) : null

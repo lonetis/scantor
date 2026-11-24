@@ -1,14 +1,53 @@
 import type { ScantorError } from '#shared/types/common'
 import type { Event } from '#shared/types/events'
-import type { Node } from '#shared/types/nodes'
+import type { DaemonConfigValues, Node, NodeDaemonConfig, NodeInfo } from '#shared/types/nodes'
 import type { Worker } from '#shared/types/workers'
 import type { EventDoc, NodeDoc, ScantorErrorDoc, WorkerDoc } from '../../types/documents'
 import { isoDate, isoDateOrNull } from '../../utils/serialize'
+import { instanceDaemonConfig, instanceOverrides } from './overrides'
 
-// API representations of the node area (docs/api.md §2): `Node` (− tokenHash, instance.id; + activeWorkers),
-// `Worker` (− spec.specHash; + node {id, name}, scan {id, name}) and `Event`.
+// API representations of the node area (docs/api.md §2): `Node` (− tokenHash, instance.id; + activeWorkers, and the
+// daemon configuration on request), `Worker` (− spec.specHash; + node {id, name}, scan {id, name}) and `Event`.
 
-export function toApiNode(doc: NodeDoc, activeWorkers: number): Node {
+function toApiNodeInfo(info: NonNullable<NodeDoc['info']>): NodeInfo {
+  const { resolver, ...rest } = info
+  if (resolver === undefined) return { ...rest }
+  return { ...rest, resolver: resolver ? { ...resolver, since: isoDate(resolver.since) } : null }
+}
+
+/**
+ * `Node.daemonConfig` (docs/api.md §2): the configuration the current daemon instance reported with the overrides
+ * set for that instance; null when no daemon of the current instance reported one. `pending` while the daemon has
+ * not applied the latest overrides revision.
+ */
+export function toApiDaemonConfig(doc: NodeDoc): NodeDaemonConfig | null {
+  const report = instanceDaemonConfig(doc)
+  if (!report) return null
+  const overrides = instanceOverrides(doc)
+  const overridesRev = overrides?.rev ?? 0
+  return {
+    // A daemon of an older release lacks the keys added after it (docs/nodes.md §7.1); clients treat a missing
+    // value as not reported.
+    values: report.values as DaemonConfigValues,
+    sources: report.sources,
+    warnings: report.warnings,
+    overrides: overrides?.values ?? {},
+    overridesRev,
+    appliedOverridesRev: report.appliedOverridesRev,
+    pending: report.appliedOverridesRev !== overridesRev,
+    rejected: report.rejected,
+    overriddenBy: overrides?.updatedBy ?? null,
+    overriddenAt: isoDateOrNull(overrides?.updatedAt),
+    reportedAt: isoDate(report.reportedAt),
+  }
+}
+
+export interface ApiNodeOptions {
+  /** add `daemonConfig` (getNode, the daemon overrides routes, listNodes with include=daemonConfig) */
+  daemonConfig?: boolean
+}
+
+export function toApiNode(doc: NodeDoc, activeWorkers: number, options: ApiNodeOptions = {}): Node {
   return {
     id: doc._id,
     name: doc.name,
@@ -24,11 +63,12 @@ export function toApiNode(doc: NodeDoc, activeWorkers: number): Node {
     instance: doc.instance
       ? { version: doc.instance.version, startedAt: isoDate(doc.instance.startedAt), lastSeenAt: isoDate(doc.instance.lastSeenAt) }
       : null,
-    info: doc.info ? { ...doc.info } : null,
+    info: doc.info ? toApiNodeInfo(doc.info) : null,
     assignmentsRev: doc.assignmentsRev,
     lastSeenAt: isoDateOrNull(doc.lastSeenAt),
     createdBy: doc.createdBy ?? null,
     activeWorkers,
+    ...(options.daemonConfig ? { daemonConfig: toApiDaemonConfig(doc) } : {}),
     createdAt: isoDate(doc.createdAt),
     updatedAt: isoDate(doc.updatedAt),
   }

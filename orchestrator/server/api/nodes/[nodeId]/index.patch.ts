@@ -4,7 +4,7 @@ defineRouteMeta({
     operationId: 'updateNode',
     summary: 'Update a node',
     description:
-      'Admin only. Changes the admin-owned attributes of a node: name, pool, labels, the maxWorkers override (null removes it) and cordoned (a cordoned node gets no new workers; running ones stay). The built-in node keeps its name (409 builtInNode). 409 alreadyExists when the new name is taken.',
+      'Admin only. Changes the admin-owned attributes of a node: name, pool, labels, the admin worker limit maxWorkers (persistent; null removes it; daemon overrides are separate) and cordoned (a cordoned node gets no new workers; running ones stay). The built-in node keeps its name (409 builtInNode). 409 alreadyExists when the new name is taken.',
     'x-scantor-scope': 'admin',
     'x-mcp': false,
     'x-admin-only': true,
