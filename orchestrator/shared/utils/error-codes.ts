@@ -30,6 +30,7 @@ export const ERROR_CODES = {
   staleEpoch: { status: 409, title: 'Stale scheduler epoch' },
   nodeInstanceConflict: { status: 409, title: 'Node instance conflict' },
   builtInNode: { status: 409, title: 'Not allowed on the built-in node' },
+  daemonOverridesUnavailable: { status: 409, title: 'Daemon overrides unavailable' },
   setupCompleted: { status: 409, title: 'Setup already completed' },
   lastCredential: { status: 409, title: 'Last credential' },
   payloadTooLarge: { status: 413, title: 'Payload too large' },

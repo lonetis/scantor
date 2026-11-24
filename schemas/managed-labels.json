@@ -13,7 +13,7 @@
     "scantor.scan": "scan id",
     "scantor.user": "owner user id",
     "scantor.node": "node id",
-    "scantor.spec-hash": "specHash of the worker's assignment",
+    "scantor.spec-hash": "spec hash of a worker's assignment or of a node resolver container",
     "scantor.op": "workspace helper operation (init, purge, list, read, write-files, delete-files, scaffold, extract, git-clone, git-pull, commit, discard, snapshot)",
     "scantor.script-run": "script run id"
   },
@@ -73,6 +73,23 @@
     "egressHelper": {
       "object": "container",
       "namePrefix": "scantor-netpol-",
+      "createdBy": "node daemon",
+      "identity": [
+        "scantor.node"
+      ]
+    },
+    "resolver": {
+      "object": "container",
+      "namePrefix": "scantor-dns-",
+      "createdBy": "node daemon",
+      "identity": [
+        "scantor.node",
+        "scantor.spec-hash"
+      ]
+    },
+    "resolverProbe": {
+      "object": "container",
+      "namePrefix": "scantor-dnsprobe-",
       "createdBy": "node daemon",
       "identity": [
         "scantor.node"

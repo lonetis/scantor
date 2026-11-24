@@ -29,7 +29,7 @@ func TestManagedLabelsEveryKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := set.KindNames(); !slices.Equal(got, []string{"build", "editor", "egressHelper", "helper", "network", "scriptRun", "testRun", "worker"}) {
+	if got := set.KindNames(); !slices.Equal(got, []string{"build", "editor", "egressHelper", "helper", "network", "resolver", "resolverProbe", "scriptRun", "testRun", "worker"}) {
 		t.Fatalf("kinds = %v", got)
 	}
 	full := Identity{Worker: "w", Scan: "s", User: "u", Node: "n", SpecHash: "sha256:x", Op: "commit", ScriptRun: "r"}
@@ -38,14 +38,16 @@ func TestManagedLabelsEveryKind(t *testing.T) {
 		"com.docker.compose.service": "", "scantor.managed": "true",
 	}
 	cases := map[Kind]Identity{
-		KindWorker:       {Worker: "w", Scan: "s", User: "u", Node: "n", SpecHash: "sha256:x"},
-		KindHelper:       {User: "u", Op: "commit"},
-		KindBuild:        {},
-		KindTestRun:      {User: "u"},
-		KindScriptRun:    {User: "u", ScriptRun: "r"},
-		KindEditor:       {User: "u"},
-		KindEgressHelper: {Node: "n"},
-		KindNetwork:      {},
+		KindWorker:        {Worker: "w", Scan: "s", User: "u", Node: "n", SpecHash: "sha256:x"},
+		KindHelper:        {User: "u", Op: "commit"},
+		KindBuild:         {},
+		KindTestRun:       {User: "u"},
+		KindScriptRun:     {User: "u", ScriptRun: "r"},
+		KindEditor:        {User: "u"},
+		KindEgressHelper:  {Node: "n"},
+		KindResolver:      {Node: "n", SpecHash: "sha256:x"},
+		KindResolverProbe: {Node: "n"},
+		KindNetwork:       {},
 	}
 	for kind, id := range cases {
 		labels, err := ManagedLabels(kind, id)
@@ -122,7 +124,8 @@ func TestIsManaged(t *testing.T) {
 	if !IsManaged(KindNetwork, "scantor-workers", netLabels) || IsManaged(KindNetwork, "other", netLabels) {
 		t.Fatal("network recognition")
 	}
-	if Name(KindWorker, "abc") != "scantor-w-abc" || Name(KindEditor, "u") != "scantor-editor-u" || Name(KindEgressHelper, "n") != "scantor-netpol-n" || Name(KindScriptRun, "r") != "scantor-s-r" {
+	if Name(KindWorker, "abc") != "scantor-w-abc" || Name(KindEditor, "u") != "scantor-editor-u" || Name(KindEgressHelper, "n") != "scantor-netpol-n" || Name(KindScriptRun, "r") != "scantor-s-r" ||
+		Name(KindResolver, "n-abc") != "scantor-dns-n-abc" || Name(KindResolverProbe, "n") != "scantor-dnsprobe-n" {
 		t.Fatal("names")
 	}
 	runLabels, _ := ManagedLabels(KindScriptRun, Identity{User: "u", ScriptRun: "r"})

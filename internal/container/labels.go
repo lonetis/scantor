@@ -31,7 +31,10 @@ const (
 	KindScriptRun    Kind = "scriptRun"
 	KindEditor       Kind = "editor"
 	KindEgressHelper Kind = "egressHelper"
-	KindNetwork      Kind = "network"
+	// KindResolver is the node resolver (docs/nodes.md §6.11); KindResolverProbe its one-shot probe.
+	KindResolver      Kind = "resolver"
+	KindResolverProbe Kind = "resolverProbe"
+	KindNetwork       Kind = "network"
 )
 
 // Identity label keys.

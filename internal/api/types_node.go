@@ -1,5 +1,7 @@
 package api
 
+import "encoding/json"
+
 // Wire types of the node API (/api/node/*, docs/api.md §7). Every response carries serverTime (epoch
 // milliseconds); the daemon keeps clockOffsetMs = serverTime + rtt/2 − localNow (see ClockOffset).
 
@@ -33,6 +35,8 @@ type NodeHelloInfo struct {
 	// NetworkIsolated is false while containers on the node's network can reach each other
 	// (SCANTOR_ALLOW_UNISOLATED_NETWORKS, docs/nodes.md §6.8).
 	NetworkIsolated bool `json:"networkIsolated"`
+	// Resolver is the state of the node resolver (docs/nodes.md §6.11); nil before the daemon knows it.
+	Resolver *NodeResolverReport `json:"resolver,omitempty"`
 }
 
 // NodeContainer is a managed worker container found at daemon start (for adoption).
@@ -49,6 +53,8 @@ type NodeHelloRequest struct {
 	Version    string          `json:"version"`
 	Info       NodeHelloInfo   `json:"info"`
 	Containers []NodeContainer `json:"containers"`
+	// DaemonConfig is the daemon configuration of this instance (docs/nodes.md §6.12).
+	DaemonConfig *DaemonConfigReport `json:"daemonConfig,omitempty"`
 }
 
 // NodeIdentity is the node record as returned by hello.
@@ -75,6 +81,10 @@ type NodeConfig struct {
 	DrainGraceMs           int64              `json:"drainGraceMs"`
 	Registry               NodeRegistryConfig `json:"registry"`
 	MinFreeDiskBytes       int64              `json:"minFreeDiskBytes"`
+	// EndpointHosts are the sorted unique host names of every URL the orchestrator gives the node's
+	// workers (API, AMQP, S3, template data sources); the node resolver resolves them through the host
+	// nameservers (docs/nodes.md §6.11).
+	EndpointHosts []string `json:"endpointHosts,omitempty"`
 }
 
 // NodeHelloResponse is the response of POST /api/node/hello.
@@ -121,6 +131,17 @@ type NodeAssignments struct {
 	Rev         int64        `json:"rev"`
 	Workers     []Assignment `json:"workers"`
 	LogRequests []LogRequest `json:"logRequests"`
+	// DaemonOverrides is the complete set of daemon overrides of this instance (rev 0 and no values when
+	// there are none); nil from an orchestrator older than daemon overrides.
+	DaemonOverrides *DaemonOverrides `json:"daemonOverrides,omitempty"`
+}
+
+// DaemonOverrides are the daemon overrides an admin set for the running daemon instance
+// (docs/nodes.md §6.12). Values is a JSON object with the overridable keys of DaemonConfigValues
+// (schemas/daemon-overrides.json); the daemon decodes it key by key.
+type DaemonOverrides struct {
+	Rev    int64           `json:"rev"`
+	Values json.RawMessage `json:"values"`
 }
 
 // Reported worker states of a node status (docs/api.md §7.3).
@@ -194,6 +215,8 @@ type NodeStatusInfo struct {
 	// NetworkIsolated is false while containers on the node's network can reach each other
 	// (SCANTOR_ALLOW_UNISOLATED_NETWORKS, docs/nodes.md §6.8).
 	NetworkIsolated bool `json:"networkIsolated"`
+	// Resolver is the state of the node resolver (docs/nodes.md §6.11); nil before the daemon knows it.
+	Resolver *NodeResolverReport `json:"resolver,omitempty"`
 }
 
 // NodeStatusRequest is the body of POST /api/node/status: a complete snapshot of the node's workers.
@@ -203,6 +226,8 @@ type NodeStatusRequest struct {
 	ClockOffsetMs int64              `json:"clockOffsetMs"`
 	Info          NodeStatusInfo     `json:"info"`
 	Workers       []NodeWorkerStatus `json:"workers"`
+	// DaemonConfig is the daemon configuration of this instance (docs/nodes.md §6.12).
+	DaemonConfig *DaemonConfigReport `json:"daemonConfig,omitempty"`
 }
 
 // NodeStatusResponse is the response of POST /api/node/status; Rev > appliedRev means "poll
@@ -220,4 +245,126 @@ type WorkerLogsUpload struct {
 	Bytes       int    `json:"bytes"`
 	Truncated   bool   `json:"truncated"`
 	CollectedAt Time   `json:"collectedAt"`
+}
+
+// Node resolver states (docs/nodes.md §6.11).
+const (
+	ResolverStarting    = "starting"
+	ResolverReady       = "ready"
+	ResolverDegraded    = "degraded"
+	ResolverUnreachable = "unreachable"
+	ResolverFailed      = "failed"
+	ResolverDisabled    = "disabled"
+)
+
+// Node resolver modes (SCANTOR_NODE_DNS_MODE).
+const (
+	ResolverModeRecursive = "recursive"
+	ResolverModeIterative = "iterative"
+	ResolverModeDisabled  = "disabled"
+)
+
+// Node resolver error codes (a fixed vocabulary: never log text, docs/nodes.md §6.11).
+const (
+	ResolverErrNoImage             = "noImage"
+	ResolverErrNoNetwork           = "noNetwork"
+	ResolverErrBindInUse           = "bindInUse"
+	ResolverErrBindUnavailable     = "bindUnavailable"
+	ResolverErrBindDenied          = "bindDenied"
+	ResolverErrForeignResolver     = "foreignResolver"
+	ResolverErrUpstreamUnreachable = "upstreamUnreachable"
+	ResolverErrUnhealthy           = "unhealthy"
+	ResolverErrCrashLoop           = "crashLoop"
+	ResolverErrProbeFailed         = "probeFailed"
+	ResolverErrCreateFailed        = "createFailed"
+)
+
+// NodeResolverStats are counters of the running node resolver (cumulative since it started).
+type NodeResolverStats struct {
+	Queries   int64   `json:"queries"`
+	CacheHits int64   `json:"cacheHits"`
+	Lookups   int64   `json:"lookups"`
+	Failures  int64   `json:"failures"`
+	Inflight  int64   `json:"inflight"`
+	QPS       float64 `json:"qps"`
+	// ConntrackUsed is nf_conntrack_count / nf_conntrack_max of the host (0 when unknown).
+	ConntrackUsed float64 `json:"conntrackUsed"`
+}
+
+// NodeResolverReport is the node resolver part of a hello or status report.
+type NodeResolverReport struct {
+	Mode    string `json:"mode"`
+	State   string `json:"state"`
+	Address string `json:"address,omitempty"`
+	// Kept is true while a resolver still serves existing workers in mode disabled.
+	Kept   bool    `json:"kept"`
+	Error  *string `json:"error"`
+	Detail string  `json:"detail,omitempty"`
+	Since  Time    `json:"since"`
+	// Spec is the spec hash of the serving resolver container.
+	Spec       string             `json:"spec,omitempty"`
+	IPv6       bool               `json:"ipv6"`
+	UpstreamOK bool               `json:"upstreamOk"`
+	Stats      *NodeResolverStats `json:"stats"`
+}
+
+// CACertificate describes one certificate of SCANTOR_CA_CERT.
+type CACertificate struct {
+	Subject  string `json:"subject"`
+	SHA256   string `json:"sha256"`
+	NotAfter Time   `json:"notAfter"`
+}
+
+// DaemonDNSConfig is the dns part of the daemon configuration (SCANTOR_NODE_DNS_*).
+type DaemonDNSConfig struct {
+	Mode             string   `json:"mode"`
+	Upstreams        []string `json:"upstreams"`
+	RootServers      []string `json:"rootServers"`
+	LocalDomains     []string `json:"localDomains"`
+	CacheSizeBytes   int64    `json:"cacheSizeBytes"`
+	MaxLookups       int      `json:"maxLookups"`
+	UpstreamQPS      int      `json:"upstreamQps"`
+	AuthoritativeQPS int      `json:"authoritativeQps"`
+}
+
+// DaemonConfigValues are the values of the daemon configuration (docs/nodes.md §6.12): the environment
+// (or defaults) with the daemon overrides applied. Secrets (token, SCANTOR_SECRET) are never part of it.
+// Overrides is "all", "none" or a list of override keys (SCANTOR_NODE_OVERRIDES).
+type DaemonConfigValues struct {
+	URL                     string          `json:"url"`
+	BuiltIn                 bool            `json:"builtIn"`
+	MaxWorkers              int             `json:"maxWorkers"`
+	DinD                    string          `json:"dind"`
+	EgressDeny              []string        `json:"egressDeny"`
+	AllowUnisolatedNetworks bool            `json:"allowUnisolatedNetworks"`
+	AllowInsecureTransport  bool            `json:"allowInsecureTransport"`
+	CACertificates          []CACertificate `json:"caCertificates"`
+	PidsLimit               int64           `json:"pidsLimit"`
+	ShmSizeBytes            int64           `json:"shmSizeBytes"`
+	Nofile                  int64           `json:"nofile"`
+	WorkerLogMaxSizeBytes   int64           `json:"workerLogMaxSizeBytes"`
+	WorkerLogMaxFiles       int             `json:"workerLogMaxFiles"`
+	ImageRetentionMs        int64           `json:"imageRetentionMs"`
+	PullTimeoutMs           int64           `json:"pullTimeoutMs"`
+	LogLevel                string          `json:"logLevel"`
+	LogFormat               string          `json:"logFormat"`
+	Overrides               json.RawMessage `json:"overrides"`
+	DNS                     DaemonDNSConfig `json:"dns"`
+}
+
+// Sources of daemon configuration values.
+const (
+	SourceEnv      = "env"
+	SourceDefault  = "default"
+	SourceOverride = "override"
+)
+
+// DaemonConfigReport is what a daemon reports about its configuration in hello and status. Sources and
+// Rejected mirror the structure of Values (for example {"dns": {"mode": "override"}}).
+type DaemonConfigReport struct {
+	AppliedOverridesRev int64              `json:"appliedOverridesRev"`
+	Values              DaemonConfigValues `json:"values"`
+	Sources             json.RawMessage    `json:"sources"`
+	Warnings            []string           `json:"warnings"`
+	Rejected            json.RawMessage    `json:"rejected"`
 }

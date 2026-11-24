@@ -1,0 +1,23 @@
+{
+  "$comment": "The overridable keys of the daemon configuration and their bounds (docs/nodes.md §6.12): the vocabulary of SCANTOR_NODE_OVERRIDES and of updateNodeDaemonOverrides. Read by Go internal/node (override validation and the environment bounds of the same settings) and TS orchestrator/shared/schemas/nodes.ts (zod); both are tested against this file. Keys are dotted paths into the daemon configuration values. type integer: min/max inclusive; type string: enum; type array: minItems/maxItems and the format of every item (server: an IP address, ip:port or [v6]:port; serverOrHost: a server or the keyword host; domain: a domain name without trailing dot).",
+  "version": 1,
+  "keys": {
+    "maxWorkers": { "type": "integer", "min": 1, "max": 100000, "env": "SCANTOR_NODE_MAX_WORKERS" },
+    "pidsLimit": { "type": "integer", "min": 1, "max": 1073741824, "env": "SCANTOR_NODE_PIDS_LIMIT" },
+    "shmSizeBytes": { "type": "integer", "min": 1048576, "max": 68719476736, "env": "SCANTOR_NODE_SHM_SIZE" },
+    "nofile": { "type": "integer", "min": 1, "max": 1073741824, "env": "SCANTOR_NODE_NOFILE" },
+    "workerLogMaxSizeBytes": { "type": "integer", "min": 1, "max": 17179869184, "env": "SCANTOR_NODE_WORKER_LOG_MAX_SIZE" },
+    "workerLogMaxFiles": { "type": "integer", "min": 1, "max": 1000, "env": "SCANTOR_NODE_WORKER_LOG_MAX_FILES" },
+    "imageRetentionMs": { "type": "integer", "min": 0, "max": 31536000000, "env": "SCANTOR_NODE_IMAGE_RETENTION" },
+    "pullTimeoutMs": { "type": "integer", "min": 1000, "max": 86400000, "env": "SCANTOR_NODE_PULL_TIMEOUT" },
+    "logLevel": { "type": "string", "enum": ["debug", "info", "warn", "error"], "env": "SCANTOR_LOG_LEVEL" },
+    "dns.mode": { "type": "string", "enum": ["recursive", "iterative", "disabled"], "env": "SCANTOR_NODE_DNS_MODE" },
+    "dns.upstreams": { "type": "array", "minItems": 1, "maxItems": 16, "format": "serverOrHost", "env": "SCANTOR_NODE_DNS_UPSTREAMS" },
+    "dns.rootServers": { "type": "array", "minItems": 0, "maxItems": 16, "format": "server", "env": "SCANTOR_NODE_DNS_ROOT_SERVERS" },
+    "dns.localDomains": { "type": "array", "minItems": 0, "maxItems": 64, "format": "domain", "env": "SCANTOR_NODE_DNS_LOCAL_DOMAINS" },
+    "dns.cacheSizeBytes": { "type": "integer", "min": 16777216, "max": 68719476736, "env": "SCANTOR_NODE_DNS_CACHE_SIZE" },
+    "dns.maxLookups": { "type": "integer", "min": 1, "max": 20000, "env": "SCANTOR_NODE_DNS_MAX_LOOKUPS" },
+    "dns.upstreamQps": { "type": "integer", "min": 0, "max": 1000000, "env": "SCANTOR_NODE_DNS_UPSTREAM_QPS" },
+    "dns.authoritativeQps": { "type": "integer", "min": 0, "max": 1000000, "env": "SCANTOR_NODE_DNS_AUTHORITATIVE_QPS" }
+  }
+}

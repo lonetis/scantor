@@ -1,5 +1,7 @@
 package api
 
+import "encoding/json"
+
 // Health is the response of getHealth.
 type Health struct {
 	Status     string            `json:"status"`
@@ -160,6 +162,8 @@ type NodeInfoRecord struct {
 	// NetworkIsolated is absent until a daemon that reports it has connected.
 	NetworkIsolated *bool `json:"networkIsolated,omitempty"`
 	ClockOffsetMs   int64 `json:"clockOffsetMs"`
+	// Resolver is absent until a daemon that runs a node resolver has reported it.
+	Resolver *NodeResolverReport `json:"resolver,omitempty"`
 }
 
 // Node is the API representation of a node (docs/api.md §2).
@@ -181,9 +185,35 @@ type Node struct {
 	LastSeenAt      *Time             `json:"lastSeenAt"`
 	CreatedBy       *string           `json:"createdBy"`
 	ActiveWorkers   int               `json:"activeWorkers"`
-	CreatedAt       Time              `json:"createdAt"`
-	UpdatedAt       Time              `json:"updatedAt"`
+	// DaemonConfig is the reported daemon configuration with the daemon overrides (getNode, the daemon
+	// overrides routes, and listNodes with include=daemonConfig); nil when no daemon of the current
+	// instance reported it or when listNodes was called without include.
+	DaemonConfig *NodeDaemonConfig `json:"daemonConfig,omitempty"`
+	CreatedAt    Time              `json:"createdAt"`
+	UpdatedAt    Time              `json:"updatedAt"`
 }
+
+// NodeDaemonConfig is the daemon configuration of a node as the API represents it (docs/api.md §2):
+// the daemon's report plus the daemon overrides set for its instance. Sources and Rejected mirror the
+// structure of Values; Overrides holds only the overridden keys.
+type NodeDaemonConfig struct {
+	Values              DaemonConfigValues `json:"values"`
+	Sources             json.RawMessage    `json:"sources"`
+	Warnings            []string           `json:"warnings"`
+	Overrides           json.RawMessage    `json:"overrides"`
+	OverridesRev        int64              `json:"overridesRev"`
+	AppliedOverridesRev int64              `json:"appliedOverridesRev"`
+	Pending             bool               `json:"pending"`
+	Rejected            json.RawMessage    `json:"rejected"`
+	OverriddenBy        *string            `json:"overriddenBy"`
+	OverriddenAt        *Time              `json:"overriddenAt"`
+	ReportedAt          Time               `json:"reportedAt"`
+}
+
+// UpdateNodeDaemonOverrides is the body of updateNodeDaemonOverrides: a JSON merge patch of the daemon
+// overrides (a nil value removes that override; "dns" is a nested object). Keys are those of
+// schemas/daemon-overrides.json.
+type UpdateNodeDaemonOverrides map[string]any
 
 // CreateNode is the body of createNode.
 type CreateNode struct {

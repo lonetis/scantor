@@ -30,6 +30,8 @@ export const nodeIdParams = z.strictObject({ nodeId: z.uuid() })
 export const listNodesQuery = z.strictObject({
   state: z.enum(NODE_STATES).optional(),
   pool: nodeSlug().optional(),
+  /** `daemonConfig` adds every node's daemon configuration (docs/api.md §4.17). */
+  include: z.enum(['daemonConfig']).optional(),
 })
 export type ListNodesQuery = z.infer<typeof listNodesQuery>
 
@@ -69,6 +71,138 @@ export function nodeFormSchema(builtIn: boolean) {
   })
 }
 export type NodeForm = z.infer<ReturnType<typeof nodeFormSchema>>
+
+// ── daemon overrides (docs/api.md §4.17, docs/nodes.md §6.12) ───────────────
+
+/**
+ * Bounds of the overridable daemon configuration keys. They restate schemas/daemon-overrides.json (the source shared
+ * with the Go daemon); test/shared/daemon-overrides.test.ts keeps both in sync.
+ */
+export const DAEMON_OVERRIDE_BOUNDS = {
+  maxWorkers: { min: 1, max: 100_000 },
+  pidsLimit: { min: 1, max: 1_073_741_824 },
+  shmSizeBytes: { min: 1_048_576, max: 68_719_476_736 },
+  nofile: { min: 1, max: 1_073_741_824 },
+  workerLogMaxSizeBytes: { min: 1, max: 17_179_869_184 },
+  workerLogMaxFiles: { min: 1, max: 1000 },
+  imageRetentionMs: { min: 0, max: 31_536_000_000 },
+  pullTimeoutMs: { min: 1000, max: 86_400_000 },
+  'dns.cacheSizeBytes': { min: 16_777_216, max: 68_719_476_736 },
+  'dns.maxLookups': { min: 1, max: 20_000 },
+  'dns.upstreamQps': { min: 0, max: 1_000_000 },
+  'dns.authoritativeQps': { min: 0, max: 1_000_000 },
+} as const
+
+export const DAEMON_LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const
+export const RESOLVER_MODES = ['recursive', 'iterative', 'disabled'] as const
+export const RESOLVER_STATES = ['starting', 'ready', 'degraded', 'unreachable', 'failed', 'disabled'] as const
+
+/** The dotted override keys (the vocabulary of SCANTOR_NODE_OVERRIDES). */
+export const DAEMON_OVERRIDE_KEYS = [
+  'maxWorkers',
+  'pidsLimit',
+  'shmSizeBytes',
+  'nofile',
+  'workerLogMaxSizeBytes',
+  'workerLogMaxFiles',
+  'imageRetentionMs',
+  'pullTimeoutMs',
+  'logLevel',
+  'dns.mode',
+  'dns.upstreams',
+  'dns.rootServers',
+  'dns.localDomains',
+  'dns.cacheSizeBytes',
+  'dns.maxLookups',
+  'dns.upstreamQps',
+  'dns.authoritativeQps',
+] as const
+export type DaemonOverrideKey = (typeof DAEMON_OVERRIDE_KEYS)[number]
+
+const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/
+const IPV6 = /^[0-9A-Fa-f:.]{2,45}$/
+const PORT = /^([1-9]\d{0,3}|[1-5]\d{4}|6[0-4]\d{3}|65[0-4]\d{2}|655[0-2]\d|6553[0-5])$/
+
+/** A DNS server: an IP address, `ip:port` or `[v6]:port` (IPv6 without brackets has no port). */
+export function isDnsServer(value: string): boolean {
+  if (IPV4.test(value)) return true
+  const bracketed = /^\[([^\]]+)\]:(\d+)$/.exec(value)
+  if (bracketed) return IPV6.test(bracketed[1]!) && bracketed[1]!.includes(':') && PORT.test(bracketed[2]!)
+  const v4port = /^([\d.]+):(\d+)$/.exec(value)
+  if (v4port) return IPV4.test(v4port[1]!) && PORT.test(v4port[2]!)
+  return value.includes(':') && IPV6.test(value)
+}
+
+const DOMAIN = /^(?=.{1,253}$)([a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)(\.[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9_])?)*$/
+
+const bounded = (key: keyof typeof DAEMON_OVERRIDE_BOUNDS) => z.number().int().min(DAEMON_OVERRIDE_BOUNDS[key].min).max(DAEMON_OVERRIDE_BOUNDS[key].max)
+const dnsServer = () => z.string().trim().max(64).refine(isDnsServer, 'must be an IP address, ip:port or [v6]:port')
+const dnsServerOrHost = () => z.string().trim().max(64).refine((v) => v === 'host' || isDnsServer(v), 'must be an IP address, ip:port, [v6]:port or host')
+const domainName = () =>
+  z
+    .string()
+    .trim()
+    .toLowerCase()
+    .transform((v) => v.replace(/\.$/, ''))
+    .pipe(z.string().regex(DOMAIN, 'must be a domain name'))
+
+/** The values of daemon overrides (every key optional; `dns` nested). */
+export const daemonOverrideValues = z.strictObject({
+  maxWorkers: bounded('maxWorkers').optional(),
+  pidsLimit: bounded('pidsLimit').optional(),
+  shmSizeBytes: bounded('shmSizeBytes').optional(),
+  nofile: bounded('nofile').optional(),
+  workerLogMaxSizeBytes: bounded('workerLogMaxSizeBytes').optional(),
+  workerLogMaxFiles: bounded('workerLogMaxFiles').optional(),
+  imageRetentionMs: bounded('imageRetentionMs').optional(),
+  pullTimeoutMs: bounded('pullTimeoutMs').optional(),
+  logLevel: z.enum(DAEMON_LOG_LEVELS).optional(),
+  dns: z
+    .strictObject({
+      mode: z.enum(RESOLVER_MODES).optional(),
+      upstreams: z.array(dnsServerOrHost()).min(1).max(16).optional(),
+      rootServers: z.array(dnsServer()).max(16).optional(),
+      localDomains: z.array(domainName()).max(64).optional(),
+      cacheSizeBytes: bounded('dns.cacheSizeBytes').optional(),
+      maxLookups: bounded('dns.maxLookups').optional(),
+      upstreamQps: bounded('dns.upstreamQps').optional(),
+      authoritativeQps: bounded('dns.authoritativeQps').optional(),
+    })
+    .optional(),
+})
+export type DaemonOverrideValuesInput = z.infer<typeof daemonOverrideValues>
+
+/**
+ * Body of updateNodeDaemonOverrides: a JSON merge patch (RFC 7396) of the daemon overrides. `null` removes an override
+ * (`dns: null` every dns override); at least one key.
+ */
+export const updateNodeDaemonOverridesBody = z
+  .strictObject({
+    maxWorkers: bounded('maxWorkers').nullable().optional(),
+    pidsLimit: bounded('pidsLimit').nullable().optional(),
+    shmSizeBytes: bounded('shmSizeBytes').nullable().optional(),
+    nofile: bounded('nofile').nullable().optional(),
+    workerLogMaxSizeBytes: bounded('workerLogMaxSizeBytes').nullable().optional(),
+    workerLogMaxFiles: bounded('workerLogMaxFiles').nullable().optional(),
+    imageRetentionMs: bounded('imageRetentionMs').nullable().optional(),
+    pullTimeoutMs: bounded('pullTimeoutMs').nullable().optional(),
+    logLevel: z.enum(DAEMON_LOG_LEVELS).nullable().optional(),
+    dns: z
+      .strictObject({
+        mode: z.enum(RESOLVER_MODES).nullable().optional(),
+        upstreams: z.array(dnsServerOrHost()).min(1).max(16).nullable().optional(),
+        rootServers: z.array(dnsServer()).max(16).nullable().optional(),
+        localDomains: z.array(domainName()).max(64).nullable().optional(),
+        cacheSizeBytes: bounded('dns.cacheSizeBytes').nullable().optional(),
+        maxLookups: bounded('dns.maxLookups').nullable().optional(),
+        upstreamQps: bounded('dns.upstreamQps').nullable().optional(),
+        authoritativeQps: bounded('dns.authoritativeQps').nullable().optional(),
+      })
+      .nullable()
+      .optional(),
+  })
+  .refine((body) => Object.values(body).some((value) => value !== undefined), 'at least one field is required')
+export type UpdateNodeDaemonOverridesBody = z.infer<typeof updateNodeDaemonOverridesBody>
 
 export const listNodeWorkersQuery = z.strictObject({
   state: qList(z.enum(WORKER_STATES), WORKER_STATES.length).optional(),
