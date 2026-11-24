@@ -58,10 +58,12 @@ type Config struct {
 	// SCANTOR_NODE_DNS_LOCAL_DOMAINS.
 	LocalNames   []string `json:"localNames"`
 	LocalDomains []string `json:"localDomains"`
-	// DenyServers are CIDRs (SCANTOR_NODE_EGRESS_DENY) the resolver never sends a query to.
+	// DenyServers are CIDRs (SCANTOR_NODE_EGRESS_DENY) the resolver never sends a query to, except to
+	// a trusted server of its route and to the host nameservers.
 	DenyServers []string `json:"denyServers"`
-	// TrustedServers are configured servers ("ip:port") inside the always-refused private ranges that
-	// the guard allows for their own route (environment-configured only).
+	// TrustedServers are the environment-configured upstream and root servers ("ip:port"): the guard
+	// allows each for its own route whatever its address (private, loopback, link-local, inside
+	// DenyServers or the node's own). Daemon-override servers are never trusted.
 	TrustedServers []string `json:"trustedServers"`
 	// CacheBytes bounds the answer cache.
 	CacheBytes int64 `json:"cacheBytes"`
@@ -144,28 +146,32 @@ type Stats struct {
 	Mode  string `json:"mode"`
 	// Listen is the configured listen address; Error is a bind or start error code (api.ResolverErr*)
 	// while Ready is false.
-	Listen          string    `json:"listen"`
-	Error           string    `json:"error,omitempty"`
-	UpstreamOK      bool      `json:"upstreamOk"`
-	UpstreamError   string    `json:"upstreamError,omitempty"`
-	IPv6            bool      `json:"ipv6"`
-	HostNameservers []string  `json:"hostNameservers"`
-	StartedAt       string    `json:"startedAt"`
-	At              string    `json:"at"`
-	Queries         int64     `json:"queries"`
-	CacheHits       int64     `json:"cacheHits"`
-	Lookups         int64     `json:"lookups"`
-	Inflight        int64     `json:"inflight"`
-	Overloaded      int64     `json:"overloaded"`
-	RateLimited     int64     `json:"rateLimited"`
-	Timeouts        int64     `json:"timeouts"`
-	TCPFallbackFail int64     `json:"tcpFallbackFailures"`
-	Panics          int64     `json:"panics"`
-	Rcodes          Rcodes    `json:"rcodes"`
-	QPS             float64   `json:"qps"`
-	CacheBytes      int64     `json:"cacheBytes"`
-	CacheEntries    int64     `json:"cacheEntries"`
-	Conntrack       Conntrack `json:"conntrack"`
+	Listen          string   `json:"listen"`
+	Error           string   `json:"error,omitempty"`
+	UpstreamOK      bool     `json:"upstreamOk"`
+	UpstreamError   string   `json:"upstreamError,omitempty"`
+	IPv6            bool     `json:"ipv6"`
+	HostNameservers []string `json:"hostNameservers"`
+	StartedAt       string   `json:"startedAt"`
+	At              string   `json:"at"`
+	Queries         int64    `json:"queries"`
+	CacheHits       int64    `json:"cacheHits"`
+	Lookups         int64    `json:"lookups"`
+	Inflight        int64    `json:"inflight"`
+	Overloaded      int64    `json:"overloaded"`
+	RateLimited     int64    `json:"rateLimited"`
+	Timeouts        int64    `json:"timeouts"`
+	TCPFallbackFail int64    `json:"tcpFallbackFailures"`
+	Panics          int64    `json:"panics"`
+	// QueryBudgetExceeded counts the lookups that ended because they spent their query budget;
+	// TCPRejected the client TCP connections closed at accept (not a client, or over a connection cap).
+	QueryBudgetExceeded int64     `json:"queryBudgetExceeded"`
+	TCPRejected         int64     `json:"tcpRejected"`
+	Rcodes              Rcodes    `json:"rcodes"`
+	QPS                 float64   `json:"qps"`
+	CacheBytes          int64     `json:"cacheBytes"`
+	CacheEntries        int64     `json:"cacheEntries"`
+	Conntrack           Conntrack `json:"conntrack"`
 }
 
 // Failures is servFail + timeouts + overloaded (the "failures" of the status report).
