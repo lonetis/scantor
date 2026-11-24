@@ -1074,6 +1074,9 @@ servers; a daemon-level `dns` setting in `daemon.json` gives the resolver usable
   - The indexes assume at most two resolvers per address (the kernel moves the last socket into the place of one
     that leaves), which holds because the manager runs at most one replacement next to the serving resolver
     (§6.11.4).
+  - Steering is best effort: the programs are attached to the UDP and the TCP socket, and a kernel that refuses one
+    (some kernels answer `EOPNOTSUPP` for TCP listeners) only logs it at debug level. UDP, which Docker's embedded
+    DNS uses for every query that fits, steers on every supported kernel.
 - **Panics.** zdns ends a few malformed lookups with a fatal log call; the resolver turns it into a recovered panic,
   answers SERVFAIL, replaces the zdns resolver object and counts `panics`. Any other panic exits with code 1, and the
   daemon starts the resolver again.

@@ -4,10 +4,12 @@ package resolver
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -76,7 +78,9 @@ func TestReuseportSteering(t *testing.T) {
 	if err := steer(old, steerSecond); err != nil {
 		t.Fatalf("steer to the newest socket: %v", err)
 	}
-	if err := steer(oldTCP, steerSecond); err != nil {
+	// Some kernels refuse reuseport programs on TCP listeners (EOPNOTSUPP, seen on GitHub-hosted
+	// runners); steering is best effort there and UDP, the path Docker's embedded DNS uses, still steers.
+	if err := steer(oldTCP, steerSecond); err != nil && !errors.Is(err, syscall.EOPNOTSUPP) {
 		t.Fatalf("steer TCP to the newest socket: %v", err)
 	}
 	if got := spread(t, addr, 40, old, newer); got[0] != 0 || got[1] != 40 {
