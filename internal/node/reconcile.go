@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -162,6 +163,8 @@ func (s *session) reconcile() {
 			s.startActor(c.workerID, true)
 		}
 	}
+	// The node resolver stays while any worker container of this node exists (resolverDisabled).
+	s.workerCount.Store(int32(min(len(present), math.MaxInt32))) //nolint:gosec // bounded above
 	for id := range s.desired {
 		if s.actors[id] == nil {
 			s.startActor(id, false)

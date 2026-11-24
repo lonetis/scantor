@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"maps"
+	"net/netip"
 	"os"
 	"slices"
 	"strings"
@@ -340,6 +341,60 @@ func TestHardeningProfile(t *testing.T) {
 	if tp.PidsLimit != 4096 || tp.MemoryBytes != 768<<20 || tp.NetworkMode != "scantor-egress" {
 		t.Errorf("test-run profile = %+v", tp)
 	}
+	if tp.DNS != nil || bp.DNS != nil {
+		t.Error("test runs and describe/check containers must keep Docker's DNS")
+	}
+}
+
+// One-shot helper containers log with the local driver (readable by ContainerLogs whatever the engine's
+// default driver), at most one uncompressed file of 1 MiB; every call returns its own map.
+func TestOneShotLogConfig(t *testing.T) {
+	lc := OneShotLogConfig()
+	b, _ := json.Marshal(lc)
+	if string(b) != `{"Type":"local","Config":{"compress":"false","max-file":"1","max-size":"1m"}}` {
+		t.Errorf("log config = %s", b)
+	}
+	lc.Config["max-size"] = "1g"
+	if OneShotLogConfig().Config["max-size"] != "1m" {
+		t.Error("OneShotLogConfig shares its map")
+	}
+}
+
+// Workers resolve through the node resolver: Profile.DNS becomes HostConfig.Dns ("Dns" in the Engine
+// API body); without it Docker's default applies.
+func TestHardeningProfileDNS(t *testing.T) {
+	p := Profile{
+		PidsLimit: 4096, MemoryBytes: 1 << 30, NanoCPUs: 1e9, Nofile: 65536, LogMaxSizeBytes: 20 << 20, LogMaxFiles: 3,
+		NetworkMode: "scantor-workers",
+	}
+	hc, err := p.HostConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hc.DNS) != 0 {
+		t.Errorf("Dns = %v without a resolver", hc.DNS)
+	}
+	p.DNS = []netip.Addr{netip.MustParseAddr("10.10.0.1")}
+	hc, err = p.HostConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(hc)
+	var got map[string]any
+	_ = json.Unmarshal(b, &got)
+	if !jsonEqual(got["Dns"], []any{"10.10.0.1"}) {
+		t.Errorf("Dns = %v", got["Dns"])
+	}
+	p.DNS[0] = netip.MustParseAddr("10.10.0.2") // the HostConfig keeps its own copy
+	if hc.DNS[0].String() != "10.10.0.1" {
+		t.Error("HostConfig shares the profile's DNS slice")
+	}
+	for _, bad := range []netip.Addr{{}, netip.MustParseAddr("fe80::1%eth0")} {
+		p.DNS = []netip.Addr{bad}
+		if _, err := p.HostConfig(); err == nil {
+			t.Errorf("DNS server %q accepted", bad)
+		}
+	}
 }
 
 func jsonEqual(a, b any) bool {
@@ -522,6 +577,17 @@ func TestRuntimeHealthcheck(t *testing.T) {
 		if got := strings.Join(RuntimeHealthcheck(mode).Test, " "); got != want {
 			t.Errorf("%s: %q, want %q", mode, got, want)
 		}
+	}
+}
+
+// The node resolver's healthcheck runs the binary of the daemon's image (docs/nodes.md §6.11).
+func TestResolverHealthcheck(t *testing.T) {
+	hc := ResolverHealthcheck()
+	if got := strings.Join(hc.Test, " "); got != "CMD /usr/local/bin/scantor node resolver healthcheck" {
+		t.Errorf("Test = %q", got)
+	}
+	if hc.Interval != 10*time.Second || hc.Timeout != 5*time.Second || hc.Retries != 3 || hc.StartPeriod != 30*time.Second || hc.StartInterval != time.Second {
+		t.Errorf("healthcheck = %+v", hc)
 	}
 }
 

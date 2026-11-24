@@ -297,6 +297,9 @@ func (a *actor) stepRun(want api.Assignment, order int64) time.Duration {
 		if wait := a.pendingFailure(want); wait > 0 {
 			return wait
 		}
+		if wait := a.resolverWait(c); wait > 0 {
+			return wait
+		}
 		return a.startExisting(c.ID, want, false)
 	case dcontainer.StateExited, dcontainer.StateDead:
 		return a.handleExit(c, want)
@@ -312,7 +315,7 @@ func (a *actor) create(want api.Assignment, order int64) time.Duration {
 		return 0
 	}
 	if ok, problem := a.s.networkUsable(); !ok {
-		return a.failOrWait(newWorkerError(api.NodeWorkerCreateFailed, true, "the worker network %s is not usable: %s", a.s.ws.network, problem), want)
+		return a.failOrWait(newWorkerError(api.NodeWorkerCreateFailed, true, "the worker network %s is not usable: %s", a.s.network, problem), want)
 	}
 	if err := a.ensureImage(want, order); err != nil {
 		var werr *workerError
@@ -337,11 +340,21 @@ func (a *actor) create(want api.Assignment, order int64) time.Duration {
 		return time.Millisecond // the next step reports it
 	}
 	a.setPhase(phaseCreating)
-	opts, err := workerCreateOptions(want, a.s.ws)
+	// The DNS choice is fixed for the container's life; dnsMu keeps the manager from removing the
+	// resolver between the choice and the create (docs/nodes.md §6.11).
+	a.s.d.dnsMu.RLock()
+	dns, wait := a.s.workerDNS()
+	if wait > 0 {
+		a.s.d.dnsMu.RUnlock()
+		return wait
+	}
+	opts, err := workerCreateOptions(want, a.s.workerSettings(dns))
 	if err != nil {
+		a.s.d.dnsMu.RUnlock()
 		return a.failOrWait(newWorkerError(api.NodeWorkerCreateFailed, false, "worker spec: %v", err), want)
 	}
 	res, err := a.s.d.docker.ContainerCreate(a.s.opCtx, opts)
+	a.s.d.dnsMu.RUnlock()
 	id := res.ID
 	switch {
 	case err == nil:
@@ -480,11 +493,12 @@ func (a *actor) pullTaskImage(want api.Assignment, order int64) error {
 	}
 	defer release()
 	a.setPulling(phasePulling, want.Image)
+	timeout := a.s.d.settings().settings.PullTimeout
 	if want.BaseImage != nil {
-		pullBaseImage(ctx, a.s.d.docker, *want.BaseImage, a.s.d.cfg.PullTimeout, a.log)
+		pullBaseImage(ctx, a.s.d.docker, *want.BaseImage, timeout, a.log)
 	}
 	a.log.Info("pulling the task image", "image", want.Image)
-	if err := pullImage(ctx, a.s.d.docker, want.Image, a.s.config.Registry, a.s.d.cfg.Token, a.s.d.cfg.PullTimeout); err != nil {
+	if err := pullImage(ctx, a.s.d.docker, want.Image, a.s.config.Registry, a.s.d.cfg.Token, timeout); err != nil {
 		return failed(err)
 	}
 	return nil
@@ -542,12 +556,25 @@ func (a *actor) handleExit(c *dcontainer.InspectResponse, want api.Assignment) t
 		}
 		return time.Millisecond
 	}
+	if wait := a.resolverWait(c); wait > 0 {
+		return wait
+	}
 	a.mu.Lock()
 	a.restarts++
 	a.nextRestart = time.Time{}
 	a.mu.Unlock()
 	a.log.Info("restarting the worker container", "restarts", a.restartCount())
 	return a.startExisting(c.ID, want, false)
+}
+
+// resolverWait returns how long the start of an existing container that resolves through the node
+// resolver (HostConfig.Dns set) waits for a resolver that is starting (0: start it now).
+func (a *actor) resolverWait(c *dcontainer.InspectResponse) time.Duration {
+	if c.HostConfig == nil || len(c.HostConfig.DNS) == 0 {
+		return 0
+	}
+	_, wait := a.s.workerDNS()
+	return wait
 }
 
 // recordExit stores the exit of the container's current run (once per run) and schedules the restart:

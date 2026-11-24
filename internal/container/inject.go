@@ -64,6 +64,32 @@ func RuntimeHealthcheck(mode string) *container.HealthConfig {
 	}
 }
 
+// The container healthcheck of the node resolver (docs/nodes.md §6.11): `scantor node resolver
+// healthcheck` reads the resolver's state file and prints its stats as one JSON line. The 10 s interval
+// with 3 retries notices a resolver that lost its upstream servers within about half a minute, and
+// StartInterval reports a started resolver healthy within about a second: the daemon waits for that
+// before it removes the resolver the new one replaces.
+const (
+	ResolverHealthInterval      = 10 * time.Second
+	ResolverHealthTimeout       = 5 * time.Second
+	ResolverHealthRetries       = 3
+	ResolverHealthStartPeriod   = 30 * time.Second
+	ResolverHealthStartInterval = time.Second
+)
+
+// ResolverHealthcheck returns the healthcheck of the node resolver container, which runs the scantor
+// binary of the daemon's own image (ImageBinaryPath).
+func ResolverHealthcheck() *container.HealthConfig {
+	return &container.HealthConfig{
+		Test:          []string{"CMD", ImageBinaryPath, "node", "resolver", "healthcheck"},
+		Interval:      ResolverHealthInterval,
+		Timeout:       ResolverHealthTimeout,
+		Retries:       ResolverHealthRetries,
+		StartPeriod:   ResolverHealthStartPeriod,
+		StartInterval: ResolverHealthStartInterval,
+	}
+}
+
 // RuntimeEntrypoint returns ["/scantor/scantor", "runtime", mode, args...].
 func RuntimeEntrypoint(mode string, args ...string) []string {
 	return append([]string{BinaryPath, "runtime", mode}, args...)

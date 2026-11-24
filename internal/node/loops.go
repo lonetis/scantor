@@ -49,6 +49,13 @@ func (s *session) assignmentsLoop(ctx context.Context) {
 		}
 		b.reset()
 		s.d.observeClock(resp.ServerTime, meta)
+		// Overrides first: workers of this desired set are created with the settings they set.
+		if changed, dnsChanged := s.d.applyOverrides(resp.DaemonOverrides, s.log); changed {
+			s.statusChanged()
+			if dnsChanged {
+				s.kickResolver()
+			}
+		}
 		s.applyDesired(resp.Workers, resp.Rev)
 		s.handleLogRequests(resp.LogRequests)
 		if first {
@@ -275,8 +282,10 @@ func (s *session) sendStatus(ctx context.Context) error {
 			MaxWorkers:        s.d.maxWorkers(),
 			EgressDenyApplied: s.d.egressOK.Load(),
 			NetworkIsolated:   !s.d.networkUnisolated.Load(),
+			Resolver:          s.d.resolverReportAPI(),
 		},
-		Workers: workers,
+		Workers:      workers,
+		DaemonConfig: s.d.daemonConfig(),
 	}
 	resp, meta, err := s.d.api.PostNodeStatus(ctx, body)
 	if err != nil {
@@ -312,7 +321,7 @@ func (s *session) sendStatus(ctx context.Context) error {
 func (s *session) gcLoop() {
 	s.runGC(-1)
 	for sleep(s.stopCtx, s.d.t.gcEvery) {
-		s.runGC(s.d.cfg.ImageRetention)
+		s.runGC(s.d.settings().settings.ImageRetention)
 	}
 }
 
@@ -409,7 +418,7 @@ func (s *session) applyEgress() {
 	}
 	h := egressHelper{
 		docker: s.d.docker, nodeID: s.node.ID, imageID: s.d.self.imageID, deny: s.d.cfg.EgressDeny,
-		timeout: s.d.t.helperTimeout, networkMode: network,
+		timeout: s.d.t.helperTimeout, networkMode: network, userns: s.d.host.userns,
 	}
 	res, err := h.run(s.stopCtx)
 	switch {

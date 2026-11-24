@@ -1,15 +1,18 @@
 // Package node is the node daemon (`scantor node`, docs/nodes.md): it registers its instance with the
 // orchestrator (hello and the instance lease), long-polls the desired worker set, reconciles worker
 // containers on the local Docker engine level-triggered with one actor per worker, reports status
-// snapshots, tails worker logs on request, keeps images and disk tidy and applies the egress deny list.
+// snapshots, tails worker logs on request, keeps images and disk tidy, applies the egress deny list and
+// runs the node resolver that its workers resolve names through.
 //
-// The daemon is stateless: its inputs are its environment (Config), the Docker engine and the
-// orchestrator's desired set. It rebuilds its state from container labels whenever it starts, and it
-// manages only containers it created itself, identified by the managed labels it set plus the name
-// prefix scantor-w- (docs/security.md LBL-5). It only makes outbound requests to SCANTOR_URL.
+// The daemon is stateless: its inputs are its environment (Config), the Docker engine, the
+// orchestrator's desired set and the daemon overrides delivered with it. It rebuilds its state from
+// container labels whenever it starts, and it manages only containers it created itself, identified by
+// the managed labels it set plus the name prefix of their kind (docs/security.md LBL-5). It only makes
+// outbound requests to SCANTOR_URL.
 //
 // Structure:
 //   - config.go: LoadConfig (the only place that reads the environment).
+//   - settings.go: daemon overrides, the effective settings snapshot and the daemon configuration report.
 //   - daemon.go, host.go: start-up, the hello loop and the Docker host facts.
 //   - session.go: one registered instance: its lifecycle (conflict, unauthorized mode, shutdown), the
 //     desired set, Docker events and the worker network.
@@ -19,8 +22,9 @@
 //     maps containers and the desired set onto actors.
 //   - actor.go: the per-worker state machine (pull, create, inject, start, limits, exits, removal).
 //   - spec.go, validate.go, dind.go: the worker container spec, assignment validation and DinD modes.
-//   - images.go, logs.go, netpol.go, health.go: pulls and image GC, log tails, the egress helper, the
-//     status file, healthcheck and clock offset.
+//   - resolver.go: the node resolver's manager, container spec, probe and the workers' DNS choice.
+//   - images.go, logs.go, netpol.go, oneshot.go, health.go: pulls and image GC, log tails, the egress
+//     helper, one-shot helper containers, the status file, healthcheck and clock offset.
 package node
 
 import (
@@ -48,6 +52,9 @@ type Options struct {
 	Docker client.APIClient
 	// Logger is a redacting logger (redact.NewLogger).
 	Logger *slog.Logger
+	// LogLevel is the level of Logger. The daemon sets it to the effective level, so the logLevel daemon
+	// override applies at once; without it the override is rejected.
+	LogLevel *slog.LevelVar
 }
 
 // Daemon is one node daemon process.
@@ -55,8 +62,11 @@ type Daemon struct {
 	cfg    Config
 	docker client.APIClient
 	log    *slog.Logger
+	level  *slog.LevelVar
 	api    *api.Client
 	t      timings
+	// caCerts describes the certificates of SCANTOR_CA_CERT for the daemon configuration report.
+	caCerts []api.CACertificate
 
 	// Hooks replaced by tests.
 	now          func() time.Time
@@ -69,6 +79,10 @@ type Daemon struct {
 	workerNetwork string
 	// helperNetwork overrides the egress helper's network mode (integration tests).
 	helperNetwork string
+	// resolverImage and resolverNetwork override the image (self-inspection) and the network mode
+	// ("host") of the node resolver (integration tests).
+	resolverImage   string
+	resolverNetwork string
 
 	started    time.Time
 	host       hostInfo
@@ -85,6 +99,15 @@ type Daemon struct {
 	networkUnisolated atomic.Bool
 	// current is the running session (nil between sessions).
 	current atomic.Pointer[session]
+	// eff is the effective settings snapshot (settings.go); never nil after New.
+	eff atomic.Pointer[effective]
+	// rm and resolver are the node resolver's manager state and its published report; both survive
+	// sessions. dnsMu orders the manager's switch to disabled against the actors' DNS choice: the manager
+	// holds it for writing while it publishes disabled and counts the workers, an actor for reading from
+	// workerDNS through ContainerCreate.
+	rm       *resolverManager
+	resolver atomic.Pointer[resolverReport]
+	dnsMu    sync.RWMutex
 
 	binaryMu sync.Mutex
 	binary   *container.Binary
@@ -99,11 +122,18 @@ func New(opts Options) (*Daemon, error) {
 		cfg:        opts.Config,
 		docker:     opts.Docker,
 		log:        opts.Logger.With("component", "node"),
+		level:      opts.LogLevel,
 		t:          defaultTimings(),
+		caCerts:    caCertificates(opts.Config.CACert),
 		now:        time.Now,
 		statusFile: StatusFile,
 		diskFree:   func() (int64, error) { return diskFree("/") },
 		mountinfo:  "/proc/self/mountinfo",
+		rm:         newResolverManager(),
+	}
+	d.eff.Store(newEffective(opts.Config.Settings.clone(), 0, nil, nil))
+	if d.level != nil {
+		d.level.Set(opts.Config.Settings.LogLevel)
 	}
 	d.binarySource = d.resolveOwnBinary
 	return d, nil
@@ -268,7 +298,9 @@ func (d *Daemon) connect(ctx context.Context) error {
 	return nil
 }
 
-func (d *Daemon) maxWorkers() int { return d.cfg.EffectiveMaxWorkers(d.host.cpus) }
+// maxWorkers is the reported capacity: SCANTOR_NODE_MAX_WORKERS (or the number of CPUs), or its daemon
+// override.
+func (d *Daemon) maxWorkers() int { return d.settings().settings.EffectiveMaxWorkers(d.host.cpus) }
 
 // workerNetworkName is scantor-sandbox on the built-in node and scantor-workers elsewhere.
 func (d *Daemon) workerNetworkName() string {
@@ -362,8 +394,10 @@ func (d *Daemon) helloRequest(found []api.NodeContainer) api.NodeHelloRequest {
 			MaxWorkers:        d.maxWorkers(),
 			EgressDenyApplied: d.egressOK.Load(),
 			NetworkIsolated:   !d.networkUnisolated.Load(),
+			Resolver:          d.resolverReportAPI(),
 		},
-		Containers: found,
+		Containers:   found,
+		DaemonConfig: d.daemonConfig(),
 	}
 }
 

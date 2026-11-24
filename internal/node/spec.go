@@ -1,6 +1,7 @@
 package node
 
 import (
+	"net/netip"
 	"slices"
 
 	"github.com/moby/moby/client"
@@ -11,7 +12,8 @@ import (
 
 // The worker container spec (docs/nodes.md §6.3): the task image by digest, the injected runtime as the
 // entrypoint, the managed labels, the hardening profile with the assignment's limits, exactly one
-// network, and an environment of the assignment env plus the daemon's transport settings.
+// network with the node resolver as DNS server while it is ready, and an environment of the assignment
+// env plus the daemon's transport settings.
 
 // Variables the daemon passes on to workers when they are set on the daemon (docs/nodes.md §11).
 const (
@@ -19,7 +21,7 @@ const (
 	envAllowInsecure = "SCANTOR_ALLOW_INSECURE_TRANSPORT"
 )
 
-// workerSettings are the node-wide inputs of every worker container.
+// workerSettings are the node-wide inputs of a worker container.
 type workerSettings struct {
 	nodeID        string
 	network       string
@@ -31,6 +33,27 @@ type workerSettings struct {
 	logMaxFiles   int
 	caCert        string
 	allowInsecure bool
+	// dns is the node resolver's address, or empty for Docker's DNS (workerDNS).
+	dns []netip.Addr
+}
+
+// workerSettings returns the inputs of a worker container created now: the session's fixed values, one
+// load of the effective settings (daemon overrides apply to workers created afterwards) and dns.
+func (s *session) workerSettings(dns []netip.Addr) workerSettings {
+	set := s.d.settings().settings
+	return workerSettings{
+		nodeID:        s.node.ID,
+		network:       s.network,
+		drainGraceMs:  s.config.DrainGraceMs,
+		pidsLimit:     set.PidsLimit,
+		shmSize:       set.ShmSize,
+		nofile:        set.Nofile,
+		logMaxSize:    set.LogMaxSize,
+		logMaxFiles:   set.LogMaxFiles,
+		caCert:        s.d.cfg.CACert,
+		allowInsecure: s.d.cfg.AllowInsecure,
+		dns:           dns,
+	}
 }
 
 // workerName returns the container name of a worker: scantor-w-<workerId>.
@@ -72,6 +95,7 @@ func workerCreateOptions(a api.Assignment, ws workerSettings) (client.ContainerC
 			LogMaxFiles:     ws.logMaxFiles,
 			NetworkMode:     ws.network,
 			DinD:            dind,
+			DNS:             ws.dns,
 		},
 		StopTimeoutSeconds: stopTimeoutSeconds(ws.drainGraceMs),
 	}

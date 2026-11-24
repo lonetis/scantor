@@ -50,6 +50,28 @@ type timings struct {
 	networkRetry time.Duration
 	// helperTimeout bounds one egress helper run.
 	helperTimeout time.Duration
+	// The node resolver manager (§6.11). resolverEvery bounds the time between two passes (the status
+	// interval is the other bound, for fresh stats); resolverPoll is the inspect interval while a started
+	// resolver is not healthy yet, at most resolverHealthWait; resolverSettle is how long new workers wait
+	// for the resolver after the manager started or decided to create one; a failed replacement backs off
+	// from resolverBackoffBase to resolverBackoffMax and an exited resolver is started again after
+	// resolverRestartBase to resolverRestartMax.
+	resolverEvery       time.Duration
+	resolverPoll        time.Duration
+	resolverHealthWait  time.Duration
+	resolverSettle      time.Duration
+	resolverBackoffBase time.Duration
+	resolverBackoffMax  time.Duration
+	resolverRestartBase time.Duration
+	resolverRestartMax  time.Duration
+	// The probe of the node resolver: every probeEvery while ready, probeRetry after a failure (the
+	// second failure in a row means unreachable), every probeUnreachableEvery while unreachable; a probe
+	// result is valid for probeValid; probeTimeout bounds one probe container.
+	probeEvery            time.Duration
+	probeRetry            time.Duration
+	probeUnreachableEvery time.Duration
+	probeValid            time.Duration
+	probeTimeout          time.Duration
 }
 
 func defaultTimings() timings {
@@ -77,6 +99,20 @@ func defaultTimings() timings {
 		removedReports:      3,
 		networkRetry:        30 * time.Second,
 		helperTimeout:       2 * time.Minute,
+
+		resolverEvery:         30 * time.Second,
+		resolverPoll:          time.Second,
+		resolverHealthWait:    30 * time.Second,
+		resolverSettle:        45 * time.Second,
+		resolverBackoffBase:   10 * time.Second,
+		resolverBackoffMax:    5 * time.Minute,
+		resolverRestartBase:   2 * time.Second,
+		resolverRestartMax:    5 * time.Minute,
+		probeEvery:            10 * time.Minute,
+		probeRetry:            5 * time.Second,
+		probeUnreachableEvery: time.Minute,
+		probeValid:            15 * time.Minute,
+		probeTimeout:          30 * time.Second,
 	}
 }
 

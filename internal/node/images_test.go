@@ -252,7 +252,7 @@ func TestRemoveImageNeverForces(t *testing.T) {
 
 // The daemon's GC loop removes unreferenced task images after the retention and keeps everything else.
 func TestImageGCLoop(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.ImageRetention = 0 })
+	h := newHarness(t, func(c *Config) { c.Settings.ImageRetention = 0 })
 	h.d.t.gcEvery = 100 * time.Millisecond
 	stale := h.docker.addImage("registry.example.com/tasks/" + testWorker2 + "@" + testDigest)
 	foreign := h.docker.addImage("postgres:17")

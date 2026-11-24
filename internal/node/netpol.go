@@ -1,7 +1,6 @@
 package node
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/moby/moby/api/pkg/stdcopy"
 	dcontainer "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
@@ -172,6 +170,9 @@ type egressHelper struct {
 	timeout time.Duration
 	// networkMode is "host"; tests run the helper in an isolated network namespace instead.
 	networkMode string
+	// userns is true when the Docker daemon remaps user namespaces: it refuses a host-network container
+	// that does not share the host's user namespace.
+	userns bool
 }
 
 // errBindSourceMissing marks a ContainerCreate failure caused by a missing /run/xtables.lock on the
@@ -180,39 +181,16 @@ func isMissingBindSource(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "bind source path does not exist")
 }
 
-// run executes the helper once and returns its result.
+// run executes the helper once (a oneShot container) and returns its result.
 func (h egressHelper) run(ctx context.Context) (EgressResult, error) {
-	name := container.Name(container.KindEgressHelper, h.nodeID)
-	if err := h.removeLeftover(ctx, name); err != nil {
-		return EgressResult{}, err
-	}
-	id, err := h.create(ctx, name, true)
-	if isMissingBindSource(err) {
-		id, err = h.create(ctx, name, false)
-	}
-	if err != nil {
-		return EgressResult{}, fmt.Errorf("create egress helper: %w", err)
-	}
-	defer func() {
-		// Cleanup also runs when ctx was cancelled (shutdown), like `docker run --rm`.
-		rmCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		defer cancel()
-		_, _ = h.docker.ContainerRemove(rmCtx, id, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true})
-	}()
-	ctx, cancel := context.WithTimeout(ctx, h.timeout)
-	defer cancel()
-	wait := h.docker.ContainerWait(ctx, id, client.ContainerWaitOptions{Condition: dcontainer.WaitConditionNextExit})
-	if _, err := h.docker.ContainerStart(ctx, id, client.ContainerStartOptions{}); err != nil {
-		return EgressResult{}, fmt.Errorf("start egress helper: %w", err)
-	}
-	select {
-	case <-ctx.Done():
-		return EgressResult{}, fmt.Errorf("egress helper: %w", ctx.Err())
-	case err := <-wait.Error:
-		return EgressResult{}, fmt.Errorf("wait for egress helper: %w", err)
-	case <-wait.Result:
-	}
-	stdout, stderr, err := h.output(ctx, id)
+	helper := oneShot{docker: h.docker, kind: container.KindEgressHelper, nodeID: h.nodeID, timeout: h.timeout, what: "egress helper"}
+	stdout, stderr, err := helper.run(ctx, func(ctx context.Context, name string) (string, error) {
+		id, err := h.create(ctx, name, true)
+		if isMissingBindSource(err) {
+			id, err = h.create(ctx, name, false)
+		}
+		return id, err
+	})
 	if err != nil {
 		return EgressResult{}, err
 	}
@@ -222,29 +200,6 @@ func (h egressHelper) run(ctx context.Context) (EgressResult, error) {
 		return EgressResult{}, fmt.Errorf("egress helper printed no result: %s", truncateUTF8(strings.TrimSpace(stdout+" "+stderr), 512))
 	}
 	return res, nil
-}
-
-// removeLeftover removes a helper container left behind by an interrupted run. A foreign container
-// with that name is never touched.
-func (h egressHelper) removeLeftover(ctx context.Context, name string) error {
-	res, err := h.docker.ContainerInspect(ctx, name, client.ContainerInspectOptions{})
-	if err != nil {
-		if container.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("inspect %s: %w", name, err)
-	}
-	labels := map[string]string{}
-	if res.Container.Config != nil {
-		labels = res.Container.Config.Labels
-	}
-	if !container.IsManaged(container.KindEgressHelper, res.Container.Name, labels) || labels[container.LabelNode] != h.nodeID {
-		return fmt.Errorf("a foreign container named %s exists; the egress helper is skipped", name)
-	}
-	if _, err := h.docker.ContainerRemove(ctx, res.Container.ID, client.ContainerRemoveOptions{Force: true, RemoveVolumes: true}); err != nil && !container.IsNotFound(err) {
-		return fmt.Errorf("remove leftover %s: %w", name, err)
-	}
-	return nil
 }
 
 func (h egressHelper) create(ctx context.Context, name string, bindLock bool) (string, error) {
@@ -264,6 +219,11 @@ func (h egressHelper) create(ctx context.Context, name string, bindLock bool) (s
 		ReadonlyRootfs: true,
 		Tmpfs:          map[string]string{"/run": "size=1m"},
 		RestartPolicy:  dcontainer.RestartPolicy{Name: dcontainer.RestartPolicyDisabled},
+		// The result is read from the logs, whatever the engine's default log driver.
+		LogConfig: container.OneShotLogConfig(),
+	}
+	if h.userns && h.networkMode == container.NetworkHost {
+		hc.UsernsMode = "host"
 	}
 	if bindLock {
 		hc.Mounts = []mount.Mount{{Type: mount.TypeBind, Source: xtablesLock, Target: xtablesLock}}
@@ -283,19 +243,6 @@ func (h egressHelper) create(ctx context.Context, name string, bindLock bool) (s
 		return "", err
 	}
 	return res.ID, nil
-}
-
-func (h egressHelper) output(ctx context.Context, id string) (stdout, stderr string, err error) {
-	rc, err := h.docker.ContainerLogs(ctx, id, client.ContainerLogsOptions{ShowStdout: true, ShowStderr: true})
-	if err != nil {
-		return "", "", fmt.Errorf("egress helper output: %w", err)
-	}
-	defer rc.Close()
-	var out, errOut bytes.Buffer
-	if _, err := stdcopy.StdCopy(&out, &errOut, rc); err != nil {
-		return "", "", fmt.Errorf("egress helper output: %w", err)
-	}
-	return out.String(), errOut.String(), nil
 }
 
 func lastLine(s string) string {

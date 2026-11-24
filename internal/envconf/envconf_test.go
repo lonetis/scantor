@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"math/big"
 	"strings"
 	"testing"
@@ -156,6 +157,40 @@ func TestReader(t *testing.T) {
 		if !strings.Contains(warnings, name) {
 			t.Errorf("warnings do not name %s: %s", name, warnings)
 		}
+	}
+}
+
+// The Reader records for every variable whether its value came from the environment or is the default,
+// including a value that was invalid or that the caller rejected (Invalid).
+func TestReaderSource(t *testing.T) {
+	env := map[string]string{
+		"SET": "value", "BLANK": "  ", "BAD": "lots", "SIZE": "4GiB", "SIZE_SEC": "8GiB", "LIST": "a,b",
+	}
+	r := NewReader(func(k string) string { return env[k] })
+	_ = r.String("SET", "def")
+	_ = r.String("BLANK", "def")
+	_ = r.Int("BAD", 1, 1, 10)
+	_ = r.Int("UNSET", 1, 1, 10)
+	_ = r.List("LIST", nil)
+	if size := r.ByteSize("SIZE", GiB); size > 2*GiB {
+		r.Invalid("SIZE", errors.New("must be at most 2GiB"))
+	}
+	if size := r.ByteSize("SIZE_SEC", GiB, Security()); size > 2*GiB {
+		r.Invalid("SIZE_SEC", errors.New("must be at most 2GiB"), Security())
+	}
+	for name, want := range map[string]string{
+		"SET": SourceEnv, "BLANK": SourceDefault, "BAD": SourceDefault, "UNSET": SourceDefault, "LIST": SourceEnv,
+		"SIZE": SourceDefault, "SIZE_SEC": SourceDefault, "NEVER_READ": SourceDefault,
+	} {
+		if got := r.Source(name); got != want {
+			t.Errorf("Source(%s) = %q, want %q", name, got, want)
+		}
+	}
+	if warnings := strings.Join(r.Warnings(), "\n"); !strings.Contains(warnings, "SIZE: must be at most 2GiB; using the default") {
+		t.Errorf("Invalid did not record a warning: %q", warnings)
+	}
+	if err := r.Err(); err == nil || !strings.Contains(err.Error(), "SIZE_SEC: must be at most 2GiB") || strings.Contains(err.Error(), "SIZE:") {
+		t.Errorf("Invalid of a security-relevant variable: %v", err)
 	}
 }
 

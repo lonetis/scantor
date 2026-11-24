@@ -3,6 +3,7 @@ package node
 import (
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"reflect"
 	"slices"
 	"testing"
@@ -175,6 +176,27 @@ func TestWorkerSpecPassesTransportSettingsOn(t *testing.T) {
 	}
 	if !slices.Equal(opts.Config.Env, want) {
 		t.Errorf("env = %q", opts.Config.Env)
+	}
+}
+
+// A worker created while the node resolver is ready forwards external names to it (HostConfig "Dns");
+// otherwise Docker's default applies.
+func TestWorkerSpecDNS(t *testing.T) {
+	ws := testSettings()
+	opts, err := workerCreateOptions(testAssignment(testWorker1), ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(opts.HostConfig.DNS) != 0 {
+		t.Errorf("Dns = %v without the resolver", opts.HostConfig.DNS)
+	}
+	ws.dns = []netip.Addr{netip.MustParseAddr("10.10.0.1")}
+	opts, err = workerCreateOptions(testAssignment(testWorker1), ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hc := createBody(t, opts)["HostConfig"].(map[string]any); !reflect.DeepEqual(hc["Dns"], []any{"10.10.0.1"}) {
+		t.Errorf("Dns = %v", hc["Dns"])
 	}
 }
 

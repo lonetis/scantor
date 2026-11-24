@@ -380,7 +380,27 @@
       "dindMode": "disabled",
       "maxWorkers": 8,
       "egressDenyApplied": true,
-      "networkIsolated": true
+      "networkIsolated": true,
+      "resolver": {
+        "mode": "recursive",
+        "state": "ready",
+        "address": "10.10.0.1",
+        "kept": false,
+        "error": null,
+        "since": "2026-10-21T09:58:12.000Z",
+        "spec": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "ipv6": false,
+        "upstreamOk": true,
+        "stats": {
+          "queries": 120345,
+          "cacheHits": 98000,
+          "lookups": 20100,
+          "failures": 340,
+          "inflight": 12,
+          "qps": 850.5,
+          "conntrackUsed": 0.05
+        }
+      }
     },
     "containers": [
       {
@@ -389,7 +409,86 @@
         "state": "running",
         "specHash": "sha256:5d41…"
       }
-    ]
+    ],
+    "daemonConfig": {
+      "appliedOverridesRev": 0,
+      "values": {
+        "url": "https://scantor.example.com",
+        "builtIn": false,
+        "maxWorkers": 8,
+        "dind": "disabled",
+        "egressDeny": [
+          "169.254.0.0/16",
+          "fd00:ec2::254/128",
+          "100.100.100.200/32",
+          "198.51.100.0/24"
+        ],
+        "allowUnisolatedNetworks": false,
+        "allowInsecureTransport": false,
+        "caCertificates": [],
+        "pidsLimit": 4096,
+        "shmSizeBytes": 268435456,
+        "nofile": 65536,
+        "workerLogMaxSizeBytes": 20971520,
+        "workerLogMaxFiles": 3,
+        "imageRetentionMs": 86400000,
+        "pullTimeoutMs": 1800000,
+        "logLevel": "info",
+        "logFormat": "json",
+        "overrides": "all",
+        "dns": {
+          "mode": "recursive",
+          "upstreams": [
+            "1.1.1.1",
+            "1.0.0.1",
+            "8.8.8.8",
+            "8.8.4.4",
+            "2606:4700:4700::1111",
+            "2606:4700:4700::1001",
+            "2001:4860:4860::8888",
+            "2001:4860:4860::8844"
+          ],
+          "rootServers": [],
+          "localDomains": [],
+          "cacheSizeBytes": 268435456,
+          "maxLookups": 1000,
+          "upstreamQps": 0,
+          "authoritativeQps": 200
+        }
+      },
+      "sources": {
+        "url": "env",
+        "builtIn": "default",
+        "maxWorkers": "env",
+        "dind": "default",
+        "egressDeny": "env",
+        "allowUnisolatedNetworks": "default",
+        "allowInsecureTransport": "default",
+        "caCertificates": "default",
+        "pidsLimit": "env",
+        "shmSizeBytes": "env",
+        "nofile": "env",
+        "workerLogMaxSizeBytes": "env",
+        "workerLogMaxFiles": "env",
+        "imageRetentionMs": "env",
+        "pullTimeoutMs": "env",
+        "logLevel": "env",
+        "logFormat": "env",
+        "overrides": "default",
+        "dns": {
+          "mode": "default",
+          "upstreams": "default",
+          "rootServers": "default",
+          "localDomains": "default",
+          "cacheSizeBytes": "default",
+          "maxLookups": "default",
+          "upstreamQps": "default",
+          "authoritativeQps": "default"
+        }
+      },
+      "warnings": [],
+      "rejected": {}
+    }
   },
   "NodeHelloResponse": {
     "serverTime": 1761040800123,
@@ -412,7 +511,13 @@
         "host": "registry.example.com",
         "username": "node"
       },
-      "minFreeDiskBytes": 10737418240
+      "minFreeDiskBytes": 10737418240,
+      "endpointHosts": [
+        "amqp.scantor.example.com",
+        "fixtures.scantor.example.com",
+        "s3.scantor.example.com",
+        "scantor.example.com"
+      ]
     }
   },
   "NodeAssignments": {
@@ -450,7 +555,19 @@
         "workerId": "9b8a7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
         "tailBytes": 65536
       }
-    ]
+    ],
+    "daemonOverrides": {
+      "rev": 3,
+      "values": {
+        "maxWorkers": 16,
+        "dns": {
+          "mode": "iterative",
+          "upstreams": [
+            "198.51.100.53"
+          ]
+        }
+      }
+    }
   },
   "NodeStatusRequest": {
     "instanceId": "4c6f2b1e-9a8d-4e7f-b6c5-3d2e1f0a9b8c:7d1e",
@@ -462,9 +579,29 @@
       "memoryBytes": 68719476736,
       "diskFreeBytes": 409600000000,
       "dindMode": "disabled",
-      "maxWorkers": 8,
+      "maxWorkers": 16,
       "egressDenyApplied": true,
-      "networkIsolated": true
+      "networkIsolated": true,
+      "resolver": {
+        "mode": "iterative",
+        "state": "ready",
+        "address": "10.10.0.1",
+        "kept": false,
+        "error": null,
+        "since": "2026-10-21T10:00:05.000Z",
+        "spec": "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "ipv6": false,
+        "upstreamOk": true,
+        "stats": {
+          "queries": 120345,
+          "cacheHits": 98000,
+          "lookups": 20100,
+          "failures": 340,
+          "inflight": 12,
+          "qps": 850.5,
+          "conntrackUsed": 0.05
+        }
+      }
     },
     "workers": [
       {
@@ -512,7 +649,90 @@
         "workerId": "3e4f5a6b-7c8d-4e9f-9a0b-1c2d3e4f5a6b",
         "state": "removed"
       }
-    ]
+    ],
+    "daemonConfig": {
+      "appliedOverridesRev": 3,
+      "values": {
+        "url": "https://scantor.example.com",
+        "builtIn": false,
+        "maxWorkers": 16,
+        "dind": "disabled",
+        "egressDeny": [
+          "169.254.0.0/16",
+          "fd00:ec2::254/128",
+          "100.100.100.200/32",
+          "198.51.100.0/24"
+        ],
+        "allowUnisolatedNetworks": false,
+        "allowInsecureTransport": false,
+        "caCertificates": [],
+        "pidsLimit": 4096,
+        "shmSizeBytes": 268435456,
+        "nofile": 65536,
+        "workerLogMaxSizeBytes": 20971520,
+        "workerLogMaxFiles": 3,
+        "imageRetentionMs": 86400000,
+        "pullTimeoutMs": 1800000,
+        "logLevel": "info",
+        "logFormat": "json",
+        "overrides": "all",
+        "dns": {
+          "mode": "iterative",
+          "upstreams": [
+            "1.1.1.1",
+            "1.0.0.1",
+            "8.8.8.8",
+            "8.8.4.4",
+            "2606:4700:4700::1111",
+            "2606:4700:4700::1001",
+            "2001:4860:4860::8888",
+            "2001:4860:4860::8844"
+          ],
+          "rootServers": [],
+          "localDomains": [],
+          "cacheSizeBytes": 268435456,
+          "maxLookups": 1000,
+          "upstreamQps": 0,
+          "authoritativeQps": 200
+        }
+      },
+      "sources": {
+        "url": "env",
+        "builtIn": "default",
+        "maxWorkers": "override",
+        "dind": "default",
+        "egressDeny": "env",
+        "allowUnisolatedNetworks": "default",
+        "allowInsecureTransport": "default",
+        "caCertificates": "default",
+        "pidsLimit": "env",
+        "shmSizeBytes": "env",
+        "nofile": "env",
+        "workerLogMaxSizeBytes": "env",
+        "workerLogMaxFiles": "env",
+        "imageRetentionMs": "env",
+        "pullTimeoutMs": "env",
+        "logLevel": "env",
+        "logFormat": "env",
+        "overrides": "default",
+        "dns": {
+          "mode": "override",
+          "upstreams": "default",
+          "rootServers": "default",
+          "localDomains": "default",
+          "cacheSizeBytes": "default",
+          "maxLookups": "default",
+          "upstreamQps": "default",
+          "authoritativeQps": "default"
+        }
+      },
+      "warnings": [],
+      "rejected": {
+        "dns": {
+          "upstreams": "private and special-purpose servers can only be configured in the node environment (SCANTOR_NODE_DNS_*)"
+        }
+      }
+    }
   },
   "NodeStatusResponse": {
     "serverTime": 1761040815002,

@@ -27,6 +27,8 @@ type fakeOrchestrator struct {
 	logRequests []api.LogRequest
 	config      api.NodeConfig
 	builtIn     bool
+	// overrides are the daemon overrides of the assignments responses (nil: an orchestrator without them).
+	overrides *api.DaemonOverrides
 
 	hellos       []api.NodeHelloRequest
 	helloHeaders []http.Header
@@ -191,7 +193,10 @@ func (o *fakeOrchestrator) assignments(w http.ResponseWriter, r *http.Request) {
 	for wait > 0 && o.rev <= rev && time.Now().Before(deadline) && r.Context().Err() == nil {
 		o.cond.Wait()
 	}
-	resp := api.NodeAssignments{ServerTime: time.Now().UnixMilli(), Rev: o.rev, Workers: append([]api.Assignment{}, o.workers...), LogRequests: append([]api.LogRequest{}, o.logRequests...)}
+	resp := api.NodeAssignments{
+		ServerTime: time.Now().UnixMilli(), Rev: o.rev, Workers: append([]api.Assignment{}, o.workers...),
+		LogRequests: append([]api.LogRequest{}, o.logRequests...), DaemonOverrides: o.overrides,
+	}
 	o.mu.Unlock()
 	writeJSON(w, resp)
 }
@@ -242,6 +247,16 @@ func (o *fakeOrchestrator) setDesired(workers ...api.Assignment) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.workers = workers
+	o.rev++
+	o.cond.Broadcast()
+}
+
+// setOverrides sets the daemon overrides (a JSON object) with revision rev and wakes the long-poll, like
+// updateNodeDaemonOverrides.
+func (o *fakeOrchestrator) setOverrides(rev int64, values string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.overrides = &api.DaemonOverrides{Rev: rev, Values: json.RawMessage(values)}
 	o.rev++
 	o.cond.Broadcast()
 }

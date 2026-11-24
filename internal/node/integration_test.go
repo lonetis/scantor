@@ -160,12 +160,21 @@ type integrationDaemon struct {
 
 func startIntegrationDaemon(t *testing.T, docker *client.Client, orch *fakeOrchestrator, network string) *integrationDaemon {
 	t.Helper()
+	return startIntegrationDaemonWith(t, docker, orch, network, nil, nil)
+}
+
+// startIntegrationDaemonWith starts a daemon like startIntegrationDaemon after mutate changed its
+// configuration and hook its test hooks (both may be nil).
+func startIntegrationDaemonWith(t *testing.T, docker *client.Client, orch *fakeOrchestrator, network string, mutate func(*Config), hook func(*Daemon)) *integrationDaemon {
+	t.Helper()
 	logs := &syncBuffer{}
 	cfg := Config{
-		URL: orch.srv.URL, Token: testToken, DinD: DinDDisabled,
-		PidsLimit: 4096, ShmSize: 256 << 20, Nofile: 65536, LogMaxSize: 20 << 20, LogMaxFiles: 3,
-		ImageRetention: 24 * time.Hour, PullTimeout: time.Minute,
-		LogLevel: slog.LevelDebug, LogFormat: redact.FormatText,
+		URL: orch.srv.URL, Token: testToken, DinD: DinDDisabled, LogFormat: redact.FormatText,
+		Overrides: OverrideAllowList{All: true}, Settings: testDaemonSettings(),
+	}
+	cfg.Settings.PullTimeout = time.Minute
+	if mutate != nil {
+		mutate(&cfg)
 	}
 	d, err := New(Options{Config: cfg, Docker: docker, Logger: redact.NewLogger(logs, redact.FormatText, slog.LevelDebug)})
 	if err != nil {
@@ -177,6 +186,9 @@ func startIntegrationDaemon(t *testing.T, docker *client.Client, orch *fakeOrche
 	d.mountinfo = filepath.Join(t.TempDir(), "no-mountinfo")
 	d.workerNetwork = network
 	d.binarySource = func(context.Context) (*container.Binary, error) { return container.NewBinary([]byte(fakeRuntime)), nil }
+	if hook != nil {
+		hook(d)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	id := &integrationDaemon{d: d, logs: logs, cancel: cancel, done: make(chan error, 1)}
 	go func() { id.done <- d.Run(ctx) }()

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -41,9 +42,12 @@ func newNodeCommand(app *App) *cobra.Command {
 				return PlatformError(err)
 			}
 			defer docker.Close()
-			// The daemon logs to stdout (docs/deployment.md §13.2).
-			logger := redact.NewLogger(app.Stdout, cfg.LogFormat, cfg.LogLevel)
-			d, err := node.New(node.Options{Config: cfg, Docker: docker, Logger: logger})
+			// The daemon logs to stdout (docs/deployment.md §13.2). The level is a LevelVar, so the logLevel
+			// daemon override applies while the daemon runs.
+			level := new(slog.LevelVar)
+			level.Set(cfg.Settings.LogLevel)
+			logger := redact.NewLogger(app.Stdout, cfg.LogFormat, level)
+			d, err := node.New(node.Options{Config: cfg, Docker: docker, Logger: logger, LogLevel: level})
 			if err != nil {
 				return PlatformError(err)
 			}
@@ -58,7 +62,7 @@ func newNodeCommand(app *App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.AddCommand(newNodeHealthcheckCommand(app), newNodeEgressApplyCommand(app))
+	cmd.AddCommand(newNodeHealthcheckCommand(app), newNodeEgressApplyCommand(app), newNodeResolverCommand(app))
 	return cmd
 }
 

@@ -53,6 +53,21 @@ func TestProbeHostRejectsOldEngines(t *testing.T) {
 	if h.engineID != docker.engineID || h.cpus != 8 || h.memoryBytes != 16<<30 || !slices.Equal(h.runtimes, []string{"runc", "sysbox-runc"}) || h.os != "linux" || h.arch != "arm64" {
 		t.Errorf("host = %+v", h)
 	}
+	if h.rootless || h.userns {
+		t.Errorf("rootless %v userns %v on a plain engine", h.rootless, h.userns)
+	}
+	docker.rootless, docker.userns = true, true
+	if h, err = probeHost(t.Context(), docker); err != nil || !h.rootless || !h.userns {
+		t.Errorf("rootless %v userns %v, %v", h.rootless, h.userns, err)
+	}
+}
+
+// Security options of /info are "name=<option>" with optional ",key=value" parts.
+func TestHasSecurityOption(t *testing.T) {
+	opts := []string{"name=seccomp,profile=builtin", "name=userns", "name=cgroupns"}
+	if !hasSecurityOption(opts, "userns") || !hasSecurityOption(opts, "seccomp") || hasSecurityOption(opts, "rootless") || hasSecurityOption(opts, "user") {
+		t.Error("hasSecurityOption")
+	}
 }
 
 func TestInstanceID(t *testing.T) {

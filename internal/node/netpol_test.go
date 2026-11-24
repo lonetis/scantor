@@ -14,6 +14,7 @@ import (
 
 	dcontainer "github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/api/types/mount"
+	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
 	"github.com/lonetis/scantor/internal/container"
@@ -294,11 +295,48 @@ func TestEgressHelperContainer(t *testing.T) {
 		t.Errorf("labels = %v", cfg.Labels)
 	}
 	if string(hc.NetworkMode) != "host" || !slices.Equal(hc.CapDrop, []string{"ALL"}) || !slices.Equal(hc.CapAdd, []string{"NET_ADMIN", "NET_RAW"}) ||
-		!slices.Equal(hc.SecurityOpt, []string{"no-new-privileges:true"}) || !hc.ReadonlyRootfs || hc.Tmpfs["/run"] != "size=1m" || hc.Privileged {
+		!slices.Equal(hc.SecurityOpt, []string{"no-new-privileges:true"}) || !hc.ReadonlyRootfs || hc.Tmpfs["/run"] != "size=1m" || hc.Privileged || hc.UsernsMode != "" {
 		t.Errorf("host config = %+v", hc)
+	}
+	// The daemon reads the helper's result from its logs, whatever the engine's default log driver.
+	if hc.LogConfig.Type != "local" || !maps.Equal(hc.LogConfig.Config, map[string]string{"max-size": "1m", "max-file": "1", "compress": "false"}) {
+		t.Errorf("log config = %+v", hc.LogConfig)
 	}
 	if docker.container("scantor-netpol-"+testNodeID) != nil {
 		t.Error("the helper container was not removed")
+	}
+}
+
+// Under user namespace remapping the engine refuses a host-network container that does not share the
+// host's user namespace: the helper sets UsernsMode host then, and only for the host network.
+func TestEgressHelperUsernsRemap(t *testing.T) {
+	for _, tc := range []struct {
+		userns  bool
+		network string
+		want    dcontainer.UsernsMode
+	}{{true, "host", "host"}, {false, "host", ""}, {true, "scantor-test-netns", ""}} {
+		docker := newFakeDocker()
+		img := docker.addImage("scantor:dev")
+		docker.addNetwork(network.Network{Name: "scantor-test-netns", Driver: "bridge"})
+		var created *client.ContainerCreateOptions
+		docker.createErr = func(opts client.ContainerCreateOptions) error {
+			created = &opts
+			return nil
+		}
+		docker.onStart = func(f *fakeDocker, c *fakeContainer) {
+			f.mu.Lock()
+			f.logs[c.name] = `{"applied":true,"families":{},"errors":[]}` + "\n"
+			f.mu.Unlock()
+			f.exit(c.name, 0, false)
+		}
+		h := egressHelper{docker: docker, nodeID: testNodeID, imageID: img.id, deny: prefixes("169.254.0.0/16"), timeout: 5 * time.Second,
+			networkMode: tc.network, userns: tc.userns}
+		if _, err := h.run(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+		if created == nil || created.HostConfig.UsernsMode != tc.want {
+			t.Errorf("userns %v network %s: UsernsMode = %q, want %q", tc.userns, tc.network, created.HostConfig.UsernsMode, tc.want)
+		}
 	}
 }
 
@@ -348,7 +386,7 @@ func TestEgressLoopReportsTheResult(t *testing.T) {
 	self.imageID = img.id
 	self.config.Hostname = shortID(self.id)
 	h.d.mountinfo = writeMountinfo(t, self.id)
-	h.docker.onStart = func(f *fakeDocker, c *fakeContainer) {
+	helperApplies := func(f *fakeDocker, c *fakeContainer) {
 		if !strings.HasPrefix(c.name, "scantor-netpol-") {
 			return
 		}
@@ -357,11 +395,33 @@ func TestEgressLoopReportsTheResult(t *testing.T) {
 		f.mu.Unlock()
 		f.exit(c.name, 0, false)
 	}
+	h.docker.onStart = helperApplies
 	h.start()
 	eventually(t, 5*time.Second, "egressDenyApplied", func() bool {
 		st := h.orch.lastStatus()
 		return st != nil && st.Info.EgressDenyApplied
 	})
+
+	// The daemon passes the engine's user namespace remapping on to the helper.
+	remapped := newHarness(t, func(c *Config) { c.EgressDeny = prefixes("169.254.0.0/16") })
+	remapped.docker.userns = true
+	remapped.withSelf()
+	var usernsMode atomic.Value
+	remapped.docker.createErr = func(opts client.ContainerCreateOptions) error {
+		if strings.HasPrefix(opts.Name, "scantor-netpol-") {
+			usernsMode.Store(string(opts.HostConfig.UsernsMode))
+		}
+		return nil
+	}
+	remapped.docker.onStart = helperApplies
+	remapped.start()
+	eventually(t, 5*time.Second, "egressDenyApplied under userns-remap", func() bool {
+		st := remapped.orch.lastStatus()
+		return st != nil && st.Info.EgressDenyApplied
+	})
+	if mode, _ := usernsMode.Load().(string); mode != "host" {
+		t.Errorf("helper UsernsMode under userns-remap = %q, want host", mode)
+	}
 
 	skipped := newHarness(t, func(c *Config) { c.EgressDeny = prefixes("169.254.0.0/16") })
 	skipped.start()

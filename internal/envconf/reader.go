@@ -23,17 +23,49 @@ type varOptions struct {
 // of logging a warning and falling back to the default (docs/architecture.md §10).
 func Security() Option { return func(o *varOptions) { o.security = true } }
 
+// Sources of a variable's value (Reader.Source).
+const (
+	// SourceEnv: the value comes from the environment.
+	SourceEnv = "env"
+	// SourceDefault: the variable is unset or empty, or its value was invalid and the default applies.
+	SourceDefault = "default"
+)
+
 // Reader reads typed variables with defaults. An unset or empty variable takes its default. An invalid
 // value of a security-relevant variable is recorded as an error; any other invalid value is recorded as
-// a warning and the default applies. Messages name variables only, never values of secrets.
+// a warning and the default applies. Messages name variables only, never values of secrets. The Reader
+// records where the value of every variable it read came from (Source).
 type Reader struct {
 	getenv   Getenv
 	errs     []error
 	warnings []string
+	sources  map[string]string
 }
 
 // NewReader returns a Reader over getenv (typically os.Getenv, passed in by the caller).
-func NewReader(getenv Getenv) *Reader { return &Reader{getenv: getenv} }
+func NewReader(getenv Getenv) *Reader { return &Reader{getenv: getenv, sources: map[string]string{}} }
+
+// Source returns SourceEnv when the last typed read of name used the environment's value, and
+// SourceDefault when it used the default: the variable was unset or empty, its value was invalid, or a
+// caller reported it invalid (Invalid). A variable that was never read counts as SourceDefault.
+func (r *Reader) Source(name string) string {
+	if s, ok := r.sources[name]; ok {
+		return s
+	}
+	return SourceDefault
+}
+
+// read returns the value of name and records the source of a typed read: SourceEnv when it is set to a
+// non-empty value, SourceDefault otherwise (an invalid value changes it to SourceDefault).
+func (r *Reader) read(name string) (string, bool) {
+	v, ok := r.Lookup(name)
+	if ok {
+		r.sources[name] = SourceEnv
+	} else {
+		r.sources[name] = SourceDefault
+	}
+	return v, ok
+}
 
 // Err returns every recorded error of security-relevant variables, joined, or nil.
 func (r *Reader) Err() error { return errors.Join(r.errs...) }
@@ -48,6 +80,7 @@ func (r *Reader) Lookup(name string) (string, bool) {
 }
 
 func (r *Reader) invalid(name string, err error, opts []Option) {
+	r.sources[name] = SourceDefault
 	var o varOptions
 	for _, opt := range opts {
 		opt(&o)
@@ -65,10 +98,18 @@ func (r *Reader) Fail(name string, err error) {
 	r.errs = append(r.errs, fmt.Errorf("%s: %w", name, err))
 }
 
+// Invalid records an invalid value of name that only the caller can recognise (for example a byte size
+// outside the bounds of its setting), exactly as the typed getters do: an error for a security-relevant
+// variable, otherwise a warning that the default applies. The source of name becomes SourceDefault; the
+// caller applies the default.
+func (r *Reader) Invalid(name string, err error, opts ...Option) {
+	r.invalid(name, err, opts)
+}
+
 // String returns the value of name, or def when it is unset or empty. Surrounding whitespace is kept
 // except for an all-whitespace value, which counts as empty.
 func (r *Reader) String(name, def string) string {
-	if v, ok := r.Lookup(name); ok {
+	if v, ok := r.read(name); ok {
 		return v
 	}
 	return def
@@ -76,7 +117,7 @@ func (r *Reader) String(name, def string) string {
 
 // Enum returns the value of name when it is one of allowed, else def (plus an error or warning).
 func (r *Reader) Enum(name, def string, allowed []string, opts ...Option) string {
-	v, ok := r.Lookup(name)
+	v, ok := r.read(name)
 	if !ok {
 		return def
 	}
@@ -90,7 +131,7 @@ func (r *Reader) Enum(name, def string, allowed []string, opts ...Option) string
 
 // Bool returns the boolean value of name, or def.
 func (r *Reader) Bool(name string, def bool, opts ...Option) bool {
-	v, ok := r.Lookup(name)
+	v, ok := r.read(name)
 	if !ok {
 		return def
 	}
@@ -104,7 +145,7 @@ func (r *Reader) Bool(name string, def bool, opts ...Option) bool {
 
 // List returns the list value of name, or def when it is unset or empty.
 func (r *Reader) List(name string, def []string) []string {
-	if v, ok := r.Lookup(name); ok {
+	if v, ok := r.read(name); ok {
 		return ParseList(v)
 	}
 	return slices.Clone(def)
@@ -112,7 +153,7 @@ func (r *Reader) List(name string, def []string) []string {
 
 // Duration returns the duration value of name, or def.
 func (r *Reader) Duration(name string, def time.Duration, opts ...Option) time.Duration {
-	v, ok := r.Lookup(name)
+	v, ok := r.read(name)
 	if !ok {
 		return def
 	}
@@ -126,7 +167,7 @@ func (r *Reader) Duration(name string, def time.Duration, opts ...Option) time.D
 
 // ByteSize returns the byte-size value of name, or def.
 func (r *Reader) ByteSize(name string, def int64, opts ...Option) int64 {
-	v, ok := r.Lookup(name)
+	v, ok := r.read(name)
 	if !ok {
 		return def
 	}
@@ -140,7 +181,7 @@ func (r *Reader) ByteSize(name string, def int64, opts ...Option) int64 {
 
 // Int returns the integer value of name within [min, max], or def.
 func (r *Reader) Int(name string, def, minimum, maximum int64, opts ...Option) int64 {
-	v, ok := r.Lookup(name)
+	v, ok := r.read(name)
 	if !ok {
 		return def
 	}
@@ -157,7 +198,7 @@ func (r *Reader) Int(name string, def, minimum, maximum int64, opts ...Option) i
 
 // Days returns the whole number of days of name, or def.
 func (r *Reader) Days(name string, def int, opts ...Option) int {
-	v, ok := r.Lookup(name)
+	v, ok := r.read(name)
 	if !ok {
 		return def
 	}
@@ -172,7 +213,7 @@ func (r *Reader) Days(name string, def int, opts ...Option) int {
 // PEMCertificates returns the normalised PEM bundle of name (ParsePEMCertificates), or "" when it is
 // unset or invalid (plus an error or warning; trust settings are usually security-relevant).
 func (r *Reader) PEMCertificates(name string, opts ...Option) string {
-	v, ok := r.Lookup(name)
+	v, ok := r.read(name)
 	if !ok {
 		return ""
 	}
@@ -187,7 +228,7 @@ func (r *Reader) PEMCertificates(name string, opts ...Option) string {
 // URL returns the value of name parsed as an absolute URL whose scheme is one of schemes, or def
 // (which must be valid or empty). The returned string has no trailing slash.
 func (r *Reader) URL(name, def string, schemes []string, opts ...Option) string {
-	v, ok := r.Lookup(name)
+	v, ok := r.read(name)
 	if !ok {
 		return def
 	}

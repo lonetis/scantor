@@ -10,6 +10,7 @@ import (
 	"io"
 	"iter"
 	"maps"
+	"net/netip"
 	"slices"
 	"strings"
 	"sync"
@@ -38,12 +39,15 @@ type fakeDocker struct {
 	networks   map[string]network.Inspect // by name
 	subs       []chan events.Message
 	calls      []string
+	named      []string
 
 	// Behaviour knobs.
 	// noICC refuses networks with inter-container traffic disabled, like rootless Docker without br_netfilter.
 	noICC bool
-	// rootless reports the security option of a rootless Docker daemon.
+	// rootless and userns report the security options of a rootless Docker daemon and of user namespace
+	// remapping.
 	rootless   bool
+	userns     bool
 	engineID   string
 	os, arch   string
 	apiVersion string
@@ -54,12 +58,18 @@ type fakeDocker struct {
 	pullErr func(ref string) error
 	// pullImage decides the platform of pulled images (default: the engine's).
 	pullPlatform func(ref string) (string, string)
-	// onStart runs after a container started (for example to let it exit at once).
-	onStart func(f *fakeDocker, c *fakeContainer)
+	// onStart runs after a container started (for example to let it exit at once); onStartPrefix runs
+	// first for containers whose name has the prefix (one hook per container kind).
+	onStart       func(f *fakeDocker, c *fakeContainer)
+	onStartPrefix map[string]func(f *fakeDocker, c *fakeContainer)
+	// networkSeq numbers the subnets of created networks (10.200.<n>.0/24).
+	networkSeq int
 	// updateErr fails ContainerUpdate.
 	updateErr error
-	// createErr fails ContainerCreate.
-	createErr func(opts client.ContainerCreateOptions) error
+	// createErr fails ContainerCreate (called with mu held); beforeCreate runs first, without mu, and may
+	// block like a slow engine.
+	createErr    func(opts client.ContainerCreateOptions) error
+	beforeCreate func(opts client.ContainerCreateOptions)
 	// logs are the log lines of containers by name.
 	logs map[string]string
 	// pulls records X-Registry-Auth values per reference.
@@ -80,7 +90,10 @@ type fakeContainer struct {
 	waiters  []chan dcontainer.WaitResponse
 	updates  int
 	starts   int
+	restarts int
 	stopArgs []int
+	// health is the healthcheck state of a running container with a healthcheck (setHealth).
+	health *dcontainer.Health
 }
 
 type fakeImage struct {
@@ -99,14 +112,15 @@ func newFakeDocker() *fakeDocker {
 			"host":   {Network: network.Network{Name: "host", Driver: "host"}},
 			"none":   {Network: network.Network{Name: "none", Driver: "null"}},
 		},
-		engineID:   "4c6f2b1e-9a8d-4e7f-b6c5-3d2e1f0a9b8c",
-		os:         "linux",
-		arch:       "arm64",
-		apiVersion: "1.56",
-		ncpu:       8,
-		memTotal:   16 << 30,
-		logs:       map[string]string{},
-		pullAuth:   map[string]string{},
+		engineID:      "4c6f2b1e-9a8d-4e7f-b6c5-3d2e1f0a9b8c",
+		os:            "linux",
+		arch:          "arm64",
+		apiVersion:    "1.56",
+		ncpu:          8,
+		memTotal:      16 << 30,
+		logs:          map[string]string{},
+		pullAuth:      map[string]string{},
+		onStartPrefix: map[string]func(f *fakeDocker, c *fakeContainer){},
 	}
 }
 
@@ -117,12 +131,54 @@ func (f *fakeDocker) record(call string) {
 	f.calls = append(f.calls, call)
 }
 
+// recordOn records a call on a container; besides the call itself (callCount) it records
+// "<op> <container name>" (namedCount), because most calls name containers by id.
+func (f *fakeDocker) recordOn(call, op string, c *fakeContainer) {
+	f.calls = append(f.calls, call)
+	if c != nil {
+		f.named = append(f.named, op+" "+c.name)
+	}
+}
+
 func (f *fakeDocker) callCount(prefix string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	n := 0
 	for _, c := range f.calls {
 		if strings.HasPrefix(c, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// namedCount counts the calls of op (create, start, stop, remove, restart) on containers whose name
+// starts with namePrefix, for example the workers' "scantor-w-".
+func (f *fakeDocker) namedCount(op, namePrefix string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.named {
+		if strings.HasPrefix(c, op+" "+namePrefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// daemonHelperPrefixes are the name prefixes of the containers the daemon runs for itself: the node
+// resolver, its probe and the egress helper.
+var daemonHelperPrefixes = []string{"scantor-dns-", "scantor-dnsprobe-", "scantor-netpol-"}
+
+// workloadCount counts the calls of op on every container except the daemon's own helpers: workers and
+// any foreign container a test placed.
+func (f *fakeDocker) workloadCount(op string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, c := range f.named {
+		name, ok := strings.CutPrefix(c, op+" ")
+		if ok && !slices.ContainsFunc(daemonHelperPrefixes, func(p string) bool { return strings.HasPrefix(name, p) }) {
 			n++
 		}
 	}
@@ -197,6 +253,28 @@ func (f *fakeDocker) container(name string) *fakeContainer {
 	return f.findContainer(name)
 }
 
+// snapshot returns a copy of a container's fields taken under the lock, for tests that read state the
+// daemon changes concurrently (nil when the container does not exist).
+func (f *fakeDocker) snapshot(ref string) *fakeContainer {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	c := f.findContainer(ref)
+	if c == nil {
+		return nil
+	}
+	cp := *c
+	cp.stopArgs = slices.Clone(c.stopArgs)
+	cp.waiters = nil
+	return &cp
+}
+
+// stopArgsOf returns the stop timeouts a container got, also after it was removed.
+func (f *fakeDocker) stopArgsOf(c *fakeContainer) []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(c.stopArgs)
+}
+
 func (f *fakeDocker) emit(c *fakeContainer, action events.Action) {
 	msg := events.Message{Type: events.ContainerEventType, Action: action, Actor: events.Actor{ID: c.id, Attributes: c.config.Labels}}
 	for _, ch := range f.subs {
@@ -260,6 +338,9 @@ func (f *fakeDocker) Info(context.Context, client.InfoOptions) (client.SystemInf
 	if f.rootless {
 		info.SecurityOptions = append(info.SecurityOptions, "name=rootless")
 	}
+	if f.userns {
+		info.SecurityOptions = append(info.SecurityOptions, "name=userns")
+	}
 	return client.SystemInfoResult{Info: info}, nil
 }
 
@@ -267,7 +348,52 @@ func (f *fakeDocker) inspectLocked(c *fakeContainer) dcontainer.InspectResponse 
 	cfg := c.config
 	host := c.host
 	state := c.state
+	if c.health != nil {
+		h := *c.health
+		h.Log = slices.Clone(c.health.Log)
+		state.Health = &h
+	}
 	return dcontainer.InspectResponse{ID: c.id, Name: "/" + c.name, Image: c.imageID, Config: &cfg, HostConfig: &host, State: &state}
+}
+
+// hasHealthcheck reports whether a container runs a healthcheck (its config sets one other than NONE).
+func hasHealthcheck(c *fakeContainer) bool {
+	hc := c.config.Healthcheck
+	return hc != nil && len(hc.Test) > 0 && hc.Test[0] != "NONE"
+}
+
+// setHealth records one healthcheck result of a running container like Docker: the log keeps the last
+// five results with the output cut to 4096 bytes, and a change of status emits "health_status: <status>".
+func (f *fakeDocker) setHealth(name string, status dcontainer.HealthStatus, exitCode int, output string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setHealthLocked(f.findContainer(name), status, exitCode, output)
+}
+
+func (f *fakeDocker) setHealthLocked(c *fakeContainer, status dcontainer.HealthStatus, exitCode int, output string) {
+	if c == nil || c.state.Status != dcontainer.StateRunning {
+		return
+	}
+	if c.health == nil {
+		c.health = &dcontainer.Health{Status: dcontainer.Starting}
+	}
+	if len(output) > 4096 {
+		output = output[:4096] + "..."
+	}
+	now := time.Now()
+	c.health.Log = append(c.health.Log, &dcontainer.HealthcheckResult{Start: now, End: now, ExitCode: exitCode, Output: output})
+	if len(c.health.Log) > 5 {
+		c.health.Log = c.health.Log[len(c.health.Log)-5:]
+	}
+	if exitCode == 0 {
+		c.health.FailingStreak = 0
+	} else {
+		c.health.FailingStreak++
+	}
+	if c.health.Status != status {
+		c.health.Status = status
+		f.emit(c, events.Action(string(events.ActionHealthStatus)+": "+string(status)))
+	}
 }
 
 func (f *fakeDocker) ContainerInspect(_ context.Context, ref string, _ client.ContainerInspectOptions) (client.ContainerInspectResult, error) {
@@ -318,8 +444,14 @@ func matchesFilters(c *fakeContainer, filters client.Filters) bool {
 
 func (f *fakeDocker) ContainerCreate(_ context.Context, opts client.ContainerCreateOptions) (client.ContainerCreateResult, error) {
 	f.mu.Lock()
+	before := f.beforeCreate
+	f.mu.Unlock()
+	if before != nil {
+		before(opts)
+	}
+	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.record("create " + opts.Name)
+	f.recordOn("create "+opts.Name, "create", &fakeContainer{name: opts.Name})
 	if f.createErr != nil {
 		if err := f.createErr(opts); err != nil {
 			return client.ContainerCreateResult{}, err
@@ -352,8 +484,8 @@ func (f *fakeDocker) ContainerCreate(_ context.Context, opts client.ContainerCre
 
 func (f *fakeDocker) ContainerStart(_ context.Context, ref string, _ client.ContainerStartOptions) (client.ContainerStartResult, error) {
 	f.mu.Lock()
-	f.record("start " + ref)
 	c := f.findContainer(ref)
+	f.recordOn("start "+ref, "start", c)
 	if c == nil {
 		f.mu.Unlock()
 		return client.ContainerStartResult{}, fmt.Errorf("no such container: %w", errFakeNotFound)
@@ -366,26 +498,71 @@ func (f *fakeDocker) ContainerStart(_ context.Context, ref string, _ client.Cont
 		f.mu.Unlock()
 		return client.ContainerStartResult{}, errors.New("exec: /scantor/scantor: no such file or directory")
 	}
+	f.startLocked(c)
+	f.mu.Unlock()
+	f.runOnStart(c)
+	return client.ContainerStartResult{}, nil
+}
+
+func (f *fakeDocker) startLocked(c *fakeContainer) {
 	c.starts++
 	c.state.Status = dcontainer.StateRunning
 	c.state.Running = true
 	c.state.ExitCode = 0
 	c.state.OOMKilled = false
 	c.state.StartedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	f.emit(c, events.ActionStart)
-	onStart := f.onStart
-	f.mu.Unlock()
-	if onStart != nil {
-		onStart(f, c)
+	c.health = nil
+	if hasHealthcheck(c) {
+		c.health = &dcontainer.Health{Status: dcontainer.Starting}
 	}
-	return client.ContainerStartResult{}, nil
+	f.emit(c, events.ActionStart)
+}
+
+// runOnStart runs the start hooks of c (without f.mu held).
+func (f *fakeDocker) runOnStart(c *fakeContainer) {
+	f.mu.Lock()
+	var hooks []func(*fakeDocker, *fakeContainer)
+	for prefix, hook := range f.onStartPrefix {
+		if strings.HasPrefix(c.name, prefix) {
+			hooks = append(hooks, hook)
+		}
+	}
+	if f.onStart != nil {
+		hooks = append(hooks, f.onStart)
+	}
+	f.mu.Unlock()
+	for _, hook := range hooks {
+		hook(f, c)
+	}
+}
+
+// ContainerRestart stops a running container (exit 0) and starts it again.
+func (f *fakeDocker) ContainerRestart(_ context.Context, ref string, opts client.ContainerRestartOptions) (client.ContainerRestartResult, error) {
+	f.mu.Lock()
+	c := f.findContainer(ref)
+	f.recordOn("restart "+ref, "restart", c)
+	if c == nil {
+		f.mu.Unlock()
+		return client.ContainerRestartResult{}, fmt.Errorf("no such container: %w", errFakeNotFound)
+	}
+	if opts.Timeout != nil {
+		c.stopArgs = append(c.stopArgs, *opts.Timeout)
+	}
+	if c.state.Status == dcontainer.StateRunning {
+		f.exitLocked(c, 0, false)
+	}
+	c.restarts++
+	f.startLocked(c)
+	f.mu.Unlock()
+	f.runOnStart(c)
+	return client.ContainerRestartResult{}, nil
 }
 
 func (f *fakeDocker) ContainerStop(_ context.Context, ref string, opts client.ContainerStopOptions) (client.ContainerStopResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.record("stop " + ref)
 	c := f.findContainer(ref)
+	f.recordOn("stop "+ref, "stop", c)
 	if c == nil {
 		return client.ContainerStopResult{}, fmt.Errorf("no such container: %w", errFakeNotFound)
 	}
@@ -401,8 +578,8 @@ func (f *fakeDocker) ContainerStop(_ context.Context, ref string, opts client.Co
 func (f *fakeDocker) ContainerRemove(_ context.Context, ref string, opts client.ContainerRemoveOptions) (client.ContainerRemoveResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.record(fmt.Sprintf("remove %s force=%v v=%v", ref, opts.Force, opts.RemoveVolumes))
 	c := f.findContainer(ref)
+	f.recordOn(fmt.Sprintf("remove %s force=%v v=%v", ref, opts.Force, opts.RemoveVolumes), "remove", c)
 	if c == nil {
 		return client.ContainerRemoveResult{}, fmt.Errorf("no such container: %w", errFakeNotFound)
 	}
@@ -621,15 +798,33 @@ func (f *fakeDocker) NetworkCreate(_ context.Context, name string, opts client.N
 	}
 	f.networks[name] = network.Inspect{Network: network.Network{
 		Name: name, Driver: opts.Driver, EnableIPv6: opts.EnableIPv6 != nil && *opts.EnableIPv6,
-		Options: maps.Clone(opts.Options), Labels: maps.Clone(opts.Labels),
+		Options: maps.Clone(opts.Options), Labels: maps.Clone(opts.Labels), IPAM: f.allocateIPAMLocked(),
 	}}
 	return client.NetworkCreateResult{ID: name}, nil
 }
 
-// addNetwork adds a network that the daemon did not create (compose, an operator or another tool).
+// allocateIPAMLocked returns the next subnet 10.200.<n>.0/24 with gateway 10.200.<n>.1, as Docker fills
+// IPAM for a bridge network created without an IPAM configuration.
+func (f *fakeDocker) allocateIPAMLocked() network.IPAM {
+	f.networkSeq++
+	return network.IPAM{Driver: "default", Config: []network.IPAMConfig{{
+		Subnet:  netip.MustParsePrefix(fmt.Sprintf("10.200.%d.0/24", f.networkSeq)),
+		Gateway: netip.MustParseAddr(fmt.Sprintf("10.200.%d.1", f.networkSeq)),
+	}}}
+}
+
+// addNetwork adds a network that the daemon did not create (compose, an operator or another tool). A
+// bridge network without IPAM configuration gets a subnet and gateway like on Docker.
 func (f *fakeDocker) addNetwork(n network.Network) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if n.Driver == "bridge" && len(n.IPAM.Config) == 0 {
+		if old, ok := f.networks[n.Name]; ok && len(old.IPAM.Config) > 0 {
+			n.IPAM = old.IPAM // replacing a network's options keeps its addresses
+		} else {
+			n.IPAM = f.allocateIPAMLocked()
+		}
+	}
 	f.networks[n.Name] = network.Inspect{Network: n}
 }
 

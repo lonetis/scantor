@@ -3,6 +3,7 @@ package container
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"slices"
 	"strconv"
 
@@ -45,6 +46,23 @@ const (
 	MemoryOverheadBytes = 256 << 20
 )
 
+// The log rotation of one-shot helper containers (the node daemon's egress helper and resolver probe):
+// their output is one short result, kept in one uncompressed file (the local driver refuses compression,
+// its default, with a single file).
+const (
+	OneShotLogMaxSize  = "1m"
+	OneShotLogMaxFiles = "1"
+)
+
+// OneShotLogConfig is the log configuration of one-shot helper containers whose result the caller reads
+// with ContainerLogs: the local driver whatever the engine's default, because drivers such as none,
+// syslog or a remote driver without its read cache cannot return the logs.
+func OneShotLogConfig() container.LogConfig {
+	return container.LogConfig{Type: "local", Config: map[string]string{
+		"max-size": OneShotLogMaxSize, "max-file": OneShotLogMaxFiles, "compress": "false",
+	}}
+}
+
 // Network modes without a user-defined network.
 const (
 	NetworkNone = "none"
@@ -73,6 +91,9 @@ type Profile struct {
 	NetworkMode string
 	// DinD selects a Docker-in-Docker mode (workers of privileged revisions only).
 	DinD DinDMode
+	// DNS are the servers Docker's embedded DNS forwards external names to (HostConfig.Dns); empty keeps
+	// Docker's default. Workers get the node resolver's address here (docs/nodes.md §6.11).
+	DNS []netip.Addr
 }
 
 // HostConfig builds the Engine API HostConfig of the profile: CapDrop ALL plus the allowlisted CapAdd,
@@ -93,6 +114,7 @@ func (p Profile) HostConfig() (*container.HostConfig, error) {
 			"max-file": strconv.Itoa(p.LogMaxFiles),
 		}},
 		ShmSize: p.ShmSizeBytes,
+		DNS:     slices.Clone(p.DNS),
 		Init:    &initOn,
 		Resources: container.Resources{
 			Memory:     p.MemoryBytes,
@@ -133,6 +155,11 @@ func (p Profile) validate() error {
 		return errors.New("hardening profile: NetworkMode is required")
 	case p.DinD != DinDNone && p.DinD != DinDSysbox && p.DinD != DinDPrivileged:
 		return fmt.Errorf("hardening profile: unknown DinD mode %q", p.DinD)
+	}
+	for _, a := range p.DNS {
+		if !a.IsValid() || a.Zone() != "" {
+			return fmt.Errorf("hardening profile: invalid DNS server %q", a)
+		}
 	}
 	if p.DinD == DinDNone {
 		for _, c := range p.CapAdd {

@@ -42,6 +42,19 @@ type hostInfo struct {
 	runtimes      []string
 	// rootless is true for a rootless Docker daemon (security option name=rootless).
 	rootless bool
+	// userns is true when the Docker daemon remaps user namespaces (security option name=userns).
+	userns bool
+}
+
+// hasSecurityOption reports whether the security options of /info name the option (entries look like
+// "name=seccomp,profile=builtin").
+func hasSecurityOption(options []string, name string) bool {
+	for _, o := range options {
+		if first, _, _ := strings.Cut(o, ","); first == "name="+name {
+			return true
+		}
+	}
+	return false
 }
 
 // probeHost reads /info and /version of the Docker daemon. An engine older than minAPIVersion is an
@@ -76,7 +89,8 @@ func probeHost(ctx context.Context, docker client.APIClient) (hostInfo, error) {
 		h.runtimes = append(h.runtimes, name)
 	}
 	slices.Sort(h.runtimes)
-	h.rootless = slices.Contains(info.SecurityOptions, "name=rootless")
+	h.rootless = hasSecurityOption(info.SecurityOptions, "rootless")
+	h.userns = hasSecurityOption(info.SecurityOptions, "userns")
 	return h, nil
 }
 

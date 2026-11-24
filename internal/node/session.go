@@ -42,8 +42,9 @@ type session struct {
 	log    *slog.Logger
 	node   api.NodeIdentity
 	config api.NodeConfig
-	ws     workerSettings
-	limits nodeLimits
+	// network is the worker network (scantor-sandbox on the built-in node, scantor-workers elsewhere).
+	network string
+	limits  nodeLimits
 
 	stopCtx    context.Context
 	stopCancel context.CancelFunc
@@ -70,10 +71,20 @@ type session struct {
 	// nextStatus is the interval the last status response asked for (nextStatusMs; 0 = the hello
 	// config's statusIntervalMs).
 	nextStatus atomic.Int64
+	// net holds the worker network's addresses (nil while it is unusable or has no IPv4 gateway).
+	net atomic.Pointer[netFacts]
+	// purged is set when unauthorized mode removed the workers: the node resolver goes too, once no
+	// worker container of this node is left.
+	purged atomic.Bool
+	// workerCount is the number of worker containers of this node the last reconcile pass found.
+	workerCount atomic.Int32
+	// dnsWarned is the resolver state of the last warning that new workers use Docker's DNS.
+	dnsWarned atomic.Pointer[string]
 
 	reconcileCh chan struct{}
 	statusCh    chan struct{}
 	pollNowCh   chan struct{}
+	resolverCh  chan struct{}
 	events      chan sessionEvent
 
 	logsMu   sync.Mutex
@@ -93,6 +104,7 @@ func newSession(ctx context.Context, d *Daemon, hello *api.NodeHelloResponse) *s
 		log:         d.log.With("nodeId", hello.Node.ID),
 		node:        hello.Node,
 		config:      hello.Config,
+		network:     d.workerNetworkName(),
 		actors:      map[string]*actor{},
 		desired:     map[string]api.Assignment{},
 		order:       map[string]int64{},
@@ -101,21 +113,10 @@ func newSession(ctx context.Context, d *Daemon, hello *api.NodeHelloResponse) *s
 		reconcileCh: make(chan struct{}, 1),
 		statusCh:    make(chan struct{}, 1),
 		pollNowCh:   make(chan struct{}, 1),
+		resolverCh:  make(chan struct{}, 1),
 		events:      make(chan sessionEvent, 4),
 		answered:    map[string]time.Time{},
 		inflight:    map[string]bool{},
-	}
-	s.ws = workerSettings{
-		nodeID:        hello.Node.ID,
-		network:       d.workerNetworkName(),
-		drainGraceMs:  hello.Config.DrainGraceMs,
-		pidsLimit:     d.cfg.PidsLimit,
-		shmSize:       d.cfg.ShmSize,
-		nofile:        d.cfg.Nofile,
-		logMaxSize:    d.cfg.LogMaxSize,
-		logMaxFiles:   d.cfg.LogMaxFiles,
-		caCert:        d.cfg.CACert,
-		allowInsecure: d.cfg.AllowInsecure,
 	}
 	s.limits = nodeLimits{
 		registryHost: hello.Config.Registry.Host,
@@ -182,8 +183,12 @@ func (d *Daemon) runSession(ctx context.Context, hello *api.NodeHelloResponse) s
 }
 
 // start adopts the containers of this node and starts the session's loops (docs/nodes.md §5.1 step 8).
+// The node resolver's manager is the first loop; nothing here waits for it: only actors that create a
+// worker wait for the resolver, at most resolverSettle.
 func (s *session) start(apiCtx context.Context) {
 	s.checkNetwork()
+	s.d.rm.settle(s.d.now().Add(s.d.t.resolverSettle))
+	s.goLoop(s.resolverLoop)
 	s.reconcile()
 	s.goLoop(func() { s.assignmentsLoop(apiCtx) })
 	s.goLoop(func() { s.statusLoop(apiCtx) })
@@ -279,6 +284,8 @@ func (s *session) unauthorizedMode(ctx context.Context) *api.NodeHelloResponse {
 		case <-purge.C:
 			s.log.Warn("still unauthorized after the offline window; removing all workers of this node")
 			s.applyDesired(nil, s.appliedRevision())
+			s.purged.Store(true)
+			s.kickResolver()
 		case <-retry.C:
 			resp, delay, kind := s.d.helloOnce(ctx, &b)
 			switch {
@@ -368,7 +375,9 @@ func (s *session) eventsLoop() {
 		}
 		delay := b.next()
 		s.log.Debug("Docker event stream ended; reconnecting", "err", err, "retryIn", delay)
+		// A restart of the Docker daemon, which also stops the resolver, ends the stream.
 		s.requestReconcile()
+		s.kickResolver()
 		if !sleep(s.stopCtx, delay) {
 			return
 		}
@@ -387,6 +396,10 @@ func (s *session) consumeEvents(res client.EventsResult) error {
 				return nil
 			}
 			attrs := msg.Actor.Attributes
+			if resolverEvent(attrs, msg.Action, s.node.ID) {
+				s.kickResolver()
+				continue
+			}
 			if attrs[container.LabelKind] != string(container.KindWorker) || attrs[container.LabelNode] != s.node.ID || probeEvent(msg.Action) {
 				continue
 			}
@@ -397,6 +410,13 @@ func (s *session) consumeEvents(res client.EventsResult) error {
 			}
 		}
 	}
+}
+
+// resolverEvent reports whether a container event concerns a node resolver of this node. Every one of
+// them wakes the manager, health status changes included, except the exec events of its healthcheck.
+func resolverEvent(attrs map[string]string, action events.Action, nodeID string) bool {
+	return attrs[container.LabelKind] == string(container.KindResolver) && attrs[container.LabelNode] == nodeID &&
+		!strings.HasPrefix(string(action), "exec_")
 }
 
 // probeEvent reports whether a container event comes from the healthcheck (docs/runtime.md §5.3): the
@@ -423,16 +443,18 @@ func (s *session) networkLoop() {
 	}
 }
 
-// checkNetwork updates networkProblem and reports whether the network just became usable.
+// checkNetwork updates networkProblem and the network's addresses, and reports whether the network just
+// became usable.
 func (s *session) checkNetwork() bool {
-	err := s.ensureNetwork()
+	facts, err := s.ensureNetwork()
+	s.setNetFacts(facts)
 	if err == nil {
 		return s.networkProblem.Swap(nil) != nil
 	}
 	problem := err.Error()
 	s.networkProblem.Store(&problem)
 	if s.stopCtx.Err() == nil {
-		s.log.Error("the worker network is not usable; workers cannot be created", "network", s.ws.network, "err", err)
+		s.log.Error("the worker network is not usable; workers cannot be created", "network", s.network, "err", err)
 	}
 	return false
 }
@@ -450,41 +472,48 @@ func (s *session) networkUsable() (bool, string) {
 // (container.CheckWorkerNetwork): a scantor-workers network made by hand or by another tool, or
 // edited, could let workers of different scans and users reach each other (docs/nodes.md §6.8). With
 // SCANTOR_ALLOW_UNISOLATED_NETWORKS the network may allow inter-container traffic; the daemon reports
-// that as networkIsolated: false. The daemon never deletes networks.
-func (s *session) ensureNetwork() error {
+// that as networkIsolated: false. The daemon never deletes networks. It returns the network's addresses
+// for the node resolver (nil without an IPv4 gateway).
+func (s *session) ensureNetwork() (*netFacts, error) {
 	if s.d.cfg.BuiltIn {
 		return s.ensureBuiltInNetwork()
 	}
-	existing, err := s.d.docker.NetworkInspect(s.opCtx, s.ws.network, client.NetworkInspectOptions{})
+	existing, err := s.d.docker.NetworkInspect(s.opCtx, s.network, client.NetworkInspectOptions{})
 	var isolated bool
 	switch {
 	case err == nil:
 		isolated, err = container.CheckWorkerNetwork(existing.Network, s.d.cfg.AllowUnisolatedNetworks)
 	case !container.IsNotFound(err):
-		return fmt.Errorf("inspect network %s: %w", s.ws.network, err)
+		return nil, fmt.Errorf("inspect network %s: %w", s.network, err)
 	default:
-		isolated, err = container.EnsureNetwork(s.opCtx, s.d.docker, s.ws.network, s.d.cfg.AllowUnisolatedNetworks)
+		isolated, err = container.EnsureNetwork(s.opCtx, s.d.docker, s.network, s.d.cfg.AllowUnisolatedNetworks)
 		if err == nil {
-			s.log.Info("created the worker network", "network", s.ws.network, "isolated", isolated)
+			s.log.Info("created the worker network", "network", s.network, "isolated", isolated)
+			// EnsureNetwork reports only the isolation; Docker chose the subnet and the gateway.
+			existing, err = s.d.docker.NetworkInspect(s.opCtx, s.network, client.NetworkInspectOptions{})
+			if err != nil {
+				err = fmt.Errorf("inspect network %s: %w", s.network, err)
+			}
 		}
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	s.d.setNetworkIsolated(s.log, s.ws.network, isolated)
-	return nil
+	s.d.setNetworkIsolated(s.log, s.network, isolated)
+	return netFactsOf(s.network, existing.Network), nil
 }
 
 // ensureBuiltInNetwork checks that scantor-sandbox, which compose creates, exists. Workers on it reach
 // the orchestrator, RabbitMQ and RustFS by design, so the built-in node reports the isolation of
 // scantor-egress instead: the network of the master's test runs and git helpers, which the orchestrator
 // creates without inter-container isolation only with SCANTOR_ALLOW_UNISOLATED_NETWORKS.
-func (s *session) ensureBuiltInNetwork() error {
-	if _, err := s.d.docker.NetworkInspect(s.opCtx, s.ws.network, client.NetworkInspectOptions{}); err != nil {
+func (s *session) ensureBuiltInNetwork() (*netFacts, error) {
+	sandbox, err := s.d.docker.NetworkInspect(s.opCtx, s.network, client.NetworkInspectOptions{})
+	if err != nil {
 		if container.IsNotFound(err) {
-			return fmt.Errorf("network %s does not exist (it is created by the compose stack)", s.ws.network)
+			return nil, fmt.Errorf("network %s does not exist (it is created by the compose stack)", s.network)
 		}
-		return fmt.Errorf("inspect network %s: %w", s.ws.network, err)
+		return nil, fmt.Errorf("inspect network %s: %w", s.network, err)
 	}
 	egress, err := s.d.docker.NetworkInspect(s.opCtx, container.NetworkEgress, client.NetworkInspectOptions{})
 	switch {
@@ -493,5 +522,5 @@ func (s *session) ensureBuiltInNetwork() error {
 	case !container.IsNotFound(err):
 		s.log.Warn("cannot inspect the test-run network", "network", container.NetworkEgress, "err", err)
 	}
-	return nil
+	return netFactsOf(s.network, sandbox.Network), nil
 }

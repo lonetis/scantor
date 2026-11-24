@@ -20,7 +20,7 @@ import (
 )
 
 func TestHelloReportsHostAndAdoptionCandidates(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.MaxWorkers = 0 })
+	h := newHarness(t, func(c *Config) { c.Settings.MaxWorkers = 0 })
 	labels, _ := container.ManagedLabels(container.KindWorker, container.Identity{Worker: testWorker1, Scan: testScanID, User: testUserID, Node: h.orch.nodeID, SpecHash: "sha256:aa"})
 	h.docker.addContainer(workerName(testWorker1), labels, dcontainer.StateRunning)
 	h.start()
@@ -183,7 +183,7 @@ func TestPlatformMismatchIsNotRetried(t *testing.T) {
 		t.Fatalf("error = %+v", st.Error)
 	}
 	time.Sleep(300 * time.Millisecond)
-	if n := h.docker.callCount("create "); n != 0 {
+	if n := h.docker.workloadCount("create"); n != 0 {
 		t.Errorf("a platform mismatch must not create a container (creates = %d)", n)
 	}
 }
@@ -199,7 +199,7 @@ func TestInvalidAssignmentIsNeverCreated(t *testing.T) {
 		t.Errorf("error = %+v", st.Error)
 	}
 	time.Sleep(200 * time.Millisecond)
-	if h.docker.callCount("create ") != 0 {
+	if h.docker.workloadCount("create") != 0 {
 		t.Error("an invalid assignment was created")
 	}
 }
@@ -227,8 +227,8 @@ func TestCrashBackoffAndRestart(t *testing.T) {
 		return w != nil && w.State == api.NodeWorkerRunning && w.Restarts != nil && *w.Restarts == 1
 	})
 	c := h.docker.container(workerName(testWorker1))
-	if c.starts != 2 || h.docker.callCount("create ") != 1 {
-		t.Errorf("the container must be restarted in place (starts=%d creates=%d)", c.starts, h.docker.callCount("create "))
+	if c.starts != 2 || h.docker.workloadCount("create") != 1 {
+		t.Errorf("the container must be restarted in place (starts=%d creates=%d)", c.starts, h.docker.workloadCount("create"))
 	}
 	// The exit keeps being reported with the restart.
 	if w := h.orch.workerStatus(testWorker1); w.LastExit == nil || w.LastExit.ExitCode != 137 {
@@ -301,7 +301,7 @@ func TestLiveResize(t *testing.T) {
 	if c.host.Memory != a.Resources.MemoryBytes || c.host.MemorySwap != a.Resources.MemoryBytes || c.host.NanoCPUs != 3e9 {
 		t.Errorf("limits = %d/%d/%d", c.host.Memory, c.host.MemorySwap, c.host.NanoCPUs)
 	}
-	if h.docker.callCount("create ") != 1 {
+	if h.docker.workloadCount("create") != 1 {
 		t.Error("a resize must not recreate the container")
 	}
 	// A failing update keeps the old applied limits.
@@ -437,7 +437,7 @@ func TestConflictStopsWithoutTouchingContainers(t *testing.T) {
 	h.orch.fail("hello", fakeFailure{status: http.StatusConflict, code: api.CodeNodeInstanceConflict, details: map[string]any{"retryAfterMs": 50}, times: 2})
 	h.orch.fail("status", fakeFailure{status: http.StatusConflict, code: api.CodeNodeInstanceConflict, details: map[string]any{"retryAfterMs": 0}, times: 1})
 	eventually(t, 5*time.Second, "back to hello", func() bool { return h.orch.helloCount() > hellos })
-	if h.docker.callCount("stop ") != 0 || h.docker.callCount("remove ") != 0 {
+	if h.docker.workloadCount("stop") != 0 || h.docker.workloadCount("remove") != 0 {
 		t.Error("containers were touched after a 409 nodeInstanceConflict")
 	}
 	if !h.logContains("another daemon instance") {
@@ -460,7 +460,7 @@ func TestSupersededInstanceStandsByUntilTheLeaseExpires(t *testing.T) {
 	if n := h.orch.helloCount(); n != hellos {
 		t.Errorf("%d hellos while another instance held the lease", n-hellos)
 	}
-	if h.docker.callCount("stop ") != 0 || h.docker.callCount("remove ") != 0 {
+	if h.docker.workloadCount("stop") != 0 || h.docker.workloadCount("remove") != 0 {
 		t.Error("containers were touched while standing by")
 	}
 	if !h.logContains("standing by until its lease expires") {
@@ -609,7 +609,7 @@ func TestOldDockerEngineIsAConfigError(t *testing.T) {
 }
 
 func TestStatusReportsCapacityAndClockOffset(t *testing.T) {
-	h := newHarness(t, func(c *Config) { c.MaxWorkers = 3 })
+	h := newHarness(t, func(c *Config) { c.Settings.MaxWorkers = 3 })
 	h.start()
 	eventually(t, 5*time.Second, "status", func() bool { return h.orch.statusCount() > 1 })
 	st := h.orch.lastStatus()

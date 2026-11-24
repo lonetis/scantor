@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	dcontainer "github.com/moby/moby/api/types/container"
+
 	"github.com/lonetis/scantor/internal/api"
 	"github.com/lonetis/scantor/internal/container"
 	"github.com/lonetis/scantor/internal/redact"
@@ -78,7 +80,33 @@ func testTimings() timings {
 	t.gcEvery = time.Hour
 	t.egressEvery = time.Hour
 	t.helperTimeout = 5 * time.Second
+	t.resolverEvery = 100 * time.Millisecond
+	t.resolverPoll = 10 * time.Millisecond
+	t.resolverHealthWait = 500 * time.Millisecond
+	t.resolverSettle = 2 * time.Second
+	t.resolverBackoffBase = 100 * time.Millisecond
+	t.resolverBackoffMax = 400 * time.Millisecond
+	t.resolverRestartBase = 50 * time.Millisecond
+	t.resolverRestartMax = 200 * time.Millisecond
+	t.probeEvery = time.Hour
+	t.probeRetry = 50 * time.Millisecond
+	t.probeUnreachableEvery = 200 * time.Millisecond
+	t.probeValid = time.Hour
+	t.probeTimeout = 5 * time.Second
 	return t
+}
+
+// testDaemonSettings are the settings of the test daemons: the .env.example defaults with small pull
+// timeouts, debug logs and the node resolver disabled (tests that need it enable it).
+func testDaemonSettings() Settings {
+	return Settings{
+		PidsLimit: 4096, ShmSize: 256 << 20, Nofile: 65536, LogMaxSize: 20 << 20, LogMaxFiles: 3,
+		ImageRetention: 24 * time.Hour, PullTimeout: 5 * time.Second, LogLevel: slog.LevelDebug,
+		DNS: DNSSettings{
+			Mode: api.ResolverModeDisabled, Upstreams: []string{"1.1.1.1", "8.8.8.8"}, RootServers: []string{}, LocalDomains: []string{},
+			CacheSize: 256 << 20, MaxLookups: 1000, AuthoritativeQPS: 200,
+		},
+	}
 }
 
 // syncBuffer is a goroutine-safe log sink.
@@ -105,27 +133,27 @@ type harness struct {
 	orch   *fakeOrchestrator
 	d      *Daemon
 	logs   *syncBuffer
+	level  *slog.LevelVar
 	cancel context.CancelFunc
 	done   chan error
 }
 
 // newHarness wires a daemon to a fake engine and a fake orchestrator. The task image is present
-// locally unless the test removes it.
+// locally unless the test removes it. The node resolver is disabled unless mutate enables it.
 func newHarness(t *testing.T, mutate func(*Config)) *harness {
 	t.Helper()
 	docker := newFakeDocker()
 	orch := newFakeOrchestrator(t, testToken)
 	cfg := Config{
-		URL: orch.srv.URL, Token: testToken, DinD: DinDDisabled,
-		PidsLimit: 4096, ShmSize: 256 << 20, Nofile: 65536, LogMaxSize: 20 << 20, LogMaxFiles: 3,
-		ImageRetention: 24 * time.Hour, PullTimeout: 5 * time.Second,
-		LogLevel: slog.LevelDebug, LogFormat: redact.FormatText,
+		URL: orch.srv.URL, Token: testToken, DinD: DinDDisabled, LogFormat: redact.FormatText,
+		Overrides: OverrideAllowList{All: true}, Settings: testDaemonSettings(),
 	}
 	if mutate != nil {
 		mutate(&cfg)
 	}
 	logs := &syncBuffer{}
-	d, err := New(Options{Config: cfg, Docker: docker, Logger: redact.NewLogger(logs, redact.FormatText, slog.LevelDebug)})
+	level := new(slog.LevelVar)
+	d, err := New(Options{Config: cfg, Docker: docker, Logger: redact.NewLogger(logs, redact.FormatText, level), LogLevel: level})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +165,7 @@ func newHarness(t *testing.T, mutate func(*Config)) *harness {
 		return container.NewBinary([]byte("#!/bin/sh\nexec sleep 1000\n")), nil
 	}
 	docker.addImage(testImage())
-	h := &harness{t: t, docker: docker, orch: orch, d: d, logs: logs}
+	h := &harness{t: t, docker: docker, orch: orch, d: d, logs: logs, level: level}
 	t.Cleanup(func() {
 		if err := h.stop(); err != nil {
 			t.Errorf("Run returned %v", err)
@@ -147,6 +175,21 @@ func newHarness(t *testing.T, mutate func(*Config)) *harness {
 		}
 	})
 	return h
+}
+
+// withSelf makes the daemon find its own container (scantor-node, image scantor:dev) by self-inspection,
+// as in the scantor image, and returns that image's id: the image of the egress helper and the node
+// resolver.
+func (h *harness) withSelf() string {
+	h.t.Helper()
+	self := h.docker.addContainer("scantor-node", nil, dcontainer.StateRunning)
+	img := h.docker.addImage("scantor:dev")
+	h.docker.mu.Lock()
+	self.imageID = img.id
+	self.config.Hostname = shortID(self.id)
+	h.docker.mu.Unlock()
+	h.d.mountinfo = writeMountinfo(h.t, self.id)
+	return img.id
 }
 
 func (h *harness) start() {

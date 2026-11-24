@@ -99,7 +99,7 @@ func TestForeignNameConflictIsNeverRemoved(t *testing.T) {
 	}
 	h.orch.setDesired()
 	time.Sleep(300 * time.Millisecond)
-	if h.docker.container(foreign.id) == nil || h.docker.callCount("stop ") != 0 || h.docker.callCount("remove ") != 0 {
+	if h.docker.container(foreign.id) == nil || h.docker.workloadCount("stop") != 0 || h.docker.workloadCount("remove") != 0 {
 		t.Error("a foreign container was touched")
 	}
 }
@@ -172,7 +172,7 @@ func TestAdoptionKeepsRunningContainerAndReissuesLimits(t *testing.T) {
 	if c.updates != 1 {
 		t.Errorf("updates after adoption = %d, want exactly 1", c.updates)
 	}
-	if h.docker.callCount("create ") != 0 || h.docker.callCount("stop ") != 0 || c.starts != 0 {
+	if h.docker.workloadCount("create") != 0 || h.docker.workloadCount("stop") != 0 || c.starts != 0 {
 		t.Error("an adopted running container must keep running untouched")
 	}
 	if st.ContainerID != shortID(c.id) {
@@ -191,7 +191,7 @@ func TestAdoptedContainersAreOnlyTrackedBeforeTheFirstAssignments(t *testing.T) 
 		t.Errorf("tracked entry = %+v", st)
 	}
 	time.Sleep(300 * time.Millisecond)
-	if h.docker.container(c.id) == nil || h.docker.callCount("stop ") != 0 {
+	if h.docker.container(c.id) == nil || h.docker.workloadCount("stop") != 0 {
 		t.Fatal("a container was removed before the first assignments response")
 	}
 	// The first desired set does not list it: now it is removed.
@@ -213,7 +213,7 @@ func TestForeignContainersAreIgnored(t *testing.T) {
 	h.orch.setDesired()
 	eventually(t, 5*time.Second, "a status after the first desired set", func() bool { return h.orch.statusCount() > 2 })
 	time.Sleep(200 * time.Millisecond)
-	if h.docker.container(evil.id) == nil || h.docker.container(other.id) == nil || h.docker.callCount("stop ") != 0 || h.docker.callCount("remove ") != 0 {
+	if h.docker.container(evil.id) == nil || h.docker.container(other.id) == nil || h.docker.workloadCount("stop") != 0 || h.docker.workloadCount("remove") != 0 {
 		t.Error("a container that is not a worker of this node was touched")
 	}
 	if st := h.orch.lastStatus(); len(st.Workers) != 0 {
